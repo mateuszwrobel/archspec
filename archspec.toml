@@ -1,0 +1,5 @@
+[output]
+inspect = "docs/archspec/inspect.mmd"
+diagram = "docs/archspec/diagram.mmd"
+report = "docs/archspec/report.md"
+scan = "docs/archspec/scan.json"

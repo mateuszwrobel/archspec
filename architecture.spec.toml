@@ -1,0 +1,78 @@
+[project]
+language = "rust"
+
+# CLI layer: the binary entrypoint, the module tree that wires commands, and one
+# prefix claim over the per-command submodules.
+[[module]]
+name = "commands"
+matches = { modules = [
+  "archspec::main",
+  "archspec::archspec",
+  "archspec::archspec::commands*",
+] }
+
+[module.allowed]
+depend_on = ["engines", "foundations"]
+
+# Analysis engines: each engine lives in its own module subtree, claimed by
+# prefix so nested submodules fold into the same boundary. The binary unit
+# itself is attributed here because every cross-crate `use` of the library
+# (the `archspec -> rust-arch-test-kit` unit edge) comes from engine modules
+# (diagram/inspect/scan/verify) rendering through the library's shared
+# primitives; commands never import the library directly.
+[[module]]
+name = "engines"
+matches = { units = ["archspec"], modules = [
+  "archspec::archspec::scan*",
+  "archspec::archspec::verify*",
+  "archspec::archspec::diagram*",
+  "archspec::archspec::report*",
+  "archspec::archspec::update*",
+  "archspec::archspec::inspect*",
+  "archspec::archspec::init*",
+] }
+
+[module.allowed]
+depend_on = ["foundations", "rust-arch-test-kit"]
+
+# Shared foundations: the extracted model, the spec schema, CLI parsing, config
+# and language detection. Depends on nothing.
+[[module]]
+name = "foundations"
+matches = { modules = [
+  "archspec::archspec::model*",
+  "archspec::archspec::spec*",
+  "archspec::archspec::cli*",
+  "archspec::archspec::config*",
+  "archspec::archspec::language*",
+  "archspec::archspec::capability*",
+] }
+
+# Library crate boundary (the engine the binary links). The crate-root module
+# of the lib unit resolves here as the facade; its internal modules are claimed
+# by the prefix groups below (longest-prefix wins over this unit fallback). The
+# facade wires the engine modules with `mod` declarations only — it imports
+# nothing from them, so it declares no allowed dependencies.
+[[module]]
+name = "rust-arch-test-kit"
+matches = { units = ["rust-arch-test-kit"] }
+
+# Library internals: prefix groups over one unit so `no_cycles` sees inside the
+# lib. The lib is only the shared parsing/rendering engine the CLI links —
+# collector and render are independent primitives, and the `engines` modules are
+# the ones that actually import them.
+[[module]]
+name = "lib-collector"
+matches = { modules = ["rust-arch-test-kit::collector*"] }
+
+[[module]]
+name = "lib-render"
+matches = { modules = ["rust-arch-test-kit::render*"] }
+
+[[constraint]]
+type = "no_cycles"
+modules = ["commands", "engines", "foundations", "rust-arch-test-kit"]
+
+[[constraint]]
+type = "no_cycles"
+modules = ["engines", "rust-arch-test-kit", "lib-collector", "lib-render"]
