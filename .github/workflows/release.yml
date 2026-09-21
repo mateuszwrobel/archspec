@@ -219,18 +219,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Create release and upload assets
+      - name: Publish release with assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          notes="$(git tag -l --format='%(contents:body)' "$tag")"
-          if [ -z "$notes" ]; then
-            notes="archspec ${tag#v}"
-          fi
-          printf '%s\n' "$notes" > /tmp/release-notes.md
-          gh release create "$tag" --title "archspec ${tag#v}" --notes-file /tmp/release-notes.md
-          gh release upload "$tag" dist/* --clobber
-          echo "released ${tag}:"
-          gh release view "$tag" --json assets -q '.assets[].name'
+        run: sh release-assets.sh "${GITHUB_REF_NAME}" dist

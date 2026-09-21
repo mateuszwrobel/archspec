@@ -1,6 +1,6 @@
 [package]
 name = "rust-arch-test-kit"
-version = "0.4.156"
+version = "0.4.159"
 edition = "2021"
 rust-version = "1.94"
 description = "archspec CLI: architecture scan, verify and diagrams for Rust projects, with the shared Rust-parsing/rendering engine it links"
