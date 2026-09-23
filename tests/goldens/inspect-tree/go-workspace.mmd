@@ -1,0 +1,12 @@
+graph TD
+  subgraph example_com_api_90abec07["example.com/api [composition]"]
+    example_com__api_f2e7c82c["example.com::api"]
+    example_com__api__internal__handler_ae589738["example.com::api::internal::handler"]
+  end
+  subgraph example_com_api_internal_handler_19bf7650["example.com/api/internal/handler"]
+  end
+  subgraph example_com_store_b369aa0a["example.com/store"]
+    example_com__store_c16319f0["example.com::store"]
+  end
+  example_com__api_f2e7c82c --> example_com__store_c16319f0
+  example_com__api__internal__handler_ae589738 --> example_com__store_c16319f0

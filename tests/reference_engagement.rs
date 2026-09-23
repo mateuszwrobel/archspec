@@ -46,7 +46,10 @@ fn r1_dead_depend_on_target_is_warned() {
         !out.contains("matches source model"),
         "a run with warnings must not claim a match:\n{out}"
     );
-    assert!(stderr(&output).is_empty(), "dead references are report content");
+    assert!(
+        stderr(&output).is_empty(),
+        "dead references are report content"
+    );
 }
 
 // R2: a reference to a nested module path that exists in the source but is not
@@ -67,12 +70,7 @@ fn r2_nested_reference_exists_in_source_but_undeclared() {
          [module.allowed]\ndepend_on = [\"app::storage\"]\n",
     );
     let output = fixture.run(&["verify"]);
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        stderr(&output)
-    );
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("dead reference:"), "report:\n{out}");
     assert!(out.contains("\"app::storage\""), "report:\n{out}");
@@ -101,21 +99,13 @@ fn r3_dead_forbidden_target_and_stereotype_are_warned() {
          [module.contract]\nforbid = [\"external\"]\n",
     );
     let output = fixture.run(&["verify"]);
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        stderr(&output)
-    );
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("dead reference:"), "report:\n{out}");
     assert!(out.contains("allowed.forbidden"), "report:\n{out}");
     assert!(out.contains("\"ghost\""), "report:\n{out}");
     assert!(out.contains("contract.forbid"), "report:\n{out}");
-    assert!(
-        out.contains("names no stereotype"),
-        "report:\n{out}"
-    );
+    assert!(out.contains("names no stereotype"), "report:\n{out}");
     assert!(!out.contains("matches source model"), "report:\n{out}");
 }
 
@@ -143,19 +133,11 @@ fn r3b_absent_reference_gets_did_you_mean_candidate() {
          [[module]]\nname = \"storage\"\nmatches = { modules = [\"app::storage\"] }\n",
     );
     let output = fixture.run(&["verify"]);
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        stderr(&output)
-    );
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("dead reference:"), "report:\n{out}");
     assert!(out.contains("\"storage\""), "report:\n{out}");
-    assert!(
-        out.contains("did you mean \"storage\""),
-        "report:\n{out}"
-    );
+    assert!(out.contains("did you mean \"storage\""), "report:\n{out}");
 }
 
 // R4: a spec whose references all name declared modules produces no dead
@@ -182,12 +164,7 @@ fn r4_declared_references_are_zero_noise() {
          [[module]]\nname = \"b\"\nmatches = { units = [\"b\"] }\n",
     );
     let output = fixture.run(&["verify"]);
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        stderr(&output)
-    );
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("matches source model"), "report:\n{out}");
     assert!(!out.contains("dead reference"), "report:\n{out}");
@@ -242,6 +219,10 @@ fn r6_dead_reference_report_is_deterministic() {
     );
     let first = fixture.run(&["verify"]);
     let second = fixture.run(&["verify"]);
-    assert_eq!(stdout(&first), stdout(&second), "output must be deterministic");
+    assert_eq!(
+        stdout(&first),
+        stdout(&second),
+        "output must be deterministic"
+    );
     assert_eq!(stderr(&first), stderr(&second));
 }

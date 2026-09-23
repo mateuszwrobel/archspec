@@ -52,7 +52,10 @@ fn v1_unmatched_from_pattern_is_reported_not_passed() {
         !out.contains("matches source model"),
         "vacuous-only run must not claim a match:\n{out}"
     );
-    assert!(stderr(&output).is_empty(), "vacuous findings are report content");
+    assert!(
+        stderr(&output).is_empty(),
+        "vacuous findings are report content"
+    );
 }
 
 // V2: --strict promotes a vacuous finding to an error; the line loses the
@@ -75,7 +78,10 @@ fn v2_strict_promotes_vacuous_to_error() {
         !out.contains("warning: vacuous constraint:"),
         "promoted lines drop the warning prefix:\n{out}"
     );
-    assert!(stderr(&output).is_empty(), "rule violations are report content");
+    assert!(
+        stderr(&output).is_empty(),
+        "rule violations are report content"
+    );
 }
 
 // V3: the vacuous report names the offending (here misspelled) `from` pattern.
@@ -88,7 +94,10 @@ fn v3_vacuous_report_names_unmatched_pattern() {
     assert_eq!(output.status.code(), Some(0));
     let out = stdout(&output);
     assert!(out.contains("vacuous constraint:"), "report:\n{out}");
-    assert!(out.contains("app::persistnce"), "report must name the pattern:\n{out}");
+    assert!(
+        out.contains("app::persistnce"),
+        "report must name the pattern:\n{out}"
+    );
 }
 
 // V4: a no_cycles constraint whose modules have no dependency edges is vacuous.
@@ -174,7 +183,10 @@ fn v6_public_api_allowlist_with_no_exports_is_vacuous() {
     );
     let out = stdout(&output);
     assert!(out.contains("vacuous constraint:"), "report:\n{out}");
-    assert!(out.contains("no crate-root public exports"), "report:\n{out}");
+    assert!(
+        out.contains("no crate-root public exports"),
+        "report:\n{out}"
+    );
 }
 
 // V7: forbid_submodule_dependency with no engaging intra-parent submodule edge
@@ -212,7 +224,10 @@ fn v7_forbid_submodule_with_no_matching_edge_is_vacuous() {
     );
     let out = stdout(&output);
     assert!(out.contains("vacuous constraint:"), "report:\n{out}");
-    assert!(out.contains("no intra-parent submodule edges"), "report:\n{out}");
+    assert!(
+        out.contains("no intra-parent submodule edges"),
+        "report:\n{out}"
+    );
 }
 
 // V8: an engaged forbid_external constraint whose from modules have external
@@ -223,15 +238,13 @@ fn v8_engaged_forbid_external_is_not_vacuous() {
         "[[constraint]]\ntype = \"forbid_external_crates\"\nfrom = [\"core\"]\nforbid = [\"clap\"]\n",
     );
     let output = fixture.run(&["verify"]);
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        stderr(&output)
-    );
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("matches source model"), "report:\n{out}");
-    assert!(!out.contains("vacuous constraint"), "no vacuous warning:\n{out}");
+    assert!(
+        !out.contains("vacuous constraint"),
+        "no vacuous warning:\n{out}"
+    );
 }
 
 // V9a: a run with a real error AND a vacuous constraint lists both; the vacuous
@@ -245,9 +258,18 @@ fn v9_mixed_error_and_vacuous_lists_both_without_strict() {
     let output = fixture.run(&["verify"]);
     assert_ne!(output.status.code(), Some(0), "error finding must fail");
     let out = stdout(&output);
-    assert!(out.contains("forbidden external crate: core -> serde"), "report:\n{out}");
-    assert!(out.contains("warning: vacuous constraint:"), "report:\n{out}");
-    assert!(out.contains("does not match source model"), "report:\n{out}");
+    assert!(
+        out.contains("forbidden external crate: core -> serde"),
+        "report:\n{out}"
+    );
+    assert!(
+        out.contains("warning: vacuous constraint:"),
+        "report:\n{out}"
+    );
+    assert!(
+        out.contains("does not match source model"),
+        "report:\n{out}"
+    );
 }
 
 // V9b: under --strict the same run promotes the vacuous line (no warning prefix).
@@ -260,9 +282,15 @@ fn v9b_strict_promotes_vacuous_alongside_error() {
     let output = fixture.run(&["verify", "--strict"]);
     assert_ne!(output.status.code(), Some(0));
     let out = stdout(&output);
-    assert!(out.contains("forbidden external crate: core -> serde"), "report:\n{out}");
+    assert!(
+        out.contains("forbidden external crate: core -> serde"),
+        "report:\n{out}"
+    );
     assert!(out.contains("vacuous constraint:"), "report:\n{out}");
-    assert!(!out.contains("warning: vacuous constraint:"), "report:\n{out}");
+    assert!(
+        !out.contains("warning: vacuous constraint:"),
+        "report:\n{out}"
+    );
 }
 
 // V10: a genuinely clean, engaging manifest_integrity run still confirms the
@@ -285,7 +313,10 @@ fn v10_engaging_manifest_integrity_confirms_match() {
     assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("matches source model"), "report:\n{out}");
-    assert!(!out.contains("vacuous constraint"), "no vacuous warning:\n{out}");
+    assert!(
+        !out.contains("vacuous constraint"),
+        "no vacuous warning:\n{out}"
+    );
 }
 
 // V11: a vacuous-only run's header names each vacuous guard, not "does not
@@ -311,7 +342,10 @@ fn v11_vacuous_only_header_names_the_guards() {
         out.contains("[constraint #2] forbid_external_crates"),
         "header must name constraint #2:\n{out}"
     );
-    assert!(!out.contains("does not match source model"), "report:\n{out}");
+    assert!(
+        !out.contains("does not match source model"),
+        "report:\n{out}"
+    );
 }
 
 // V12: the report command lists vacuous constraints as report content and exits
@@ -341,7 +375,11 @@ fn v13_vacuous_output_is_byte_stable() {
     );
     let first = fixture.run(&["verify"]);
     let second = fixture.run(&["verify"]);
-    assert_eq!(stdout(&first), stdout(&second), "output must be deterministic");
+    assert_eq!(
+        stdout(&first),
+        stdout(&second),
+        "output must be deterministic"
+    );
     assert_eq!(stderr(&first), stderr(&second));
 }
 
@@ -365,13 +403,11 @@ fn engaged_from_module_with_external_import_verifies_clean() {
          [[constraint]]\ntype = \"forbid_external_crates\"\nfrom = [\"app::ui\"]\nforbid = [\"serde\"]\n",
     );
     let output = fixture.run(&["verify"]);
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        stderr(&output)
-    );
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("matches source model"), "report:\n{out}");
-    assert!(!out.contains("vacuous constraint"), "no vacuous warning:\n{out}");
+    assert!(
+        !out.contains("vacuous constraint"),
+        "no vacuous warning:\n{out}"
+    );
 }

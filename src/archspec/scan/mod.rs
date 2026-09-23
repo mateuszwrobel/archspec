@@ -20,6 +20,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 name: "check",
                 takes_value: false,
             },
+            FlagSpec {
+                name: "pretty",
+                takes_value: false,
+            },
         ],
     )?;
     cli::exactly_one_positional(&parsed)?;
@@ -44,16 +48,26 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 
     let model = extract(language, root_path)?;
-    let json = format!("{}\n", model.to_json()?);
+    // `--pretty` is a serialization switch only: same facts, indented layout
+    // for readers and diffs; the default bytes are untouched (blind4 D03).
+    let json = if parsed.switches.contains("pretty") {
+        format!("{}\n", model.to_json_pretty()?)
+    } else {
+        format!("{}\n", model.to_json()?)
+    };
 
     let config = config::load(root_path)?;
-    let destination = config::resolve(
+    // The model JSON is a machine body: a body on stdout carries no status
+    // line (wave-3 D02 purity); a destination write echoes the universal
+    // `wrote <path>` line like every path write (blind4 D01).
+    let route = config::route(
         parsed.values.get("output").map(String::as_str),
         config.scan.as_deref(),
         root_path,
+        false,
     );
     let check = parsed.switches.contains("check");
-    config::emit(&json, destination, check, "model", "scan")
+    config::emit(&json, route, check, "model", "scan", None)
 }
 
 pub fn extract(language: Language, root: &Path) -> Result<Model, String> {

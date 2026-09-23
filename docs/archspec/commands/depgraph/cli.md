@@ -14,12 +14,12 @@ The first positional selects the view and is required. `path` is the second posi
 | `path` | directory to scan | current working directory |
 | `--format <fmt>` | output format | `mermaid` for graphs, `markdown` for `api-usage` |
 | `--parent <module>` | parent top-level module to expand | required for `submodules` |
-| `--output <path>` | write the body to that file | stdout |
+| `--output <path>` | write the body to that file; `-` prints it on stdout and creates no file | stdout |
 | `--check` | compare the body to its destination without writing | off |
 
 ## Views
 
-- `modules` — top-level module dependency graph. `--format mermaid` (default) or `plantuml`.
+- `modules` — top-level module dependency graph; when that projection folds the whole tier onto a single node, the view renders one level deeper (the paths below the fold become the nodes). `--format mermaid` (default) or `plantuml`.
 - `api-usage` — Markdown table of used APIs grouped by target module. `markdown` only.
 - `submodules` — graph of one parent module's immediate children. `--parent <module>` required; `--format mermaid` (default) or `plantuml`.
 

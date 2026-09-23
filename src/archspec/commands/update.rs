@@ -5,15 +5,17 @@ use crate::archspec::spec::SPEC_FILE;
 use crate::archspec::update;
 use std::path::Path;
 
-pub const HELP: &str = "usage: archspec update [path] [--force]\nsnapshot the current model as a seed architecture.spec.toml\n\n  path      project directory to scan and snapshot (default: current directory)\n  --force   overwrite an existing architecture.spec.toml\n";
+pub const HELP: &str = "usage: archspec update [path] [--force]\nsnapshot the current model as a seed architecture.spec.toml\n\n  path          project directory to scan and snapshot (default: current directory)\n  --force       overwrite an existing architecture.spec.toml\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
         args,
-        &[FlagSpec {
-            name: "force",
-            takes_value: false,
-        }],
+        &[
+            FlagSpec {
+                name: "force",
+                takes_value: false,
+            },
+        ],
     )?;
     cli::exactly_one_positional(&parsed)?;
 

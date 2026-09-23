@@ -1,0 +1,18 @@
+{
+  "language": "csharp",
+  "metrics": {
+    "components": 5,
+    "units": 2,
+    "edges_internal": 1,
+    "edges_external": 1,
+    "cycles": 0,
+    "violations_components": 0,
+    "violations_edges": 0,
+    "violations_contracts": 0,
+    "violations_cycles": 0
+  },
+  "roles": {
+    "app": "composition"
+  },
+  "findings": []
+}

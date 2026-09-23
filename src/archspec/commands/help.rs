@@ -7,7 +7,8 @@ use crate::archspec::commands::spec;
 pub const HELP: &str = "\
 usage: archspec help [topic]
 archspec built-in manual: topics, glob rules, the spec reference, constraint
-types, the language-tier matrix, the CI workflow, and the diagnostics catalog.
+types, the language-tier matrix, the roles-in-views contract, the CI workflow,
+and the diagnostics catalog.
 'help <command>' prints that command's --help.
 
 topics:
@@ -16,33 +17,36 @@ topics:
   spec          the architecture.spec.toml annotated reference
   constraints   the seven constraint types with their keys and severity
   languages     which model tiers each scanner populates
-  workflow      the audit recipe: scan, depgraph modules, verify, tighten
-                allowed, --strict CI gate, and inspect-edge mining
+  roles         which views mark roles and which stay silent by decision
+  workflow      the numbered audit recipe (this topic owns the ordering), the
+                --strict CI gate, and inspect-edge mining
   diagnostics   every verify/report finding category: meaning, origin, severity,
                 the code-fix/spec-fix/architecture-rework decision, and report format
 
 commands:
-  init       scaffold a minimal base spec
+  init       scaffold config + starter spec (no real-tree capture)
   scan       extract the architecture model only (no spec needed)
   diagram    render model (extracted or declared) to an artefact
   verify     extract + compare vs spec, full diff, exit code
-  update     snapshot current model as a seed spec
+  update     seed a spec by snapshotting the real tree
   report     text/markdown/json diff + metric output
   spec       print the spec JSON schema or annotated reference
   doctor     diagnose which language drivers/toolchains are present
   inspect    zero-config file-level import map (discovery)
   depgraph   current-state module/submodule/API-usage views
   help       print this built-in manual
+  skill      print or install the agent-facing audit skill
 
 run 'archspec help <topic>' for a topic; 'archspec help <command>' for a command
 ";
 
-const TOPICS: [&str; 7] = [
+const TOPICS: [&str; 8] = [
     "commands",
     "glob",
     "spec",
     "constraints",
     "languages",
+    "roles",
     "workflow",
     "diagnostics",
 ];
@@ -91,7 +95,29 @@ pub const LANGUAGE_TIERS: &[(&str, &[&str])] = &[
             "unit_manifests",
         ],
     ),
-    ("go", &["units", "external", "module_external"]),
+    (
+        "go",
+        &["units", "module_edges", "external", "module_external"],
+    ),
+];
+
+/// Per-language naming facts the tier matrix cannot carry, stated in the
+/// section an agent reads before hand-writing a spec. Each sentence lives in
+/// exactly this surface; every other mention is a link (fanout-output US 08,
+/// registry relation rules).
+pub const LANGUAGE_NOTES: &[(&str, &str)] = &[
+    (
+        "rust",
+        "  a crate with `src/lib.rs` and `src/main.rs` and no explicit `[[bin]]` or\n  `[lib]` section yields units `<pkg>` (kind=crate) and `<pkg>-bin`\n  (kind=bin); `matches` must name those units exactly.\n",
+    ),
+    (
+        "csharp",
+        "  Two names for one project. In a C# tree (and any seeded spec with both\n  tiers), every project appears twice: its `.`-separated name is the build\n  unit (named by `units` and unit edges), its `::`-separated name is the\n  namespace identity (the key space of `module_edges` and `roles`); an\n  `update`-seeded spec therefore carries both tiers and that is not\n  duplication — ADR-018 assigns allowance ownership across them.\n",
+    ),
+    (
+        "go",
+        "  `matches.units` targets must be full import paths — a short package\n  name does not resolve there (verify then reports `unexpected component` /\n  `missing component`); module `name` values and `allowed.depend_on`\n  references may be short — references resolve to declared module names.\n  The module tier is derived from the tree's own packages, so a single\n  `go.mod` tree whose packages reference each other has one; `archspec\n  capability matrix` reports the fact.\n",
+    ),
 ];
 
 pub const GLOB_HELP: &str = "\
@@ -107,17 +133,18 @@ Patterns in architecture.spec.toml match against unit names and dotted module pa
 - Module globs (matches.modules) match a module's full dotted path (e.g.
   'Billing::domain'), its bare last segment (e.g. 'domain'), or the path with its
   unit prefix stripped (e.g. 'app::auth::config' also matches as 'auth::config').
-- A 'matches.modules' pattern matches the named module AND every module beneath it:
-  its entire subtree of descendants. 'commands' covers 'commands', 'commands::start',
-  'commands::init', and so on. Subtree matching never matches less than the module
-  it names.
-- A 'matches.modules' entry ending in '*' is a PATH PREFIX claim: 'commands::*'
-  covers 'commands::start', 'commands::init', and every deeper descendant in one
-  entry ('commands*' is a raw character prefix — it also claims 'commands_old::*').
-  Ownership is by specificity, not declaration order: the entry pinning the most
-  entry pinning the most of the path wins, an exact entry always wins; when two
-  boundaries claim the same module with equal specificity, 'verify' reports an
-  'ambiguous module match' instead of guessing.
+- A 'matches.modules' pattern matches the named module AND every module beneath
+  it: its entire subtree of descendants, no wildcard needed. 'commands' covers
+  'commands', 'commands::start', 'commands::init', and so on. Subtree matching
+  never matches less than the module it names.
+- A 'matches.modules' entry ending in '*' is a PATH PREFIX claim — the explicit
+  form of that same subtree: 'commands::*' covers 'commands::start',
+  'commands::init', and every deeper descendant in one entry ('commands*' is a
+  raw character prefix — it also claims 'commands_old::*'). Ownership is by
+  specificity, not declaration order: the entry pinning the most of the path
+  wins, an exact entry always wins; when two boundaries claim the same module
+  with equal specificity, 'verify' reports an 'ambiguous module match' instead
+  of guessing.
 - 'from' / 'forbid' / 'gated_modules' / 'allowed_from' / 'parent' keys resolve with
   the same module-path glob semantics as matches.modules (full path, bare last
   segment, and subtree ancestors).
@@ -134,6 +161,13 @@ severity:
   warning     listed in the report and tolerated; promoted to a failing error
               under --strict
   --strict    promote every warning-level divergence to an error (the CI gate)
+
+key namespaces:
+  allowed.depend_on / allowed.forbidden / no_cycles.modules address DECLARED
+  MODULE NAMES — exact names, never globs. Constraint 'from' / 'forbid' /
+  'parent' / 'gated_modules' / 'allowed_from' address MODEL-PATH GLOBS over the
+  extracted tree; bare last-segment matching there is case-sensitive. Full
+  rules: 'archspec help glob'.
 
 types and their keys:
   no_cycles                     keys: modules, severity
@@ -168,21 +202,27 @@ types and their keys:
     warning), a contamination fails naming the module and its packages, and a
     'from' pattern matching no element in the model at all is vacuous. A
     module-tier pattern monitors the module subtree's externals; a pattern
-    naming a unit (or a driver without a module tier, e.g. single-module go)
-    monitors every external attributed anywhere to that unit. Put the guard on
+    naming a unit monitors every external attributed anywhere to that unit;
+    run `archspec capability matrix` for the module-tier fact per language. Put the guard on
     leaf layers (domain/core) — on a composition root that wires everything it
     fails immediately, which is correct: the guard is misplaced there.
 ";
 
 pub const WORKFLOW_HELP: &str = "\
 # archspec help workflow — the audit recipe
-Command families: scan -> report -> diagram -> verify. The full audit of an
-unfamiliar repo, in order:
+Command families: extraction, current-state views, comparison, rendering,
+discovery — a taxonomy of what the commands are for, not an ordering; the
+numbered recipe below owns it. Steps 1–2 create no spec: on a first capture of
+an untracked repo, seed one with `archspec update` before step 3 runs and
+reconcile the seed per step 4 — the `update` row under Supporting commands owns
+that reconciliation. The full audit of an unfamiliar repo, in order:
 
   1. archspec scan            extract the model (units, tiers, external) with no
                               spec — declare boundaries over what actually exists.
   2. archspec depgraph modules read the real module dependency graph before you
-                              write a single rule.
+                              write a single rule. Node labels are projections
+                              onto top-level modules, not addresses — the
+                              addresses live in `scan` module_edges.
   3. archspec verify           compare the model against architecture.spec.toml.
                               An undeclared edge fails it (exit 1); every warning
                               — vacuous, dead reference, unowned module edge
@@ -210,9 +250,15 @@ unfamiliar repo, in order:
 Supporting commands:
   init       scaffold a minimal base spec to start from.
   update     snapshot the current model as a seed spec once the architecture is
-             healthy.
+             healthy. The seed may emit parallel unit-tier and namespace-tier
+             boundaries for one project with differing depend_on sets — treat
+             it as a starting point and reconcile it against depgraph modules.
   doctor     report driver capability and toolchain availability (rust, csharp, go)
              as separate facts — drivers parse in-binary, toolchains never gate.
+  skill      install the agent-facing audit skill: `archspec skill install`
+             drops it at .agent/skills/archspec.md so future agent sessions in
+             the project load the extraction rules, the finding classes, and
+             the blind spots automatically.
 
 Warning meanings and the exit-code / `--strict` severity contract live in
 `archspec help diagnostics`; constraint keys and severity defaults live in
@@ -251,6 +297,10 @@ Legend — severity and exit-code contract:
   exit 1     any error-level finding, or any warning under --strict.
   The verify/report text goes to stdout; a rule violation exits 1 WITHOUT
   echoing the report to stderr (stderr carries operational errors only).
+
+ARTEFACT FRESHNESS — the dirt map, what dirties which artefact:
+
+Artefact freshness keys on structure, not content: a comment-only edit dirties no artefact; edits that change structure (files, modules, or edges) dirty the `scan` model JSON, the `inspect` file map, and `depgraph` projections; `report` follows only structure that reaches the component layer (component edges, metrics, violations), the same layer at which `verify` engages; the spec-mode `diagram` renders declared components and never dirties on source edits, only on spec changes.
 
 REPORT FORMAT an agent must emit for every finding:
   finding:    the exact '<category>: <detail>' line printed by verify/report
@@ -293,9 +343,10 @@ facade dependency
   meaning:    an internal module depends on a publication-only crate-root facade
               (a root whose file only declares modules + re-exports). Listing the
               root in allowed.depend_on does NOT legalize it (f21, ac6349500).
-   emitted by: rust (the root-facade fact is populated only by the rust scanner;
-               csharp/go trees emit none, so the rule never activates there)
-               [capability root-facade rust="granular" csharp="not-emitted" go="not-emitted"]
+   emitted by: rust and csharp (the role-facade fact is the model's facade
+               roles, each driver deriving them from its own facts; the go
+               driver derives no facade role, so the rule is inert there)
+               [capability role-facade rust="granular" csharp="granular" go="not-emitted"]
   origin:     code
   severity:   error (exit 1)
   follow-up:  archspec inspect   (the import routed through a root re-export)
@@ -307,10 +358,9 @@ contract leak
   meaning:    a module or submodule surfaces a unit matching a stereotype its
               contract.forbid forbids.
    emitted by: rust, csharp, and go for the submodule form (submodule
-               enforcement needs the module tier; go carries one from go.work
-               members or acquires one when spec modules claim its packages,
+               enforcement needs the module tier — the capability row below —
                so top-level and submodule contracts both engage there)
-               [capability module-tier rust="granular" csharp="granular" go="go.work tier only (2+ members); declared grouping otherwise"]
+               [capability module-tier rust="granular" csharp="granular" go="granular"]
   origin:     code
   severity:   error (exit 1)
   follow-up:  archspec depgraph  (which unit carries the forbidden stereotype)
@@ -410,7 +460,7 @@ forbidden submodule dependency
   pattern:    forbidden submodule dependency: ...   (forbid_submodule_dependency)
    emitted by: rust, csharp (needs module content below the unit; go packages
                are units, so no tree shape engages it there)
-               [capability module-tier rust="granular" csharp="granular" go="go.work tier only (2+ members); declared grouping otherwise"]
+               [capability module-tier rust="granular" csharp="granular" go="granular"]
   origin:     code
   severity:   error (exit 1)
   follow-up:  archspec depgraph  (submodule views)
@@ -450,9 +500,9 @@ unowned module edge endpoint
   meaning:    a module-edge endpoint is owned by no declared boundary, so the
               pair cannot be placed on the boundary graph.
    emitted by: rust, csharp, and go once the tree carries a module tier
-               (go.work members, or spec modules deriving it over packages);
-               a tier-less tree has no soft edges to report here
-               [capability module-tier rust="granular" csharp="granular" go="go.work tier only (2+ members); declared grouping otherwise"]
+               (see the capability row below); a tier-less tree
+               has no soft edges to report here
+               [capability module-tier rust="granular" csharp="granular" go="granular"]
   origin:     spec
   severity:   warning (exit 0; exit 1 under --strict)
   follow-up:  archspec depgraph
@@ -464,10 +514,9 @@ laundered forbidden edge
               <target> rides at least one hop whose ownership resolved through
               the unit fallback (undeclared territory) — the ban is routed around.
    emitted by: rust, csharp, and go (hop ownership resolves through the module
-               tier; go carries one natively from go.work members or acquires
-               one when spec modules claim its packages, so laundering is
-               checked there too)
-               [capability module-tier rust="granular" csharp="granular" go="go.work tier only (2+ members); declared grouping otherwise"]
+               tier — the capability row below — so laundering is checked
+               there too)
+               [capability module-tier rust="granular" csharp="granular" go="granular"]
   origin:     code (the conduit exists in source)
   severity:   warning (exit 0; exit 1 under --strict)
   follow-up:  archspec depgraph (trace the path), archspec inspect the hops
@@ -486,7 +535,7 @@ dead reference (boundary / stereotype reference)
   emitted by: rust, csharp, and go; on runs whose capability row carries no
               module-tier fact the absent target is called "not verifiable
               from source" instead of claiming "does not exist"
-              [capability module-tier rust="granular" csharp="granular" go="go.work tier only (2+ members); declared grouping otherwise"]
+              [capability module-tier rust="granular" csharp="granular" go="granular"]
   meaning:    an allowed.depend_on / allowed.forbidden target can never engage a
               declared boundary, so the rule silently verifies nothing.
   origin:     spec
@@ -521,6 +570,36 @@ as standalone lines; they surface through public api leak, unverifiable glob
 export and empty glob export above.
 "#;
 
+/// The roles-in-views contract (roles plan, US 01): which views mark roles and
+/// which are designed silent. The views × markers matrix in the test suite
+/// (`tests/shared/roles_matrix.rs`) derives these cells from recorded command
+/// output, so this prose follows the runs, never the other way around.
+pub const ROLES_HELP: &str = "\
+# archspec help roles — where roles appear in the views
+
+Roles attach to model nodes (facade, composition root, and the rest); each
+driver derives them from its own facts. A view either marks roles or it does
+not — the contract, per view:
+
+  The names below are commands run as written — `archspec inspect tree`,
+  `archspec depgraph modules` — where `tree` and `modules` are positional
+  subcommands, never flags.
+
+  inspect tree — marks: entrypoint and facade nodes carry a role label.
+  inspect scanner — marks: the same structural model as inspect tree, same role labels.
+  inspect (file level) — none: roles attach to model nodes, not files — this view renders files.
+  depgraph modules — marks: module nodes carry a role label.
+  depgraph api-usage — none by decision: a role is not a usage fact; the view itself prints 'note: this view shows no roles by decision (a role is not a usage fact)'.
+  diagram (spec mode) — none by decision: declared components are not model paths.
+  diagram --source scan — marks: the scan model carries its roles.
+
+A cell reading `none by decision` is designed silence, not oversight. The
+fixture × view matrix the test suite computes — every cell derived from
+recorded command output — outranks any document; a per-view sentence anywhere
+else in the manual or the skill is a pointer to this topic, not a claim of
+its own.
+";
+
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(args, &[])?;
     cli::exactly_one_positional(&parsed)?;
@@ -535,6 +614,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         "spec" => print!("{}", spec::HELP),
         "constraints" => print!("{CONSTRAINTS_HELP}"),
         "languages" => print!("{}", languages_block()),
+        "roles" => print!("{ROLES_HELP}"),
         "workflow" => print!("{WORKFLOW_HELP}"),
         "diagnostics" => print!("{DIAGNOSTICS_HELP}"),
         other => {
@@ -574,6 +654,9 @@ fn languages_block() -> String {
     out.push_str(&format!("\nA language scanner may populate any of: {}\n", ALL_TIERS.join(", ")));
     for &(language, tiers) in LANGUAGE_TIERS {
         out.push_str(&format!("\n{language}:\n"));
+        if let Some((_, note)) = LANGUAGE_NOTES.iter().find(|(name, _)| *name == language) {
+            out.push_str(note);
+        }
         for tier in tiers {
             out.push_str(&format!("  {tier}\n"));
         }
@@ -674,7 +757,8 @@ mod tests {
             "go" => write_go_fixture(temp.path()),
             _ => unreachable!(),
         }
-        scan::extract(language_of(language), temp.path()).expect("extract must succeed")
+        scan::extract(language_of(language), temp.path())
+            .expect("extract must succeed")
     }
 
     #[test]

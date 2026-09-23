@@ -37,7 +37,8 @@ pub fn scan(root: &Path) -> Result<FileGraph, String> {
             .map_err(|err| format!("failed to read {}: {err}", full.display()))?;
         let mut namespaces = BTreeSet::new();
         let mut usings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        cs_scan::scan_cs_source(&source, &mut namespaces, &mut usings);
+        cs_scan::syntax::scan_cs_source(&source, &mut namespaces, &mut usings, &mut cs_scan::syntax::TypeFacts::default())
+            .map_err(|err| format!("failed to parse {}: {err}", full.display()))?;
         // A file's own declared namespaces: the file owns them — unless the
         // file sits in a test project, which then contributes no target.
         let own_ns: BTreeSet<String> = namespaces.iter().cloned().collect();

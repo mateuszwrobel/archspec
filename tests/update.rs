@@ -865,7 +865,8 @@ fn update_seed_includes_global_no_cycles_constraint_deterministically() {
 
     let spec = fixture.read("architecture.spec.toml");
     assert_eq!(
-        spec.matches("[[constraint]]\ntype = \"no_cycles\"\n").count(),
+        spec.matches("[[constraint]]\ntype = \"no_cycles\"\n")
+            .count(),
         1,
         "global no_cycles stanza must appear exactly once:\n{spec}"
     );
@@ -1114,10 +1115,10 @@ fn update_seed_go_single_module_keeps_shape_and_verifies_clean() {
     );
 }
 
-/// C# projects are units by dotted name (`HomeBudget.Api`) while namespaces
-/// convert to `::` paths (`HomeBudget::Api::Controllers`), so the top-level
-/// fold yields entries like `name = "HomeBudget::Api"`,
-/// `matches = { modules = ["HomeBudget::Api"] }` — self-listing, no targets,
+/// C# projects are units by dotted name (`Shop.Api`) while namespaces
+/// convert to `::` paths (`Shop::Api::Controllers`), so the top-level
+/// fold yields entries like `name = "Shop::Api"`,
+/// `matches = { modules = ["Shop::Api"] }` — self-listing, no targets,
 /// referenced by no kept entry, owning no module-edge endpoint, first segment
 /// naming no unit: they declare no boundary pairs and float in diagrams. The
 /// seed must not emit them. The folds here carry no `using`s, so no module
@@ -1128,20 +1129,20 @@ fn update_seed_go_single_module_keeps_shape_and_verifies_clean() {
 fn update_seed_drops_self_matching_namespace_modules_for_dotted_projects() {
     let fixture = common::Fixture::new();
     let csproj = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n";
-    let api_csproj = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <ProjectReference Include=\"..\\HomeBudget.Core\\HomeBudget.Core.csproj\" />\n  </ItemGroup>\n</Project>\n";
-    fixture.write("HomeBudget.Api/HomeBudget.Api.csproj", api_csproj);
+    let api_csproj = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <ProjectReference Include=\"..\\Shop.Core\\Shop.Core.csproj\" />\n  </ItemGroup>\n</Project>\n";
+    fixture.write("Shop.Api/Shop.Api.csproj", api_csproj);
     fixture.write(
-        "HomeBudget.Api/C.cs",
-        "namespace HomeBudget.Api.Controllers;\npublic class C { }\n",
+        "Shop.Api/C.cs",
+        "namespace Shop.Api.Controllers;\npublic class C { }\n",
     );
     fixture.write(
-        "HomeBudget.Api/M.cs",
-        "namespace HomeBudget.Api.Models;\npublic class M { }\n",
+        "Shop.Api/M.cs",
+        "namespace Shop.Api.Models;\npublic class M { }\n",
     );
-    fixture.write("HomeBudget.Core/HomeBudget.Core.csproj", csproj);
+    fixture.write("Shop.Core/Shop.Core.csproj", csproj);
     fixture.write(
-        "HomeBudget.Core/D.cs",
-        "namespace HomeBudget.Core.Domain;\npublic class D { }\n",
+        "Shop.Core/D.cs",
+        "namespace Shop.Core.Domain;\npublic class D { }\n",
     );
 
     let output = fixture.run(&["update"]);
@@ -1153,12 +1154,11 @@ fn update_seed_drops_self_matching_namespace_modules_for_dotted_projects() {
     );
     let spec = fixture.read("architecture.spec.toml");
     assert!(
-        spec.contains("name = \"HomeBudget.Api\"")
-            && spec.contains("name = \"HomeBudget.Core\""),
+        spec.contains("name = \"Shop.Api\"") && spec.contains("name = \"Shop.Core\""),
         "project-level unit boundaries must still seed:\n{spec}"
     );
     assert!(
-        !spec.contains("HomeBudget::Api") && !spec.contains("HomeBudget::Core"),
+        !spec.contains("Shop::Api") && !spec.contains("Shop::Core"),
         "self-listing namespace-module entries must not seed:\n{spec}"
     );
 
@@ -1226,8 +1226,8 @@ fn update_seed_drops_self_matching_namespace_modules_for_dotted_projects() {
 }
 
 /// Dotted C# tree where a KEPT fold's `allowed.depend_on` names a SINK fold:
-/// the unit `HomeBudget.Api` declares `HomeBudget.Api.Controllers` (folds to
-/// `HomeBudget::Api`) and `HomeBudget.Domain` (folds to `HomeBudget::Domain`,
+/// the unit `Shop.Api` declares `Shop.Api.Controllers` (folds to
+/// `Shop::Api`) and `Shop.Domain` (folds to `Shop::Domain`,
 /// first segment naming no unit), with an in-project using from the former to
 /// the latter. The kept fold seeds a boundary naming the sink as a dependency;
 /// the sink itself has no targets and no unit prefix. Dropping it would leave
@@ -1239,14 +1239,14 @@ fn update_seed_drops_self_matching_namespace_modules_for_dotted_projects() {
 fn update_seed_keeps_sink_folds_referenced_by_kept_boundaries() {
     let fixture = common::Fixture::new();
     let csproj = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n";
-    fixture.write("HomeBudget.Api/HomeBudget.Api.csproj", csproj);
+    fixture.write("Shop.Api/Shop.Api.csproj", csproj);
     fixture.write(
-        "HomeBudget.Api/C.cs",
-        "using HomeBudget.Domain;\nnamespace HomeBudget.Api.Controllers;\npublic class C { }\n",
+        "Shop.Api/C.cs",
+        "using Shop.Domain;\nnamespace Shop.Api.Controllers;\npublic class C { }\n",
     );
     fixture.write(
-        "HomeBudget.Api/D.cs",
-        "namespace HomeBudget.Domain;\npublic class D { }\n",
+        "Shop.Api/D.cs",
+        "namespace Shop.Domain;\npublic class D { }\n",
     );
 
     let output = fixture.run(&["update"]);
@@ -1258,13 +1258,13 @@ fn update_seed_keeps_sink_folds_referenced_by_kept_boundaries() {
     );
     let spec = fixture.read("architecture.spec.toml");
     assert!(
-        spec.contains("name = \"HomeBudget::Api\"")
-            && spec.contains("allowed = { depend_on = [\"HomeBudget::Domain\"] }"),
+        spec.contains("name = \"Shop::Api\"")
+            && spec.contains("allowed = { depend_on = [\"Shop::Domain\"] }"),
         "the referencing fold must seed a boundary with its sink dependency:\n{spec}"
     );
     assert!(
-        spec.contains("name = \"HomeBudget::Domain\"")
-            && spec.contains("matches = { modules = [\"HomeBudget::Domain\"] }"),
+        spec.contains("name = \"Shop::Domain\"")
+            && spec.contains("matches = { modules = [\"Shop::Domain\"] }"),
         "a fold referenced as a dependency target must seed a boundary:\n{spec}"
     );
 
@@ -1282,8 +1282,8 @@ fn update_seed_keeps_sink_folds_referenced_by_kept_boundaries() {
 }
 
 /// Dotted C# tree whose module edges live INSIDE a unit across namespaces
-/// (`HomeBudget.Api` project, `HomeBudget::Api::Controllers` using
-/// `HomeBudget::Api::Models`). The fold `HomeBudget::Api` has no cross-fold
+/// (`Shop.Api` project, `Shop::Api::Controllers` using
+/// `Shop::Api::Models`). The fold `Shop::Api` has no cross-fold
 /// targets (the intra-fold edge collapses), nests under no unit (dotted unit
 /// name vs `::` path), and is named by no kept entry's `allowed.depend_on`.
 /// Dropping it would leave every endpoint of the intra-unit edges unowned:
@@ -1296,20 +1296,20 @@ fn update_seed_keeps_sink_folds_referenced_by_kept_boundaries() {
 fn update_seed_keeps_folds_owning_intra_unit_module_edge_endpoints() {
     let fixture = common::Fixture::new();
     let csproj = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n";
-    let api_csproj = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <ProjectReference Include=\"..\\HomeBudget.Domain\\HomeBudget.Domain.csproj\" />\n  </ItemGroup>\n</Project>\n";
-    fixture.write("HomeBudget.Api/HomeBudget.Api.csproj", api_csproj);
+    let api_csproj = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <ProjectReference Include=\"..\\Shop.Domain\\Shop.Domain.csproj\" />\n  </ItemGroup>\n</Project>\n";
+    fixture.write("Shop.Api/Shop.Api.csproj", api_csproj);
     fixture.write(
-        "HomeBudget.Api/C.cs",
-        "using HomeBudget.Api.Models;\nnamespace HomeBudget.Api.Controllers;\npublic class C { }\n",
+        "Shop.Api/C.cs",
+        "using Shop.Api.Models;\nnamespace Shop.Api.Controllers;\npublic class C { }\n",
     );
     fixture.write(
-        "HomeBudget.Api/M.cs",
-        "namespace HomeBudget.Api.Models;\npublic class M { }\n",
+        "Shop.Api/M.cs",
+        "namespace Shop.Api.Models;\npublic class M { }\n",
     );
-    fixture.write("HomeBudget.Domain/HomeBudget.Domain.csproj", csproj);
+    fixture.write("Shop.Domain/Shop.Domain.csproj", csproj);
     fixture.write(
-        "HomeBudget.Domain/E.cs",
-        "namespace HomeBudget.Domain.Entities;\npublic class E { }\n",
+        "Shop.Domain/E.cs",
+        "namespace Shop.Domain.Entities;\npublic class E { }\n",
     );
 
     let output = fixture.run(&["update"]);
@@ -1321,8 +1321,8 @@ fn update_seed_keeps_folds_owning_intra_unit_module_edge_endpoints() {
     );
     let spec = fixture.read("architecture.spec.toml");
     assert!(
-        spec.contains("name = \"HomeBudget::Api\"")
-            && spec.contains("matches = { modules = [\"HomeBudget::Api\"] }"),
+        spec.contains("name = \"Shop::Api\"")
+            && spec.contains("matches = { modules = [\"Shop::Api\"] }"),
         "the fold owning the intra-unit edge endpoints must seed a boundary:\n{spec}"
     );
 

@@ -3,7 +3,7 @@
 ## Status
 Accepted
 
-**Implementation Status:** Implemented with deviations as of September 2026 — Rust driver uses syn; C# and Go extraction shipped as in-binary parsers (`src/archspec/scan/{csharp,go}.rs`), not Roslyn / `go/packages` external processes. The separate-artifact plugin-driver model has not shipped; the binary shells out to no toolchain (doctor only probes PATH).
+**Implementation Status:** Implemented with deviations as of September 2026 — Rust driver uses syn; C# and Go extraction shipped as in-binary parsers (`src/archspec/scan/{csharp,go}.rs`), not Roslyn / `go/packages` external processes. The separate-artifact plugin-driver model has not shipped; the binary shells out to no toolchain (doctor only probes PATH). Amended by ADR-014: C#/Go additionally offer a syntax-tree (tree-sitter) extraction back-end selected by `--backend syntax`, in-binary, module tier only; `classic` remains the default.
 
 **Revised August 2026:** back-ends are plugin drivers (separate processes emitting canonical JSON IR), not code bundled into the Rust binary. Extraction is spec-driven (gather only what the spec needs). C# edge ground truth is project references, not `using`. Rust bundling of Roslyn rejected.
 

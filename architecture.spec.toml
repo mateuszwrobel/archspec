@@ -30,6 +30,7 @@ matches = { units = ["archspec"], modules = [
   "archspec::archspec::update*",
   "archspec::archspec::inspect*",
   "archspec::archspec::init*",
+  "archspec::archspec::parse*",
 ] }
 
 [module.allowed]

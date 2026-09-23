@@ -26,10 +26,10 @@ impl Language {
 /// fixture in this logical form; the driver materializes it as actual files.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LogicalTree {
-    /// Logical unit names, e.g. `app`, `HomeBudget.Domain`.
+    /// Logical unit names, e.g. `app`, `Shop.Domain`.
     pub units: Vec<String>,
     /// Unit -> logical module paths (dotted or `::`-separated), e.g.
-    /// `app -> ["core", "ui"]`, `HomeBudget.Domain -> ["Domain.Entities"]`.
+    /// `app -> ["core", "ui"]`, `Shop.Domain -> ["Domain.Entities"]`.
     pub modules: BTreeMap<String, Vec<String>>,
     /// (from_unit, to_unit) logical hard edges.
     pub hard_edges: Vec<(String, String)>,
@@ -57,6 +57,24 @@ pub struct LogicalTree {
     /// `Condition="'$(IsTestProject)'=='true'"` plus a `PackageVersion` pin —
     /// the props shape real test projects are wired with.
     pub central_conditional_packages: Vec<(String, String)>,
+    /// Units materialized as the tree's composition roots (roles plan): c#
+    /// gains a `Program.cs` entrypoint carrying DI-registration-family calls
+    /// on the unit root (the layered C# shape), go flips the unit-root
+    /// package clause to `main` with an empty `func main` (the wiring lives
+    /// in the main package, nothing else about the package moves). Both
+    /// shapes state the composition role and add no edge, soft or external
+    /// fact — the model delta of a declared root is the roles entry alone.
+    pub composition_roots: Vec<String>,
+    /// Unit -> logical module paths carrying the language's own test-tier
+    /// evidence (workplan archspec_cvd_precision, US 05): rust materializes
+    /// the top-level declaration as `#[cfg(test)] mod <name>;`, go writes
+    /// the path's package file as `<leaf>_test.go` with the listed module's
+    /// usings routed into it. The c# dialect of the same evidence is a
+    /// runner package in `packages` (see
+    /// `seed_omits_dotnet_test_projects_with_runner_evidence`), so the c#
+    /// materializer reads nothing here. Which drivers the registry legs run
+    /// on is decided by the `test-tier` capability rows, not by this field.
+    pub test_gated: BTreeMap<String, Vec<String>>,
 }
 
 impl LogicalTree {
@@ -75,7 +93,9 @@ impl Driver {
     pub fn all() -> Vec<Driver> {
         Language::ALL
             .iter()
-            .map(|language| Driver { language: *language })
+            .map(|language| Driver {
+                language: *language,
+            })
             .collect()
     }
 
@@ -87,7 +107,8 @@ impl Driver {
         match self.language {
             Language::Rust => {
                 tree.units = vec!["app".into(), "shared".into()];
-                tree.modules.insert("app".into(), vec!["core".into(), "ui".into()]);
+                tree.modules
+                    .insert("app".into(), vec!["core".into(), "ui".into()]);
                 tree.modules.insert("shared".into(), vec!["models".into()]);
                 tree.hard_edges.push(("app".into(), "shared".into()));
                 tree.module_usings
@@ -99,7 +120,8 @@ impl Driver {
             }
             Language::Csharp => {
                 tree.units = vec!["app".into(), "shared".into()];
-                tree.modules.insert("app".into(), vec!["Core".into(), "Ui".into()]);
+                tree.modules
+                    .insert("app".into(), vec!["Core".into(), "Ui".into()]);
                 tree.modules.insert("shared".into(), vec!["Models".into()]);
                 tree.hard_edges.push(("app".into(), "shared".into()));
                 tree.module_usings
@@ -110,6 +132,11 @@ impl Driver {
                     .insert("app".into(), vec!["Newtonsoft.Json".into()]);
                 tree.is_packable.insert("shared".into(), false);
                 tree.external_targets.push("Newtonsoft.Json".into());
+                // The DI-wired entrypoint shape (roles US 07): `app`'s
+                // Program.cs registers cross-layer services, so the scan
+                // states the composition role at the `app` root module — the
+                // c# half of the role world the goldens must show.
+                tree.composition_roots.push("app".into());
             }
             Language::Go => {
                 tree.units = vec!["app".into(), "shared".into()];
@@ -118,8 +145,11 @@ impl Driver {
                 tree.hard_edges.push(("app".into(), "shared".into()));
                 tree.packages
                     .insert("app".into(), vec!["example.com/third/party".into()]);
-                tree.external_targets
-                    .push("example.com/third/party".into());
+                tree.external_targets.push("example.com/third/party".into());
+                // The `package main` wiring shape (roles US 07): the same
+                // package, its clause naming it the composition root — the
+                // go half of the role world the goldens must show.
+                tree.composition_roots.push("app".into());
             }
         }
         tree
@@ -132,9 +162,11 @@ impl Driver {
     /// - C#: one `.csproj` per unit (ProjectReference for hard edges,
     ///   PackageReference for packages, IsPackable when set), a `.cs` file per
     ///   module with a file-scoped namespace, usings for module/external refs.
-    /// - Go: `go.mod` (+ require block for declared packages) and one package
-    ///   dir per unit; imports for hard edges and module_usings targets, blank
-    ///   imports for declared packages not otherwise imported.
+    /// - Go: `go.mod` (+ require block for declared packages), one package dir
+    ///   per unit and one nested package dir per declared module of a unit;
+    ///   imports for hard edges in the unit-root package, intra-module
+    ///   references in the importing module's package, and blank imports for
+    ///   declared packages no file imports.
     pub fn materialize(&self, fx: &common::Fixture, tree: &LogicalTree) {
         match self.language {
             Language::Rust => materialize_rust(fx, tree),
@@ -148,13 +180,14 @@ impl Driver {
     pub fn unit_name(&self, logical: &str) -> String {
         match self.language {
             Language::Rust | Language::Csharp => logical.to_string(),
-            Language::Go => format!("example.com/demo/{logical}"),
+            Language::Go => format!("{GO_MODULE}/{logical}"),
         }
     }
 
-    /// Map a logical module path (dotted or `::`) to the concrete `::` module
-    /// path in the model. Rust/C# prefix the unit name; Go has no soft module
-    /// tier, so the module maps to the unit itself.
+    /// Map a logical module path (dotted or `::`) to the concrete module path
+    /// the SPEC addresses it by: Rust/C# prefix the unit name and join with
+    /// `::`; Go modules materialize as packages under the unit dir, so the
+    /// module is addressed by its full import path (`example.com/demo/app/core`).
     pub fn module_path(&self, logical_unit: &str, logical_module: &str) -> String {
         match self.language {
             Language::Rust | Language::Csharp => format!(
@@ -162,7 +195,31 @@ impl Driver {
                 self.unit_name(logical_unit).replace('.', "::"),
                 logical_module.replace('.', "::")
             ),
-            Language::Go => self.unit_name(logical_unit),
+            Language::Go => format!(
+                "{}/{}",
+                self.unit_name(logical_unit),
+                go_module_dir(logical_module)
+            ),
+        }
+    }
+
+    /// The module path as the scanned MODEL renders it (module-edge endpoints,
+    /// soft paths): rust/c# already render `::` paths; go projects import paths
+    /// into the dotted module vocabulary (`/` -> `::`).
+    pub fn model_module_path(&self, logical_unit: &str, logical_module: &str) -> String {
+        match self.language {
+            Language::Rust | Language::Csharp => self.module_path(logical_unit, logical_module),
+            Language::Go => self.module_path(logical_unit, logical_module).replace('/', "::"),
+        }
+    }
+
+    /// The `unit` field of module edges extracted from this tree: rust/c# edges
+    /// are stamped with the unit that owns them; go's module tier is the go.mod
+    /// module, so every edge in a single-module tree carries that path.
+    pub fn module_edge_unit(&self, logical_unit: &str) -> String {
+        match self.language {
+            Language::Rust | Language::Csharp => self.unit_name(logical_unit),
+            Language::Go => GO_MODULE.to_string(),
         }
     }
 
@@ -217,9 +274,8 @@ fn materialize_rust(fx: &common::Fixture, tree: &LogicalTree) {
         .collect();
 
     for unit in &tree.units {
-        let mut manifest = format!(
-            "[package]\nname = \"{unit}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"
-        );
+        let mut manifest =
+            format!("[package]\nname = \"{unit}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
         let deps: Vec<&String> = tree
             .hard_edges
             .iter()
@@ -247,8 +303,24 @@ fn materialize_rust(fx: &common::Fixture, tree: &LogicalTree) {
                 top.insert(first.to_string());
             }
         }
+        // Test-tier dialect: a top-level declaration whose path is listed in
+        // `test_gated` gains the `#[cfg(test)]` gate — the same declaration
+        // shape the language-local rust pins write by hand.
+        let gated: BTreeSet<String> = tree
+            .test_gated
+            .get(unit)
+            .into_iter()
+            .flatten()
+            .map(|m| {
+                let path = normalized(m);
+                path.split("::").next().unwrap_or_default().to_string()
+            })
+            .collect();
         let mut lib = String::new();
         for name in top {
+            if gated.contains(&name) {
+                lib.push_str("#[cfg(test)]\n");
+            }
             lib.push_str(&format!("mod {name};\n"));
         }
         fx.write(&format!("{unit}/src/lib.rs"), &lib);
@@ -265,7 +337,11 @@ fn materialize_rust(fx: &common::Fixture, tree: &LogicalTree) {
             let parts: Vec<&str> = m.split("::").collect();
             for k in 1..parts.len() {
                 let parent = parts[..k].join("/");
-                files.entry(parent).or_default().0.insert(parts[k].to_string());
+                files
+                    .entry(parent)
+                    .or_default()
+                    .0
+                    .insert(parts[k].to_string());
             }
         }
         for (u, from, to) in &tree.module_usings {
@@ -369,13 +445,32 @@ fn materialize_csharp(fx: &common::Fixture, tree: &LogicalTree) {
             ));
             fx.write(&file, &content);
         }
+
+        // Composition-root shape: an entrypoint file wiring services through
+        // the DI-registration family (the layered C# Program.cs shape). The
+        // registered contracts name types foreign to this tree on purpose —
+        // resolution misses state no edge, so the only model fact this file
+        // can state is the composition role of its unit root.
+        if tree.composition_roots.iter().any(|root| root == unit) {
+            fx.write(
+                &format!("{unit}/Program.cs"),
+                "var builder = WebApplication.CreateBuilder(args);\n\
+                 builder.Services.AddScoped<IOrderService, OrderService>();\n\
+                 var app = builder.Build();\n\
+                 app.Run();\n",
+            );
+        }
     }
     materialize_csharp_props(fx, tree);
 }
 
 /// Props entries per directory: (unconditional references, version-only
 /// pins, conditional references).
-type PropsEntries<'a> = (BTreeSet<&'a String>, BTreeSet<&'a String>, BTreeSet<&'a String>);
+type PropsEntries<'a> = (
+    BTreeSet<&'a String>,
+    BTreeSet<&'a String>,
+    BTreeSet<&'a String>,
+);
 
 /// Write the declared central-package props files: one
 /// `Directory.Packages.props` per dir that carries central entries, central
@@ -425,8 +520,18 @@ fn materialize_csharp_props(fx: &common::Fixture, tree: &LogicalTree) {
     }
 }
 
+/// The go.mod module path every materialized single-module Go tree carries.
+/// Go module paths address packages, so the harness fixes one host/module.
+pub const GO_MODULE: &str = "example.com/demo";
+
+/// The package dir a logical module path materializes to under a Go unit:
+/// separators (`.` and `::`) become import-path slashes.
+fn go_module_dir(logical_module: &str) -> String {
+    logical_module.replace("::", "/").replace('.', "/")
+}
+
 fn materialize_go(fx: &common::Fixture, tree: &LogicalTree) {
-    let mut gomod = String::from("module example.com/demo\ngo 1.21\n");
+    let mut gomod = format!("module {GO_MODULE}\ngo 1.21\n");
     let all_packages: BTreeSet<&String> = tree.packages.values().flatten().collect();
     if !all_packages.is_empty() {
         gomod.push_str("\nrequire (\n");
@@ -436,53 +541,168 @@ fn materialize_go(fx: &common::Fixture, tree: &LogicalTree) {
         gomod.push_str(")\n");
     }
     fx.write("go.mod", &gomod);
+
+    // Logical module -> owning unit: an intra-module reference imports the
+    // target module's package path, anything else imports the target verbatim
+    // (an external module path).
+    let mut module_owner: BTreeMap<&String, &String> = BTreeMap::new();
+    for (unit, modules) in &tree.modules {
+        for module in modules {
+            module_owner.insert(module, unit);
+        }
+    }
+
     for unit in &tree.units {
-        let mut imports: BTreeSet<String> = BTreeSet::new();
-        let mut blank_imports: BTreeSet<String> = BTreeSet::new();
+        let modules: Vec<&String> = tree.modules.get(unit).into_iter().flatten().collect();
+        // Test-tier dialect (US 05): usings whose `from` matches a
+        // `test_gated` path are written into a `*_test.go` file beside the
+        // regular one — an entry naming a declared module routes into that
+        // module's package, an entry naming the unit itself (or any path
+        // with no declared module) into the unit-root package. The regular
+        // production files carry no test evidence either way.
+        let gated: Vec<&String> = tree.test_gated.get(unit).into_iter().flatten().collect();
+        // File (unit root or module package) -> regular imports.
+        let mut root_imports: BTreeSet<String> = BTreeSet::new();
+        let mut module_imports: BTreeMap<&String, BTreeSet<String>> = BTreeMap::new();
+        let mut root_test_imports: BTreeSet<String> = BTreeSet::new();
+        let mut module_test_imports: BTreeMap<&String, BTreeSet<String>> = BTreeMap::new();
         for (from, to) in &tree.hard_edges {
             if from == unit {
-                imports.insert(format!("example.com/demo/{to}"));
+                root_imports.insert(format!("{GO_MODULE}/{to}"));
             }
         }
-        for (u, _from, to) in &tree.module_usings {
-            if u == unit {
-                imports.insert(to.clone());
+        for (u, from, to) in &tree.module_usings {
+            if u != unit {
+                continue;
+            }
+            let import = match module_owner.get(to) {
+                Some(to_unit) => format!("{GO_MODULE}/{to_unit}/{}", go_module_dir(to)),
+                None => to.clone(),
+            };
+            if gated.contains(&from) {
+                match modules.iter().find(|module| ***module == *from) {
+                    Some(module) => {
+                        module_test_imports.entry(*module).or_default().insert(import);
+                    }
+                    None => {
+                        root_test_imports.insert(import);
+                    }
+                }
+            } else {
+                match modules.iter().find(|module| ***module == *from) {
+                    Some(module) => {
+                        module_imports.entry(*module).or_default().insert(import);
+                    }
+                    None => {
+                        root_imports.insert(import);
+                    }
+                }
             }
         }
+        // Declared packages no file of this unit imports get a root blank
+        // import (a manifest requirement with no using to attribute it to).
+        // Test files do not count here on purpose: a manifest requirement
+        // stays a production fact even when only a `_test.go` names it, and
+        // a test-tier import never belongs in a production file — a leg that
+        // seeds test evidence therefore keeps it out of `packages` as well.
+        let imported: BTreeSet<&str> = root_imports
+            .iter()
+            .chain(module_imports.values().flatten())
+            .map(String::as_str)
+            .collect();
+        let mut blank_imports: BTreeSet<&String> = BTreeSet::new();
         for pkg in tree.packages.get(unit).into_iter().flatten() {
-            if !imports.contains(pkg.as_str()) {
-                blank_imports.insert(pkg.clone());
+            if !imported.contains(pkg.as_str()) {
+                blank_imports.insert(pkg);
             }
         }
-        if imports.is_empty() && blank_imports.is_empty() {
-            fx.write(&format!("{unit}/{unit}.go"), &format!("package {unit}\n"));
-            continue;
+
+        for module in &modules {
+            let dir = go_module_dir(module);
+            let leaf = dir.rsplit('/').next().unwrap_or(dir.as_str());
+            let mut content = format!("package {leaf}\n");
+            let imports = module_imports.get(module);
+            if imports.is_some_and(|set| !set.is_empty()) {
+                content.push_str("\nimport (\n");
+                for imp in imports.into_iter().flatten() {
+                    content.push_str(&format!("\t\"{imp}\"\n"));
+                }
+                content.push_str(")\n");
+            }
+            fx.write(&format!("{unit}/{dir}/{leaf}.go"), &content);
         }
-        let mut content = format!("package {unit}\n\nimport (\n");
-        for imp in &imports {
-            content.push_str(&format!("\t\"{imp}\"\n"));
+
+        // Composition-root shape: the unit-root package declares `main` —
+        // the clause IS the wiring fact the go driver reads for the
+        // composition role; imports, files and names stay exactly where they
+        // were, so the model delta is the roles entry alone.
+        let root_package = if tree.composition_roots.iter().any(|root| root == unit) {
+            "main"
+        } else {
+            unit.as_str()
+        };
+        let main_body = if root_package == "main" {
+            "\nfunc main() {}\n"
+        } else {
+            ""
+        };
+        if root_imports.is_empty() && blank_imports.is_empty() {
+            fx.write(
+                &format!("{unit}/{unit}.go"),
+                &format!("package {root_package}\n{main_body}"),
+            );
+        } else {
+            let mut content = format!("package {root_package}\n\nimport (\n");
+            for imp in &root_imports {
+                content.push_str(&format!("\t\"{imp}\"\n"));
+            }
+            for pkg in &blank_imports {
+                content.push_str(&format!("\t_ \"{pkg}\"\n"));
+            }
+            content.push_str(")\n");
+            content.push_str(main_body);
+            fx.write(&format!("{unit}/{unit}.go"), &content);
         }
-        for pkg in &blank_imports {
-            content.push_str(&format!("\t_ \"{pkg}\"\n"));
+
+        // The test tier itself, beside the production files: `_test.go`
+        // files the go scan drops at discovery (the `is_test_file` rule the
+        // `test-tier` row's `file tier only` cell states).
+        if !root_test_imports.is_empty() {
+            let mut content = format!("package {root_package}\n\nimport (\n");
+            for imp in &root_test_imports {
+                content.push_str(&format!("\t\"{imp}\"\n"));
+            }
+            content.push_str(")\n");
+            fx.write(&format!("{unit}/{unit}_test.go"), &content);
         }
-        content.push_str(")\n");
-        fx.write(&format!("{unit}/{unit}.go"), &content);
+        for (module, imports) in &module_test_imports {
+            let dir = go_module_dir(module);
+            let leaf = dir.rsplit('/').next().unwrap_or(dir.as_str());
+            let mut content = format!("package {leaf}\n\nimport (\n");
+            for imp in imports {
+                content.push_str(&format!("\t\"{imp}\"\n"));
+            }
+            content.push_str(")\n");
+            fx.write(&format!("{unit}/{dir}/{leaf}_test.go"), &content);
+        }
     }
 }
 
 /// Materialize the canonical two-member Go workspace: a root `go.work` using
 /// `./api` and `./store`, each member with its own `go.mod`, the `api` root
-/// package and its nested `internal/handler` package importing the `store`
-/// module. No `go.mod` at the workspace root — go.work membership is the only
-/// module fact. Shared by the scan and depgraph workspace tests; test targets
-/// that compile the shared tree without these tests never reference it.
+/// package (declared `main`: the member that wires the other member is the
+/// workspace's composition root) and its nested `internal/handler` package
+/// importing the `store` module. No `go.mod` at the workspace root — go.work
+/// membership is the only module fact. Shared by the scan and depgraph
+/// workspace tests; test targets that compile the shared tree without these
+/// tests never reference it.
 #[allow(dead_code)]
 pub fn materialize_go_workspace(fx: &common::Fixture) {
     fx.write("go.work", "go 1.21\n\nuse (\n\t./api\n\t./store\n)\n");
     fx.write("api/go.mod", "module example.com/api\ngo 1.21\n");
     fx.write(
         "api/api.go",
-        "package api\n\nimport \"example.com/store\"\n\nfunc Api() {}\n",
+        "package main\n\nimport \"example.com/store\"\n\nfunc Api() {}\n\nfunc main() {}\n",
     );
     fx.write(
         "api/internal/handler/handler.go",
@@ -493,11 +713,12 @@ pub fn materialize_go_workspace(fx: &common::Fixture) {
 }
 
 /// Materialize the canonical single-module Go tree for the declared-grouping
-/// derivation: one `go.mod`, packages `a`, `shell`, `store` under
-/// `example.com/demo`, imports `a -> shell -> store`, no module tier in the
-/// model — the spec's declarations create the grouping. Shared by the go
-/// laundering and submodule-contract probes and scenarios; test targets that
-/// compile the shared tree without these tests never reference it.
+/// path: one `go.mod`, packages `a`, `shell`, `store` under
+/// `example.com/demo`, imports `a -> shell -> store`. The tree records package
+/// references, so its model carries the native module tier; the spec's unit
+/// claims decide which boundaries own those packages. Shared by the go
+/// laundering probes and scenarios; test targets that compile the shared tree
+/// without these tests never reference it.
 #[allow(dead_code)]
 pub fn materialize_go_declared_grouping(fx: &common::Fixture) {
     fx.write("go.mod", "module example.com/demo\ngo 1.21\n");

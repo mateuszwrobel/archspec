@@ -7,7 +7,7 @@ The tool reads `architecture.spec.toml` (see `../../spec.md`), extracts the mode
 ## Scope
 
 - Checks (design §9): component presence, dependency edges (allowed/forbidden), exposed-surface stereotypes, cycle constraints with severity, and declared internal sub-structure.
-- The public-API surface check (`public_api_allowlist`, over named exports and root globs) and the structural root-facade rule (an internal module importing through its publication-only crate root) ship on the same machinery as the edge and cycle checks.
+- The public-API surface check (`public_api_allowlist`, over named exports and root globs) and the structural facade-role rule (an internal module importing through a module the model carries as a publication-only facade) ship on the same machinery as the edge and cycle checks.
 - Every reported difference is a distinct check result; all differences are reported in a single pass.
 - `--strict` promotes all warnings (e.g. `no_cycles` severity=`warning`) to errors for CI gates.
 - Remaining phase-2 checks (API-symbol contract leaks, composition-root placement) extend the same machinery.

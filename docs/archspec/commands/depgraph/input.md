@@ -14,7 +14,7 @@ The `path` positional is a directory scanned exactly as `scan` scans it: languag
 
 ## `--parent` (submodules view)
 
-`--parent <module>` names a **top-level** module to expand into its immediate children. The full module name (`unit::first-segment`, written with `::` or `.`) resolves first; the bare first segment (e.g. `Api` for `HomeBudget.Api`) still resolves as a compatibility fallback. A bare segment that matches the top-level module of several units expands all of them: the union of their children is rendered, in deterministic order — prefer full names to address exactly one module. A name that resolves to no module is an error listing the module names the model knows. It has no meaning for the other views, so supplying it there is an error.
+`--parent <module>` names a **top-level** module to expand into its immediate children. The full module name (`unit::first-segment`, written with `::` or `.`) resolves first; the bare first segment (e.g. `Api` for `Shop.Api`) still resolves as a compatibility fallback. A bare segment that matches the top-level module of several units expands all of them: the union of their children is rendered, in deterministic order — prefer full names to address exactly one module. A name that resolves to no module is an error listing the module names the model knows. It has no meaning for the other views, so supplying it there is an error.
 
 ## Zero configuration
 

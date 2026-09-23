@@ -5,6 +5,7 @@ pub mod doctor;
 pub mod help;
 pub mod report;
 pub mod scan;
+pub mod skill;
 pub mod spec;
 pub mod update;
 pub mod verify;

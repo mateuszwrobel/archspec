@@ -1,0 +1,387 @@
+# Canonical claim registry (fanout-output US 07).
+#
+# Data asset read by `tests/claim_fanout.rs` — the fan-out + agreement guard.
+# No runtime code reads this file; the guard is a test surface. Each entry maps
+# a claim id to its owner surface and its exact canonical text (or, for a
+# computed claim, the rendered lines the computation owns). `signatures` are
+# the fingerprint substrings that mark an occurrence of the claim family in any
+# scanned surface: an occurrence not covered by canonical bytes is a stale
+# echo and fails the guard. Payload-neutral: neutral example paths only, no
+# internal identifiers (the publish leak guard stays the backstop).
+#
+# Field reference (consumed only by tests/claim_fanout.rs):
+#   id                    claim identity
+#   owner                 the owning binary surface, in words an agent acts on
+#   owner_surfaces        rendered-surface keys where the claim may live verbatim
+#   relations             relations a NON-owner surface may have to the text:
+#                         "echo" (byte-identical) and/or "cite" (pointer only;
+#                         a citation contains no signature bytes by definition)
+#   canonical             exact canonical text; `<path>` is a single-token
+#                         placeholder when `template = true`
+#   canonical_fragments   canonical text owned by a computed surface, line-wise
+#   template              canonical carries `<path>` placeholders
+#   signatures            family fingerprints (case-insensitive, word-initial)
+#   dedicated_guard       the test file holding the family's dedicated assertion
+#   [[claim.guard_pin]]   cross-check of registry bytes against that guard's
+#                         source constants: relation is "equals-canonical",
+#                         "contained-in-canonical", "equals-fragments",
+#                         "subset-of-signatures" or "named-in-file"
+
+[[claim]]
+id = "audit-recipe"
+owner = "the numbered recipe of `archspec help workflow`"
+owner_surfaces = ["help workflow"]
+relations = ["cite"]
+canonical_fragments = [
+  "1. archspec scan",
+  "2. archspec depgraph modules",
+  "3. archspec verify",
+  "4. tighten allowed.depend_on",
+  "5. archspec verify --strict",
+  "6. archspec inspect",
+]
+signatures = [
+  "scan -> report",
+  "scan → report",
+  "report -> diagram",
+  "report → diagram",
+  "diagram -> verify",
+  "diagram → verify",
+  "scan, depgraph modules, verify",
+  "depgraph modules, verify, tighten",
+  "init -> update -> verify",
+  "init → update → verify",
+]
+dedicated_guard = "tests/help_audit_recipe.rs"
+[[claim.guard_pin]]
+file = "tests/help_audit_recipe.rs"
+const_name = "RECIPE_CHAINS"
+relation = "subset-of-signatures"
+
+[[claim]]
+id = "go-module-tier"
+owner = "the go section of `archspec help languages`"
+owner_surfaces = ["help languages"]
+relations = ["cite"]
+canonical = "The module tier is derived from the tree's own packages, so a single `go.mod` tree whose packages reference each other has one; `archspec capability matrix` reports the fact."
+signatures = ["the tree's own packages"]
+dedicated_guard = "tests/go_tier_agreement.rs"
+[[claim.guard_pin]]
+file = "tests/go_tier_agreement.rs"
+const_name = "CANONICAL_GO_TIER_PHRASE"
+relation = "contained-in-canonical"
+
+[[claim]]
+id = "depgraph-refusal"
+owner = "the error `archspec depgraph modules` prints on a model without a module tier"
+owner_surfaces = ["depgraph --help", "help depgraph", "help commands"]
+relations = ["echo", "cite"]
+canonical = "depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of"
+signatures = ["depgraph needs the module tier, which this model has none of"]
+dedicated_guard = "tests/go_tier_agreement.rs"
+[[claim.guard_pin]]
+file = "tests/go_tier_agreement.rs"
+const_name = "DEPGRAPH_REFUSAL"
+relation = "equals-canonical"
+
+[[claim]]
+id = "inspect-refusal"
+owner = "the error `archspec inspect tree` prints on a model without a module tier"
+owner_surfaces = ["inspect --help", "help inspect", "help commands"]
+relations = ["echo", "cite"]
+canonical = "inspect tree needs the module tier, which this model has none of; the module tier is derived from the tree's package references, which this tree records none of, 'inspect scanner' renders the unit-tier model"
+signatures = ["inspect tree needs the module tier, which this model has none of"]
+dedicated_guard = "tests/inspect.rs"
+[[claim.guard_pin]]
+file = "tests/inspect.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "facade-inert-note"
+owner = "the note `archspec verify` prints on a go tree whose run reports no facade finding"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "note: facade dependency rule inert for go: no derivable role-facade idiom — alias umbrella, public-package and root delegation forms investigated, recorded in ADR-017"
+signatures = ["facade dependency rule inert for", "no derivable role-facade idiom"]
+dedicated_guard = "tests/shared/scenarios/verify.rs"
+
+[[claim]]
+id = "roles-in-views"
+owner = "the `archspec help roles` topic, backed by the computed views × markers matrix"
+owner_surfaces = ["help roles"]
+relations = ["cite"]
+canonical_fragments = [
+  "  inspect tree — marks: entrypoint and facade nodes carry a role label.",
+  "  inspect scanner — marks: the same structural model as inspect tree, same role labels.",
+  "  inspect (file level) — none: roles attach to model nodes, not files — this view renders files.",
+  "  depgraph modules — marks: module nodes carry a role label.",
+  "  depgraph api-usage — none by decision: a role is not a usage fact; the view itself prints 'note: this view shows no roles by decision (a role is not a usage fact)'.",
+  "  diagram (spec mode) — none by decision: declared components are not model paths.",
+  "  diagram --source scan — marks: the scan model carries its roles.",
+]
+signatures = ["marks in `inspect tree` alone", "api-usage stays silent on roles"]
+dedicated_guard = "tests/roles_matrix.rs"
+[[claim.guard_pin]]
+file = "tests/shared/roles_matrix.rs"
+const_name = "TOPIC_LINES"
+relation = "equals-fragments"
+
+[[claim]]
+id = "api-usage-role-less-note"
+owner = "the note line `archspec depgraph api-usage` prints after its table"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "note: this view shows no roles by decision (a role is not a usage fact)"
+signatures = ["shows no roles by decision"]
+dedicated_guard = "tests/roles_matrix.rs"
+[[claim.guard_pin]]
+file = "tests/roles_matrix.rs"
+const_name = "NOTE_LINE"
+relation = "equals-canonical"
+
+[[claim]]
+id = "rust-unit-naming"
+owner = "the rust section of `archspec help languages`"
+owner_surfaces = ["help languages"]
+relations = ["cite"]
+canonical = "a crate with `src/lib.rs` and `src/main.rs` and no explicit `[[bin]]` or `[lib]` section yields units `<pkg>` (kind=crate) and `<pkg>-bin` (kind=bin); `matches` must name those units exactly."
+signatures = ["pkg>-bin"]
+dedicated_guard = "tests/doc_surface_nits.rs"
+[[claim.guard_pin]]
+file = "tests/doc_surface_nits.rs"
+const_name = "RUST_SENTENCE"
+relation = "equals-canonical"
+
+[[claim]]
+id = "go-naming-legality"
+owner = "the go section of `archspec help languages`"
+owner_surfaces = ["help languages"]
+relations = ["cite"]
+canonical = "`matches.units` targets must be full import paths — a short package name does not resolve there (verify then reports `unexpected component` / `missing component`); module `name` values and `allowed.depend_on` references may be short — references resolve to declared module names."
+signatures = ["short package name does not resolve", "references resolve to declared module names"]
+dedicated_guard = "tests/doc_surface_nits.rs"
+[[claim.guard_pin]]
+file = "tests/doc_surface_nits.rs"
+const_name = "GO_SENTENCE"
+relation = "equals-canonical"
+
+[[claim]]
+id = "report-diagram-granularity"
+owner = "the report help surface (`archspec report --help`)"
+owner_surfaces = ["report --help", "help report", "help commands"]
+relations = ["cite"]
+canonical = "The diagram embedded in a markdown report is file-granular; the module-granular graph is `archspec depgraph modules`."
+signatures = ["embedded in a markdown report", "module-granular graph is"]
+dedicated_guard = "tests/doc_surface_nits.rs"
+[[claim.guard_pin]]
+file = "tests/doc_surface_nits.rs"
+const_name = "REPORT_SENTENCE"
+relation = "equals-canonical"
+
+[[claim]]
+id = "wrote-echo"
+owner = "the stdout line every command mode that writes a body to a path prints — any `[output]` destination of any command and format, or an explicit `--output` on any command (supersedes the wave-3 format-conditional owner: machine destinations echo too)"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "wrote <path>"
+template = true
+signatures = ["wrote "]
+dedicated_guard = "tests/blind4_wrote_echo.rs"
+[[claim.guard_pin]]
+file = "tests/blind4_wrote_echo.rs"
+relation = "named-in-file"
+[[claim.guard_pin]]
+file = "tests/config.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "check-ok-line"
+owner = "the stdout line every command's `--check` prints on a fresh comparison — the five checking commands (scan, diagram, report, inspect, depgraph), configured or flagged destinations alike"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "ok: <path> up to date"
+canonical_fragments = ["a fresh check prints `ok: <path> up to date`"]
+template = true
+signatures = ["up to date"]
+dedicated_guard = "tests/blind4_check_ok_line.rs"
+[[claim.guard_pin]]
+file = "tests/blind4_check_ok_line.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "exploratory-render"
+owner = "the diagram help surface stating the exploratory-source rule (`archspec diagram --help`)"
+owner_surfaces = ["diagram --help", "help diagram"]
+relations = ["echo", "cite"]
+canonical = "The scan source is exploratory: `archspec diagram --source scan <path>` with no `--output` renders to stdout, states the skip with `note: destination <path> not written`, and never touches the configured destination; pass `--output <path>` to write that render."
+signatures = ["exploratory"]
+dedicated_guard = "tests/blind4_wrote_echo.rs"
+[[claim.guard_pin]]
+file = "tests/blind4_wrote_echo.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "pretty-switch"
+owner = "the scan and report help surfaces where the `--pretty` switch is defined (indented model JSON on scan, pure acceptance on report, refused everywhere else)"
+owner_surfaces = ["scan --help", "help scan", "report --help", "help report"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "write the model JSON indented for readers and diffs (default: one compact line)",
+  "accepted for symmetry with `scan`; report json is already indented and no body changes",
+]
+signatures = ["model json indented", "already indented"]
+dedicated_guard = "tests/blind4_pretty.rs"
+[[claim.guard_pin]]
+file = "tests/blind4_pretty.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "csharp-duality"
+owner = "the csharp section of `archspec help languages`"
+owner_surfaces = ["help languages"]
+relations = ["cite"]
+canonical = "Two names for one project. In a C# tree (and any seeded spec with both tiers), every project appears twice: its `.`-separated name is the build unit (named by `units` and unit edges), its `::`-separated name is the namespace identity (the key space of `module_edges` and `roles`); an `update`-seeded spec therefore carries both tiers and that is not duplication — ADR-018 assigns allowance ownership across them."
+signatures = ["two names for one project"]
+dedicated_guard = "tests/blind4_oneliners.rs"
+[[claim.guard_pin]]
+file = "tests/blind4_oneliners.rs"
+const_name = "DUAL_SPELLING"
+relation = "equals-canonical"
+
+[[claim]]
+id = "fold-pointer"
+owner = "the `depgraph --help` pointer naming where folded unit ownership lives"
+owner_surfaces = ["depgraph --help", "help depgraph"]
+relations = ["echo", "cite"]
+canonical = "Node labels fold units — unit ownership lives in the `root_module_declarations` map that `archspec scan` emits in its scan JSON."
+signatures = ["unit ownership lives"]
+dedicated_guard = "tests/blind4_fold_pointer.rs"
+[[claim.guard_pin]]
+file = "tests/blind4_fold_pointer.rs"
+const_name = "FOLD_POINTER"
+relation = "contained-in-canonical"
+# blind5-followup US 02 moved the sentence earlier; the bytes stayed (blind4
+# pin above) and the relocation guard below pins the sentence's own bytes at
+# the new surface — the weld test additionally pins the POSITION (before the
+# `mod`-label paragraph in both depgraph help surfaces).
+[[claim.guard_pin]]
+file = "tests/blind5_help_surfaces.rs"
+const_name = "FOLD_POINTER_SENTENCE"
+relation = "contained-in-canonical"
+
+[[claim]]
+id = "test-gated-edges"
+owner = "the `depgraph --help` statement of test-gated/soft-edge visibility"
+owner_surfaces = ["depgraph --help", "help depgraph"]
+relations = ["echo", "cite"]
+canonical = "Test-gated/soft edges (test namespaces and their consumers) can appear in depgraph projections while being excluded from `depend_on` comparison"
+signatures = ["test-gated/soft edges"]
+dedicated_guard = "tests/blind4_oneliners.rs"
+[[claim.guard_pin]]
+file = "tests/blind4_oneliners.rs"
+const_name = "TEST_GATED_EDGES"
+relation = "equals-canonical"
+
+[[claim]]
+id = "mod-label"
+owner = "the `depgraph --help` explanation of the `mod` node label"
+owner_surfaces = ["depgraph --help", "help depgraph"]
+relations = ["echo", "cite"]
+canonical = "The `mod` label is a unit's root-module bucket: the namespace-less root where the composition/wiring code lives"
+signatures = ["root-module bucket", "namespace-less root"]
+dedicated_guard = "tests/blind4_oneliners.rs"
+[[claim.guard_pin]]
+file = "tests/blind4_oneliners.rs"
+const_name = "MOD_LABEL"
+relation = "equals-canonical"
+
+[[claim]]
+id = "init-update-summary"
+owner = "the `--help` command-index summaries that split init (scaffold, no capture) from update (snapshot of the real tree)"
+owner_surfaces = ["help", "help help", "help --help", "help commands"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "scaffold config + starter spec (no real-tree capture)",
+  "seed a spec by snapshotting the real tree",
+]
+signatures = ["no real-tree capture", "snapshotting the real tree"]
+dedicated_guard = "tests/blind4_oneliners.rs"
+[[claim.guard_pin]]
+file = "tests/blind4_oneliners.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "destination-statement"
+owner = "the stdout preamble `--format` triggers when the configured destination stays untouched"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "note: destination <path> not written"
+template = true
+signatures = ["note: destination "]
+dedicated_guard = "tests/config.rs"
+
+# --- blind-5 follow-up registrations (US 05, D06): the canonical sentences
+# US 01–04 landed, each welded to its owner surface and dedicated guard.
+# `check-render-guidance` fragment order is load-bearing for the weld leg in
+# tests/claim_fanout.rs: advice clause, then the text/markdown/json
+# check-error branches.
+
+[[claim]]
+id = "check-render-guidance"
+owner = "the `--check` line of `archspec report --help` (the same sentence is welded into the `[output]` section of the config guidance doc — there is no `help config` topic)"
+owner_surfaces = ["report --help", "help report", "help commands"]
+relations = ["echo", "cite"]
+canonical = "A `--check` compares the canonical rendering unless `--format` names another; to verify a `--format`-generated artefact, pass the same `--format` to `--check`."
+canonical_fragments = [
+  "pass the same --format to --check to verify a --format-generated artefact",
+  "compared the text rendering; regenerate with: archspec report; pass the same --format to --check to verify a --format-generated artefact",
+  "compared the markdown rendering; regenerate with: archspec report --format markdown",
+  "compared the json rendering; regenerate with: archspec report --format json",
+]
+signatures = [
+  "canonical rendering unless",
+  "pass the same --format to --check to verify a --format-generated artefact",
+]
+dedicated_guard = "tests/blind5_check_rendering.rs"
+[[claim.guard_pin]]
+file = "tests/blind5_check_rendering.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "first-spec-bootstrap"
+owner = "the intro area of `archspec help workflow`, above the numbered recipe"
+owner_surfaces = ["help workflow"]
+relations = ["cite"]
+canonical = "Steps 1–2 create no spec: on a first capture of an untracked repo, seed one with `archspec update` before step 3 runs and reconcile the seed per step 4 — the `update` row under Supporting commands owns that reconciliation."
+signatures = ["create no spec: on a first capture", "seed one with `archspec update`"]
+dedicated_guard = "tests/blind5_help_surfaces.rs"
+[[claim.guard_pin]]
+file = "tests/blind5_help_surfaces.rs"
+const_name = "BOOTSTRAP"
+relation = "equals-canonical"
+
+[[claim]]
+id = "destination-canonical"
+owner = "the destination rule stated in the `archspec report --help` surface beside the flags it governs"
+owner_surfaces = ["report --help", "help report", "help commands"]
+relations = ["echo", "cite"]
+canonical = "A configured report destination is provisioned for the default text rendering: a run naming another `--format` renders to stdout and never writes the destination."
+signatures = ["provisioned for the default text rendering", "never writes the destination"]
+dedicated_guard = "tests/blind5_help_surfaces.rs"
+[[claim.guard_pin]]
+file = "tests/blind5_help_surfaces.rs"
+const_name = "DESTINATION_CANONICAL"
+relation = "equals-canonical"
+
+[[claim]]
+id = "artefact-dirt-map"
+owner = "the artefact-freshness section of `archspec help diagnostics`"
+owner_surfaces = ["help diagnostics"]
+relations = ["cite"]
+canonical = "Artefact freshness keys on structure, not content: a comment-only edit dirties no artefact; edits that change structure (files, modules, or edges) dirty the `scan` model JSON, the `inspect` file map, and `depgraph` projections; `report` follows only structure that reaches the component layer (component edges, metrics, violations), the same layer at which `verify` engages; the spec-mode `diagram` renders declared components and never dirties on source edits, only on spec changes."
+signatures = ["keys on structure", "dirties no artefact"]
+dedicated_guard = "tests/blind5_dirt_map.rs"
+[[claim.guard_pin]]
+file = "tests/blind5_dirt_map.rs"
+const_name = "DIRT_MAP_SENTENCE"
+relation = "equals-canonical"

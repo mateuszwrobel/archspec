@@ -118,14 +118,21 @@ pub fn all() -> Vec<Scenario> {
             "canonical imports never touch the facade root, so verify passes with the rule active",
             canonical_import_stays_clean_under_active_facade,
         ),
-        // The inert side of the root-facade row belongs to the verify surface
+        scenario_when(
+            Feature::VerifyRootFacade,
+            "umbrella_root_consumed_by_referencing_unit_is_violation",
+            "a project referencing the umbrella consumes it through the root namespace (`using <Root>;`): the facade rule engages on the roles map and reports the cross-unit edge",
+            csharp_project_files,
+            umbrella_root_consumed_by_referencing_unit_is_violation,
+        ),
+        // The inert side of the role-facade row belongs to the verify surface
         // every driver implements (the facade rule itself stays under
         // VerifyRootFacade, whose probe is honest about the inert drivers).
         scenario_when_inert(
             Feature::VerifyModuleBoundaries,
             "facade_rule_note_announces_facade_tierless_driver",
-            "on a driver whose table marks root-facade not-emitted verify states the facade rule inert instead of staying silent, with the verdict and exit status unchanged",
-            "root-facade",
+            "on a driver whose table marks role-facade not-emitted verify states the facade rule inert instead of staying silent, with the verdict and exit status unchanged",
+            "role-facade",
             facade_rule_note_announces_facade_tierless_driver,
         ),
         scenario(
@@ -136,10 +143,10 @@ pub fn all() -> Vec<Scenario> {
         ),
         scenario_when(
             Feature::VerifyForbiddenLaundering,
-            "worktree_free_go_tree_announces_laundering_capability",
-            "a single-module go tree (no go.work) announces consistently: a fired rule reports the laundered finding without any tier note, a clean run states no native module tier this run",
+            "worktree_free_go_tree_enforces_laundering_without_tier_note",
+            "a single-module go tree (no go.work) engages the laundering check directly: a fired rule reports the laundered finding, a clean run reports nothing, and neither run carries any tier note",
             go_driver,
-            worktree_free_go_tree_announces_laundering_capability,
+            worktree_free_go_tree_enforces_laundering_without_tier_note,
         ),
         // Documents the conduit-claim precondition: the check traces routes on
         // the boundary pair graph, so the intermediate's territory must be
@@ -151,6 +158,13 @@ pub fn all() -> Vec<Scenario> {
             "laundering_traces_only_claimed_conduit_territory",
             "a ban routed through a conduit whose territory a boundary claims is reported as laundered; the same conduit claimed by no boundary leaves the pair graph — no laundered line, only unexpected component (go) or unowned endpoints (soft tier) surfacing",
             laundering_traces_only_claimed_conduit_territory,
+        ),
+        scenario_when(
+            Feature::VerifyForbiddenLaundering,
+            "composition_root_wiring_sanctions_the_banned_bridge",
+            "a ban whose route rides a hop owned by a composition-role-carrying boundary is sanctioned wiring — clean under `verify --strict`; the same edges without the composition role keep warning",
+            composition_roles_driver,
+            composition_root_wiring_sanctions_the_banned_bridge,
         ),
         scenario(
             Feature::VerifySubmoduleContracts,
@@ -178,7 +192,7 @@ pub fn all() -> Vec<Scenario> {
         scenario(
             Feature::VerifyModuleBoundaries,
             "dead_reference_to_source_module_classifies_per_language",
-            "an undeclared depend_on target is classified per capability table: granular soft-tier drivers see a source module, a driver without the tier says not verifiable instead of claiming non-existence",
+            "an undeclared depend_on target is classified by model visibility: a target addressable as a module path reports exists in source but undeclared, one addressing nothing on an exact-import-path driver reports does not exist",
             dead_reference_to_source_module_classifies_per_language,
         ),
         scenario(
@@ -204,7 +218,7 @@ pub fn all() -> Vec<Scenario> {
         scenario_when_capability(
             Feature::VerifyModuleBoundaries,
             "unclaimed_module_edge_endpoint_is_reported_unowned",
-            "a module edge endpoint no boundary claims is a warning-level unowned endpoint, promoted by --strict",
+            "a module edge endpoint no boundary claims is a warning-level unowned endpoint, promoted by --strict; on go the endpoint's package is also an unclaimed unit, so the warning travels with unit-level findings",
             "module-tier",
             unclaimed_module_edge_endpoint_is_reported_unowned,
         ),
@@ -269,6 +283,13 @@ pub fn all() -> Vec<Scenario> {
             "a module declaration with no source file is a warning-level unresolved module file, promoted by --strict",
             "root-module-declarations",
             rust_unresolved_module_file_pin,
+        ),
+        scenario_when_capability(
+            Feature::VerifyForbidExternal,
+            "external_free_engages_the_serialized_module_tier",
+            "an external_free pattern naming a module engages the module subtree on every module-tier driver: a pure match passes non-vacuously, contamination fails naming module and packages",
+            "module-tier",
+            external_free_engages_the_serialized_module_tier,
         ),
         scenario(
             Feature::VerifyNoCycles,
@@ -406,9 +427,7 @@ fn stale_allowed_dependency_reports_missing_edge(
         ));
     }
     if stdout.contains("allowed edge absent") {
-        return Err(format!(
-            "the retired label must never render:\n{stdout}"
-        ));
+        return Err(format!("the retired label must never render:\n{stdout}"));
     }
     // Same tree, stale declaration dropped: the floor has nothing to enforce
     // and the tree verifies clean.
@@ -539,8 +558,7 @@ fn forbidden_external_dependency_is_reported(
     let external = external_dep(driver);
     tree.module_usings
         .push(("app".into(), "core".into(), external.into()));
-    tree.packages
-        .insert("app".into(), vec![external.into()]);
+    tree.packages.insert("app".into(), vec![external.into()]);
     driver.materialize(fx, &tree);
     let unit = driver.unit_name("app");
     let from = driver.module_path("app", "core");
@@ -559,15 +577,14 @@ fn forbidden_external_dependency_is_reported(
     }
     let stdout = common::stdout(&output);
     if !stdout.contains("forbidden external crate") {
-        return Err(format!("report must list the forbidden external crate:\n{stdout}"));
+        return Err(format!(
+            "report must list the forbidden external crate:\n{stdout}"
+        ));
     }
     Ok(())
 }
 
-fn module_outside_forbid_list_passes(
-    driver: &Driver,
-    fx: &common::Fixture,
-) -> Result<(), String> {
+fn module_outside_forbid_list_passes(driver: &Driver, fx: &common::Fixture) -> Result<(), String> {
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
     tree.modules
@@ -582,12 +599,19 @@ fn module_outside_forbid_list_passes(
         .insert("app".into(), vec![external.into(), other.into()]);
     driver.materialize(fx, &tree);
     let unit = driver.unit_name("app");
+    let core = driver.module_path("app", "core");
+    let ui = driver.module_path("app", "ui");
     let from_ui = driver.module_path("app", "ui");
+    // The two using modules are declared boundaries on their module paths: on
+    // go every package is also a unit, so an unclaimed module would surface an
+    // unexpected-component error beside the forbid rule under test.
     fx.write(
         "architecture.spec.toml",
         &format!(
             "[project]\nlanguage = \"{}\"\n\n\
              [[module]]\nname = \"app\"\nmatches = {{ units = [\"{unit}\"] }}\n\n\
+             [[module]]\nname = \"{core}\"\nmatches = {{ modules = [\"{core}\"] }}\n\n\
+             [[module]]\nname = \"{ui}\"\nmatches = {{ modules = [\"{ui}\"] }}\n\n\
              [[constraint]]\ntype = \"forbid_external_crates\"\nfrom = [\"{from_ui}\"]\nforbid = [\"{external}\"]\n",
             driver.language.as_str()
         ),
@@ -610,10 +634,15 @@ fn forbid_by_package_name_fires_on_misaligned_namespace(
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
     tree.modules.insert("app".into(), vec!["Core".into()]);
-    tree.module_usings
-        .push(("app".into(), "Core".into(), "Microsoft.IdentityModel.Tokens".into()));
-    tree.packages
-        .insert("app".into(), vec!["Microsoft.IdentityModel.JsonWebTokens".into()]);
+    tree.module_usings.push((
+        "app".into(),
+        "Core".into(),
+        "Microsoft.IdentityModel.Tokens".into(),
+    ));
+    tree.packages.insert(
+        "app".into(),
+        vec!["Microsoft.IdentityModel.JsonWebTokens".into()],
+    );
     driver.materialize(fx, &tree);
     let unit = driver.unit_name("app");
     let from = driver.module_path("app", "Core");
@@ -692,8 +721,11 @@ fn forbid_prefix_sharing_package_does_not_fire_on_longest_match(
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
     tree.modules.insert("app".into(), vec!["Core".into()]);
-    tree.module_usings
-        .push(("app".into(), "Core".into(), "Microsoft.IdentityModel.Tokens".into()));
+    tree.module_usings.push((
+        "app".into(),
+        "Core".into(),
+        "Microsoft.IdentityModel.Tokens".into(),
+    ));
     tree.packages.insert(
         "app".into(),
         vec![
@@ -732,8 +764,10 @@ fn unused_reference_absent_from_module_external_but_in_manifests(
     tree.modules.insert("app".into(), vec!["Core".into()]);
     tree.module_usings
         .push(("app".into(), "Core".into(), "Newtonsoft.Json".into()));
-    tree.packages
-        .insert("app".into(), vec!["Serilog".into(), "Newtonsoft.Json".into()]);
+    tree.packages.insert(
+        "app".into(),
+        vec!["Serilog".into(), "Newtonsoft.Json".into()],
+    );
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
     let unit = driver.unit_name("app");
@@ -773,7 +807,9 @@ fn unused_reference_absent_from_module_external_but_in_manifests(
     let output = expect_success(driver, fx, &["verify"])?;
     let stdout = common::stdout(&output);
     if !stdout.contains("matches source model") {
-        return Err(format!("unused-reference forbid must stay clean:\n{stdout}"));
+        return Err(format!(
+            "unused-reference forbid must stay clean:\n{stdout}"
+        ));
     }
     Ok(())
 }
@@ -895,17 +931,19 @@ fn canonical_import_stays_clean_under_active_facade(
     let output = expect_success(driver, fx, &["verify"])?;
     let stdout = common::stdout(&output);
     if stdout.contains("facade") {
-        return Err(format!("canonical imports never touch the facade root:\n{stdout}"));
+        return Err(format!(
+            "canonical imports never touch the facade root:\n{stdout}"
+        ));
     }
     Ok(())
 }
 
-/// The inert side of the `root-facade` row: on every driver the table marks
-/// not-emitted (csharp, go) verify must SAY the rule is inert instead of
-/// silently passing it. The note is output only: the verdict and the exit
+/// The inert side of the `role-facade` row: on every driver the table marks
+/// not-emitted (go) verify must SAY the rule is inert instead of silently
+/// passing it. The note is output only: the verdict and the exit
 /// status stay what they were without it. The firing side of the same rule is
-/// `import_of_facade_root_reexport_is_violation` (the one driver emitting the
-/// fact at full granularity).
+/// `import_of_facade_root_reexport_is_violation` (the drivers emitting the
+/// role fact at full granularity).
 fn facade_rule_note_announces_facade_tierless_driver(
     driver: &Driver,
     fx: &common::Fixture,
@@ -915,11 +953,15 @@ fn facade_rule_note_announces_facade_tierless_driver(
     let output = expect_success(driver, fx, &["verify"])?;
     let stdout = common::stdout(&output);
     let note = format!(
-        "note: facade dependency rule inert for {}: driver emits no root-facade fact",
+        "note: facade dependency rule inert for {}: no derivable role-facade \
+         idiom — alias umbrella, public-package and root delegation forms \
+         investigated, recorded in ADR-017",
         driver.language.as_str()
     );
     if !stdout.contains(&note) {
-        return Err(format!("run must carry the inert-rule note {note}:\n{stdout}"));
+        return Err(format!(
+            "run must carry the inert-rule note {note}:\n{stdout}"
+        ));
     }
     if !stdout.contains("matches source model") || stdout.contains("facade dependency:") {
         return Err(format!(
@@ -929,15 +971,14 @@ fn facade_rule_note_announces_facade_tierless_driver(
     Ok(())
 }
 
-fn worktree_free_go_tree_announces_laundering_capability(
+/// A single go.mod tree (no go.work) records package references, so its model
+/// carries the module tier and the laundering check engages directly — no
+/// derived-grouping tier note exists to announce. A fired rule announces
+/// through its finding; a run that reports nothing announces nothing.
+fn worktree_free_go_tree_enforces_laundering_without_tier_note(
     driver: &Driver,
     fx: &common::Fixture,
 ) -> Result<(), String> {
-    // A single go.mod tree (no go.work): the scan emits no module tier, so
-    // the rule can fire only from declared grouping. The note and the
-    // finding must never pair: a run where the rule fired announces through
-    // the finding (a fired rule is not inert), a run that reported nothing
-    // announces through the tier note.
     materialize_go_declared_grouping(fx);
     fx.write(
         "architecture.spec.toml",
@@ -949,20 +990,26 @@ fn worktree_free_go_tree_announces_laundering_capability(
          [[module]]\nname = \"store\"\nmatches = { units = [\"example.com/demo/store\"] }\n",
     );
     let finding = "laundered forbidden edge: a -> store via shell";
-    let note = "note: laundered forbidden edge rule: no native module tier this run \
-                (grouping derived from spec declarations)";
+    let notes = [
+        "no native module tier this run",
+        "laundered forbidden edge rule inert",
+    ];
     let output = expect_success(driver, fx, &["verify"])?;
     let stdout = common::stdout(&output);
     if !stdout.contains(finding) {
-        return Err(format!("the fired run must report the finding {finding}:\n{stdout}"));
-    }
-    if stdout.contains(note) || stdout.contains("laundered forbidden edge rule inert") {
         return Err(format!(
-            "a fired rule must announce through its finding, not a note:\n{stdout}"
+            "the fired run must report the finding {finding}:\n{stdout}"
         ));
     }
-    // The same tree declared clean: the rule runs, reports nothing, and the
-    // run then states the tier absence instead.
+    for note in notes {
+        if stdout.contains(note) {
+            return Err(format!(
+                "a fired rule must announce through its finding, not the note {note}:\n{stdout}"
+            ));
+        }
+    }
+    // The same tree declared clean: the rule runs, reports nothing, and
+    // announces nothing either — a silent rule needs no announcement.
     fx.write(
         "architecture.spec.toml",
         "[project]\nlanguage = \"go\"\n\n\
@@ -975,11 +1022,20 @@ fn worktree_free_go_tree_announces_laundering_capability(
     let clean = expect_success(driver, fx, &["verify"])?;
     let clean_stdout = common::stdout(&clean);
     if clean_stdout.contains(finding) {
-        return Err(format!("declared-clean must report no finding:\n{clean_stdout}"));
-    }
-    if !clean_stdout.contains(note) {
         return Err(format!(
-            "a run reporting nothing must carry the tier note {note}:\n{clean_stdout}"
+            "declared-clean must report no finding:\n{clean_stdout}"
+        ));
+    }
+    for note in notes {
+        if clean_stdout.contains(note) {
+            return Err(format!(
+                "a run reporting nothing on a tier-carrying tree must stay silent about the tier, found {note}:\n{clean_stdout}"
+            ));
+        }
+    }
+    if !clean_stdout.contains("matches source model") {
+        return Err(format!(
+            "the declared-clean run must report the tree matching its model:\n{clean_stdout}"
         ));
     }
     Ok(())
@@ -1266,12 +1322,17 @@ fn submodule_contract_leak_reported_under_submodule_path(
     );
     let output = driver.run(fx, &["verify"]);
     if output.status.code() == Some(0) {
-        return Err("a contract.forbid stereotype surfacing under the submodule boundary must fail verify".into());
+        return Err(
+            "a contract.forbid stereotype surfacing under the submodule boundary must fail verify"
+                .into(),
+        );
     }
     let stdout = common::stdout(&output);
     let expected = format!("contract leak: {ab} exposes c (forbidden)");
     if !stdout.contains(&expected) {
-        return Err(format!("leak must be reported under the submodule path {ab}:\n{stdout}"));
+        return Err(format!(
+            "leak must be reported under the submodule path {ab}:\n{stdout}"
+        ));
     }
     Ok(())
 }
@@ -1308,7 +1369,10 @@ fn go_submodule_contract_stereotype_needs_full_path_glob(
     }
     let expected = "contract leak: auth::entity exposes entity (forbidden)";
     if !common::stdout(&output).contains(expected) {
-        return Err(format!("leak must be reported under the submodule path:\n{}", common::stdout(&output)));
+        return Err(format!(
+            "leak must be reported under the submodule path:\n{}",
+            common::stdout(&output)
+        ));
     }
     // The trap: the identical spec with a bare-name stereotype. The pattern
     // matches no go unit (no `::` to strip a bare segment from), the contract
@@ -1359,9 +1423,7 @@ fn undeclared_dependency_exceeds_allowed_ceiling(
     }
     let stdout = common::stdout(&output);
     if !stdout.contains("disallowed cross-component dependency: a -> b") {
-        return Err(format!(
-            "report must name the ceiling finding:\n{stdout}"
-        ));
+        return Err(format!("report must name the ceiling finding:\n{stdout}"));
     }
     fx.write(
         "architecture.spec.toml",
@@ -1389,12 +1451,15 @@ fn undeclared_dependency_exceeds_allowed_ceiling(
     Ok(())
 }
 
-/// One undeclared `depend_on` target whose name exists as a module in the
-/// source for granular soft-tier drivers but is invisible to go (whose
-/// capability row carries no module-tier fact on this tree shape): the same
-/// spec line classifies as a source module rust/c# can point at versus a
-/// reference go cannot verify from source — the table, not language lore,
-/// decides whether non-existence may be claimed.
+/// One undeclared `depend_on` target classified per what the model can see:
+/// rust/c# carry the target as a soft module path (`exists in source but
+/// undeclared`); on go the target's package exists only under its full import
+/// path — the bare-segment concession addresses `::` module paths, and units
+/// match by exact name — so the reference addresses nothing in the model and
+/// the run may claim non-existence (`does not exist`). The capability table
+/// (module-tier granular everywhere) decides that non-existence may be
+/// claimed at all; a tier-less run would have to say `not verifiable from
+/// source` instead.
 fn dead_reference_to_source_module_classifies_per_language(
     driver: &Driver,
     fx: &common::Fixture,
@@ -1406,18 +1471,23 @@ fn dead_reference_to_source_module_classifies_per_language(
     driver.materialize(fx, &tree);
     let a = driver.unit_name("a");
     let b = driver.unit_name("b");
+    let a_core = driver.module_path("a", "core");
+    // Boundary `a` also claims core's module path: on go that package is a
+    // unit and an unclaimed one would add an unexpected-component error
+    // beside the dead reference under test. The reference target stays the
+    // bare `core` — no declared module carries that name.
     fx.write(
         "architecture.spec.toml",
         &format!(
             "[project]\nlanguage = \"{}\"\n\n\
-             [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"] }}\n\
+             [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"], modules = [\"{a_core}\"] }}\n\
              [module.allowed]\ndepend_on = [\"b\", \"core\"]\n\n\
              [[module]]\nname = \"b\"\nmatches = {{ units = [\"{b}\"] }}\n",
             driver.language.as_str()
         ),
     );
     let variant = match driver.language {
-        Language::Go => "not verifiable from source",
+        Language::Go => "does not exist",
         Language::Rust | Language::Csharp => "exists in source but undeclared",
     };
     let output = driver.run(fx, &["verify"]);
@@ -1469,7 +1539,9 @@ fn undeclared_unit_reports_unexpected_component(
     }
     let stdout = common::stdout(&output);
     if !stdout.contains(&format!("unexpected component: {b}")) {
-        return Err(format!("report must name the unexpected component {b}:\n{stdout}"));
+        return Err(format!(
+            "report must name the unexpected component {b}:\n{stdout}"
+        ));
     }
     Ok(())
 }
@@ -1503,7 +1575,9 @@ fn dotted_subunit_of_declared_component_is_unassigned(
     }
     let stdout = common::stdout(&output);
     if !stdout.contains(&format!("unassigned unit: {tests}")) {
-        return Err(format!("report must name the unassigned unit {tests}:\n{stdout}"));
+        return Err(format!(
+            "report must name the unassigned unit {tests}:\n{stdout}"
+        ));
     }
     Ok(())
 }
@@ -1514,8 +1588,7 @@ fn two_boundaries_claim_module_at_equal_specificity(
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
-    tree.modules
-        .insert("app".into(), vec!["Core".into()]);
+    tree.modules.insert("app".into(), vec!["Core".into()]);
     driver.materialize(fx, &tree);
     let app = driver.unit_name("app");
     let core = driver.module_path("app", "Core");
@@ -1535,7 +1608,9 @@ fn two_boundaries_claim_module_at_equal_specificity(
     let stdout = common::stdout(&output);
     let expected = format!("ambiguous module match: {core} claimed by both");
     if !stdout.contains(&expected) {
-        return Err(format!("report must name the ambiguous claim on {core}:\n{stdout}"));
+        return Err(format!(
+            "report must name the ambiguous claim on {core}:\n{stdout}"
+        ));
     }
     Ok(())
 }
@@ -1566,6 +1641,30 @@ fn unclaimed_module_edge_endpoint_is_reported_unowned(
         ),
     );
     let finding = format!("unowned module edge endpoint: {hidden}");
+    if driver.language == Language::Go {
+        // On go a module path is a package unit, so the package `hidden`
+        // claims by no boundary is simultaneously an unowned module-edge
+        // endpoint (warning) and an unclaimed unit (unit-level finding): the
+        // run fails on the unit finding, but the endpoint warning — the
+        // category under test — is the same and --strict promotion behaves
+        // the same.
+        let output = driver.run(fx, &["verify"]);
+        let stdout = common::stdout(&output);
+        if !stdout.contains(&format!("warning: {finding}")) {
+            return Err(format!("warning must name the unowned endpoint:\n{stdout}"));
+        }
+        let strict = driver.run(fx, &["verify", "--strict"]);
+        if strict.status.code() == Some(0) {
+            return Err("--strict must fail the run carrying the unowned endpoint".into());
+        }
+        let stdout = common::stdout(&strict);
+        if !stdout.contains(&finding) || stdout.contains(&format!("warning: {finding}")) {
+            return Err(format!(
+                "--strict report must keep the finding without the warning prefix:\n{stdout}"
+            ));
+        }
+        return Ok(());
+    }
     let output = driver.run(fx, &["verify"]);
     if output.status.code() != Some(0) {
         return Err(format!(
@@ -1610,11 +1709,15 @@ fn top_level_contract_forbid_stereotype_surfaced_by_unit(
     );
     let output = driver.run(fx, &["verify"]);
     if output.status.code() == Some(0) {
-        return Err("a forbidden stereotype surfaced by the claimed unit name must fail verify".into());
+        return Err(
+            "a forbidden stereotype surfaced by the claimed unit name must fail verify".into(),
+        );
     }
     let stdout = common::stdout(&output);
     if !stdout.contains("contract leak: vault exposes ledger (forbidden)") {
-        return Err(format!("report must name the top-level contract leak:\n{stdout}"));
+        return Err(format!(
+            "report must name the top-level contract leak:\n{stdout}"
+        ));
     }
     Ok(())
 }
@@ -1643,7 +1746,8 @@ fn feature_boundary_gated_pattern_without_declaration_fires_where_emitted(
         return Err("a gate naming no declared module must fail verify".into());
     }
     let stdout = common::stdout(&output);
-    if !stdout.contains("feature boundary: gated module pattern 'ghost' matches no declared module") {
+    if !stdout.contains("feature boundary: gated module pattern 'ghost' matches no declared module")
+    {
         return Err(format!("report must name the unmatchable gate:\n{stdout}"));
     }
     Ok(())
@@ -1681,7 +1785,9 @@ fn feature_boundary_missing_declarations_fact_surfaces_vacuous(
     let stdout = common::stdout(&output);
     let expected = "vacuous constraint: [constraint #1] feature_boundary: driver emits no root-module-declarations fact (capability not-emitted): the constraint cannot engage";
     if !stdout.contains(expected) {
-        return Err(format!("report must state the capability vacuity once:\n{stdout}"));
+        return Err(format!(
+            "report must state the capability vacuity once:\n{stdout}"
+        ));
     }
     if stdout.contains("feature boundary:") {
         return Err(format!("no per-pattern #29 finding may appear:\n{stdout}"));
@@ -1695,6 +1801,82 @@ fn feature_boundary_missing_declarations_fact_surfaces_vacuous(
         return Err(format!(
             "--strict report must keep the vacuous finding without the warning prefix:\n{stdout}"
         ));
+    }
+    Ok(())
+}
+
+/// Rows 87–88 on every module-tier driver (VER-10's registry leg): an
+/// `external_free` pattern naming a module engages the tier the driver
+/// serializes — a pure match verifies clean with no vacuous line (the guard
+/// monitors the subtree, it does not skip it), and contamination fails
+/// naming the module and the packages it imports. Go runs the same shape
+/// with its packages claimed as modules (the derived grouping), so the
+/// subtree claim is checked, not assumed.
+fn external_free_engages_the_serialized_module_tier(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    let external = external_dep(driver);
+    let purity_spec = {
+        let unit = driver.unit_name("app");
+        let core = driver.module_path("app", "core");
+        let ui = driver.module_path("app", "ui");
+        format!(
+            "[project]\nlanguage = \"{}\"\n\n\
+             [[module]]\nname = \"{unit}\"\nmatches = {{ units = [\"{unit}\"] }}\n\n\
+             [[module]]\nname = \"{core}\"\nmatches = {{ modules = [\"{core}\"] }}\n\n\
+             [[module]]\nname = \"{ui}\"\nmatches = {{ modules = [\"{ui}\"] }}\n\n\
+             [[constraint]]\ntype = \"external_free\"\nfrom = [\"{core}\"]\n",
+            driver.language.as_str()
+        )
+    };
+    let mut pure = LogicalTree::new();
+    pure.units = vec!["app".into()];
+    pure.modules
+        .insert("app".into(), vec!["core".into(), "ui".into()]);
+    pure.module_usings
+        .push(("app".into(), "ui".into(), external.into()));
+    pure.packages.insert("app".into(), vec![external.into()]);
+    driver.materialize(fx, &pure);
+    fx.write("architecture.spec.toml", &purity_spec);
+    let output = expect_success(driver, fx, &["verify"])?;
+    let stdout = common::stdout(&output);
+    if stdout.contains("vacuous") {
+        return Err(format!(
+            "a pure matched module engages the guard — never a vacuous warning:\n{stdout}"
+        ));
+    }
+    if !stdout.contains("matches source model") {
+        return Err(format!("the pure subtree must verify clean:\n{stdout}"));
+    }
+    let mut contaminated = LogicalTree::new();
+    contaminated.units = vec!["app".into()];
+    contaminated.modules.insert(
+        "app".into(),
+        vec!["core".into(), "ui".into()],
+    );
+    contaminated
+        .module_usings
+        .push(("app".into(), "core".into(), external.into()));
+    contaminated
+        .packages
+        .insert("app".into(), vec![external.into()]);
+    driver.materialize(fx, &contaminated);
+    let output = driver.run(fx, &["verify"]);
+    if output.status.code() == Some(0) {
+        return Err(format!(
+            "a contaminated subtree must fail (stdout: {})",
+            common::stdout(&output)
+        ));
+    }
+    let stdout = common::stdout(&output);
+    if !stdout.contains("not external free:") || !stdout.contains(" imports ") {
+        return Err(format!(
+            "the finding must name the module and the packages it imports:\n{stdout}"
+        ));
+    }
+    if !stdout.contains(external) {
+        return Err(format!("the finding must name the external package {external}:\n{stdout}"));
     }
     Ok(())
 }
@@ -1808,7 +1990,9 @@ fn rust_root_public_api_leak_pin(driver: &Driver, fx: &common::Fixture) -> Resul
     }
     let stdout = common::stdout(&output);
     if !stdout.contains("public api leak: app exposes auth (not allowlisted)") {
-        return Err(format!("report must name the leaking root export:\n{stdout}"));
+        return Err(format!(
+            "report must name the leaking root export:\n{stdout}"
+        ));
     }
     Ok(())
 }
@@ -1861,7 +2045,9 @@ fn rust_unresolved_module_file_pin(driver: &Driver, fx: &common::Fixture) -> Res
     }
     let stdout = common::stdout(&output);
     if !stdout.contains("warning: unresolved module file: app::ghost") {
-        return Err(format!("warning must name the unresolved module file:\n{stdout}"));
+        return Err(format!(
+            "warning must name the unresolved module file:\n{stdout}"
+        ));
     }
     let strict = driver.run(fx, &["verify", "--strict"]);
     if strict.status.code() == Some(0) {
@@ -1951,4 +2137,165 @@ fn vacuous_cycle_constraint_surfaces_edgeless_group(
         ));
     }
     Ok(())
+}
+
+/// True for drivers whose scan derives composition roles into the model
+/// (c#: registration-wired roots, go: main packages) — the sanctioned-bridge
+/// scenario pins what those facts do to the laundering check. Rust states the
+/// fact too, but a bin root cannot sit on a module-tier route, so its parity
+/// lives in the scenario-98 family.
+fn composition_roles_driver(driver: &Driver) -> bool {
+    matches!(driver.language, Language::Csharp | Language::Go)
+}
+
+/// The roles map drives the facade rule on its own terms: a referencing
+/// project consumes the umbrella through the ROOT namespace (`using App;`) —
+/// an edge into the module the scan marked `facade`.
+fn umbrella_root_consumed_by_referencing_unit_is_violation(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    let csproj = |refs: &[&str]| {
+        let mut text = String::from(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n",
+        );
+        if !refs.is_empty() {
+            text.push_str("  <ItemGroup>\n");
+            for reference in refs {
+                text.push_str(&format!(
+                    "    <ProjectReference Include=\"..\\{reference}\\{reference}.csproj\" />\n"
+                ));
+            }
+            text.push_str("  </ItemGroup>\n");
+        }
+        text.push_str("</Project>\n");
+        text
+    };
+    fx.write("App/App.csproj", &csproj(&[]));
+    fx.write(
+        "App/Root.cs",
+        "namespace App\n{\n    using App.Engine;\n}\n",
+    );
+    fx.write(
+        "App/Engine.cs",
+        "namespace App.Engine;\npublic class Engine { }\n",
+    );
+    fx.write("App.Consumer/App.Consumer.csproj", &csproj(&["App"]));
+    fx.write(
+        "App.Consumer/X.cs",
+        "using App;\nnamespace App.Consumer;\npublic class X { }\n",
+    );
+    fx.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"umbrella\"\nmatches = { modules = [\"App\"] }\n\n[module.allowed]\ndepend_on = [\"engine\"]\n\n[[module]]\nname = \"engine\"\nmatches = { modules = [\"App::Engine\"] }\n\n[[module]]\nname = \"consumer\"\nmatches = { modules = [\"App::Consumer\"] }\n\n[module.allowed]\ndepend_on = [\"umbrella\"]\n",
+    );
+    let output = driver.run(fx, &["verify"]);
+    if output.status.code() != Some(1) {
+        return Err(format!(
+            "consuming the umbrella through the facade root must fail verify (exit {:?}):\n{}",
+            output.status.code(),
+            common::stdout(&output)
+        ));
+    }
+    let finding = "facade dependency: App::Consumer -> App";
+    if !common::stdout(&output).contains(finding) {
+        return Err(format!(
+            "report must contain `{finding}`:\n{}",
+            common::stdout(&output)
+        ));
+    }
+    Ok(())
+}
+
+/// The sanctioned bridge. c#: the DI-wired entrypoint (composition role) under
+/// a ban whose route rides its legal hop — clean under `--strict`; the same
+/// tree without the registration calls states no composition role and warns
+/// again. go: the `package main` wiring unit under a ban — clean under
+/// `--strict`: the composition root's edges ARE the sanctioned direction.
+fn composition_root_wiring_sanctions_the_banned_bridge(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    match driver.language {
+        Language::Csharp => {
+            let write_tree = |fx: &common::Fixture, registrations: bool| {
+                fx.write(
+                    "Api/Api.csproj",
+                    "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+                );
+                fx.write(
+                    "Api/Program.cs",
+                    &format!(
+                        "using Api.Services;\nvar builder = WebApplication.CreateBuilder(args);\n{}\nvar app = builder.Build();\napp.Run();\n",
+                        if registrations {
+                            "builder.Services.AddScoped<IOrderService, OrderService>();"
+                        } else {
+                            "// no registrations"
+                        }
+                    ),
+                );
+                fx.write("Api/Services/OrderService.cs", "using Api.Data;\nnamespace Api.Services;\npublic class OrderService { private readonly IOrderRepository _repo; public OrderService(IOrderRepository repo) { _repo = repo; } }\n");
+                fx.write(
+                    "Api/Data/IOrderRepository.cs",
+                    "namespace Api.Data;\npublic interface IOrderRepository { }\n",
+                );
+                fx.write(
+                    "Api/Data/OrderRepository.cs",
+                    "namespace Api.Data;\npublic class OrderRepository : IOrderRepository { }\n",
+                );
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"api\"\nmatches = { units = [\"Api\"] }\n\n[module.allowed]\ndepend_on = [\"services\"]\nforbidden = [\"data\"]\n\n[[module]]\nname = \"services\"\nmatches = { modules = [\"Api::Services\"] }\n\n[module.allowed]\ndepend_on = [\"data\"]\n\n[[module]]\nname = \"data\"\nmatches = { modules = [\"Api::Data\"] }\n",
+                );
+            };
+            write_tree(fx, true);
+            let wired = driver.run(fx, &["verify", "--strict"]);
+            if wired.status.code() != Some(0) {
+                return Err(format!(
+                    "the composition root's wiring hop is sanctioned (stdout: {})",
+                    common::stdout(&wired)
+                ));
+            }
+            fx.write(
+                "Api/Program.cs",
+                "using Api.Services;\nvar builder = WebApplication.CreateBuilder(args);\n// no registrations\nvar app = builder.Build();\napp.Run();\n",
+            );
+            let laundered = driver.run(fx, &["verify", "--strict"]);
+            if laundered.status.code() != Some(1)
+                || !common::stdout(&laundered).contains("laundered forbidden edge")
+            {
+                return Err(format!(
+                    "without the composition role the ban route launders again (exit {:?}):\n{}",
+                    laundered.status.code(),
+                    common::stdout(&laundered)
+                ));
+            }
+            Ok(())
+        }
+        Language::Go => {
+            fx.write("go.mod", "module example.com/demo\ngo 1.21\n");
+            fx.write(
+                "a/a.go",
+                "package a\n\nimport \"example.com/demo/store\"\n\nfunc A() {}\n",
+            );
+            fx.write("store/store.go", "package store\n\nfunc Get() {}\n");
+            fx.write(
+                "cmd/server/main.go",
+                "package main\n\nimport \"example.com/demo/a\"\n\nfunc main() { a.A() }\n",
+            );
+            fx.write(
+                "architecture.spec.toml",
+                "[project]\nlanguage = \"go\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"example.com/demo/a\"] }\n\n[module.allowed]\ndepend_on = [\"store\"]\n\n[[module]]\nname = \"store\"\nmatches = { units = [\"example.com/demo/store\"] }\n\n[[module]]\nname = \"wiring\"\nmatches = { units = [\"example.com/demo/cmd/server\"] }\n\n[module.allowed]\ndepend_on = [\"a\"]\nforbidden = [\"store\"]\n",
+            );
+            let output = driver.run(fx, &["verify", "--strict"]);
+            if output.status.code() != Some(0) {
+                return Err(format!(
+                    "the go composition root (main package) wiring is sanctioned (stdout: {})",
+                    common::stdout(&output)
+                ));
+            }
+            Ok(())
+        }
+        other => unreachable!("composition_roles_driver gates {other:?}"),
+    }
 }

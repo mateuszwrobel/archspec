@@ -1,10 +1,10 @@
 use crate::common;
-use crate::shared::driver::{Driver, LogicalTree};
+use crate::shared::driver::{Driver, Language, LogicalTree};
 use crate::shared::feature::Feature;
 use crate::shared::scenario::Scenario;
 use crate::shared::scenarios::{
     array_contains, array_count, csharp_project_files, expect_success, external_dep, is_sorted,
-    other_dep, scenario, scenario_when, scenario_when_capability,
+    other_dep, scenario, scenario_when, scenario_when_capability, scenario_when_inert,
 };
 
 /// A canonical two-unit tree with a hard edge app -> shared. Exercises the
@@ -219,6 +219,19 @@ pub fn all() -> Vec<Scenario> {
             "a unit with no declared packages reports an empty dependency list",
             unit_without_packages_has_empty_dependencies,
         ),
+        scenario(
+            Feature::ScanUnits,
+            "model_states_roles_map_per_language",
+            "the roles map states the entries each driver derives from its own facts on the canonical tree: rust names its mod-declaration-only roots `facade`, c# names its DI-wired entrypoint root and go its `package main` unit `composition`, and every stated value comes from the closed vocabulary",
+            model_states_roles_map_per_language,
+        ),
+        scenario_when_inert(
+            Feature::ScanUnits,
+            "roles_map_never_states_facade_where_fact_not_emitted",
+            "on a driver whose table marks role-facade not-emitted the roles map states no facade value anywhere while its own derived entries stay stated — honest absence per path, never a guessed stand-in",
+            "role-facade",
+            roles_map_never_states_facade_where_fact_not_emitted,
+        ),
     ]
 }
 
@@ -226,9 +239,7 @@ fn lists_each_declared_unit(driver: &Driver, fx: &common::Fixture) -> Result<(),
     let tree = units_with_edge();
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
-    let units = model["units"]
-        .as_array()
-        .ok_or("units must be an array")?;
+    let units = model["units"].as_array().ok_or("units must be an array")?;
     let names: Vec<String> = units
         .iter()
         .filter_map(|unit| unit["name"].as_str().map(String::from))
@@ -304,7 +315,9 @@ fn lists_declared_modules_in_soft_structure(
     for module in ["core", "ui"] {
         let expected = driver.module_path("app", module);
         if !paths.contains(&expected.as_str()) {
-            return Err(format!("module {expected} missing from soft_structure: {paths:?}"));
+            return Err(format!(
+                "module {expected} missing from soft_structure: {paths:?}"
+            ));
         }
     }
     Ok(())
@@ -341,8 +354,7 @@ fn keeps_modules_of_distinct_units_separate(
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into(), "shared".into()];
     tree.modules.insert("app".into(), vec!["core".into()]);
-    tree.modules
-        .insert("shared".into(), vec!["models".into()]);
+    tree.modules.insert("shared".into(), vec!["models".into()]);
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
     let app_paths = module_paths(&model, driver, "app")?;
@@ -353,7 +365,9 @@ fn keeps_modules_of_distinct_units_separate(
         return Err(format!("app must list {app_core}: {app_paths:?}"));
     }
     if !shared_paths.contains(&shared_models.as_str()) {
-        return Err(format!("shared must list {shared_models}: {shared_paths:?}"));
+        return Err(format!(
+            "shared must list {shared_models}: {shared_paths:?}"
+        ));
     }
     if app_paths.contains(&shared_models.as_str()) {
         return Err(format!("app must not list {shared_models}: {app_paths:?}"));
@@ -376,9 +390,13 @@ fn records_module_edge_from_internal_using(
         .push(("app".into(), "core".into(), "ui".into()));
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
-    let unit = driver.unit_name("app");
-    let from = driver.module_path("app", "core");
-    let to = driver.module_path("app", "ui");
+    // Module-edge endpoints use the model's own vocabulary (rust/c# `::`
+    // paths; go projects package import paths through the dotted module
+    // vocabulary) and the edge is stamped with the unit that owns the module
+    // tier — the go.mod module in a single-module go tree.
+    let unit = driver.module_edge_unit("app");
+    let from = driver.model_module_path("app", "core");
+    let to = driver.model_module_path("app", "ui");
     let edges = model["module_edges"]
         .as_array()
         .ok_or("module_edges must be an array")?;
@@ -388,7 +406,9 @@ fn records_module_edge_from_internal_using(
             && edge["to"].as_str() == Some(to.as_str())
     });
     if !found {
-        return Err(format!("module edge {from} -> {to} in {unit} missing: {edges:?}"));
+        return Err(format!(
+            "module edge {from} -> {to} in {unit} missing: {edges:?}"
+        ));
     }
     Ok(())
 }
@@ -403,8 +423,7 @@ fn does_not_create_module_edge_to_external_target(
     let external = external_dep(driver);
     tree.module_usings
         .push(("app".into(), "core".into(), external.into()));
-    tree.packages
-        .insert("app".into(), vec![external.into()]);
+    tree.packages.insert("app".into(), vec![external.into()]);
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
     let edges = model["module_edges"]
@@ -426,8 +445,7 @@ fn no_module_edges_for_units_without_soft_reference(
     tree.units = vec!["app".into(), "shared".into()];
     tree.modules
         .insert("app".into(), vec!["core".into(), "ui".into()]);
-    tree.modules
-        .insert("shared".into(), vec!["models".into()]);
+    tree.modules.insert("shared".into(), vec!["models".into()]);
     tree.module_usings
         .push(("app".into(), "core".into(), "ui".into()));
     driver.materialize(fx, &tree);
@@ -440,7 +458,9 @@ fn no_module_edges_for_units_without_soft_reference(
         .iter()
         .any(|edge| edge["unit"].as_str() == Some(shared.as_str()));
     if leaked {
-        return Err(format!("unit {shared} must have no module edges: {edges:?}"));
+        return Err(format!(
+            "unit {shared} must have no module edges: {edges:?}"
+        ));
     }
     Ok(())
 }
@@ -510,8 +530,7 @@ fn central_props_package_reaches_external_tier(
     tree.modules.insert("app".into(), vec!["Core".into()]);
     tree.module_usings
         .push(("app".into(), "Core".into(), "Polly".into()));
-    tree.central_packages
-        .push((".".into(), "Polly".into()));
+    tree.central_packages.push((".".into(), "Polly".into()));
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
     if !array_contains(&model["external"], "Polly") {
@@ -572,16 +591,13 @@ fn nearest_props_file_overrides_root_for_central_entries(
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into(), "shared".into()];
-    tree.modules
-        .insert("app".into(), vec!["Core".into()]);
-    tree.modules
-        .insert("shared".into(), vec!["Core".into()]);
+    tree.modules.insert("app".into(), vec!["Core".into()]);
+    tree.modules.insert("shared".into(), vec!["Core".into()]);
     tree.module_usings
         .push(("app".into(), "Core".into(), "Project.Pkg".into()));
     tree.module_usings
         .push(("shared".into(), "Core".into(), "Root.Pkg".into()));
-    tree.central_packages
-        .push((".".into(), "Root.Pkg".into()));
+    tree.central_packages.push((".".into(), "Root.Pkg".into()));
     tree.central_packages
         .push(("app".into(), "Project.Pkg".into()));
     driver.materialize(fx, &tree);
@@ -615,7 +631,9 @@ fn nearest_props_file_overrides_root_for_central_entries(
         ));
     }
     if !deps_contain(shared_deps, "Root.Pkg") {
-        return Err(format!("shared must fall through to the root props: {shared_deps:?}"));
+        return Err(format!(
+            "shared must fall through to the root props: {shared_deps:?}"
+        ));
     }
     if deps_contain(shared_deps, "Project.Pkg") {
         return Err(format!(
@@ -682,8 +700,7 @@ fn attributes_external_dependency_to_its_module(
     let external = external_dep(driver);
     tree.module_usings
         .push(("app".into(), "core".into(), external.into()));
-    tree.packages
-        .insert("app".into(), vec![external.into()]);
+    tree.packages.insert("app".into(), vec![external.into()]);
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
     let module = driver.module_path("app", "core");
@@ -710,8 +727,7 @@ fn keeps_external_usage_off_sibling_modules(
     let external = external_dep(driver);
     tree.module_usings
         .push(("app".into(), "core".into(), external.into()));
-    tree.packages
-        .insert("app".into(), vec![external.into()]);
+    tree.packages.insert("app".into(), vec![external.into()]);
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
     let core = driver.module_path("app", "core");
@@ -768,8 +784,11 @@ fn misaligned_package_identity_replaces_namespace(
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
     tree.modules.insert("app".into(), vec!["Core".into()]);
-    tree.module_usings
-        .push(("app".into(), "Core".into(), "Microsoft.IdentityModel.Tokens".into()));
+    tree.module_usings.push((
+        "app".into(),
+        "Core".into(),
+        "Microsoft.IdentityModel.Tokens".into(),
+    ));
     tree.packages.insert(
         "app".into(),
         vec![
@@ -805,9 +824,7 @@ fn misaligned_package_identity_replaces_namespace(
         .unwrap_or_default();
     let soft_module = driver.module_path("app", "Core");
     if !soft.contains(&soft_module.as_str()) {
-        return Err(format!(
-            "namespaces must stay in the soft tier: {soft:?}"
-        ));
+        return Err(format!("namespaces must stay in the soft tier: {soft:?}"));
     }
     Ok(())
 }
@@ -865,7 +882,9 @@ fn declared_but_unused_package_stays_out_of_module_external(
     let module = driver.module_path("app", "Core");
     let attributed = module_external_at(&model, &module)?;
     if !attributed.contains(&"Newtonsoft.Json") {
-        return Err(format!("used package missing from {module}: {attributed:?}"));
+        return Err(format!(
+            "used package missing from {module}: {attributed:?}"
+        ));
     }
     let values = all_module_external(&model);
     if values.iter().any(|v| v == "Serilog") {
@@ -899,9 +918,13 @@ fn uncompilable_namespace_absent_from_external_tiers(
     tree.modules.insert("app".into(), vec!["Core".into()]);
     tree.module_usings
         .push(("app".into(), "Core".into(), "Newtonsoft.Json".into()));
-    tree.module_usings
-        .push(("app".into(), "Core".into(), "Microsoft.IdentityModel.Tokens".into()));
-    tree.packages.insert("app".into(), vec!["Newtonsoft.Json".into()]);
+    tree.module_usings.push((
+        "app".into(),
+        "Core".into(),
+        "Microsoft.IdentityModel.Tokens".into(),
+    ));
+    tree.packages
+        .insert("app".into(), vec!["Newtonsoft.Json".into()]);
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
     let module = driver.module_path("app", "Core");
@@ -931,7 +954,9 @@ fn uncompilable_namespace_absent_from_external_tiers(
     if let Some(map) = model["module_external"].as_object() {
         for (key, list) in map {
             if list.as_array().map(Vec::is_empty).unwrap_or(true) {
-                return Err(format!("placeholder (empty) module_external entry at {key}"));
+                return Err(format!(
+                    "placeholder (empty) module_external entry at {key}"
+                ));
             }
         }
     }
@@ -948,8 +973,11 @@ fn family_root_using_ties_family_sibling_packages(
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
     tree.modules.insert("app".into(), vec!["Core".into()]);
-    tree.module_usings
-        .push(("app".into(), "Core".into(), "Microsoft.Extensions.Options".into()));
+    tree.module_usings.push((
+        "app".into(),
+        "Core".into(),
+        "Microsoft.Extensions.Options".into(),
+    ));
     tree.packages.insert(
         "app".into(),
         vec![
@@ -988,7 +1016,9 @@ fn exposes_dependency_facts_per_unit(driver: &Driver, fx: &common::Fixture) -> R
         .and_then(|value| value.as_array())
         .ok_or_else(|| format!("unit_manifests.dependencies for {unit} missing"))?;
     if !deps.iter().any(|name| name.as_str() == Some(external)) {
-        return Err(format!("dependencies for {unit} must contain {external}: {deps:?}"));
+        return Err(format!(
+            "dependencies for {unit} must contain {external}: {deps:?}"
+        ));
     }
     Ok(())
 }
@@ -1046,7 +1076,10 @@ fn module_paths<'a>(
         .and_then(|value| value.as_array())
         .ok_or_else(|| format!("soft_structure for {unit} must be an array"))?
         .iter()
-        .map(|path| path.as_str().ok_or_else(|| format!("soft path in {unit} not a string")))
+        .map(|path| {
+            path.as_str()
+                .ok_or_else(|| format!("soft path in {unit} not a string"))
+        })
         .collect()
 }
 /// Unit names of a scanned model.
@@ -1073,9 +1106,9 @@ fn test_project_absent_from_production_model(
     let mut tree = LogicalTree::new();
     tree.units = vec!["App".into(), "App.Tests".into()];
     tree.modules.insert("App".into(), vec!["Core".into()]);
-    tree.modules.insert("App.Tests".into(), vec!["Specs".into()]);
-    tree.hard_edges
-        .push(("App.Tests".into(), "App".into()));
+    tree.modules
+        .insert("App.Tests".into(), vec!["Specs".into()]);
+    tree.hard_edges.push(("App.Tests".into(), "App".into()));
     tree.module_usings
         .push(("App.Tests".into(), "Specs".into(), "Xunit".into()));
     tree.packages
@@ -1142,8 +1175,7 @@ fn test_tier_follows_framework_evidence_not_name(
     tree.units = vec!["App".into(), "LegacyTests".into(), "Helpers".into()];
     tree.packages
         .insert("LegacyTests".into(), vec!["Serilog".into()]);
-    tree.packages
-        .insert("Helpers".into(), vec!["xunit".into()]);
+    tree.packages.insert("Helpers".into(), vec!["xunit".into()]);
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
 
@@ -1351,7 +1383,8 @@ fn using_dropped_test_project_namespace_stays_out_of_production(
     let mut tree = LogicalTree::new();
     tree.units = vec!["App".into(), "App.Tests".into()];
     tree.modules.insert("App".into(), vec!["Core".into()]);
-    tree.modules.insert("App.Tests".into(), vec!["Specs".into()]);
+    tree.modules
+        .insert("App.Tests".into(), vec!["Specs".into()]);
     tree.hard_edges.push(("App".into(), "App.Tests".into()));
     tree.packages
         .insert("App.Tests".into(), vec!["xunit".into()]);
@@ -1391,6 +1424,88 @@ fn using_dropped_test_project_namespace_stays_out_of_production(
     let stdout = common::stdout(&output);
     if stdout.contains("missing") || stdout.contains("cycle:") || stdout.contains("error") {
         return Err(format!("verify must report no findings:\n{stdout}"));
+    }
+    Ok(())
+}
+
+/// The serialized roles map of a scanned model as a plain path -> value map.
+fn stated_roles(
+    model: &serde_json::Value,
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let map = model["roles"]
+        .as_object()
+        .ok_or_else(|| "the canonical tree derives roles, so the model must serialize a map".to_string())?;
+    map.iter()
+        .map(|(path, role)| {
+            let value = role
+                .as_str()
+                .ok_or_else(|| format!("role at {path} must serialize as a string: {role}"))?;
+            Ok((path.clone(), value.to_string()))
+        })
+        .collect()
+}
+
+fn model_states_roles_map_per_language(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    let tree = driver.probe_tree();
+    driver.materialize(fx, &tree);
+    let stated = stated_roles(&driver.scan(fx))?;
+
+    // One contract, three readings: the tree's declared composition roots
+    // carry `composition` wherever the driver derives it (the capability rows
+    // are granular for every language), and rust's mod-declaration-only roots
+    // carry `facade` — rust states composition from a wiring BIN root, a shape
+    // no unit of this tree is, whose parity the rust scenario-98 family pins
+    // rather than this cross-language tree.
+    let mut expected: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    if driver.language == Language::Rust {
+        for unit in &tree.units {
+            expected.insert(driver.unit_name(unit), "facade".to_string());
+        }
+    }
+    for root in &tree.composition_roots {
+        expected.insert(driver.unit_name(root), "composition".to_string());
+    }
+    if stated != expected {
+        return Err(format!(
+            "roles map differs from the derivation contract: stated {stated:?}, expected {expected:?}"
+        ));
+    }
+    for (path, value) in &stated {
+        if value != "facade" && value != "composition" {
+            return Err(format!(
+                "role value {value:?} at {path} leaves the closed vocabulary"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn roles_map_never_states_facade_where_fact_not_emitted(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    let tree = driver.probe_tree();
+    driver.materialize(fx, &tree);
+    let stated = stated_roles(&driver.scan(fx))?;
+    if let Some((path, _)) = stated.iter().find(|(_, value)| *value == "facade") {
+        return Err(format!(
+            "the table states role-facade not-emitted for {}, yet the map claims a facade at {path}",
+            driver.language.as_str()
+        ));
+    }
+    // The honest side of the absence: the map is not empty because the driver
+    // derives composition from its own facts — absence is per path, never a
+    // silent stand-in for the whole tree.
+    let composition_granular =
+        crate::shared::capability::table().granular(driver.language.as_str(), "role-composition");
+    if composition_granular && !stated.values().any(|value| value == "composition") {
+        return Err(
+            "a composition-granular driver must state its composition roots on the canonical tree"
+                .to_string(),
+        );
     }
     Ok(())
 }

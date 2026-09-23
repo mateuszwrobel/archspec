@@ -1,0 +1,8 @@
+graph TD
+  subgraph example_com_demo_app_61fbb5aa["example.com/demo/app [composition]"]
+  end
+  subgraph example_com_demo_shared_0ba5d7b8["example.com/demo/shared"]
+  end
+  example_com__demo__app_80a6b38d["example.com::demo::app"]
+  example_com__demo__shared_44ac367f["example.com::demo::shared"]
+  example_com__demo__app_80a6b38d --> example_com__demo__shared_44ac367f

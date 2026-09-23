@@ -1,6 +1,6 @@
 # archspec `help` — Design
 
-Built-in manual for the model-driven workflow: `help` lists the seven topics (`commands`, `glob`, `spec`, `constraints`, `languages`, `workflow`, `diagnostics`), aliases `help <command>` to that command's `--help`, and prints the `architecture.spec.toml` reference, the glob rules, the constraint types, the language-tier matrix, the recommended `scan → report → diagram → verify` recipe, and the diagnostics catalog that teaches an agent to read every `verify`/`report` finding. Part of the archspec design (see `../../../archspec-design.md`).
+Built-in manual for the model-driven workflow: `help` lists the seven topics (`commands`, `glob`, `spec`, `constraints`, `languages`, `workflow`, `diagnostics`), aliases `help <command>` to that command's `--help`, and prints the `architecture.spec.toml` reference, the glob rules, the constraint types, the language-tier matrix, the numbered audit recipe (the `workflow` topic owns the ordering and no other surface restates it), and the diagnostics catalog that teaches an agent to read every `verify`/`report` finding. Part of the archspec design (see `../../../archspec-design.md`).
 
 The command never reads a project tree. It is a pure output command: all topic content is embedded in the binary as constants, and the per-command blocks reuse each command's own `--help` text so nothing drifts.
 
@@ -12,7 +12,7 @@ The command never reads a project tree. It is a pure output command: all topic c
 - `spec` — the `architecture.spec.toml` annotated reference, byte-identical to `archspec spec` (one shared constant).
 - `constraints` — all seven constraint types with their keys and the severity contract (`error` default, `warning`, `--strict` promotion).
 - `languages` — the model-tier matrix: which of the nine model tiers each language scanner populates, embedded as `LANGUAGE_TIERS` and guarded by a consistency test against a real scan.
-- `workflow` — the `scan → report → diagram → verify` recipe, `--strict` as the CI gate, and the supporting `doctor`/`init`/`update` commands.
+- `workflow` — the numbered audit recipe (this topic owns the ordering), `--strict` as the CI gate, and the supporting `doctor`/`init`/`update` commands.
 - `diagnostics` — the catalog of every `verify`/`report` finding category: verbatim message pattern, meaning, origin (code/spec/intent), severity + `--strict` behaviour, follow-up command, decision rule, the exit-code contract, and the required agent report format.
 - `help <command>` — that command's `--help`, byte-identical (looked up from the registry).
 

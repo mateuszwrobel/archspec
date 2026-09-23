@@ -38,6 +38,12 @@ pub fn all() -> Vec<Scenario> {
             "inspect scanner draws the cross-unit hard edges between unit subgraphs",
             scanner_view_draws_unit_edges,
         ),
+        scenario(
+            Feature::InspectStructuralTree,
+            "inspect_tree_marks_role_carrying_nodes",
+            "every node whose model path carries a role entry renders its visible label suffixed with that role's marker, so why a node looks important reads off the diagram alone",
+            inspect_tree_marks_role_carrying_nodes,
+        ),
     ]
 }
 
@@ -55,11 +61,7 @@ fn materialize_file_level(driver: &Driver, fx: &common::Fixture) -> (&'static st
         }
         Language::Csharp => {
             driver.materialize(fx, &soft_module_tree());
-            (
-                ".",
-                "app/core.cs".to_string(),
-                "app/ui.cs".to_string(),
-            )
+            (".", "app/core.cs".to_string(), "app/ui.cs".to_string())
         }
         Language::Go => {
             materialize_go_declared_grouping(fx);
@@ -126,11 +128,15 @@ fn tree_view_renders_units_and_module_edges(
         let output = expect_success(driver, fx, &["inspect", "tree"])?;
         let stdout = common::stdout(&output);
         if !stdout.contains("graph TD") {
-            return Err(format!("inspect tree must render a mermaid graph:\n{stdout}"));
+            return Err(format!(
+                "inspect tree must render a mermaid graph:\n{stdout}"
+            ));
         }
         for member in ["example.com/api", "example.com/store"] {
             if !stdout.contains(member) {
-                return Err(format!("member module {member} missing from tree view:\n{stdout}"));
+                return Err(format!(
+                    "member module {member} missing from tree view:\n{stdout}"
+                ));
             }
         }
         let edge = format!(
@@ -148,7 +154,9 @@ fn tree_view_renders_units_and_module_edges(
     let output = expect_success(driver, fx, &["inspect", "tree"])?;
     let stdout = common::stdout(&output);
     if !stdout.contains("graph TD") {
-        return Err(format!("inspect tree must render a mermaid graph:\n{stdout}"));
+        return Err(format!(
+            "inspect tree must render a mermaid graph:\n{stdout}"
+        ));
     }
     let unit = driver.unit_name("app");
     if !stdout.contains(&unit) {
@@ -209,7 +217,9 @@ fn expect_edge(diagram: &str, from: &str, to: &str) -> Result<(), String> {
 fn expect_never_targeted(diagram: &str, target: &str) -> Result<(), String> {
     let targeted = format!("--> {}", mermaid_id(target));
     if diagram.contains(&targeted) {
-        return Err(format!("production import targeted the test file {target}:\n{diagram}"));
+        return Err(format!(
+            "production import targeted the test file {target}:\n{diagram}"
+        ));
     }
     Ok(())
 }
@@ -263,17 +273,20 @@ fn csharp_imports_never_target_test_projects(
 ) -> Result<(), String> {
     driver.materialize(fx, &soft_module_tree());
     fx.write("App/App.csproj", &csharp_project(&[]));
-    fx.write("App/Store.cs", "namespace App.Store;\npublic class Store { }\n");
-    fx.write("App/Depot.cs", "namespace App.Store;\npublic class Depot { }\n");
+    fx.write(
+        "App/Store.cs",
+        "namespace App.Store;\npublic class Store { }\n",
+    );
+    fx.write(
+        "App/Depot.cs",
+        "namespace App.Store;\npublic class Depot { }\n",
+    );
     fx.write("Consumer/Consumer.csproj", &csharp_project(&[]));
     fx.write(
         "Consumer/Client.cs",
         "using App.Store;\nnamespace Consumer;\npublic class Client { }\n",
     );
-    fx.write(
-        "App.Tests/App.Tests.csproj",
-        &csharp_project(&["xunit"]),
-    );
+    fx.write("App.Tests/App.Tests.csproj", &csharp_project(&["xunit"]));
     fx.write(
         "App.Tests/SameNsTest.cs",
         "using App.Store;\nnamespace App.Store;\npublic class SameNsTest { }\n",
@@ -327,4 +340,32 @@ fn csharp_project(packages: &[&str]) -> String {
     }
     csproj.push_str("</Project>\n");
     csproj
+}
+
+/// The tree renders the model's role facts as label markers (roles US 06):
+/// every roles entry whose path addresses a node of this tree marks that
+/// node's visible label — the marker is a lookup, so a node is special in
+/// the diagram exactly when the model says it is, on every driver.
+fn inspect_tree_marks_role_carrying_nodes(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    let tree = driver.probe_tree();
+    driver.materialize(fx, &tree);
+    let model = driver.scan(fx);
+    let roles = model["roles"]
+        .as_object()
+        .ok_or_else(|| "the canonical tree derives roles, so the model must serialize a map".to_string())?;
+    let output = expect_success(driver, fx, &["inspect", "tree"])?;
+    let stdout = common::stdout(&output);
+    for (path, role) in roles {
+        let role = role.as_str().unwrap_or_default();
+        let marked = format!("[\"{path} [{role}]\"]");
+        if !stdout.contains(&marked) {
+            return Err(format!(
+                "the node for {path} must render the marker {marked}:\n{stdout}"
+            ));
+        }
+    }
+    Ok(())
 }

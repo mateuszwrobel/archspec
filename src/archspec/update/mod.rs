@@ -19,8 +19,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// trees. A top-level fold that matches nothing but itself — no targets, no
 /// unit prefix on its path, named by no kept entry's `allowed.depend_on`, and
 /// the top-level of no module-edge endpoint (the namespace root of a dotted
-/// project with edge-free namespaces, e.g. `HomeBudget::Api` for the unit
-/// `HomeBudget.Api`) — is no-op noise and seeds no entry. A fold referenced as
+/// project with edge-free namespaces, e.g. `Shop::Api` for the unit
+/// `Shop.Api`) — is no-op noise and seeds no entry. A fold referenced as
 /// a dependency target by a kept entry, or claiming an endpoint of a kept
 /// module edge, seeds one even with no targets of its own: `verify` resolves
 /// `allowed.depend_on` against declared boundary names and owns edge endpoints
@@ -30,16 +30,29 @@ use std::collections::{BTreeMap, BTreeSet};
 /// `feature_boundary` — plus one global `no_cycles` guard (no `modules` list)
 /// so seeded projects start cycle-clean. Byte-deterministic for a given model.
 ///
-/// Go exception: a go.work tree carries the module tier natively (members are
-/// modules the way csharp projects are units), so the seed declares ONE module
-/// per member — `matches.units` listing the member's package import paths and
+/// Go exception, routed on the model's module facts plus tree shape: a go.work
+/// tree carries the module tier natively (members are modules the way csharp
+/// projects are units), so the seed declares ONE module per member —
+/// `matches.units` listing the member's package import paths and
 /// `allowed.depend_on` from the real cross-member imports — instead of the
 /// unit + top-level-module fold, which would name dotted renderings no verify
-/// pattern can claim. A single go.mod tree has no native tier and keeps the
-/// general shape: verify derives the grouping from its declarations.
+/// pattern can claim. A single go.mod tree DOES carry
+/// module facts (every package reference projects a module edge) without any
+/// go.work member, so the seed declares one module per PACKAGES (see
+/// `seed_go_packages`); keying on `has_module_tier()` alone would route that
+/// tree into the member path and seed an empty module section (US 17 audit,
+/// deviation D-1).
 pub fn seed_spec(model: &Model) -> String {
-    if model.language == "go" && model.has_module_tier() {
-        return seed_go_members(model);
+    if model.language == "go" {
+        // Member facts (go.work) seed members; package-level module facts
+        // without members (single go.mod) seed packages; a tree with no
+        // package crossing keeps the general shape.
+        if model.soft_structure.values().any(|paths| !paths.is_empty()) {
+            return seed_go_members(model);
+        }
+        if !model.module_edges.is_empty() {
+            return seed_go_packages(model);
+        }
     }
     let mut units = model.units.clone();
     units.sort_by(|left, right| left.name.cmp(&right.name));
@@ -191,8 +204,8 @@ pub fn seed_spec(model: &Model) -> String {
         // Skip a boundary that lists only itself in `matches.modules`, declares
         // no targets, is referenced by no kept entry, owns no edge endpoint, and
         // whose path nests under no unit: its first segment names no unit (e.g.
-        // the namespace root `HomeBudget::Api` of the dotted project
-        // `HomeBudget.Api`), so it folds the whole subtree into one self-matching
+        // the namespace root `Shop::Api` of the dotted project
+        // `Shop.Api`), so it folds the whole subtree into one self-matching
         // entry that declares no boundary pairs and floats in spec-sourced
         // diagrams.
         let has_targets = module_targets
@@ -336,6 +349,80 @@ fn seed_go_members(model: &Model) -> String {
             .join(", ");
         out.push_str(&format!("matches = {{ units = [{units}] }}\n"));
         if let Some(targets) = member_dependencies.get(member) {
+            if !targets.is_empty() {
+                let rendered = targets
+                    .iter()
+                    .map(|target| format!("\"{}\"", toml_escape(target)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push_str(&format!("allowed = {{ depend_on = [{rendered}] }}\n"));
+            }
+        }
+    }
+
+    // Same global cycle guard as the general seed.
+    out.push('\n');
+    out.push_str("[[constraint]]\n");
+    out.push_str("type = \"no_cycles\"\n");
+
+    out.push('\n');
+    out
+}
+
+/// Seed for a single go.mod tree whose model carries package-level module
+/// facts (the scan projects every package reference onto the module
+/// tier without any go.work member — US 17 audit, deviation D-1): one
+/// `[[module]]` per package (unit), named by its import path and claiming
+/// exactly itself through `matches.units`,
+/// with `allowed.depend_on` the union of the
+/// package's hard unit edges and its module edges (`::` restored to import
+/// paths, a test-gated endpoint skipped as everywhere in the seed). Because
+/// the module tier projects the very imports the unit tier already
+/// carries, the union states the same crossings once at module granularity,
+/// and the update -> report
+/// round-trip is clean by construction: every package lands in exactly one
+/// boundary, every module edge endpoint is claimed through the unit match,
+/// and every observed boundary pair is allowed.
+fn seed_go_packages(model: &Model) -> String {
+    let mut dependencies: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for edge in &model.edges {
+        if edge.from != edge.to {
+            dependencies
+                .entry(edge.from.clone())
+                .or_default()
+                .insert(edge.to.clone());
+        }
+    }
+    for edge in &model.module_edges {
+        if model.is_test_gated(&edge.from) || model.is_test_gated(&edge.to) {
+            continue;
+        }
+        let from = edge.from.replace("::", "/");
+        let to = edge.to.replace("::", "/");
+        if from != to {
+            dependencies.entry(from).or_default().insert(to);
+        }
+    }
+
+    let mut units: Vec<&str> = model.units.iter().map(|unit| unit.name.as_str()).collect();
+    units.sort_unstable();
+
+    let mut out = String::new();
+    out.push_str("[project]\n");
+    out.push_str(&format!(
+        "language = \"{}\"\n",
+        toml_escape(&model.language)
+    ));
+    out.push('\n');
+
+    for (index, unit) in units.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        out.push_str("[[module]]\n");
+        out.push_str(&format!("name = \"{}\"\n", toml_escape(unit)));
+        out.push_str(&format!("matches = {{ units = [\"{}\"] }}\n", toml_escape(unit)));
+        if let Some(targets) = dependencies.get(*unit) {
             if !targets.is_empty() {
                 let rendered = targets
                     .iter()

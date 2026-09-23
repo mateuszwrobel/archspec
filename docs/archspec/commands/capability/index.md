@@ -26,10 +26,10 @@ rule <rule> <fact>
 ```
 
 `<language>` is the driver name (`rust`, `csharp`, `go`), `<fact>` one of the
-stated facts (`root-facade`, `module-tier`, `symbols`,
+stated facts (`role-facade`, `role-composition`, `module-tier`, `symbols`,
 `root-module-declarations`, `test-tier`, `external-packages`), and `<emission>`
 the granularity: `granular`, `not-emitted`, or a conditional string (e.g.
-`go.work tier only (2+ members); declared grouping otherwise`). Parsing these
+`file tier only (*_test.go excluded at scan)`). Parsing these
 rows is equivalent to reading the table — this is what the prose-drift guards
 and the shared scenario registry consult.
 
@@ -55,5 +55,6 @@ An unknown language or fact is a genuine invocation error (see
 
 ## Related contracts
 
+- [acceptance.md](acceptance.md) — behavioural rows for the matrix output.
 - [errors.md](errors.md) — failure contract.
 - `feature-matrix.md` (crate root) — per-language capability and skip reasons.

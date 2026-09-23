@@ -81,9 +81,9 @@ the parser's behavior.
 
 ## `help workflow`
 
-The recipe `scan → report → diagram → verify` with each command's purpose and
-when to use it; `--strict` presented as the CI gate; and the supporting
-`doctor`, `init`, `update` commands mentioned.
+The numbered audit recipe — this topic owns the ordering — with each step's
+purpose and when to use it; `--strict` presented as the CI gate; and the
+supporting `doctor`, `init`, `update` commands mentioned.
 
 ## `help diagnostics`
 

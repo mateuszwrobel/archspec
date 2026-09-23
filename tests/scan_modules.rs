@@ -492,10 +492,7 @@ fn scan_scenario_27_stdlib_not_external() {
         module_external.values().all(|crates| {
             crates
                 .as_array()
-                .map(|arr| {
-                    arr.iter()
-                        .all(|c| c.as_str() != Some("std"))
-                })
+                .map(|arr| arr.iter().all(|c| c.as_str() != Some("std")))
                 .unwrap_or(true)
         }),
         "std must not appear in any module_external list"
@@ -511,7 +508,10 @@ fn scan_scenario_28_own_modules_not_external() {
         "Cargo.toml",
         "[package]\nname = \"acme-lib\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    fixture.write("src/lib.rs", "mod core;\nmod asr_client;\npub use core::types::*;\n");
+    fixture.write(
+        "src/lib.rs",
+        "mod core;\nmod asr_client;\npub use core::types::*;\n",
+    );
     fixture.write("src/core.rs", "pub mod types { pub struct T; }\n");
     fixture.write("src/asr_client.rs", "pub struct AsrTranscriber;\n");
     let model = model_of(&fixture);
@@ -564,11 +564,12 @@ fn scan_scenario_30_dev_deps_separated() {
     let deps = model["manifest"]["dependencies"]
         .as_array()
         .expect("manifest.dependencies");
-    let dep_names: Vec<&str> = deps
-        .iter()
-        .map(|d| d.as_str().expect("dep"))
-        .collect();
-    assert_eq!(dep_names, ["serde"], "only runtime deps in manifest.dependencies");
+    let dep_names: Vec<&str> = deps.iter().map(|d| d.as_str().expect("dep")).collect();
+    assert_eq!(
+        dep_names,
+        ["serde"],
+        "only runtime deps in manifest.dependencies"
+    );
 
     let external = model["external"].as_array().expect("external");
     let names: Vec<&str> = external
@@ -615,7 +616,11 @@ fn scan_scenario_31_feature_name_captured() {
         .iter()
         .find(|d| d["name"].as_str() == Some("plain"))
         .expect("plain declaration");
-    assert_eq!(plain["feature"].as_str(), None, "ungated module has no feature");
+    assert_eq!(
+        plain["feature"].as_str(),
+        None,
+        "ungated module has no feature"
+    );
 }
 
 // acceptance #32: `publish = false` is distinct from an absent publish field.
@@ -1065,7 +1070,11 @@ fn scan_implicit_main_bin_naming_unchanged_without_bin_section() {
         .iter()
         .map(|u| u["name"].as_str().unwrap_or_default())
         .collect();
-    assert_eq!(units, ["app", "app-bin"], "implicit naming must stay <pkg>-bin");
+    assert_eq!(
+        units,
+        ["app", "app-bin"],
+        "implicit naming must stay <pkg>-bin"
+    );
 }
 
 // workplan_03 scenario "src/bin targets unaffected": a declared bin at
@@ -1130,7 +1139,243 @@ fn scan_declared_bin_at_main_attributes_edges_once() {
         "dependency edge must be attributed once to the declared unit: {edges:?}"
     );
     assert!(
-        !edges.iter().any(|(from, to)| from.contains("-bin") || to.contains("-bin")),
+        !edges
+            .iter()
+            .any(|(from, to)| from.contains("-bin") || to.contains("-bin")),
         "no edge may reference the phantom unit: {edges:?}"
+    );
+}
+
+// === Module relocation (`#[path]` / `cfg_attr`) — acceptance rows #39–40 ===
+// workplan_archspec_rust_relocation US 01: direct scan-surface pins for the
+// relocation walk in `scan::rust` (module_file_candidates, path_attribute,
+// walk_module). Before this the three behaviors rode only through the
+// verify_constraints glob-chain plumbing (#92–94); these fixtures pin the
+// serialized shape itself against untouched source — the bytes here are the
+// bytes `main` already produces.
+
+// acceptance #39 (Module relocation): an unconditional `#[path]` target joins
+// `soft_structure` and `module_edges` exactly as a conventionally located tree
+// would — model paths, so the file's physical location never leaks into node
+// names — and plain children of an attributed target resolve in the target's
+// own directory. A second scan run is byte-identical.
+#[test]
+fn scan_path_attr_relocated_tree_joins_soft_structure_and_edges() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "src/lib.rs",
+        "#[path = \"misc/thing.rs\"]\npub mod relocated;\nmod billing;\n",
+    );
+    fixture.write("src/misc/thing.rs", "pub mod inner;\n");
+    fixture.write("src/misc/inner.rs", "pub struct Thing;\n");
+    fixture.write("src/billing.rs", "use crate::relocated::inner::Thing;\n");
+
+    let first = fixture.run(&["scan"]);
+    let second = fixture.run(&["scan"]);
+    assert_eq!(first.status.code(), Some(0), "scan exit 0");
+    assert_eq!(second.status.code(), Some(0), "second scan run exit 0");
+    assert!(stderr(&first).is_empty(), "stderr should be empty");
+    assert_eq!(
+        stdout(&first),
+        stdout(&second),
+        "relocated tree output must be byte-identical across runs"
+    );
+    let model: Value = serde_json::from_str(&stdout(&first)).expect("stdout must be JSON");
+
+    let paths: Vec<&str> = model["soft_structure"]["app"]
+        .as_array()
+        .expect("app soft_structure must be an array")
+        .iter()
+        .map(|m| m.as_str().expect("module path"))
+        .collect();
+    assert_eq!(
+        paths,
+        ["app::billing", "app::relocated", "app::relocated::inner"],
+        "the #[path] target is walked as the module's source; inner is read from misc/ alongside it"
+    );
+    assert_eq!(
+        module_edge_strings(&model),
+        ["app:app::billing->app::relocated::inner:Thing"],
+        "exactly one module edge to the relocated child, symbol attached"
+    );
+    assert_eq!(
+        model["edges"].as_array().expect("edges").len(),
+        0,
+        "no hard unit edges in single crate"
+    );
+}
+
+// acceptance #40 (Module relocation): `#[cfg_attr(pred, path = "...")]`
+// targets are candidates resolved first-existing in DECLARATION order — the
+// scanner never evaluates the predicates. The losing candidate contributes
+// nothing: its child never appears in `soft_structure`. The loser is written
+// to disk first so filesystem order provably does not decide.
+#[test]
+fn scan_cfg_attr_first_existing_candidate_wins() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "src/lib.rs",
+        "#[cfg_attr(unix, path = \"gen/one.rs\")]\n#[cfg_attr(windows, path = \"gen/two.rs\")]\npub mod os;\n",
+    );
+    fixture.write("src/gen/two.rs", "pub mod beta;\n");
+    fixture.write("src/gen/one.rs", "pub mod alpha;\n");
+    let model = model_of(&fixture);
+
+    let paths: Vec<&str> = model["soft_structure"]["app"]
+        .as_array()
+        .expect("app soft_structure")
+        .iter()
+        .map(|m| m.as_str().expect("module path"))
+        .collect();
+    assert_eq!(
+        paths,
+        ["app::os", "app::os::alpha"],
+        "first declared candidate supplies the whole tree; the decoy's child must not appear"
+    );
+}
+
+// acceptance #40 (Module relocation): the conventional variants sit BEHIND the
+// attributed candidates — with every attributed candidate absent the module
+// resolves through the conventional `src/os.rs` and verify emits no
+// `unresolved module file` warning for the declaration.
+#[test]
+fn scan_cfg_attr_falls_back_to_conventional_file() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "src/lib.rs",
+        "#[cfg_attr(unix, path = \"gen/one.rs\")]\n#[cfg_attr(windows, path = \"gen/two.rs\")]\npub mod os;\n",
+    );
+    fixture.write("src/os.rs", "pub mod plain;\n");
+    fixture.write("src/os/plain.rs", "pub fn plain() {}\n");
+    let model = model_of(&fixture);
+
+    let paths: Vec<&str> = model["soft_structure"]["app"]
+        .as_array()
+        .expect("app soft_structure")
+        .iter()
+        .map(|m| m.as_str().expect("module path"))
+        .collect();
+    assert_eq!(
+        paths,
+        ["app::os", "app::os::plain"],
+        "all attributed candidates miss, so the conventional file is analyzed"
+    );
+
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"app\"\nmatches = { units = [\"app\"] }\n",
+    );
+    let output = fixture.run(&["verify"]);
+    assert_eq!(output.status.code(), Some(0), "resolved fallback exits 0");
+    assert!(
+        !stdout(&output).contains("unresolved module file"),
+        "a declaration resolved through the conventional variant must not be reported unresolved:\n{}",
+        stdout(&output)
+    );
+}
+
+// acceptance #39 (Module relocation): a fixed `#[path]` target that is absent
+// has NO conventional fallback — rustc requires exactly that file — so the
+// declaration lands as a bare declared node (walk inserts before resolving):
+// declared path in `soft_structure`, no children, no file-derived facts, scan
+// silent, and the scan JSON carries no `unresolved_module_files` key (the
+// field is serde-skipped by design). `verify` speaks where scan is silent.
+#[test]
+fn scan_path_attr_missing_target_is_a_bare_unresolved_node() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "src/lib.rs",
+        "#[path = \"misc/gone.rs\"]\npub mod ghost;\npub mod billing;\n",
+    );
+    fixture.write("src/billing.rs", "pub fn invoice() {}\n");
+    let model = model_of(&fixture);
+
+    let paths: Vec<&str> = model["soft_structure"]["app"]
+        .as_array()
+        .expect("app soft_structure")
+        .iter()
+        .map(|m| m.as_str().expect("module path"))
+        .collect();
+    assert_eq!(
+        paths,
+        ["app::billing", "app::ghost"],
+        "ghost is the declared node without children — no file-derived facts"
+    );
+    assert!(
+        model.get("unresolved_module_files").is_none(),
+        "the serde-skipped field must never appear in the scan JSON"
+    );
+
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"app\"\nmatches = { units = [\"app\"] }\n",
+    );
+    let output = fixture.run(&["verify"]);
+    assert_eq!(output.status.code(), Some(0), "warning without --strict passes");
+    assert!(
+        stdout(&output).contains("unresolved module file: app::ghost"),
+        "verify must report the missing fixed target, not drop it:\n{}",
+        stdout(&output)
+    );
+}
+
+// acceptance #39 (Module relocation): row #39's plain shape — a file-backed
+// `mod missing;` resolving to no candidate keeps its declared path in
+// `soft_structure` as the same bare declared node, with the same dual-surface
+// contract (JSON key absent + verify warning line). The `--strict` failure of
+// that warning is already pinned by verify_constraints #89/#91, not re-pinned.
+#[test]
+fn scan_plain_mod_without_file_is_a_bare_unresolved_node() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "mod missing;\npub mod billing;\n");
+    fixture.write("src/billing.rs", "pub fn invoice() {}\n");
+    let model = model_of(&fixture);
+
+    let paths: Vec<&str> = model["soft_structure"]["app"]
+        .as_array()
+        .expect("app soft_structure")
+        .iter()
+        .map(|m| m.as_str().expect("module path"))
+        .collect();
+    assert_eq!(
+        paths,
+        ["app::billing", "app::missing"],
+        "the declared path survives as a bare node even though no file resolved"
+    );
+    assert!(
+        model.get("unresolved_module_files").is_none(),
+        "the serde-skipped field must never appear in the scan JSON"
+    );
+
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"app\"\nmatches = { units = [\"app\"] }\n",
+    );
+    let output = fixture.run(&["verify"]);
+    assert_eq!(output.status.code(), Some(0), "warning without --strict passes");
+    assert!(
+        stdout(&output).contains("unresolved module file: app::missing"),
+        "verify must report the unresolved declaration, not drop it:\n{}",
+        stdout(&output)
     );
 }

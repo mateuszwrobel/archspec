@@ -89,14 +89,15 @@ fn scan_is_deterministic_across_runs() {
 }
 
 #[test]
-fn scan_output_flag_writes_file_and_keeps_stdout_empty() {
+fn scan_output_flag_writes_file_and_echoes_wrote_line() {
     let fixture = workspace_fixture();
     let output = fixture.run(&["scan", "--output", "model.json"]);
 
     assert_eq!(output.status.code(), Some(0), "exit must be 0");
-    assert!(
-        stdout(&output).is_empty(),
-        "stdout must be empty when --output is given"
+    assert_eq!(
+        stdout(&output),
+        "wrote model.json\n",
+        "scan --output echoes the universal wrote line (blind4 D01)"
     );
     let written = fixture.read("model.json");
     let model: Value = serde_json::from_str(&written).expect("file must be JSON");
@@ -845,10 +846,7 @@ fn scan_go_workspace_lists_members_and_populates_module_tier() {
         "cross-member import must be an edge: {edge_pairs:?}"
     );
     assert!(
-        edge_pairs.contains(&(
-            "example.com/api/internal/handler",
-            "example.com/store"
-        )),
+        edge_pairs.contains(&("example.com/api/internal/handler", "example.com/store")),
         "nested cross-member import must be an edge: {edge_pairs:?}"
     );
     assert_eq!(edges.len(), 2, "no other edges");
@@ -900,10 +898,7 @@ fn scan_go_workspace_cross_member_import_to_member_subpath() {
         "package moda\n\nimport \"example.com/modb/internal/x\"\n\nfunc A() { x.X() }\n",
     );
     fixture.write("modb/go.mod", "module example.com/modb\ngo 1.21\n");
-    fixture.write(
-        "modb/internal/x/x.go",
-        "package x\n\nfunc X() {}\n",
-    );
+    fixture.write("modb/internal/x/x.go", "package x\n\nfunc X() {}\n");
     let output = fixture.run(&["scan"]);
 
     assert_eq!(output.status.code(), Some(0), "exit must be 0");
@@ -932,10 +927,11 @@ fn scan_go_workspace_cross_member_import_to_member_subpath() {
                 "unit": "example.com/moda",
                 "from": "example.com::moda",
                 "to": "example.com::modb::internal::x",
-                "symbols": []
+                "symbols": ["X"]
             },
         ]),
-        "cross-member import to a member subpath must fold to a module edge (moda -> modb)"
+        "cross-member import to a member subpath must fold to a module edge (moda -> modb), \
+         carrying the referenced symbol"
     );
     assert_eq!(
         model["external"],
@@ -945,35 +941,49 @@ fn scan_go_workspace_cross_member_import_to_member_subpath() {
 }
 
 #[test]
-fn scan_go_single_module_keeps_module_tier_empty() {
+fn scan_go_single_module_emits_native_module_edges() {
     let fixture = common::Fixture::new();
     fixture.write("go.mod", "module example.com/demo\ngo 1.21\n");
     fixture.write(
         "main.go",
         "package main\n\nimport \"example.com/demo/internal/store\"\n\nfunc main() {}\n",
     );
-    fixture.write("internal/store/store.go", "package store\n\nfunc Get() {}\n");
+    fixture.write(
+        "internal/store/store.go",
+        "package store\n\nfunc Get() {}\n",
+    );
     let output = fixture.run(&["scan"]);
 
     assert_eq!(output.status.code(), Some(0), "exit must be 0");
     assert!(stderr(&output).is_empty(), "stderr should be empty");
     let model: Value = serde_json::from_str(&stdout(&output)).expect("stdout must be JSON");
 
+    // Single-module trees carry the module tier natively: the grammar derives
+    // module edges from the tree's package references. No soft paths exist at
+    // go module granularity (the packages are the units), so `soft_structure`
+    // stays empty while `module_edges` carries the crossing.
     assert_eq!(
         model["soft_structure"],
         serde_json::json!({}),
-        "no go.work: the module tier stays empty exactly as before"
+        "go module edges carry no soft paths"
     );
     assert_eq!(
         model["module_edges"],
-        serde_json::json!([]),
-        "no go.work: no module edges"
+        serde_json::json!([
+            {
+                "unit": "example.com/demo",
+                "from": "example.com::demo",
+                "to": "example.com::demo::internal::store",
+                "symbols": []
+            },
+        ]),
+        "package reference inside a single module derives a module edge (dotted vocab)"
     );
 }
 
-/// A `go.work` naming a single member is the single-module path: fewer than
-/// two members derive no module tier (the capability table's go module-tier
-/// row is exactly this condition).
+/// A `go.work` naming a single member is the single-module path: it behaves
+/// exactly like a plain single-`go.mod` tree, and the module tier comes from
+/// the tree's own package references, not from member counting.
 #[test]
 fn scan_go_single_member_work_takes_single_module_path() {
     let fixture = common::Fixture::new();
@@ -983,7 +993,10 @@ fn scan_go_single_member_work_takes_single_module_path() {
         "main.go",
         "package main\n\nimport \"example.com/demo/internal/store\"\n\nfunc main() {}\n",
     );
-    fixture.write("internal/store/store.go", "package store\n\nfunc Get() {}\n");
+    fixture.write(
+        "internal/store/store.go",
+        "package store\n\nfunc Get() {}\n",
+    );
     let output = fixture.run(&["scan"]);
 
     assert_eq!(output.status.code(), Some(0), "exit must be 0");
@@ -993,12 +1006,20 @@ fn scan_go_single_member_work_takes_single_module_path() {
     assert_eq!(
         model["soft_structure"],
         serde_json::json!({}),
-        "one-member go.work: the module tier stays absent as on a plain single module"
+        "one-member go.work: no soft paths, exactly as on a plain single module"
     );
     assert_eq!(
         model["module_edges"],
-        serde_json::json!([]),
-        "one-member go.work: no module edges"
+        serde_json::json!([
+            {
+                "unit": "example.com/demo",
+                "from": "example.com::demo",
+                "to": "example.com::demo::internal::store",
+                "symbols": []
+            },
+        ]),
+        "one-member go.work: the module edges are the tree's package references, \
+         identical to the plain single-module path"
     );
 }
 
@@ -1083,8 +1104,7 @@ fn scan_go_test_only_external_import_is_not_production_external_usage() {
     let output = fixture.run(&["scan"]);
 
     assert_eq!(output.status.code(), Some(0), "exit must be 0");
-    let model: Value =
-        serde_json::from_str(&stdout(&output)).expect("stdout must be JSON");
+    let model: Value = serde_json::from_str(&stdout(&output)).expect("stdout must be JSON");
     assert_eq!(
         model["external"],
         Value::Array(Vec::new()),
@@ -1151,10 +1171,7 @@ fn scan_go_external_test_package_leaves_production_model_unchanged() {
         .collect();
     assert_eq!(
         edges,
-        [(
-            "example.com/demo/foo",
-            "example.com/demo/bar"
-        )],
+        [("example.com/demo/foo", "example.com/demo/bar")],
         "foo's production edges must stay exactly the production-file imports:\n{edges:?}"
     );
     assert_eq!(
@@ -1217,7 +1234,8 @@ fn scan_go_test_files_add_no_serialized_test_tier_fields() {
 /// Workplan go_test_files_tier, scenario "production behavior unchanged for
 /// test-free trees": the model of the existing test-free go tree (scan scenario
 /// three fixture) is pinned so the file-tier change cannot silently shift
-/// units, edges, or external tiers.
+/// units, edges, or external tiers. The pinned tiers include `module_edges`:
+/// single-module trees derive them natively from the tree's package references.
 #[test]
 fn scan_go_test_free_tree_model_is_byte_identical_to_before() {
     let fixture = common::Fixture::new();
@@ -1236,8 +1254,7 @@ fn scan_go_test_free_tree_model_is_byte_identical_to_before() {
     );
     let output = fixture.run(&["scan"]);
     assert_eq!(output.status.code(), Some(0), "exit must be 0");
-    let model: Value =
-        serde_json::from_str(&stdout(&output)).expect("stdout must be JSON");
+    let model: Value = serde_json::from_str(&stdout(&output)).expect("stdout must be JSON");
 
     let expected = serde_json::json!({
         "units": [
@@ -1252,14 +1269,66 @@ fn scan_go_test_free_tree_model_is_byte_identical_to_before() {
         "external": [],
         "module_external": {},
         "soft_structure": {},
-        "module_edges": [],
+        "module_edges": [
+            {"unit": "example.com/demo", "from": "example.com::demo::cmd::app", "to": "example.com::demo::internal::service", "symbols": []},
+            {"unit": "example.com/demo", "from": "example.com::demo::internal::service", "to": "example.com::demo::internal::store", "symbols": []}
+        ],
         "usage": {}
     });
-    for key in expected.as_object().expect("expected must be object").keys() {
+    for key in expected
+        .as_object()
+        .expect("expected must be object")
+        .keys()
+    {
         assert_eq!(
-            model[key], expected[key],
+            model[key],
+            expected[key],
             "test-free go model must stay byte-identical in tier `{key}`:\n{}",
             stdout(&output)
         );
     }
+}
+
+/// Roles ride the model: the rust driver derives the closed-vocabulary roles
+/// (`facade`, `composition`) from its own facts and serializes them as the
+/// `roles` map keyed by model path. A publication-only crate root reads as
+/// `facade` at the unit path; a bin unit's main root that wires modules reads
+/// as `composition` at `<unit>::main`. Modules with no derivable role carry no
+/// entry — absence means "no role stated", never "role denied".
+#[test]
+fn scan_scenario_roles_map_names_facade_and_composition_roots() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "mod engine;\npub use engine::Thing;\n");
+    fixture.write("src/engine.rs", "pub struct Thing;\n");
+    fixture.write(
+        "src/main.rs",
+        "mod wire;\nuse crate::wire::glue;\nfn main() { glue(); }\n",
+    );
+    fixture.write("src/wire.rs", "pub fn glue() {}\n");
+    let output = fixture.run(&["scan"]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let model: Value = serde_json::from_str(&stdout(&output)).expect("model JSON");
+    assert_eq!(
+        model["roles"]["app"].as_str(),
+        Some("facade"),
+        "publication-only crate root is a facade:\n{}",
+        stdout(&output)
+    );
+    assert_eq!(
+        model["roles"]["app-bin::main"].as_str(),
+        Some("composition"),
+        "the wiring bin main root is a composition root:\n{}",
+        stdout(&output)
+    );
+    let entries = model["roles"].as_object().expect("roles is an object");
+    assert_eq!(
+        entries.len(),
+        2,
+        "only derivable roles are stated:\n{}",
+        stdout(&output)
+    );
 }

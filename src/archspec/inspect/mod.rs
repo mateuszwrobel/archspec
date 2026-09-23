@@ -29,9 +29,9 @@ const FORMATS: &[&str] = &["mermaid", "plantuml"];
 /// projects containment and nothing else, so there is nothing to render.
 /// Mirrors the depgraph tier sentence (`depgraph::MODULE_TIER_REQUIREMENT`);
 /// the refusal states a model fact, not a language verdict.
-pub const TREE_MODULE_TIER_REQUIREMENT: &str = "inspect tree needs the module tier, which this model has none of; a Go tree acquires one through go.work members (2+), 'inspect scanner' renders the unit-tier model";
+pub const TREE_MODULE_TIER_REQUIREMENT: &str = "inspect tree needs the module tier, which this model has none of; the module tier is derived from the tree's package references, which this tree records none of, 'inspect scanner' renders the unit-tier model";
 
-pub const HELP: &str = "usage: archspec inspect [tree|scanner] [path] [--format <mermaid|plantuml>] [--output <path>] [--check]\nzero-config file-level import map of a project\n\n  tree|scanner      structural model mode (default: file-level graph)\n  path              directory to scan (default: current directory)\n  --format <fmt>    mermaid or plantuml (default: mermaid)\n  --output <path>   write the diagram to that file (default: stdout unless archspec.toml [output] sets a destination)\n  --check           compare the diagram to its destination without writing; exit non-zero if stale or missing\n";
+pub const HELP: &str = "usage: archspec inspect [tree|scanner] [path] [--format <mermaid|plantuml>] [--output <path>] [--check]\nzero-config file-level import map of a project\n\n  tree|scanner      structural model mode (default: file-level graph)\n  path              directory to scan (default: current directory)\n  --format <fmt>    mermaid or plantuml (default: mermaid)\n  --output <path>   write the diagram to that file (default: stdout unless archspec.toml [output] sets a destination); `--output -` writes to stdout and creates no file — never a path positional\n  --check           compare the diagram to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -65,8 +65,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let check = parsed.switches.contains("check");
 
     match parsed.positionals.first().map(String::as_str) {
-        Some("tree") => run_structural(false, &parsed, check),
-        Some("scanner") => run_structural(true, &parsed, check),
+        Some("tree") => run_structural(false, &parsed, format, check),
+        Some("scanner") => run_structural(true, &parsed, format, check),
         _ => run_file_level(&parsed, format, check),
     }
 }
@@ -88,7 +88,12 @@ fn not_a_directory(root: &str) -> String {
     )
 }
 
-fn run_structural(include_unit_edges: bool, parsed: &cli::Args, check: bool) -> Result<(), String> {
+fn run_structural(
+    include_unit_edges: bool,
+    parsed: &cli::Args,
+    format: &str,
+    check: bool,
+) -> Result<(), String> {
     let positionals: Vec<&String> = parsed.positionals.iter().skip(1).collect();
     if positionals.len() > 1 {
         return Err("expected at most one path argument".to_string());
@@ -116,22 +121,34 @@ fn run_structural(include_unit_edges: bool, parsed: &cli::Args, check: bool) -> 
     }
     // Structural branching is content-based, not language-keyed: the tree
     // view projects only the module tier, so it renders containment wherever
-    // the model carries one (go.work trees among them) and is refused by that
-    // missing fact where it does not (single-module go). The scanner view
+    // the model carries one and is refused by that
+    // missing fact where it does not. The scanner view
     // renders whatever units, edges and soft structure the model carries and
     // is never refused for being tier-less.
+    // The tree view extracts the model exactly as `archspec scan` does, so
+    // the documented inspect==scan agreement holds. The file-level map below
+    // stays model-free — those are file-granular discovery facts produced
+    // without model extraction.
     let model = scan::extract(language, root_path)?;
     if !include_unit_edges && !model.has_module_tier() {
         return Err(TREE_MODULE_TIER_REQUIREMENT.to_string());
     }
-    let diagram = structural::render_model(&model, include_unit_edges);
+    // `--format` selects the model renderer exactly as it selects the
+    // file-level renderer: mermaid stays the default, plantuml emits the
+    // `@startuml` diagram of the same model content.
+    let diagram = match format {
+        "mermaid" => structural::render_model(&model, include_unit_edges),
+        "plantuml" => structural::render_model_plantuml(&model, include_unit_edges),
+        _ => unreachable!(),
+    };
     let config = config::load(root_path)?;
-    let output = config::resolve(
+    let route = config::route(
         parsed.values.get("output").map(String::as_str),
         config.inspect.as_deref(),
         root_path,
+        config::is_human(format),
     );
-    config::emit(&diagram, output, check, "diagram", "inspect")
+    config::emit(&diagram, route, check, "diagram", "inspect", None)
 }
 
 fn run_file_level(parsed: &cli::Args, format: &str, check: bool) -> Result<(), String> {
@@ -172,12 +189,13 @@ fn run_file_level(parsed: &cli::Args, format: &str, check: bool) -> Result<(), S
         _ => unreachable!(),
     };
     let config = config::load(root_path)?;
-    let output = config::resolve(
+    let route = config::route(
         parsed.values.get("output").map(String::as_str),
         config.inspect.as_deref(),
         root_path,
+        config::is_human(format),
     );
-    config::emit(&diagram, output, check, "diagram", "inspect")
+    config::emit(&diagram, route, check, "diagram", "inspect", None)
 }
 
 /// Render the file-level import map for a language as a mermaid diagram.

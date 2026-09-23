@@ -1,10 +1,11 @@
 [package]
 name = "rust-arch-test-kit"
-version = "0.4.159"
+version = "0.5.0"  # released — entry lives in CHANGELOG.md under [0.5.0]; do not bump past the tag until the release commit; the 0.5.0 retag carries the aarch64-musl release-build fix; this tree adds the Apache-2.0 license file and the generated credits listing at an unchanged version
 edition = "2021"
+
 rust-version = "1.94"
 description = "archspec CLI: architecture scan, verify and diagrams for Rust projects, with the shared Rust-parsing/rendering engine it links"
-license = "MIT"
+license = "Apache-2.0"
 publish = ["gitea"]
 
 [dependencies]
@@ -14,6 +15,12 @@ syn = { version = "2", features = ["full", "visit"] }
 quick-xml = "0.42"
 toml = "0.8"
 walkdir = "2.5"
+tree-sitter = "0.24"
+# Exact pin: grammar ABI 15 (tree-sitter-c-sharp >= 0.23.2) needs runtime >= 0.25;
+# 0.23.1 carries ABI 14, matching the runtime 0.24 pin (ADR-014). The proven
+# in-repo combination resolves the same version.
+tree-sitter-c-sharp = "=0.23.1"
+tree-sitter-go = "0.23"
 
 [dev-dependencies]
 tempfile = "3.24.0"

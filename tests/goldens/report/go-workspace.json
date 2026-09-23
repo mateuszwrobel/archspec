@@ -1,0 +1,18 @@
+{
+  "language": "go",
+  "metrics": {
+    "components": 2,
+    "units": 3,
+    "edges_internal": 2,
+    "edges_external": 0,
+    "cycles": 0,
+    "violations_components": 0,
+    "violations_edges": 0,
+    "violations_contracts": 0,
+    "violations_cycles": 0
+  },
+  "roles": {
+    "example.com/api": "composition"
+  },
+  "findings": []
+}

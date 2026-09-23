@@ -40,11 +40,7 @@ pub(crate) fn table() -> &'static Table {
                     else {
                         panic!("malformed matrix row: {line}");
                     };
-                    let emission = line
-                        .splitn(4, ' ')
-                        .nth(3)
-                        .unwrap_or(emission)
-                        .to_string();
+                    let emission = line.splitn(4, ' ').nth(3).unwrap_or(emission).to_string();
                     rows.insert((lang.to_string(), fact.to_string()), emission);
                 }
                 Some("rule") => {
@@ -76,7 +72,10 @@ impl Table {
     }
 
     pub(crate) fn languages(&self) -> BTreeSet<String> {
-        self.rows.keys().map(|(language, _)| language.clone()).collect()
+        self.rows
+            .keys()
+            .map(|(language, _)| language.clone())
+            .collect()
     }
 
     pub(crate) fn facts(&self) -> BTreeSet<String> {
@@ -96,8 +95,7 @@ impl Table {
             self.rows
                 .keys()
                 .map(|(lang, name)| {
-                    let output =
-                        fixture.run(&["capability", "granular", lang, name]);
+                    let output = fixture.run(&["capability", "granular", lang, name]);
                     ((lang.clone(), name.clone()), output.status.success())
                 })
                 .collect()

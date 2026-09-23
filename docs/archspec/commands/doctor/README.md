@@ -4,6 +4,8 @@ Environment diagnostics for language drivers and toolchains. Part of the archspe
 
 The command inspects the environment it runs in and reports, per supported language driver, whether that language's toolchain is present on `PATH`, along with version/status detail and an overall summary — a driver/toolchain **diagnostic report**. Its purpose is **readiness**: to make toolchain presence explicit and debuggable. It reports and nothing else — it never installs, modifies, or configures anything.
 
+For identity — which build of archspec this is — use `archspec --version` (or `archspec version`); `doctor` answers sanity (toolchains and drivers), not identity.
+
 The PATH probe is informational: every language driver ships inside the archspec binary, so `scan`, `verify`, `update`, and `report` extract code regardless of what `PATH` holds (their driver-unavailable error is reachable only through the `ARCHSPEC_DISABLE_DRIVERS` test seam). `doctor` surfaces the user's own toolchains — Rust users have cargo, C# users have the .NET SDK, Go users have the Go toolchain — as an explicit report instead of an implicit assumption.
 
 ## Phase 1 scope

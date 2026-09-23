@@ -17,7 +17,7 @@ archspec help [topic]
 | `spec` | the `architecture.spec.toml` annotated reference | `archspec spec` (shared constant) |
 | `constraints` | the seven constraint types with their keys and severity | the JSON Schema in `archspec spec --schema` |
 | `languages` | the language-tier matrix (which model tiers each scanner populates) | `LANGUAGE_TIERS` (consistency-tested) |
-| `workflow` | the `scan → report → diagram → verify` recipe | — |
+| `workflow` | the numbered audit recipe (this topic owns the ordering) | — |
 | `diagnostics` | the catalog of every `verify`/`report` finding category: message pattern, meaning, origin, severity + `--strict`, follow-up, decision, and the required report format | the finding strings in `verify/compare.rs` |
 | `<command>` | that command's `--help`, byte-identical | `archspec <command> --help` |
 

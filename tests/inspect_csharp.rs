@@ -118,7 +118,10 @@ fn inspect_csharp_renders_node_per_file_and_resolved_edge() {
 #[test]
 fn inspect_csharp_folders_into_subgraphs() {
     let fixture = common::Fixture::new();
-    fixture.write("src/Web/Controller.cs", "namespace Demo.Web;\npublic class Controller { }\n");
+    fixture.write(
+        "src/Web/Controller.cs",
+        "namespace Demo.Web;\npublic class Controller { }\n",
+    );
     fixture.write(
         "src/Web/Models/Item.cs",
         "namespace Demo.Web.Models;\npublic class Item { }\n",
@@ -197,14 +200,15 @@ fn inspect_csharp_plantuml_renders_entities_and_packages() {
 }
 
 #[test]
-fn inspect_csharp_output_flag_writes_file_and_keeps_stdout_empty() {
+fn inspect_csharp_output_flag_writes_file_and_echoes_wrote_line() {
     let fixture = csharp_scenario_fixture();
     let output = fixture.run(&["inspect", "--output", "out.mmd"]);
 
     assert_eq!(output.status.code(), Some(0));
-    assert!(
-        stdout(&output).is_empty(),
-        "stdout should be empty when --output is given"
+    assert_eq!(
+        stdout(&output),
+        "wrote out.mmd\n",
+        "inspect --output echoes the universal wrote line (blind4 D01)"
     );
     let written = fixture.read("out.mmd");
     assert!(
@@ -260,8 +264,14 @@ fn inspect_csharp_plantuml_is_deterministic_across_runs() {
 #[test]
 fn inspect_csharp_multi_file_namespace_fans_out_to_all_files() {
     let fixture = common::Fixture::new();
-    fixture.write("src/Models/M1.cs", "namespace Demo.Models;\npublic class M1 { }\n");
-    fixture.write("src/Models/M2.cs", "namespace Demo.Models;\npublic class M2 { }\n");
+    fixture.write(
+        "src/Models/M1.cs",
+        "namespace Demo.Models;\npublic class M1 { }\n",
+    );
+    fixture.write(
+        "src/Models/M2.cs",
+        "namespace Demo.Models;\npublic class M2 { }\n",
+    );
     fixture.write(
         "src/Use.cs",
         "using Demo.Models;\nnamespace Demo.Use;\npublic class Use { }\n",
@@ -416,8 +426,14 @@ fn inspect_csharp_cross_folder_using_resolves() {
 fn inspect_csharp_excludes_bin_obj_and_hidden_dirs() {
     let fixture = csharp_scenario_fixture();
     fixture.write("bin/gen.cs", "namespace Demo.Gen;\npublic class Gen { }\n");
-    fixture.write("obj/temp.cs", "namespace Demo.Temp;\npublic class Temp { }\n");
-    fixture.write(".hidden/h.cs", "namespace Demo.Hidden;\npublic class H { }\n");
+    fixture.write(
+        "obj/temp.cs",
+        "namespace Demo.Temp;\npublic class Temp { }\n",
+    );
+    fixture.write(
+        ".hidden/h.cs",
+        "namespace Demo.Hidden;\npublic class H { }\n",
+    );
     let output = fixture.run(&["inspect"]);
 
     assert_eq!(output.status.code(), Some(0));
@@ -501,7 +517,10 @@ fn inspect_csharp_rejects_two_positional_paths() {
 fn inspect_csharp_rejects_tree_with_only_excluded_sources() {
     let fixture = common::Fixture::new();
     fixture.write("bin/gen.cs", "namespace Demo.Gen;\npublic class Gen { }\n");
-    fixture.write("obj/temp.cs", "namespace Demo.Temp;\npublic class Temp { }\n");
+    fixture.write(
+        "obj/temp.cs",
+        "namespace Demo.Temp;\npublic class Temp { }\n",
+    );
     let output = fixture.run(&["inspect"]);
 
     assert_ne!(output.status.code(), Some(0));

@@ -154,7 +154,9 @@ fn inspect_folders_into_subgraphs_scenario_two() {
         "orchestration subgraph missing from src subgraph:\n{src_block}"
     );
     assert!(
-        stdout.contains("src_orchestration_state_rs_824af904 --> src_orchestration_common_rs_6fb2aeed"),
+        stdout.contains(
+            "src_orchestration_state_rs_824af904 --> src_orchestration_common_rs_6fb2aeed"
+        ),
         "missing resolved edge:\n{stdout}"
     );
     let orchestration = subgraph_block(&stdout, "src/orchestration");
@@ -332,11 +334,15 @@ fn inspect_single_file_per_directory_emits_no_dangling_endpoints() {
             "edge line must have exactly two non-empty endpoints: {line}"
         );
         assert!(
-            nodes.iter().any(|node| node.split('[').next() == Some(parts[0])),
+            nodes
+                .iter()
+                .any(|node| node.split('[').next() == Some(parts[0])),
             "edge endpoint is not a declared node: {line}"
         );
         assert!(
-            nodes.iter().any(|node| node.split('[').next() == Some(parts[2])),
+            nodes
+                .iter()
+                .any(|node| node.split('[').next() == Some(parts[2])),
             "edge endpoint is not a declared node: {line}"
         );
     }
@@ -344,14 +350,15 @@ fn inspect_single_file_per_directory_emits_no_dangling_endpoints() {
 }
 
 #[test]
-fn inspect_output_flag_writes_file_and_keeps_stdout_empty() {
+fn inspect_output_flag_writes_file_and_echoes_wrote_line() {
     let fixture = scenario_fixture();
     let output = fixture.run(&["inspect", "--output", "out.mmd"]);
 
     assert_eq!(output.status.code(), Some(0));
-    assert!(
-        stdout(&output).is_empty(),
-        "stdout should be empty when --output is given"
+    assert_eq!(
+        stdout(&output),
+        "wrote out.mmd\n",
+        "inspect --output echoes the universal wrote line (blind4 D01)"
     );
     let written = fixture.read("out.mmd");
     assert!(
@@ -399,13 +406,19 @@ fn inspect_file_error_names_modes_and_directory_form() {
     assert_ne!(output.status.code(), Some(0));
     let err = stderr(&output);
     assert!(err.contains("path is not a directory: src/a.rs"), "{err}");
-    assert!(err.contains("file-level import map modes (rust, csharp"), "{err}");
+    assert!(
+        err.contains("file-level import map modes (rust, csharp"),
+        "{err}"
+    );
     assert!(err.contains("inspect tree|scanner"), "{err}");
     assert!(
         !err.contains("go has no inspect mode"),
         "go has a file-level import map now; the message must not claim otherwise:\n{err}"
     );
-    assert!(err.contains("archspec inspect src"), "directory form must be shown:\n{err}");
+    assert!(
+        err.contains("archspec inspect src"),
+        "directory form must be shown:\n{err}"
+    );
     assert!(stdout(&output).is_empty(), "no partial diagram on error");
 }
 
@@ -419,8 +432,14 @@ fn inspect_structural_file_error_names_modes_and_directory_form() {
     assert_ne!(output.status.code(), Some(0));
     let err = stderr(&output);
     assert!(err.contains("path is not a directory: Cargo.toml"), "{err}");
-    assert!(err.contains("file-level import map modes (rust, csharp"), "{err}");
-    assert!(err.contains("archspec inspect ."), "directory form must be shown:\n{err}");
+    assert!(
+        err.contains("file-level import map modes (rust, csharp"),
+        "{err}"
+    );
+    assert!(
+        err.contains("archspec inspect ."),
+        "directory form must be shown:\n{err}"
+    );
 }
 
 #[test]
@@ -461,7 +480,10 @@ fn inspect_renders_go_file_import_map_in_default_mode() {
     assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let stdout = stdout(&output);
     assert!(stdout.contains("graph TD"), "missing graph TD:\n{stdout}");
-    assert!(stdout.contains("handler/handler.go"), "node missing:\n{stdout}");
+    assert!(
+        stdout.contains("handler/handler.go"),
+        "node missing:\n{stdout}"
+    );
     assert!(stdout.contains("store/store.go"), "node missing:\n{stdout}");
     let edge = format!(
         "{} --> {}",
@@ -472,9 +494,9 @@ fn inspect_renders_go_file_import_map_in_default_mode() {
     assert!(stderr(&output).is_empty(), "stderr should be empty");
 }
 
-/// The tree view projects only the module tier; a single-module go model
-/// carries none, so the refusal names the missing model fact (and how a Go
-/// tree acquires one), not a language verdict.
+/// The tree view projects only the module tier; a single-package go tree with
+/// no package references derives none, so the refusal names the missing model
+/// fact and where the unit-tier model is rendered instead.
 #[test]
 fn inspect_tree_refuses_single_module_go_with_module_tier_message() {
     let output = go_fixture().run(&["inspect", "tree"]);
@@ -486,8 +508,14 @@ fn inspect_tree_refuses_single_module_go_with_module_tier_message() {
         "stderr must name the missing module tier:\n{err}"
     );
     assert!(
-        err.contains("go.work members"),
-        "stderr must say how a Go tree acquires the tier:\n{err}"
+        err.contains(
+            "the module tier is derived from the tree's package references, which this tree records none of"
+        ),
+        "stderr must say where the tier comes from:\n{err}"
+    );
+    assert!(
+        err.contains("'inspect scanner' renders the unit-tier model"),
+        "stderr must point at the view that renders the units:\n{err}"
     );
     assert!(stdout(&output).is_empty(), "no partial diagram on error");
 }
@@ -517,7 +545,10 @@ fn inspect_scanner_renders_go_unit_model() {
         mermaid_id("example.com/demo/app"),
         mermaid_id("example.com/demo/shared")
     );
-    assert!(stdout.contains(&edge), "missing unit edge {edge}:\n{stdout}");
+    assert!(
+        stdout.contains(&edge),
+        "missing unit edge {edge}:\n{stdout}"
+    );
     assert!(stderr(&output).is_empty(), "stderr should be empty");
 }
 
@@ -618,14 +649,15 @@ fn inspect_plantuml_packages_group_folder_files() {
 }
 
 #[test]
-fn inspect_output_flag_writes_plantuml_file_and_keeps_stdout_empty() {
+fn inspect_output_flag_writes_plantuml_file_and_echoes_wrote_line() {
     let fixture = scenario_fixture();
     let output = fixture.run(&["inspect", "--format", "plantuml", "--output", "out.puml"]);
 
     assert_eq!(output.status.code(), Some(0));
-    assert!(
-        stdout(&output).is_empty(),
-        "stdout should be empty when --output is given"
+    assert_eq!(
+        stdout(&output),
+        "wrote out.puml\n",
+        "a machine-format --output write echoes the universal wrote line (blind4 D01)"
     );
     let written = fixture.read("out.puml");
     assert!(
@@ -1024,7 +1056,8 @@ fn inspect_self_from_mod_rs_resolves_to_submodule_file() {
     assert_eq!(output.status.code(), Some(0));
     let stdout = stdout(&output);
     assert!(
-        stdout.contains("src_orchestration_mod_rs_aaa1e54e --> src_orchestration_common_rs_6fb2aeed"),
+        stdout
+            .contains("src_orchestration_mod_rs_aaa1e54e --> src_orchestration_common_rs_6fb2aeed"),
         "self::common from mod.rs must resolve to the submodule file:\n{stdout}"
     );
     assert!(
@@ -1147,7 +1180,10 @@ fn cross_unit_fixture() -> common::Fixture {
     );
     fixture.write("src/lib.rs", "mod feature;\n");
     fixture.write("src/feature.rs", "pub fn run() {}\n");
-    fixture.write("src/main.rs", "fn main() {\n    let _ = weird_kit::feature::run;\n}\n");
+    fixture.write(
+        "src/main.rs",
+        "fn main() {\n    let _ = weird_kit::feature::run;\n}\n",
+    );
     fixture
 }
 
@@ -1427,7 +1463,10 @@ fn inspect_unresolved_and_inline_declarations_emit_no_edge_or_node() {
         "src/lib.rs",
         "pub mod a;\npub mod ghost;\nmod inlined {\n    pub struct I;\n}\n",
     );
-    fixture.write("src/a.rs", "mod nested_inline {\n    pub struct N;\n}\nuse crate::b::B;\n");
+    fixture.write(
+        "src/a.rs",
+        "mod nested_inline {\n    pub struct N;\n}\nuse crate::b::B;\n",
+    );
     fixture.write("src/b.rs", "pub struct B;\n");
     let output = fixture.run(&["inspect"]);
 
@@ -1438,11 +1477,13 @@ fn inspect_unresolved_and_inline_declarations_emit_no_edge_or_node() {
         "unresolved declaration must emit neither edge nor phantom node:\n{stdout}"
     );
     assert!(
-        !stdout.contains("src_lib_rs_2fba4152 --> src_lib_rs_2fba4152") && !stdout.contains("src_a_rs_d1e1ab14 --> src_a_rs_d1e1ab14"),
+        !stdout.contains("src_lib_rs_2fba4152 --> src_lib_rs_2fba4152")
+            && !stdout.contains("src_a_rs_d1e1ab14 --> src_a_rs_d1e1ab14"),
         "inline mod blocks must not draw declaration edges:\n{stdout}"
     );
     assert!(
-        stdout.contains("src_a_rs_d1e1ab14 --> src_b_rs_a74680fd") && stdout.contains("src_lib_rs_2fba4152 --> src_a_rs_d1e1ab14"),
+        stdout.contains("src_a_rs_d1e1ab14 --> src_b_rs_a74680fd")
+            && stdout.contains("src_lib_rs_2fba4152 --> src_a_rs_d1e1ab14"),
         "the rest of the graph must be unchanged:\n{stdout}"
     );
     assert!(stderr(&output).is_empty(), "stderr should be empty");

@@ -1,6 +1,7 @@
 //! Declarative driver capability table: one row per (language, fact) stating
-//! what that language's driver emits, at which granularity, or `not-emitted`.
-//! Single source of truth read at runtime by `verify` (inert-rule notes) and
+//! what that language's extraction path emits, at which granularity, or
+//! `not-emitted`. Single
+//! source of truth read at runtime by `verify` (inert-rule notes) and
 //! `doctor` (driver capability reported apart from toolchain availability).
 //!
 //! The table must mirror current per-driver behavior; every cell was verified
@@ -16,17 +17,16 @@ pub const GRANULAR: &str = "granular";
 /// The driver never emits the fact; rules that require it can never fire for
 /// the language.
 pub const NOT_EMITTED: &str = "not-emitted";
-/// The driver emits a native module tier only from a `go.work` workspace with
-/// two or more members — a single-member (or absent) go.work is the
-/// single-module path and carries no tier in the model, gaining grouping only
-/// from spec declarations at compare time.
-pub const WORKTIER_ONLY: &str = "go.work tier only (2+ members); declared grouping otherwise";
 /// Test evidence is applied at the file tier (`*_test.go` dropped at scan)
 /// with no serialized module-path fact.
 pub const FILE_TIER_ONLY: &str = "file tier only (*_test.go excluded at scan)";
 
-/// A unit whose root file defines nothing (publication-only facade root).
-pub const FACT_ROOT_FACADE: &str = "root-facade";
+/// `facade` role entries the driver derives into the model's serialized
+/// roles map (which modules are publication facades).
+pub const FACT_ROLE_FACADE: &str = "role-facade";
+/// `composition` role entries the driver derives into the model's serialized
+/// roles map (which modules are composition roots).
+pub const FACT_ROLE_COMPOSITION: &str = "role-composition";
 /// Soft module paths and module-level edges of the model.
 pub const FACT_MODULE_TIER: &str = "module-tier";
 /// Symbol lists carried on module edges.
@@ -38,22 +38,28 @@ pub const FACT_TEST_TIER: &str = "test-tier";
 /// External packages attributed to modules and the project.
 pub const FACT_EXTERNAL_PACKAGES: &str = "external-packages";
 
-/// The structural root-facade check of `verify`.
+/// The structural facade-role check of `verify` (rule name unchanged; the
+/// fact source is the model's roles map).
 pub const RULE_FACADE_DEPENDENCY: &str = "facade dependency";
 /// The ban-routing (conduit) check of `verify`.
 pub const RULE_LAUNDERED_FORBIDDEN_EDGE: &str = "laundered forbidden edge";
 
-/// One row per (language, fact). Ordered by fact, then language.
+/// One row per (language, fact), stating what that language's sole extraction
+/// path emits (capability-layer data, no engine introspection; every cell was
+/// verified against live driver probes). Ordered by fact, then language.
 pub const CAPABILITIES: &[(Language, &str, &str)] = &[
-    (Language::Rust, FACT_ROOT_FACADE, GRANULAR),
-    (Language::Csharp, FACT_ROOT_FACADE, NOT_EMITTED),
-    (Language::Go, FACT_ROOT_FACADE, NOT_EMITTED),
+    (Language::Rust, FACT_ROLE_FACADE, GRANULAR),
+    (Language::Csharp, FACT_ROLE_FACADE, GRANULAR),
+    (Language::Go, FACT_ROLE_FACADE, NOT_EMITTED),
+    (Language::Rust, FACT_ROLE_COMPOSITION, GRANULAR),
+    (Language::Csharp, FACT_ROLE_COMPOSITION, GRANULAR),
+    (Language::Go, FACT_ROLE_COMPOSITION, GRANULAR),
     (Language::Rust, FACT_MODULE_TIER, GRANULAR),
     (Language::Csharp, FACT_MODULE_TIER, GRANULAR),
-    (Language::Go, FACT_MODULE_TIER, WORKTIER_ONLY),
+    (Language::Go, FACT_MODULE_TIER, GRANULAR),
     (Language::Rust, FACT_SYMBOLS, GRANULAR),
-    (Language::Csharp, FACT_SYMBOLS, NOT_EMITTED),
-    (Language::Go, FACT_SYMBOLS, NOT_EMITTED),
+    (Language::Csharp, FACT_SYMBOLS, GRANULAR),
+    (Language::Go, FACT_SYMBOLS, GRANULAR),
     (Language::Rust, FACT_ROOT_MODULE_DECLARATIONS, GRANULAR),
     (Language::Csharp, FACT_ROOT_MODULE_DECLARATIONS, NOT_EMITTED),
     (Language::Go, FACT_ROOT_MODULE_DECLARATIONS, NOT_EMITTED),
@@ -66,10 +72,9 @@ pub const CAPABILITIES: &[(Language, &str, &str)] = &[
 ];
 
 /// Checks that consume a capability fact: `(rule, required fact)`. A rule is
-/// inert for a language when its fact is `NOT_EMITTED` (or, for a
-/// `WORKTIER_ONLY` fact, when this run's model carries no such tier).
+/// inert for a language when its fact is `NOT_EMITTED`.
 pub const RULES: &[(&str, &str)] = &[
-    (RULE_FACADE_DEPENDENCY, FACT_ROOT_FACADE),
+    (RULE_FACADE_DEPENDENCY, FACT_ROLE_FACADE),
     (RULE_LAUNDERED_FORBIDDEN_EDGE, FACT_MODULE_TIER),
 ];
 
@@ -85,7 +90,7 @@ pub fn emission(language: Language, fact: &str) -> Option<&'static str> {
 }
 
 /// True when the driver emits the fact at full granularity (the row says
-/// `GRANULAR`). Conditionals (`WORKTIER_ONLY`, `FILE_TIER_ONLY`) and
+/// `GRANULAR`). Conditionals (`FILE_TIER_ONLY`) and
 /// not-emitted rows yield `false`: on a plain fixture tree the fact is only
 /// there when the table says the driver always puts it there. Wired into
 /// `archspec capability granular` (the machine query behind the prose-drift
@@ -106,7 +111,7 @@ mod tests {
                 .filter(|(row_language, _, _)| *row_language == language)
                 .map(|(_, fact, emission)| (*fact, *emission))
                 .collect();
-            assert_eq!(rows.len(), 6, "{language:?} must state all six facts");
+            assert_eq!(rows.len(), 7, "{language:?} must state all seven facts");
             for (fact, value) in rows {
                 assert_eq!(
                     emission(language, fact),
@@ -118,26 +123,75 @@ mod tests {
     }
 
     #[test]
-    fn root_facade_fact_is_rust_only() {
-        assert_eq!(emission(Language::Rust, FACT_ROOT_FACADE), Some(GRANULAR));
+    fn role_facade_rows_match_the_derivations() {
+        // Written from live probes after the derivations shipped (roles US
+        // 01-03): rust derives facade from the defines-nothing root predicate,
+        // csharp from the using-only umbrella root module, and the go driver
+        // derives no facade from its own facts.
+        assert_eq!(emission(Language::Rust, FACT_ROLE_FACADE), Some(GRANULAR));
         assert_eq!(
-            emission(Language::Csharp, FACT_ROOT_FACADE),
+            emission(Language::Csharp, FACT_ROLE_FACADE),
+            Some(GRANULAR)
+        );
+        assert_eq!(
+            emission(Language::Go, FACT_ROLE_FACADE),
             Some(NOT_EMITTED)
         );
-        assert_eq!(emission(Language::Go, FACT_ROOT_FACADE), Some(NOT_EMITTED));
     }
 
     #[test]
-    fn module_tier_fact_is_conditional_for_go_only() {
+    fn role_composition_fact_is_granular_for_every_language() {
+        // Every driver derives composition from its own facts: rust from the
+        // wiring bin main root, csharp from DI-registration entrypoints, go
+        // from the package-main module.
+        assert_eq!(
+            emission(Language::Rust, FACT_ROLE_COMPOSITION),
+            Some(GRANULAR)
+        );
+        assert_eq!(
+            emission(Language::Csharp, FACT_ROLE_COMPOSITION),
+            Some(GRANULAR)
+        );
+        assert_eq!(
+            emission(Language::Go, FACT_ROLE_COMPOSITION),
+            Some(GRANULAR)
+        );
+    }
+
+    #[test]
+    fn retired_root_facade_fact_answers_nothing() {
+        // The `root-facade` fact retired with the serde-skipped field it
+        // described (roles US 04): no alias row, and no language answers it.
+        for language in [Language::Rust, Language::Csharp, Language::Go] {
+            assert_eq!(
+                emission(language, "root-facade"),
+                None,
+                "the retired fact must not answer for {language:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn facade_rule_pairs_onto_the_role_facade_fact() {
+        let fact = RULES
+            .iter()
+            .find(|(rule, _)| *rule == RULE_FACADE_DEPENDENCY)
+            .map(|(_, fact)| *fact);
+        assert_eq!(
+            fact,
+            Some("role-facade"),
+            "the facade rule must consume the role fact, not a retired one"
+        );
+    }
+
+    #[test]
+    fn module_tier_fact_is_granular_for_every_language() {
         assert_eq!(emission(Language::Rust, FACT_MODULE_TIER), Some(GRANULAR));
         assert_eq!(
             emission(Language::Csharp, FACT_MODULE_TIER),
             Some(GRANULAR)
         );
-        assert_eq!(
-            emission(Language::Go, FACT_MODULE_TIER),
-            Some(WORKTIER_ONLY)
-        );
+        assert_eq!(emission(Language::Go, FACT_MODULE_TIER), Some(GRANULAR));
     }
 
     #[test]
@@ -164,6 +218,17 @@ mod tests {
                     "rule {rule} requires fact {fact} stated for every language"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn symbols_fact_is_granular_for_every_language() {
+        for language in [Language::Rust, Language::Csharp, Language::Go] {
+            assert_eq!(
+                emission(language, FACT_SYMBOLS),
+                Some(GRANULAR),
+                "the sole extraction path carries crossing symbols on module edges"
+            );
         }
     }
 }

@@ -1,7 +1,6 @@
 use crate::archspec::capability;
 use crate::archspec::cli::{self, FlagSpec};
 use crate::archspec::language::{self, Language};
-use crate::archspec::model::Model;
 use crate::archspec::scan;
 use crate::archspec::spec;
 use crate::archspec::verify::compare;
@@ -12,15 +11,17 @@ use std::path::Path;
 /// it to stderr — a rule violation is not an operational error.
 pub const RULE_VIOLATION_REPORTED: &str = "\u{1}archspec-rule-violation-reported";
 
-pub const HELP: &str = "usage: archspec verify [path] [--strict]\nextract the model and compare against architecture.spec.toml; exit 1 on violations\n\n  path       project directory to extract and compare (default: current directory)\n  --strict   promote every warning to an error (CI gate); a green run means zero\n             findings of any kind\n\nsee 'archspec help workflow' for the audit recipe and 'archspec help diagnostics'\nfor what each finding category means\n";
+pub const HELP: &str = "usage: archspec verify [path] [--strict]\nextract the model and compare against architecture.spec.toml; exit 1 on violations\n\n  path          project directory to extract and compare (default: current directory)\n  --strict      promote every warning to an error (CI gate); a green run means zero\n                findings of any kind\n\nsee 'archspec help workflow' for the audit recipe and 'archspec help diagnostics'\nfor what each finding category means\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
         args,
-        &[FlagSpec {
-            name: "strict",
-            takes_value: false,
-        }],
+        &[
+            FlagSpec {
+                name: "strict",
+                takes_value: false,
+            },
+        ],
     )?;
     cli::exactly_one_positional(&parsed)?;
 
@@ -63,7 +64,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // `--strict` promotes every warning-level divergence to an error so any
     // finding fails the run (design §9, cli.md: the CI gate).
     let strict = parsed.switches.contains("strict");
-    let notes = inert_rule_notes(language, &model, &diff);
+    let notes = inert_rule_notes(language, &diff);
 
     if diff.is_empty() {
         print!(
@@ -92,22 +93,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
 /// saw. Notes are output, not findings: they never enter the diff, never
 /// change the verdict or exit status, and keep rust runs byte-identical (rust
 /// emits every rule fact).
-fn inert_rule_notes(language: Language, model: &Model, diff: &compare::Diff) -> Vec<String> {
+fn inert_rule_notes(language: Language, diff: &compare::Diff) -> Vec<String> {
     let mut notes = Vec::new();
     for (rule, fact) in capability::RULES {
         if rule_reported(rule, diff) {
             continue;
         }
-        match capability::emission(language, fact) {
-            Some(capability::NOT_EMITTED) => notes.push(format!(
-                "note: {rule} rule inert for {}: driver emits no {fact} fact",
+        if let Some(capability::NOT_EMITTED) = capability::emission(language, fact) {
+            notes.push(format!(
+                "note: {rule} rule inert for {}: no derivable {fact} idiom — alias \
+                 umbrella, public-package and root delegation forms investigated, \
+                 recorded in ADR-017",
                 language.as_str()
-            )),
-            Some(capability::WORKTIER_ONLY) if !model.has_module_tier() => notes.push(format!(
-                "note: {rule} rule: no native module tier this run \
-                 (grouping derived from spec declarations)"
-            )),
-            _ => {}
+            ));
         }
     }
     notes

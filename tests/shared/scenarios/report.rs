@@ -31,6 +31,12 @@ pub fn all() -> Vec<Scenario> {
             "a clean project reports empty findings and exit 0 in the json format",
             report_json_clean_project_has_empty_findings,
         ),
+        scenario(
+            Feature::ReportMetrics,
+            "report_restates_model_roles_verbatim",
+            "the report restates the model's roles map exactly — the json roles field equals the scan map key for key, and the text report names each populated closed-vocabulary group with its model paths",
+            report_restates_model_roles_verbatim,
+        ),
     ]
 }
 
@@ -66,7 +72,9 @@ fn report_counts_units_and_components(driver: &Driver, fx: &common::Fixture) -> 
         return Err(format!("expected 2 units, got {units}:\n{stdout}"));
     }
     if components != "2" {
-        return Err(format!("expected 2 components, got {components}:\n{stdout}"));
+        return Err(format!(
+            "expected 2 components, got {components}:\n{stdout}"
+        ));
     }
     Ok(())
 }
@@ -168,7 +176,60 @@ fn report_json_clean_project_has_empty_findings(
         .as_array()
         .ok_or_else(|| "json report must carry a findings array".to_string())?;
     if !findings.is_empty() {
-        return Err(format!("a clean tree must report empty findings: {findings:?}"));
+        return Err(format!(
+            "a clean tree must report empty findings: {findings:?}"
+        ));
+    }
+    Ok(())
+}
+
+/// The report is presentation, not a second decision: whatever the scan
+/// model states in `roles`, the text report renders as closed-vocabulary
+/// rows and the json format restates key for key (roles US 06, consolidated
+/// across the drivers by roles US 07).
+fn report_restates_model_roles_verbatim(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    let tree = driver.probe_tree();
+    driver.materialize(fx, &tree);
+    fx.write("architecture.spec.toml", &boundary_spec(driver));
+    let model = driver.scan(fx);
+    let stated = model["roles"]
+        .as_object()
+        .ok_or_else(|| "the canonical tree derives roles, so the model must serialize a map".to_string())?;
+
+    let text = common::stdout(&expect_success(driver, fx, &["report"])?);
+    for (label, role) in [("facades", "facade"), ("composition roots", "composition")] {
+        let paths: Vec<&str> = stated
+            .iter()
+            .filter(|(_, value)| value.as_str() == Some(role))
+            .map(|(path, _)| path.as_str())
+            .collect();
+        if paths.is_empty() {
+            if text.contains(&format!("{label}:")) {
+                return Err(format!(
+                    "the text report states an empty {label} group — absence renders no row:\n{text}"
+                ));
+            }
+        } else if !text.contains(&format!("{label}: {}", paths.join(", "))) {
+            return Err(format!(
+                "the text report must carry the {label} row `{label}: {}`:\n{text}",
+                paths.join(", ")
+            ));
+        }
+    }
+
+    let json = expect_success(driver, fx, &["report", "--format", "json"])?;
+    let value: Value = serde_json::from_str(&common::stdout(&json))
+        .map_err(|error| format!("json report must parse: {error}"))?;
+    let restated = value["roles"]
+        .as_object()
+        .ok_or_else(|| "a model with roles makes the json report restate them".to_string())?;
+    if restated != stated {
+        return Err(format!(
+            "json roles must equal the scan roles verbatim:\nmodel: {stated:?}\nreport: {restated:?}"
+        ));
     }
     Ok(())
 }

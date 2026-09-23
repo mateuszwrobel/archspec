@@ -1,8 +1,24 @@
-use crate::archspec::model::{Edge, Model, ModuleEdge, Unit};
+pub(crate) mod syntax;
+
+use crate::archspec::model::{Edge, Model, ModuleEdge, Role, Unit};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// go extraction (grammar source facts). go.mod discovery, module-path parsing,
+/// package-directory discovery, the `*_test.go` exclusion and the
+/// stdlib/external attribution rules are the shared graph layer; per file the
+/// grammar `import_spec` walk in [`syntax`] provides the import facts, import
+/// qualifiers and selector symbols that feed the edge assembly below.
+///
+/// The single-module tree projects every intra-module package import onto the
+/// module tier using the same `dotted_module` addressing the go.work edges
+/// emit (decision "Go visibility: every package of a module is a module").
+///
+/// A `go.work` naming 2+ members takes [`extract_workspace`]: member discovery,
+/// unit naming and unit-tier edges as above, selector symbols onto the
+/// cross-member edges, and within-member package imports projected exactly
+/// like the single-module path.
 pub fn extract(root: &Path) -> Result<Model, String> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let members = workspace_members(&root)?;
@@ -14,10 +30,17 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         return extract_workspace(&root, &members);
     }
     // No go.work (or a degenerate one with a single member): the single-module
-    // path, module tier absent exactly as before go.work support.
-    let module = module_path(&root)?;
+    // path.
+    extract_single_module(&root)
+}
 
-    let packages = collect_packages(&root);
+/// The single-module path: units are the discovered packages, hard edges are
+/// imports matching a unit name, and every such intra-module import
+/// additionally projects onto the module tier (see [`extract`]).
+fn extract_single_module(root: &Path) -> Result<Model, String> {
+    let module = module_path(root)?;
+
+    let packages = collect_packages(root);
 
     if packages.is_empty() {
         return Err(format!("no Go packages found under: {}", root.display()));
@@ -40,25 +63,61 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     let unit_names: BTreeSet<&str> = units.iter().map(|unit| unit.name.as_str()).collect();
 
     let mut edge_set: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut edge_symbols: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
     let mut external_set: BTreeSet<String> = BTreeSet::new();
     let mut module_external: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut roles: BTreeMap<String, Role> = BTreeMap::new();
     let module_prefix = format!("{module}/");
     for (rel_dir, files) in &packages {
         let from = package_name(&module, rel_dir);
         for file in files {
-            for import in imports_in_file(file)? {
+            // The grammar pass yields the import paths, the alias map and the
+            // file's exported selector facts (US 12) in one walk
+            // ([`syntax::scan_go_file`]).
+            let facts = syntax::scan_go_file(file)?;
+            let (imports, qualifiers, selectors) =
+                (facts.imports, facts.qualifiers, facts.selectors);
+            // Roles from this driver's own facts: a unit whose `package_clause`
+            // is `main` is the tree's composition root — the place where
+            // cross-part wiring legally lives — and gains `composition` keyed
+            // at its unit path (the directory-derived import path, the same
+            // identity the edges and the update seed use). The packages the
+            // main binary links gain nothing beyond that. The facade role has
+            // no derivable go predicate, so it is stated nowhere: absence in
+            // the roles map is the honest truth, not an oversight.
+            if facts.package.as_deref() == Some("main") {
+                roles.insert(from.clone(), Role::Composition);
+            }
+            for import in imports {
                 if import == module || import.starts_with(&module_prefix) {
                     // Internal to the module: an edge only when the target
                     // package is a discovered unit (empty/undiscovered dirs
-                    // contribute nothing).
+                    // contribute nothing). The `import != from` clause also
+                    // rules out the self-import module edge (impossible in
+                    // valid Go, guarded anyway).
                     if unit_names.contains(import.as_str()) && import != from {
-                        edge_set.insert((from.clone(), import));
+                        let key = (from.clone(), import.clone());
+                        edge_set.insert(key.clone());
+                        // Selector symbols join the edge THIS import created
+                        // (workplan decision "Symbol vocabulary"): the file's
+                        // qualifier for this path selects which recorded
+                        // selector facts count; `_`/`.` qualifiers are not
+                        // referenceable (see `syntax` docs). Multiple files
+                        // and call sites merge into one deduplicated set per
+                        // (from, to) — the edge itself still exists once.
+                        if let Some(symbols) = edge_selector_symbols(&qualifiers, &selectors, &key.1)
+                        {
+                            edge_symbols.entry(key).or_default().extend(symbols.iter().cloned());
+                        }
                     }
                     continue;
                 }
                 if is_stdlib(&import) {
                     continue;
                 }
+                // External tier stays purely import-driven:
+                // selectors qualified by external or stdlib packages add
+                // nothing module-side.
                 external_set.insert(import.clone());
                 module_external
                     .entry(from.clone())
@@ -68,13 +127,39 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         }
     }
     let edges: Vec<Edge> = edge_set
-        .into_iter()
-        .map(|(from, to)| Edge { from, to })
+        .iter()
+        .map(|(from, to)| Edge {
+            from: from.clone(),
+            to: to.clone(),
+        })
         .collect();
     let external: Vec<String> = external_set.into_iter().collect();
     let module_external: BTreeMap<String, Vec<String>> = module_external
         .into_iter()
         .map(|(unit, crates)| (unit, crates.into_iter().collect()))
+        .collect();
+
+    // Module tier (decision "Go visibility: every package of a module is a
+    // module"): `edge_set` already holds exactly the discovered,
+    // non-self sibling-package imports, so each unit edge projects 1:1
+    // onto a module edge — endpoints through `dotted_module` (the go.work
+    // cross-member vocabulary), `unit` = the importing module, symbols = the
+    // exported selector names merged onto that (from, to) key (US 12; the
+    // BTreeSet order is sorted and deduplicated, the edge exists once
+    // regardless of how many selector call sites fed it). BTreeSet iteration
+    // is sorted by (from, to) and the unit is constant, so the (unit, from,
+    // to) order the workspace path uses holds here too.
+    let module_edges: Vec<ModuleEdge> = edge_set
+        .iter()
+        .map(|(from, to)| ModuleEdge {
+            unit: module.clone(),
+            from: dotted_module(from),
+            to: dotted_module(to),
+            symbols: edge_symbols
+                .get(&(from.clone(), to.clone()))
+                .map(|set| set.iter().cloned().collect())
+                .unwrap_or_default(),
+        })
         .collect();
 
     Ok(Model {
@@ -85,7 +170,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         usage: Default::default(),
         soft_structure: Default::default(),
         external,
-        module_edges: Default::default(),
+        module_edges,
         manifest: Default::default(),
         root_public_exports: Default::default(),
         root_glob_exports: Default::default(),
@@ -95,7 +180,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         unit_manifests: Default::default(),
         unresolved_module_files: Default::default(),
         test_gated_modules: Default::default(),
-        facade_roots: Default::default(),
+        roles,
     })
 }
 
@@ -180,7 +265,17 @@ fn normalize_use_dir(entry: &str) -> String {
 /// edge owned by the importing member. Packages outside every member dir
 /// belong to no module and contribute nothing — they are unbuildable from the
 /// workspace either.
-fn extract_workspace(root: &Path, members: &[(String, String)]) -> Result<Model, String> {
+///
+/// The per-file import facts come from the grammar — the paths plus the
+/// qualifier map and selector facts — so cross-member module edges carry the
+/// exported selector symbols, and within-member package imports project module
+/// edges exactly like the single-module path (decision "Go visibility: every
+/// package of a module is a module" applies per member here). The unit-tier
+/// edges, units, external tier and `soft_structure` are graph-layer facts.
+fn extract_workspace(
+    root: &Path,
+    members: &[(String, String)],
+) -> Result<Model, String> {
     let packages = collect_packages(root);
     if packages.is_empty() {
         return Err(format!("no Go packages found under: {}", root.display()));
@@ -245,20 +340,48 @@ fn extract_workspace(root: &Path, members: &[(String, String)]) -> Result<Model,
     let unit_names: BTreeSet<&str> = units.iter().map(|unit| unit.name.as_str()).collect();
 
     let mut edge_set: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut edge_symbols: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
     let mut external_set: BTreeSet<String> = BTreeSet::new();
     let mut module_external: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut roles: BTreeMap<String, Role> = BTreeMap::new();
     for (rel_dir, files) in &packages {
         let Some(from) = unit_for_dir.get(rel_dir) else {
             continue;
         };
         for file in files {
-            for import in imports_in_file(file)? {
+            // Same per-file fact source as the single-module path: one
+            // grammar walk yields paths plus the qualifier map and selector
+            // facts (US 13).
+            let facts = syntax::scan_go_file(file)?;
+            let (imports, qualifiers, selectors) =
+                (facts.imports, facts.qualifiers, facts.selectors);
+            // Roles derive per member exactly like the single-module path:
+            // every main package of every member gains `composition` at its
+            // own module path; members without a main package state no role,
+            // and the facade role stays underived (no go predicate exists).
+            if facts.package.as_deref() == Some("main") {
+                roles.insert(from.clone(), Role::Composition);
+            }
+            for import in imports {
                 let internal = members
                     .iter()
                     .any(|(_, module)| import == *module || import.starts_with(&format!("{module}/")));
                 if internal {
                     if unit_names.contains(import.as_str()) && import != *from {
-                        edge_set.insert((from.clone(), import));
+                        // Selector symbols are keyed on the (from, to) pair
+                        // regardless of member boundaries — the module-tier
+                        // arm below reads them for cross-member AND
+                        // within-member edges.
+                        let key = (from.clone(), import);
+                        edge_set.insert(key.clone());
+                        if let Some(symbols) =
+                            edge_selector_symbols(&qualifiers, &selectors, &key.1)
+                        {
+                            edge_symbols
+                                .entry(key)
+                                .or_default()
+                                .extend(symbols.iter().cloned());
+                        }
                     }
                     continue;
                 }
@@ -298,21 +421,27 @@ fn extract_workspace(root: &Path, members: &[(String, String)]) -> Result<Model,
         }
     }
 
-    // Cross-member imports project onto the module tier; within-member edges
-    // stay unit-tier only (one module, nothing to project between).
+    // Module tier projection: cross-member AND within-member imports project
+    // (decision "Go visibility: every package of a module is a module" applies
+    // per member). Endpoints use the `dotted_module` vocabulary and
+    // `unit` = importing member; symbols ride the cross-member AND
+    // within-member edges (same merge rule as the single-module path).
     let mut module_edges: Vec<ModuleEdge> = Vec::new();
     for (from, to) in &edge_set {
-        let (Some(from_member), Some(to_member)) = (module_owner(from), module_owner(to)) else {
+        let (Some(from_member), Some(_)) = (module_owner(from), module_owner(to)) else {
+            // Both endpoints must belong to a member module: packages outside
+            // every member dir contribute no module edge.
             continue;
         };
-        if from_member != to_member {
-            module_edges.push(ModuleEdge {
-                unit: from_member.to_string(),
-                from: dotted_module(from),
-                to: dotted_module(to),
-                symbols: Vec::new(),
-            });
-        }
+        module_edges.push(ModuleEdge {
+            unit: from_member.to_string(),
+            from: dotted_module(from),
+            to: dotted_module(to),
+            symbols: edge_symbols
+                .get(&(from.clone(), to.clone()))
+                .map(|set| set.iter().cloned().collect())
+                .unwrap_or_default(),
+        });
     }
     module_edges.sort_by(|left, right| {
         (&left.unit, &left.from, &left.to).cmp(&(&right.unit, &right.from, &right.to))
@@ -336,7 +465,7 @@ fn extract_workspace(root: &Path, members: &[(String, String)]) -> Result<Model,
         unit_manifests: Default::default(),
         unresolved_module_files: Default::default(),
         test_gated_modules: Default::default(),
-        facade_roots: Default::default(),
+        roles,
     })
 }
 
@@ -429,6 +558,24 @@ pub(crate) fn is_excluded_go(rel: &Path) -> bool {
     )
 }
 
+/// The symbols one file's selector uses contribute to the edge created by
+/// `import`: the file's qualifier for that path resolves into the file's raw
+/// selector facts (US 12). The blank (`_`) and dot (`.`) qualifiers are not
+/// referenceable — a blank import binds no name, a dot import's exported
+/// names are bare identifiers indistinguishable from local ones — so imports
+/// under those qualifiers keep their edges symbolless.
+fn edge_selector_symbols<'a>(
+    qualifiers: &BTreeMap<String, String>,
+    selectors: &'a BTreeMap<String, BTreeSet<String>>,
+    import: &str,
+) -> Option<&'a BTreeSet<String>> {
+    let qualifier = qualifiers.get(import)?;
+    if qualifier == "_" || qualifier == "." {
+        return None;
+    }
+    selectors.get(qualifier)
+}
+
 /// The module paths a tree's imports resolve against — the internal/external
 /// contract every Go consumer (scan and inspect alike) must agree on: the
 /// `go.work` members when a root go.work names two or more, otherwise the
@@ -465,205 +612,5 @@ pub(crate) fn package_name(module: &str, rel_dir: &str) -> String {
         module.to_string()
     } else {
         format!("{module}/{rel_dir}")
-    }
-}
-
-/// Collect `import` paths from a .go file (source-level, no toolchain).
-/// Walks the source with a tokenizer that skips strings and comments so an
-/// `import` keyword inside a comment or string is never matched. `import "C"`
-/// (the cgo marker) is dropped — it states no dependency fact.
-pub(crate) fn imports_in_file(path: &Path) -> Result<BTreeSet<String>, String> {
-    let raw = std::fs::read_to_string(path)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let bytes = raw.as_bytes();
-    let mut i = 0;
-    let mut imports = BTreeSet::new();
-
-    while i < bytes.len() {
-        let c = bytes[i];
-        if c == b'"' {
-            i = skip_quoted(bytes, i);
-            continue;
-        }
-        if c == b'`' {
-            i = skip_raw_string(bytes, i);
-            continue;
-        }
-        if c == b'/' && i + 1 < bytes.len() {
-            if bytes[i + 1] == b'/' {
-                i = skip_line_comment(bytes, i);
-                continue;
-            }
-            if bytes[i + 1] == b'*' {
-                i = skip_block_comment(bytes, i);
-                continue;
-            }
-        }
-        if c.is_ascii_alphanumeric() && matches_identifier(bytes, i, b"import") {
-            // `import` keyword: parse the following import spec(s).
-            i += "import".len();
-            i = skip_ws_and_comments(bytes, i);
-            if i < bytes.len() && bytes[i] == b'(' {
-                i += 1;
-                i = parse_block_imports(bytes, i, &mut imports);
-            } else {
-                i = parse_single_import(bytes, i, &mut imports);
-            }
-            continue;
-        }
-        i += 1;
-    }
-    Ok(imports)
-}
-
-/// True if `bytes[i..]` starts with `word` at an identifier boundary.
-fn matches_identifier(bytes: &[u8], i: usize, word: &[u8]) -> bool {
-    if bytes.len() < i + word.len() {
-        return false;
-    }
-    let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
-    let after = i + word.len();
-    let after_ok =
-        after >= bytes.len() || !bytes[after].is_ascii_alphanumeric() && bytes[after] != b'_';
-    before_ok && after_ok && &bytes[i..after] == word
-}
-
-fn skip_quoted(bytes: &[u8], mut i: usize) -> usize {
-    i += 1;
-    while i < bytes.len() {
-        if bytes[i] == b'\\' {
-            i += 2;
-            continue;
-        }
-        if bytes[i] == b'"' {
-            return i + 1;
-        }
-        i += 1;
-    }
-    bytes.len()
-}
-
-fn skip_raw_string(bytes: &[u8], mut i: usize) -> usize {
-    i += 1;
-    while i < bytes.len() && bytes[i] != b'`' {
-        i += 1;
-    }
-    if i < bytes.len() {
-        i + 1
-    } else {
-        bytes.len()
-    }
-}
-
-fn skip_line_comment(bytes: &[u8], mut i: usize) -> usize {
-    while i < bytes.len() && bytes[i] != b'\n' {
-        i += 1;
-    }
-    i
-}
-
-fn skip_block_comment(bytes: &[u8], mut i: usize) -> usize {
-    i += 2;
-    while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-        i += 1;
-    }
-    if i + 1 < bytes.len() {
-        i + 2
-    } else {
-        bytes.len()
-    }
-}
-
-fn skip_ws_and_comments(bytes: &[u8], mut i: usize) -> usize {
-    loop {
-        while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t' || bytes[i] == b'\n') {
-            i += 1;
-        }
-        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
-            i = skip_line_comment(bytes, i);
-            continue;
-        }
-        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-            i = skip_block_comment(bytes, i);
-            continue;
-        }
-        return i;
-    }
-}
-
-/// In block form: repeatedly skip an optional alias token (identifier, `_`, or
-/// `.`) then consume a string literal, until `)`.
-fn parse_block_imports(bytes: &[u8], mut i: usize, imports: &mut BTreeSet<String>) -> usize {
-    loop {
-        i = skip_ws_and_comments(bytes, i);
-        if i >= bytes.len() || bytes[i] == b')' {
-            return if i < bytes.len() { i + 1 } else { bytes.len() };
-        }
-        // Skip alias: identifier, `_`, or `.`
-        while i < bytes.len()
-            && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'.')
-        {
-            i += 1;
-        }
-        i = skip_ws_and_comments(bytes, i);
-        if i < bytes.len() && bytes[i] == b'"' {
-            i = record_import(bytes, i, imports);
-        } else if i < bytes.len() && bytes[i] == b'`' {
-            i = record_raw_import(bytes, i, imports);
-        } else {
-            // Malformed spec; step one byte to avoid a hang.
-            return i + 1;
-        }
-    }
-}
-
-/// Single form: skip one optional alias token, then consume the string.
-fn parse_single_import(bytes: &[u8], mut i: usize, imports: &mut BTreeSet<String>) -> usize {
-    // Optional alias: identifier, `_`, or `.`
-    while i < bytes.len()
-        && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'.')
-    {
-        i += 1;
-    }
-    i = skip_ws_and_comments(bytes, i);
-    if i < bytes.len() && bytes[i] == b'"' {
-        record_import(bytes, i, imports)
-    } else if i < bytes.len() && bytes[i] == b'`' {
-        record_raw_import(bytes, i, imports)
-    } else {
-        i
-    }
-}
-
-fn record_import(bytes: &[u8], start: usize, imports: &mut BTreeSet<String>) -> usize {
-    let mut i = start + 1;
-    while i < bytes.len() {
-        if bytes[i] == b'\\' {
-            i += 2;
-            continue;
-        }
-        if bytes[i] == b'"' {
-            let path = String::from_utf8_lossy(&bytes[start + 1..i]).into_owned();
-            if path != "C" {
-                imports.insert(path);
-            }
-            return i + 1;
-        }
-        i += 1;
-    }
-    bytes.len()
-}
-
-fn record_raw_import(bytes: &[u8], start: usize, imports: &mut BTreeSet<String>) -> usize {
-    let mut i = start + 1;
-    while i < bytes.len() && bytes[i] != b'`' {
-        i += 1;
-    }
-    if i < bytes.len() {
-        let path = String::from_utf8_lossy(&bytes[start + 1..i]).into_owned();
-        imports.insert(path);
-        i + 1
-    } else {
-        bytes.len()
     }
 }

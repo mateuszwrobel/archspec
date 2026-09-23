@@ -85,3 +85,12 @@ This crate checks its own architecture: `architecture.spec.toml` declares the
 `commands` / `engines` / `foundations` boundaries, and `run-unit-tests.sh` runs
 `archspec verify --strict` plus `--check` freshness gates on the committed
 artefacts (`scan`/`diagram`/`inspect`/`report`).
+
+---
+
+## License
+
+`archspec` is licensed under the Apache License 2.0 — see
+[LICENSE](LICENSE). Third-party dependency licenses are listed in
+[CREDITS.md](CREDITS.md), generated from the lockfile by
+`scripts/gen-credits.sh`.

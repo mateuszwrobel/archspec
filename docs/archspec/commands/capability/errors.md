@@ -23,13 +23,13 @@ granularity — exit `1` is the "no" answer, and guards treat it as such.
 
 ```bash
 # query answer: the row states not-emitted, not a fault
-$ archspec capability granular csharp root-facade
+$ archspec capability granular go role-facade
 error: not-granular
 $ echo $?
 1
 
 # conditional rows answer the same way (granularity is not full)
-$ archspec capability granular go module-tier
+$ archspec capability granular go test-tier
 error: not-granular
 
 # genuine invocation errors

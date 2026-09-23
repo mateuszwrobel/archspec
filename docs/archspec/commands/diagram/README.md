@@ -10,6 +10,7 @@ The diagram is a **pure function of the model** — the code ↔ diagram relatio
 - Model only — `diagram` never reads the source tree; rendering is a pure function of the model.
 - Output formats: **Mermaid + PlantUML only** (ADR-013), deterministic text, byte-stable canonical ordering.
 - Violating/forbidden edges visibly marked (dashed/red); external crates in a separate cluster.
+- Role marks in scan mode only: a node the model's `roles` map addresses carries that role's marker (`output.md`, *Diagram structure* item 5); spec mode reads no roles map, and a role keyed below the unit tier (a rust bin's `<unit>::main`) marks in `inspect tree`, not here.
 - Single-shot: load model, render, exit. No daemon, no persistent state.
 
 ## Quick usage

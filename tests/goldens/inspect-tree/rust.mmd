@@ -1,0 +1,9 @@
+graph TD
+  subgraph app["app [facade]"]
+    app__core_e83d9974["app::core"]
+    app__ui_bb234923["app::ui"]
+  end
+  subgraph shared["shared [facade]"]
+    shared__models_f33f444b["shared::models"]
+  end
+  app__core_e83d9974 --> app__ui_bb234923

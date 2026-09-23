@@ -67,7 +67,7 @@ archspec report --output out.md --format markdown ./src
 
 | Run | Destination |
 |---|---|
-| `report --output <path>` | the given file, stdout empty |
+| `report --output <path>` | the given file, stdout `wrote <path>` |
 | `report` with `[output] report` in `archspec.toml` | the configured path (relative to project root) |
 | `report` otherwise | stdout |
 

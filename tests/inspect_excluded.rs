@@ -223,4 +223,3 @@ fn inspect_rejects_go_tree_with_only_excluded_sources() {
     );
     assert!(stdout(&output).is_empty(), "no partial diagram on error");
 }
-

@@ -1,4 +1,6 @@
-use crate::archspec::model::{Edge, ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
+use crate::archspec::model::{
+    Edge, ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Role, Unit,
+};
 use rust_arch_test_kit::collector::{
     cfg_feature_name, flatten_use_tree, glob_token, has_cfg, is_cfg_test, is_public,
     is_reserved_segment, path_segments, pub_use_glob_paths, pub_use_names,
@@ -81,7 +83,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     let mut root_module_declarations: BTreeMap<String, Vec<ModuleDeclaration>> = BTreeMap::new();
     let mut unresolved_files: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut test_gated_modules: BTreeSet<String> = BTreeSet::new();
-    let mut facade_roots: BTreeSet<String> = BTreeSet::new();
+    let mut roles: BTreeMap<String, Role> = BTreeMap::new();
     let mut edge_set: BTreeSet<(String, String)> = BTreeSet::new();
 
     for unit in &units {
@@ -94,6 +96,25 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         )?;
         if !info.soft.is_empty() {
             soft_structure.insert(unit.name.clone(), info.soft);
+        }
+        // Roles are derived from this driver's own facts and ride the model as
+        // serialized entries (model path -> closed-vocabulary role).
+        // `facade`: the unit's root file defines nothing but declarations and
+        // re-exports — the same predicate that activated the in-house
+        // `facade_roots` set; keyed at the root module path, which for rust is
+        // the unit name. `composition`: a bin unit whose main root wires —
+        // at least one module edge sourced from `<unit>::main`, the shape the
+        // verify facade check exempts as root content. A unit whose root file
+        // cannot be located proves nothing (see `UnitModuleInfo`) and gains no
+        // role: absence states "no role", it never denies one.
+        if !info.root_defines_items {
+            roles.insert(unit.name.clone(), Role::Facade);
+        }
+        if unit.root == "main.rs" {
+            let main_path = format!("{}::main", unit.name);
+            if info.edges.iter().any(|edge| edge.from == main_path) {
+                roles.insert(main_path, Role::Composition);
+            }
         }
         module_edges.extend(info.edges);
         external_from_uses.extend(info.external);
@@ -116,9 +137,6 @@ pub fn extract(root: &Path) -> Result<Model, String> {
             unresolved_files.insert(unit.name.clone(), info.unresolved);
         }
         test_gated_modules.extend(info.test_gated);
-        if !info.root_defines_items {
-            facade_roots.insert(unit.name.clone());
-        }
         for (from, to) in info.unit_edges {
             edge_set.insert((from, to));
         }
@@ -178,7 +196,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         unit_manifests,
         unresolved_module_files: unresolved_files,
         test_gated_modules,
-        facade_roots,
+        roles,
     })
 }
 
@@ -196,8 +214,8 @@ struct UnitModuleInfo {
     test_gated: Vec<String>,
     /// True when the unit's root file defines at least one production item
     /// (top-level struct/enum/trait/fn/type/const/static, not `#[cfg(test)]`).
-    /// False means the root is a publication-only facade (mod declarations +
-    /// re-exports only), which activates the `facade_roots` rule for the unit.
+    /// False means the root is a publication-only facade, which gives the
+    /// unit's root module path the `facade` role in the model's roles map.
     root_defines_items: bool,
 }
 

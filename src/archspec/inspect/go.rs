@@ -68,7 +68,7 @@ pub fn scan(root: &Path) -> Result<FileGraph, String> {
         let source = std::fs::read_to_string(&full)
             .map_err(|err| format!("failed to read {}: {err}", full.display()))?;
         clauses.insert(rel_str.clone(), package_clause(&source));
-        imports.insert(rel_str, go_scan::imports_in_file(&full)?);
+        imports.insert(rel_str, go_scan::syntax::scan_go_file(&full)?.imports);
     }
 
     // Import path -> production files declaring that package. The target list

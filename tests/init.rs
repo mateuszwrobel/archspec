@@ -286,8 +286,7 @@ fn init_materializes_cargo_workspace_profile_content() {
     assert_eq!(output.status.code(), Some(0));
     let spec = fixture.read("architecture.spec.toml");
     assert_eq!(
-        spec,
-        "[project]\nlanguage = \"rust\"\n\n[[constraint]]\ntype = \"no_cycles\"\n",
+        spec, "[project]\nlanguage = \"rust\"\n\n[[constraint]]\ntype = \"no_cycles\"\n",
         "spec must be the base spec plus the global no_cycles constraint:\n{spec}"
     );
     for forbidden in [

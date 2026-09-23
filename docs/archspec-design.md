@@ -235,5 +235,5 @@ Structural equality: **set-based edges**, stable canonical serialization, hashab
 
 - `docs/architecture-references/modular-architecture-rules.md` — philosophy foundation
 - `docs/architecture-references/language-module-boundaries.md` — research per language
-- ADR-006 … ADR-013 in `docs/adr/`
+- ADR-006 … ADR-018 in `docs/adr/`
 - Prior art: NetArchTest, ArchUnitNET, dependency-cruiser, cargo workspaces, golang-standards/project-layout, Microsoft/JSdotNet modular monolith ADRs, hexagonal-rust-template

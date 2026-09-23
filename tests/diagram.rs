@@ -189,16 +189,18 @@ fn diagram_behavior_8_plantuml_contains_nodes_and_edges() {
     );
 }
 
-// acceptance #9: --output writes the file and keeps stdout empty.
+// acceptance #9, in its blind4 D01 form: --output writes the file and echoes
+// the universal `wrote <path>` line.
 #[test]
-fn diagram_behavior_9_output_flag_writes_file_and_keeps_stdout_empty() {
+fn diagram_behavior_9_output_flag_writes_file_and_echoes_wrote() {
     let fixture = spec_fixture(BASIC_SPEC);
     let output = fixture.run(&["diagram", "--output", "out.mmd"]);
 
     assert_eq!(output.status.code(), Some(0), "exit must be 0");
-    assert!(
-        stdout(&output).is_empty(),
-        "stdout must be empty with --output"
+    assert_eq!(
+        stdout(&output),
+        "wrote out.mmd\n",
+        "the --output write is echoed on stdout"
     );
     let written = fixture.read("out.mmd");
     assert!(
@@ -416,7 +418,11 @@ fn scan_to_artefact(fixture: &common::Fixture) {
         Some(0),
         "scan must produce the artefact"
     );
-    assert!(stdout(&scan).is_empty(), "scan --output keeps stdout empty");
+    assert_eq!(
+        stdout(&scan),
+        "wrote model.json\n",
+        "scan --output echoes the universal wrote line (blind4 D01)"
+    );
 }
 
 // acceptance #5: units auth, core, portal with edges auth -> core and auth -> portal;
@@ -725,6 +731,311 @@ forbidden = []
     assert!(
         !out.contains("\n    my-child\n"),
         "raw hyphenated member id must not be interpolated bare:\n{out}"
+    );
+}
+
+// ---------- role marks in scan mode (roles-views US 01, acceptance #28-#30) ----------
+
+// The two model snapshots both legs share: one units and edges, the roles arm
+// differs. Unit names use c# `.` spelling; the roles arm keys the composition
+// in driver spelling (`::`) to pin the separator equivalence of the lookup.
+const ROLES_SCAN_MODEL: &str = r#"{
+  "schema_version": 1,
+  "language": "csharp",
+  "units": [
+    { "name": "Shop.Api", "kind": "project", "path": "Shop.Api" },
+    { "name": "Shop.Domain", "kind": "project", "path": "Shop.Domain" }
+  ],
+  "edges": [
+    { "from": "Shop.Api", "to": "Shop.Domain" }
+  ],
+  "external": ["Newtonsoft.Json"],
+  "roles": { "Shop::Api": "composition" }
+}
+"#;
+
+const NO_ROLES_SCAN_MODEL: &str = r#"{
+  "schema_version": 1,
+  "language": "csharp",
+  "units": [
+    { "name": "Shop.Api", "kind": "project", "path": "Shop.Api" },
+    { "name": "Shop.Domain", "kind": "project", "path": "Shop.Domain" }
+  ],
+  "edges": [
+    { "from": "Shop.Api", "to": "Shop.Domain" }
+  ],
+  "external": ["Newtonsoft.Json"]
+}
+"#;
+
+// acceptance #28: the composition entry the roles map states at the `::`
+// spelling of a node's name reaches that node's label — the same marker bytes
+// `inspect tree` uses; every other line keeps its unmarked bytes.
+#[test]
+fn diagram_scan_mermaid_marks_the_role_addressed_node() {
+    let fixture = common::Fixture::new();
+    fixture.write("model.json", ROLES_SCAN_MODEL);
+    let output = fixture.run(&["diagram", "--source", "scan", "model.json"]);
+
+    assert_eq!(output.status.code(), Some(0), "exit must be 0");
+    assert!(stderr(&output).is_empty(), "stderr should be empty");
+    assert_eq!(
+        stdout(&output),
+        "graph TD\n  subgraph project\n    Shop_Api_9243f63f[\"Shop.Api [composition]\"]\n    Shop_Domain_c40afbde[\"Shop.Domain\"]\n    Shop_Api_9243f63f --> Shop_Domain_c40afbde\n  end\n  subgraph external\n    Newtonsoft_Json_0a4dbb72[\"Newtonsoft.Json\"]\n  end\n",
+        "the addressed node must carry the label marker; ids, edges and every \
+         unaddressed line must keep the unmarked bytes"
+    );
+}
+
+// acceptance #28, plantuml arm with the roles key in `.` spelling: the
+// stereotype rides the bare identifier the edges already reference.
+#[test]
+fn diagram_scan_plantuml_marks_the_role_addressed_node() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "model.json",
+        &ROLES_SCAN_MODEL.replace("Shop::Api", "Shop.Api"),
+    );
+    let output = fixture.run(&["diagram", "--source", "scan", "model.json", "--format", "plantuml"]);
+
+    assert_eq!(output.status.code(), Some(0), "exit must be 0");
+    assert!(stderr(&output).is_empty(), "stderr should be empty");
+    assert_eq!(
+        stdout(&output),
+        "@startuml\npackage project {\n  component Shop.Api <<composition>>\n  component Shop.Domain\nShop.Api --> Shop.Domain\n}\npackage external {\n  component Newtonsoft.Json\n}\n@enduml\n",
+        "the addressed node must carry the stereotype on its bare identifier; \
+         edge grammar and unaddressed lines must keep the unmarked bytes"
+    );
+}
+
+// acceptance #30, zero-theater leg: a model whose roles map is empty renders
+// byte-for-byte what the pre-plan binary rendered (recorded at 9573730f9).
+#[test]
+fn diagram_scan_empty_roles_map_is_byte_identical_to_pre_plan_bytes() {
+    let fixture = common::Fixture::new();
+    fixture.write("model.json", NO_ROLES_SCAN_MODEL);
+
+    let mermaid = fixture.run(&["diagram", "--source", "scan", "model.json"]);
+    assert_eq!(mermaid.status.code(), Some(0), "exit must be 0");
+    assert_eq!(
+        stdout(&mermaid),
+        "graph TD\n  subgraph project\n    Shop_Api_9243f63f[\"Shop.Api\"]\n    Shop_Domain_c40afbde[\"Shop.Domain\"]\n    Shop_Api_9243f63f --> Shop_Domain_c40afbde\n  end\n  subgraph external\n    Newtonsoft_Json_0a4dbb72[\"Newtonsoft.Json\"]\n  end\n",
+        "empty roles map must reproduce the recorded pre-plan mermaid bytes"
+    );
+
+    let plantuml = fixture.run(&["diagram", "--source", "scan", "model.json", "--format", "plantuml"]);
+    assert_eq!(plantuml.status.code(), Some(0), "exit must be 0");
+    assert_eq!(
+        stdout(&plantuml),
+        "@startuml\npackage project {\n  component Shop.Api\n  component Shop.Domain\nShop.Api --> Shop.Domain\n}\npackage external {\n  component Newtonsoft.Json\n}\n@enduml\n",
+        "empty roles map must reproduce the recorded pre-plan plantuml bytes"
+    );
+}
+
+// acceptance #30, spec-mode leg: declared components whose names collide with
+// role-carrying model paths render the recorded pre-plan bytes — spec mode
+// reads no roles map, even with a roles-carrying artefact sitting in the dir.
+#[test]
+fn diagram_spec_mode_is_byte_identical_to_pre_plan_bytes() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "architecture.spec.toml",
+        r#"[project]
+language = "rust"
+
+[[module]]
+name = "Shop.Api"
+matches = { units = ["Shop.Api*"] }
+
+[module.allowed]
+depend_on = ["Shop.Domain"]
+forbidden = []
+
+[[module]]
+name = "Shop.Domain"
+matches = { units = ["Shop.Domain*"] }
+"#,
+    );
+    fixture.write("model.json", ROLES_SCAN_MODEL);
+
+    let mermaid = fixture.run(&["diagram"]);
+    assert_eq!(mermaid.status.code(), Some(0), "exit must be 0");
+    assert_eq!(
+        stdout(&mermaid),
+        "graph TD\n  Shop_Api_9243f63f[\"Shop.Api\"]\n  Shop_Domain_c40afbde[\"Shop.Domain\"]\n  Shop_Api_9243f63f --> Shop_Domain_c40afbde\n",
+        "spec mode must reproduce the recorded pre-plan mermaid bytes"
+    );
+
+    let plantuml = fixture.run(&["diagram", "--format", "plantuml"]);
+    assert_eq!(plantuml.status.code(), Some(0), "exit must be 0");
+    assert_eq!(
+        stdout(&plantuml),
+        "@startuml\ncomponent Shop.Api\ncomponent Shop.Domain\nShop.Api --> Shop.Domain\n@enduml\n",
+        "spec mode must reproduce the recorded pre-plan plantuml bytes"
+    );
+}
+
+// acceptance #29: the external cluster is addressed by no roles entry, so no
+// line in it may grow marker syntax in either format.
+#[test]
+fn diagram_scan_external_cluster_carries_no_marker_syntax() {
+    let marker_words = [" [facade]", " [composition]", "<<facade>>", "<<composition>>"];
+
+    let fixture = common::Fixture::new();
+    fixture.write("model.json", ROLES_SCAN_MODEL);
+    let mermaid = fixture.run(&["diagram", "--source", "scan", "model.json"]);
+    assert_eq!(mermaid.status.code(), Some(0), "exit must be 0");
+    let out = stdout(&mermaid);
+    let external = out
+        .split("  subgraph external\n")
+        .nth(1)
+        .expect("external cluster must render");
+    for line in external.lines() {
+        for marker in marker_words {
+            assert!(
+                !line.contains(marker),
+                "external mermaid line must stay unmarked: {line:?}"
+            );
+        }
+    }
+
+    let plantuml = fixture.run(&["diagram", "--source", "scan", "model.json", "--format", "plantuml"]);
+    assert_eq!(plantuml.status.code(), Some(0), "exit must be 0");
+    let out = stdout(&plantuml);
+    let external = out
+        .split("package external {\n")
+        .nth(1)
+        .expect("external package must render");
+    for line in external.lines() {
+        for marker in marker_words {
+            assert!(
+                !line.contains(marker),
+                "external plantuml line must stay unmarked: {line:?}"
+            );
+        }
+    }
+}
+
+// acceptance #28 determinism arm: roles-map key order and unit-array order in
+// the artefact bytes must not move a single output byte, and the same
+// artefact must render byte-stable across repeated runs.
+#[test]
+fn diagram_scan_role_marks_are_order_independent_and_deterministic() {
+    let fixture = common::Fixture::new();
+    // Same facts, two serializations: reversed unit array and swapped roles
+    // key insertion order.
+    fixture.write(
+        "model-a.json",
+        r#"{
+  "schema_version": 1,
+  "language": "csharp",
+  "units": [
+    { "name": "Shop.Api", "kind": "project", "path": "Shop.Api" },
+    { "name": "Shop.Domain", "kind": "project", "path": "Shop.Domain" }
+  ],
+  "edges": [
+    { "from": "Shop.Api", "to": "Shop.Domain" }
+  ],
+  "roles": { "Shop.Api": "composition", "Shop.Domain": "facade" }
+}
+"#,
+    );
+    fixture.write(
+        "model-b.json",
+        r#"{
+  "schema_version": 1,
+  "language": "csharp",
+  "units": [
+    { "name": "Shop.Domain", "kind": "project", "path": "Shop.Domain" },
+    { "name": "Shop.Api", "kind": "project", "path": "Shop.Api" }
+  ],
+  "edges": [
+    { "from": "Shop.Api", "to": "Shop.Domain" }
+  ],
+  "roles": { "Shop.Domain": "facade", "Shop.Api": "composition" }
+}
+"#,
+    );
+
+    let a1 = fixture.run(&["diagram", "--source", "scan", "model-a.json"]);
+    let a2 = fixture.run(&["diagram", "--source", "scan", "model-a.json"]);
+    let b = fixture.run(&["diagram", "--source", "scan", "model-b.json"]);
+    for run in [&a1, &a2, &b] {
+        assert_eq!(run.status.code(), Some(0), "exit must be 0");
+    }
+    assert_eq!(
+        stdout(&a1),
+        "graph TD\n  subgraph project\n    Shop_Api_9243f63f[\"Shop.Api [composition]\"]\n    Shop_Domain_c40afbde[\"Shop.Domain [facade]\"]\n    Shop_Api_9243f63f --> Shop_Domain_c40afbde\n  end\n",
+        "both roles must reach their nodes with the marker bytes"
+    );
+    assert_eq!(
+        stdout(&a1),
+        stdout(&a2),
+        "repeated runs must render byte-identically"
+    );
+    assert_eq!(
+        stdout(&a1),
+        stdout(&b),
+        "serialisation order of the artefact must not move output bytes"
+    );
+}
+
+// the plan's done-when leg: a real c# tree, scanned by this binary, names its
+// composition root by model path in both diagram formats — the driver keys the
+// role at `Shop::Api` while the node stands for unit `Shop.Api`, so this is
+// the lookup's separator equivalence end to end.
+#[test]
+fn diagram_scan_marks_csharp_composition_root_end_to_end() {
+    let fixture = common::Fixture::new();
+    for unit in ["Shop.Api", "Shop.Domain"] {
+        fixture.write(
+            &format!("{unit}/{unit}.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+        );
+    }
+    // Entrypoint wiring only: a foreign using plus a DI registration — the
+    // c# composition fact (roles US 07 derivation), no type declared.
+    fixture.write(
+        "Shop.Api/Program.cs",
+        "using Shop.Domain.Entities;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddScoped<IOrderService, OrderService>();\n",
+    );
+    fixture.write(
+        "Shop.Domain/Entities/Order.cs",
+        "namespace Shop.Domain.Entities;\npublic class Order { }\n",
+    );
+
+    let scan = fixture.run(&["scan", "--output", "model.json"]);
+    assert_eq!(scan.status.code(), Some(0), "scan must succeed");
+    let model = fixture.read("model.json");
+    assert!(
+        model.contains("\"Shop::Api\":\"composition\""),
+        "the c# driver must key the composition root at the unit's `::` \
+         module spelling (the lookup's premise):\n{model}"
+    );
+
+    let mermaid = fixture.run(&["diagram", "--source", "scan", "model.json"]);
+    assert_eq!(mermaid.status.code(), Some(0), "exit must be 0");
+    let out = stdout(&mermaid);
+    assert!(
+        out.contains("Shop_Api_9243f63f[\"Shop.Api [composition]\"]"),
+        "the composition root must be named by its model path in mermaid:\n{out}"
+    );
+    assert!(
+        out.contains("Shop_Domain_c40afbde[\"Shop.Domain\"]\n"),
+        "the unaddressed unit must keep unmarked bytes:\n{out}"
+    );
+
+    let plantuml =
+        fixture.run(&["diagram", "--source", "scan", "model.json", "--format", "plantuml"]);
+    assert_eq!(plantuml.status.code(), Some(0), "exit must be 0");
+    let out = stdout(&plantuml);
+    assert!(
+        out.contains("  component Shop.Api <<composition>>\n"),
+        "the composition root must be named by its model path in plantuml:\n{out}"
+    );
+    assert!(
+        out.contains("  component Shop.Domain\n"),
+        "the unaddressed unit must keep unmarked bytes:\n{out}"
     );
 }
 

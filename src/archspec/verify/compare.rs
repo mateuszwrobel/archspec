@@ -5,7 +5,7 @@
 
 use crate::archspec::capability;
 use crate::archspec::language;
-use crate::archspec::model::{ManifestInfo, Model, ModuleEdge, Unit};
+use crate::archspec::model::{ManifestInfo, Model, ModuleEdge, Role, Unit};
 use crate::archspec::spec::{Constraint, Module, Stereotype};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -315,6 +315,23 @@ fn module_owner_with_fallback<'a>(
     })
 }
 
+/// Composition-role PATHS of the roles map. The laundering exemption is
+/// stated at HOP level on these paths: a hop is sanctioned wiring exactly
+/// when its source path is a composition key — the composition unit wiring
+/// out. Which boundary (if any) claims the path's unit is irrelevant:
+/// boundary-level whitelisting was the laundering hole (a banned route
+/// through ANY module of a boundary that happened to own a composition path
+/// escaped — a planted bin main plus a catch-all claiming the bin's unit
+/// laundered the whole boundary), and the stage-1/2/3 attribution ladder it
+/// needed misattributed multi-segment paths to the neighbouring unit.
+fn composition_sources(model: &Model) -> BTreeSet<String> {
+    model
+        .roles
+        .iter()
+        .filter(|(_, role)| matches!(role, Role::Composition))
+        .map(|(path, _)| path.clone())
+        .collect()
+}
 /// Specificity of one `matches.modules` entry against a dotted module path:
 /// how much of the path the entry pins, in characters. `None` when the entry
 /// does not match at all (same accept set as `module_path_matches`). An entry
@@ -346,9 +363,8 @@ fn entry_specificity(pattern: &str, module_path: &str) -> Option<usize> {
         let ancestor_stripped = strip_unit(current);
         if ancestor_stripped != current {
             consider(
-                pinned_prefix(pattern, ancestor_stripped).map(|p| {
-                    current.chars().count() - ancestor_stripped.chars().count() + p
-                }),
+                pinned_prefix(pattern, ancestor_stripped)
+                    .map(|p| current.chars().count() - ancestor_stripped.chars().count() + p),
             );
         }
     }
@@ -421,8 +437,10 @@ fn check_ambiguous_module_matches(model: &Model, modules: &[Module]) -> Vec<Stri
         let Some(top) = claims.iter().map(|(score, _, _)| *score).max() else {
             continue;
         };
-        let tied: Vec<&(usize, &str, &str)> =
-            claims.iter().filter(|(score, _, _)| *score == top).collect();
+        let tied: Vec<&(usize, &str, &str)> = claims
+            .iter()
+            .filter(|(score, _, _)| *score == top)
+            .collect();
         for (i, (_, name_a, entry_a)) in tied.iter().enumerate() {
             for (_, name_b, entry_b) in tied.iter().skip(i + 1) {
                 if name_a != name_b {
@@ -464,10 +482,14 @@ fn is_test_module(model: &Model, module_path: &str) -> bool {
     model.is_test_gated(module_path)
 }
 
-/// Edge counts taken directly from the model's scan tiers. Internal is the
-/// production unit→unit tier plus unit-internal module edges; external is the
-/// unit→external tier. Module-level external uses remain in their own tier and
-/// are not folded into the external edge count. Returns `(internal, external)`.
+/// Edge counts taken directly from the model's scan tiers, with a dependency
+/// stated in both tiers counted exactly once: internal is the number of
+/// DISTINCT internal dependency pairs at unit tier — the production unit→unit
+/// edges, set-unioned with every module edge projected onto its endpoint
+/// units (self-pairs dropped; a module-tier pair with no unit-tier twin adds
+/// exactly one pair). External is the unit→external tier. Module-level
+/// external uses remain in their own tier and are not folded into the external
+/// edge count. Returns `(internal, external)`.
 /// A test-gated module (declared `#[cfg(test)]` or an equivalent test-only
 /// `cfg(all(..., test, ...))`) and its descendants are scaffolding: it is not a
 /// real boundary (update folds it into its top-level boundary) and a test module
@@ -476,13 +498,63 @@ fn is_test_module(model: &Model, module_path: &str) -> bool {
 /// NOT by the path *name* — a module merely named `tests` without a test cfg is
 /// production and must participate in the dependency graph and cycles.
 pub fn count_model_edges(model: &Model) -> (usize, usize) {
-    let internal = model.edges.len()
-        + model
-            .module_edges
-            .iter()
-            .filter(|edge| !(model.is_test_gated(&edge.from) || model.is_test_gated(&edge.to)))
-            .count();
-    (internal, model.external.len())
+    let mut pairs: BTreeSet<(String, String)> = model
+        .edges
+        .iter()
+        .filter(|edge| edge.from != edge.to)
+        .map(|edge| (edge.from.clone(), edge.to.clone()))
+        .collect();
+    for edge in &model.module_edges {
+        if is_test_module(model, &edge.from) || is_test_module(model, &edge.to) {
+            continue;
+        }
+        // `unit` is contractually the owner of `from`, so it is the fallback
+        // there; an unowned `to` keeps the module path as its identity, so a
+        // dependency no unit claims still counts once instead of vanishing or
+        // doubling a stated pair.
+        let from_unit = owning_unit(model, &edge.from).unwrap_or_else(|| edge.unit.clone());
+        let to_unit = owning_unit(model, &edge.to).unwrap_or_else(|| edge.to.clone());
+        if from_unit != to_unit {
+            pairs.insert((from_unit, to_unit));
+        }
+    }
+    (pairs.len(), model.external.len())
+}
+
+/// The unit whose soft tier contains `module_path`: the unit owning the longest
+/// soft path equal to the path or a `::`-prefix of it, else — when the model
+/// carries no soft tier covering the path (a single-module go tree) — the
+/// longest unit name that prefixes the path under any tier separator (`::`,
+/// `.` or `/`: the separators the drivers address units with, membership-keyed
+/// like the `depgraph` projections). `None` when no unit claims the path; the
+/// caller substitutes its contract fallback or the path's own identity.
+fn owning_unit(model: &Model, module_path: &str) -> Option<String> {
+    let mut best: Option<(usize, String)> = None;
+    for (unit, paths) in &model.soft_structure {
+        for path in paths {
+            let covers = module_path == path || module_path.starts_with(&format!("{path}::"));
+            if covers && best.as_ref().is_none_or(|(len, _)| path.len() > *len) {
+                best = Some((path.len(), unit.clone()));
+            }
+        }
+    }
+    if let Some((_, unit)) = best {
+        return Some(unit);
+    }
+    let dotted = module_path.replace("::", ".");
+    let slashed = module_path.replace("::", "/");
+    for unit in &model.units {
+        let name = &unit.name;
+        let hit = module_path.starts_with(&format!("{name}::"))
+            || dotted == *name
+            || dotted.starts_with(&format!("{name}."))
+            || slashed == *name
+            || slashed.starts_with(&format!("{name}/"));
+        if hit && best.as_ref().is_none_or(|(len, _)| name.len() > *len) {
+            best = Some((name.len(), unit.name.clone()));
+        }
+    }
+    best.map(|(_, unit)| unit)
 }
 
 /// Augment the unit-tier `Mapping` with the soft (module) tier. A boundary is
@@ -535,7 +607,12 @@ pub fn augment_with_modules(mapping: &Mapping, model: &Model, modules: &[Module]
         .iter()
         .chain(mapping.unassigned_units.iter())
     {
-        let paths: Vec<&String> = model.soft_structure.get(unit).into_iter().flatten().collect();
+        let paths: Vec<&String> = model
+            .soft_structure
+            .get(unit)
+            .into_iter()
+            .flatten()
+            .collect();
         let owner = modules.iter().find(|module| {
             module
                 .matches
@@ -599,10 +676,7 @@ pub fn effective_module_tier<'a>(model: &'a Model, mapping: &Mapping) -> Cow<'a,
             .map(|(module, paths)| {
                 (
                     module.replace("::", "/"),
-                    paths
-                        .iter()
-                        .map(|path| path.replace("::", "/"))
-                        .collect(),
+                    paths.iter().map(|path| path.replace("::", "/")).collect(),
                 )
             })
             .collect();
@@ -640,11 +714,7 @@ pub fn effective_module_tier<'a>(model: &'a Model, mapping: &Mapping) -> Cow<'a,
             continue;
         };
         if from_owner != to_owner {
-            projected.insert((
-                from_owner.clone(),
-                edge.from.clone(),
-                edge.to.clone(),
-            ));
+            projected.insert((from_owner.clone(), edge.from.clone(), edge.to.clone()));
         }
     }
     derived.module_edges = projected
@@ -694,15 +764,21 @@ pub fn compare(
                 .push(format!("unresolved module file: {path}"));
         }
     }
-    let graph = resolve_module_edges(model, &mapping, modules);
+    let composition_sources = composition_sources(model);
+    let graph = resolve_module_edges(model, &mapping, modules, &composition_sources);
     for path in &graph.unowned_endpoints {
         diff.warnings
             .push(format!("unowned module edge endpoint: {path}"));
     }
     check_facade_roots(model, &mut diff);
-    check_allowed_edges(&graph.pairs, modules, &mut diff);
+    check_allowed_edges(&graph.pairs, model, modules, &mut diff);
     check_missing_edges(&graph.pairs, modules, &mut diff);
-    check_forbidden_laundering(&graph.pairs, &graph.fallback_pairs, modules, &mut diff.warnings);
+    check_forbidden_laundering(
+        &graph.pairs,
+        &graph.fallback_pairs,
+        modules,
+        &mut diff.warnings,
+    );
     diff.contract_leaks = check_contract_leaks(&mapping, model, modules, stereotypes);
     let (cycles, mut warnings) = check_cycles(&graph.pairs, constraints, modules);
     diff.cycles = cycles;
@@ -735,13 +811,12 @@ pub fn compare(
     diff.forbidden_submodule_dependencies = submodules;
     diff.warnings.append(&mut warning_submodules);
 
-    diff.warnings
-        .append(&mut check_reference_engagement(
-            model,
-            modules,
-            stereotypes,
-            soft_verifiable,
-        ));
+    diff.warnings.append(&mut check_reference_engagement(
+        model,
+        modules,
+        stereotypes,
+        soft_verifiable,
+    ));
 
     diff.vacuous_constraints = check_vacuous_constraints(model, modules, constraints, &graph.pairs);
 
@@ -763,12 +838,17 @@ pub fn compare(
 /// because dropping them silently is how a dependency hides behind a module
 /// the spec never claims. Pairs whose ownership came through the unit
 /// fallback are also returned in `fallback_pairs`: they cross territory no
-/// boundary declares (unit wiring, unclaimed modules), which is what lets a
-/// banned pair be routed around.
+/// boundary declares through `matches.modules` (unit wiring, unclaimed
+/// modules), which is what lets a banned pair be routed around. One
+/// exclusion applies: hops SOURCED by a composition-role path are the
+/// composition unit wiring out — sanctioned whatever boundary the attribution
+/// landed them on — so they lose the conduit character while staying in
+/// `pairs` (a banned route still reaches its target through them).
 fn resolve_module_edges(
     model: &Model,
     mapping: &Mapping,
     modules: &[Module],
+    composition_sources: &BTreeSet<String>,
 ) -> BoundaryGraph {
     let mut pairs = BTreeSet::new();
     let mut fallback_pairs = BTreeSet::new();
@@ -792,9 +872,32 @@ fn resolve_module_edges(
         let to_module = module_owner_with_fallback(&edge.to, modules);
         match (from_module, to_module) {
             (Some((from_module, from_fallback)), Some((to_module, to_fallback))) => {
+                if composition_sources.contains(&edge.from)
+                    && from_fallback
+                    && !modules.iter().any(|module| {
+                        module.name == from_module
+                            && module
+                                .matches
+                                .units
+                                .iter()
+                                .any(|pattern| matches_pattern(&edge.unit, pattern))
+                    })
+                {
+                    // Misattributed sanctioned hop: the composition path was
+                    // projected onto a boundary whose `units` do not cover the
+                    // unit the wiring edge actually lives in (rollup splits
+                    // multi-segment unit roots at the first `::`, so a
+                    // solution root `Company::App` lands on the neighbour
+                    // claiming `Company`). That pair is an artefact of
+                    // attribution, not an observed dependency — it neither
+                    // adjudicates nor launders (roles US 05b).
+                    continue;
+                }
                 if from_module != to_module {
                     let pair = (from_module.to_string(), to_module.to_string());
-                    if from_fallback || to_fallback {
+                    if (from_fallback || to_fallback)
+                        && !composition_sources.contains(&edge.from)
+                    {
                         fallback_pairs.insert(pair.clone());
                     }
                     pairs.insert(pair);
@@ -823,7 +926,20 @@ fn resolve_module_edges(
 /// `allowed.forbidden`. Disallowed cross-component dependency (#6): the target
 /// is not in `allowed.depend_on` either. An explicitly forbidden edge is
 /// reported once as forbidden, never also as disallowed.
-fn check_allowed_edges(pairs: &BTreeSet<(String, String)>, modules: &[Module], diff: &mut Diff) {
+///
+/// The allow/deny lookup follows ADR-018: allowances are owned by the boundary
+/// that matched the edge's source UNIT identity, so a dependency attributed
+/// under a namespace/module identity that its source's unit boundary already
+/// grants is not re-adjudicated against the allowance-less module boundary it
+/// resolved to. An attributed pair the owning unit boundary also denies is
+/// reported with its attributed text; pairs whose source has no unit
+/// attribution are adjudicated by boundary-name equality alone, unchanged.
+fn check_allowed_edges(
+    pairs: &BTreeSet<(String, String)>,
+    model: &Model,
+    modules: &[Module],
+    diff: &mut Diff,
+) {
     for (from_module, to_module) in pairs {
         let Some(from_spec) = modules.iter().find(|module| &module.name == from_module) else {
             continue;
@@ -841,11 +957,62 @@ fn check_allowed_edges(pairs: &BTreeSet<(String, String)>, modules: &[Module], d
             .depend_on
             .iter()
             .any(|target| target == to_module)
+            && !unit_tier_identity_allows(from_module, to_module, model, modules)
         {
             diff.disallowed_cross_component
                 .push(format!("{from_module} -> {to_module}"));
         }
     }
+}
+
+/// The boundary claiming `unit` through a `matches.units` pattern — the
+/// unit-tier attribution of `map_units`, deliberately ignoring the module-tier
+/// fallbacks of `augment_with_modules`: only a boundary that claims the unit
+/// by its unit identity owns allowances for edges attributed under it
+/// (ADR-018).
+fn unit_owner_boundary<'a>(unit: &str, modules: &'a [Module]) -> Option<&'a str> {
+    modules
+        .iter()
+        .find(|module| {
+            module
+                .matches
+                .units
+                .iter()
+                .any(|pattern| matches_pattern(unit, pattern))
+        })
+        .map(|module| module.name.as_str())
+}
+
+/// True when the pair's unit-tier identity is granted: each endpoint resolves
+/// to its owning unit's boundary (falling back to the endpoint's own name
+/// where no boundary claims that identity by units), and the SOURCE owner's
+/// allow-list names the target without forbidding it. `false` when the source
+/// has no unit attribution at all (module-only specs keep today's adjudication)
+/// or when both endpoints collapse into one boundary: a dependency inside a
+/// single unit stays module-attributed and is judged by the module boundaries
+/// that name it (ADR-018).
+fn unit_tier_identity_allows(
+    from: &str,
+    to: &str,
+    model: &Model,
+    modules: &[Module],
+) -> bool {
+    let Some(from_unit) = owning_unit(model, from) else {
+        return false;
+    };
+    let Some(owner) = unit_owner_boundary(&from_unit, modules) else {
+        return false;
+    };
+    let target = owning_unit(model, to)
+        .and_then(|unit| unit_owner_boundary(&unit, modules))
+        .unwrap_or(to);
+    if target == owner {
+        return false;
+    }
+    modules.iter().find(|module| module.name == owner).is_some_and(|spec| {
+        spec.allowed.depend_on.iter().any(|t| t == target)
+            && !spec.allowed.forbidden.iter().any(|t| t == target)
+    })
 }
 
 /// Missing edge (#11): a declared `allowed.depend_on` target is a declared
@@ -863,54 +1030,62 @@ fn check_missing_edges(pairs: &BTreeSet<(String, String)>, modules: &[Module], d
 }
 
 /// Publication-only root facade (structural, no constraint declares it): a
-/// unit whose crate-root file defines nothing — only `mod` declarations and
-/// re-exports (`Model::facade_roots`, proven by its own scan) — is publication
-/// surface. An internal module depending on that root module (e.g. importing
-/// an item through a root re-export instead of its canonical path) is reported
-/// regardless of `depend_on`: the umbrella is not a dependency target, and an
-/// internal→root edge launders any ban routed through it (the laundering check
-/// reports the ban itself; this check kills the conduit). Listing the root in
-/// `depend_on` legalizes the pair for the boundary checks only — the fix here
-/// is canonicalizing the import. Root→internal edges (declarations, re-exports)
-/// are the facade's publication direction and stay legal; cross-crate unit
-/// edges (a bin linking its lib) are cargo-level consumption, not in scope.
+/// Every module path the model's roles map marks `facade` (derived per driver:
+/// the rust crate root defining nothing but `mod` declarations and re-exports,
+/// the c# using-facts-only root namespace) is publication surface. An edge
+/// INTO that root from anything other than a composition-role-carrying module
+/// is reported regardless of `depend_on`: the umbrella is not a dependency
+/// target, and an internal→root edge launders any ban routed through it (the
+/// laundering check reports the ban itself; this check kills the conduit).
+/// Listing the root in `depend_on` legalizes the pair for the boundary checks
+/// only — the fix here is canonicalizing the import (rust) or consuming the
+/// facade's product namespaces instead of its root (c#). Root→internal edges
+/// (declarations, re-exports) are the facade's publication direction and stay
+/// legal; cross-unit consumption of the umbrella through the root namespace is
+/// exactly the edge this rule reports, whatever unit records it.
 fn check_facade_roots(model: &Model, diff: &mut Diff) {
-    if model.facade_roots.is_empty() {
-        return;
-    }
-    for edge in &model.module_edges {
-        if !model.facade_roots.contains(&edge.unit) {
+    for (root, role) in &model.roles {
+        if !matches!(role, Role::Facade) {
             continue;
         }
-        // Test-gated scaffolding on either end is excluded from the graph,
-        // same as every other module-edge check.
-        if is_test_module(model, &edge.from) || is_test_module(model, &edge.to) {
-            continue;
+        for edge in &model.module_edges {
+            // Only edges INTO the facade root consume it; the root's own
+            // publication edges (root -> internals) are the facade direction.
+            if &edge.to != root || &edge.from == root {
+                continue;
+            }
+            // Test-gated scaffolding on either end is excluded from the graph,
+            // same as every other module-edge check.
+            if is_test_module(model, &edge.from) || is_test_module(model, &edge.to) {
+                continue;
+            }
+            // The exemption is the composition ROLE, not a `main` name: a
+            // composition root wiring the umbrella (rust bin `main` linking
+            // its lib, a c# composition root referencing the umbrella) is
+            // sanctioned wiring, not consumption. Any other source — internal
+            // modules, umbrella consumers, or a module that merely happens to
+            // be named `main` without the role — is reported.
+            if matches!(model.roles.get(&edge.from), Some(Role::Composition)) {
+                continue;
+            }
+            diff.facade_dependencies
+                .push(format!("{} -> {}", edge.from, edge.to));
         }
-        // The root module path is the unit name; a deeper `from` is internal
-        // content (a bin root's own file reads as `<unit>::main` — root
-        // content, never an internal→root edge).
-        if edge.to != edge.unit
-            || edge.from == edge.unit
-            || edge.from == format!("{}::main", edge.unit)
-        {
-            continue;
-        }
-        diff.facade_dependencies
-            .push(format!("{} -> {}", edge.from, edge.to));
     }
     diff.facade_dependencies.sort();
 }
 
 /// Laundered forbidden edge: an explicitly forbidden pair `from -> target`
-/// is not directly extracted, yet some route from `from` to `target` on the
-/// boundary graph rides at least one hop whose ownership resolved through the
-/// unit fallback (catch-all boundary, unclaimed module rolled into wiring).
-/// Routing a ban through undeclared territory violates the same declaration;
-/// reported as a warning, promoted by `--strict`. A ban bridged only by
-/// explicitly claimed boundaries is legal layering (facade, composition
-/// root) and never reported here; a coexisting purely declared route does
-/// not mask a conduit route.
+/// is not directly extracted, yet the banned boundary itself exits into
+/// territory no `matches.modules` claims — a fallback hop whose other end
+/// reaches the ban. Routing a ban through one's own undeclared territory
+/// violates the same declaration; reported as a warning, promoted by
+/// `--strict`. The conduit is the banned module's OWN exit hop: hops deeper
+/// in the route are other boundaries' territory and answer to those
+/// boundaries' own bans. An exit hop SOURCED by a composition-role path is
+/// sanctioned wiring (excluded from `fallback_pairs` upstream), so a ban
+/// bridged by explicit boundaries and composition wiring never launders; a
+/// coexisting purely declared route does not mask a conduit route.
 fn check_forbidden_laundering(
     pairs: &BTreeSet<(String, String)>,
     fallback_pairs: &BTreeSet<(String, String)>,
@@ -925,7 +1100,7 @@ fn check_forbidden_laundering(
                 continue;
             }
             let rides_conduit = fallback_pairs.iter().any(|(hop_from, hop_to)| {
-                connects(&module.name, hop_from) && connects(hop_to, target)
+                hop_from == &module.name && connects(hop_to, target)
             });
             if !rides_conduit {
                 continue;
@@ -947,7 +1122,11 @@ fn reachable(pairs: &BTreeSet<(String, String)>, from: &str, target: &str) -> bo
 
 /// Reachability over the pair graph with predecessor reconstruction (any
 /// shortest path). `from` is never revisited.
-fn reachable_path(pairs: &BTreeSet<(String, String)>, from: &str, target: &str) -> Option<Vec<String>> {
+fn reachable_path(
+    pairs: &BTreeSet<(String, String)>,
+    from: &str,
+    target: &str,
+) -> Option<Vec<String>> {
     let mut visited: BTreeSet<&str> = BTreeSet::new();
     visited.insert(from);
     let mut came_from: BTreeMap<&str, &str> = BTreeMap::new();
@@ -1924,9 +2103,10 @@ fn check_vacuous_constraints(
                         .from
                         .iter()
                         .filter(|pattern| {
-                            !model.module_external.keys().any(|module| {
-                                module_listed(module, &[(*pattern).clone()])
-                            })
+                            !model
+                                .module_external
+                                .keys()
+                                .any(|module| module_listed(module, &[(*pattern).clone()]))
                         })
                         .map(|pattern| format!("\"{pattern}\""))
                         .collect();
@@ -2061,20 +2241,17 @@ fn check_vacuous_constraints(
 }
 
 /// True if this run can see soft module structure in source, per the
-/// capability table: a granular row is always visible; a `WORKTIER_ONLY` row
-/// is visible only when the scanned model actually carries a native module
-/// tier (a go.work workspace — compare-time declared grouping derives tiers
-/// from the spec, not from source, and proves nothing about unclaimed code);
-/// a not-emitted row is never visible. An unknown driver keeps the classic
+/// capability table: a granular row is always visible;
+/// a not-emitted row is never visible. An unknown driver keeps the plain
 /// exists/does-not-exist classification.
 fn soft_visibility_verifiable(model: &Model) -> bool {
-    match language::from_name(&model.language)
-        .and_then(|driver_language| capability::emission(driver_language, capability::FACT_MODULE_TIER))
-    {
-        Some(capability::NOT_EMITTED) => false,
-        Some(capability::WORKTIER_ONLY) => model.has_module_tier(),
-        _ => true,
-    }
+    !matches!(
+        language::from_name(&model.language).and_then(|driver_language| capability::emission(
+            driver_language,
+            capability::FACT_MODULE_TIER
+        )),
+        Some(capability::NOT_EMITTED)
+    )
 }
 
 /// Reference engagement diagnostics:
@@ -2108,8 +2285,10 @@ fn check_reference_engagement(
     soft_verifiable: bool,
 ) -> Vec<String> {
     let declared: BTreeSet<&str> = modules.iter().map(|module| module.name.as_str()).collect();
-    let declared_stereotypes: BTreeSet<&str> =
-        stereotypes.iter().map(|stereotype| stereotype.name.as_str()).collect();
+    let declared_stereotypes: BTreeSet<&str> = stereotypes
+        .iter()
+        .map(|stereotype| stereotype.name.as_str())
+        .collect();
     let mut found: BTreeSet<String> = BTreeSet::new();
     for module in modules {
         for (field, target) in module
@@ -2244,7 +2423,9 @@ fn levenshtein(left: &str, right: &str) -> usize {
         current[0] = i + 1;
         for (j, r) in right.iter().enumerate() {
             let cost = usize::from(l != r);
-            current[j + 1] = (previous[j] + cost).min(previous[j + 1] + 1).min(current[j] + 1);
+            current[j + 1] = (previous[j] + cost)
+                .min(previous[j + 1] + 1)
+                .min(current[j] + 1);
         }
         std::mem::swap(&mut previous, &mut current);
     }
@@ -2302,7 +2483,8 @@ pub fn pass_confirmation(modules: &[Module], constraints_checked: usize) -> Stri
 /// only changes how warnings are labelled and whether the run fails — it does
 /// not reorder or drop any item.
 pub fn render_report(diff: &Diff, strict: bool) -> String {
-    let vacuous_only = !diff.has_errors() && diff.warnings.is_empty() && !diff.vacuous_constraints.is_empty();
+    let vacuous_only =
+        !diff.has_errors() && diff.warnings.is_empty() && !diff.vacuous_constraints.is_empty();
     let mut out = String::new();
     if vacuous_only {
         // A run whose only findings are vacuous constraints never claims a

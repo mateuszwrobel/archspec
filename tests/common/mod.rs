@@ -60,3 +60,44 @@ pub fn stdout(output: &Output) -> String {
 pub fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
+
+/// Declaration-order property for mermaid model renders (audit defect D3):
+/// every node id referenced by an arrow (` --> `) must appear on a
+/// declaration line ABOVE the arrow — a node line (`id` or `id["label"]`) or
+/// a subgraph header (`subgraph id` / `subgraph id["title"]`). An id
+/// referenced before any declaration renders as a detached, unlabelled node
+/// disconnected from its subgraphs, so no model-tier renderer may emit one.
+pub fn assert_declared_before_reference(label: &str, text: &str) {
+    let mut declared = std::collections::BTreeSet::new();
+    for (index, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.contains(" --> ") {
+            for reference in trimmed.split(" --> ") {
+                let id = reference.trim();
+                assert!(
+                    declared.contains(id),
+                    "{label}: id {id:?} on line {} is referenced before any \
+                     declaration line:\n{text}",
+                    index + 1
+                );
+            }
+        } else if trimmed == "end" || trimmed.starts_with("graph ") {
+            // Structural keywords: neither declarations nor references.
+        } else if let Some(header) = trimmed.strip_prefix("subgraph ") {
+            declared.insert(declared_id(header.trim()));
+        } else {
+            declared.insert(declared_id(trimmed));
+        }
+    }
+}
+
+/// The id part of a declaration line: everything before the quoted label.
+fn declared_id(declaration: &str) -> String {
+    match declaration.split_once('[') {
+        Some((id, _)) => id.trim().to_string(),
+        None => declaration.to_string(),
+    }
+}

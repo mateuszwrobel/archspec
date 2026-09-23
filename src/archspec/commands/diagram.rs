@@ -8,7 +8,7 @@ use std::path::Path;
 const FORMATS: &[&str] = &["mermaid", "plantuml"];
 const SOURCES: &[&str] = &["spec", "scan"];
 
-pub const HELP: &str = "usage: archspec diagram [path] [--source <spec|scan> <scan-path>] [--format <mermaid|plantuml>] [--output <path>] [--check]\nrender the model (declared spec or scan artefact) as a diagram\n\n  path                  project directory (default: current directory)\n  --source <spec|scan>  model source; with scan, bind the artefact path next (default: spec)\n  --format <fmt>        mermaid or plantuml (default: mermaid)\n  --output <path>       write the diagram to that file (default: stdout unless archspec.toml [output] sets a destination)\n  --check               compare the diagram to its destination without writing; exit non-zero if stale or missing\n";
+pub const HELP: &str = "usage: archspec diagram [path] [--source <spec|scan> <scan-path>] [--format <mermaid|plantuml>] [--output <path>] [--check]\nrender the model (declared spec or scan artefact) as a diagram\n\n  path                  project directory (default: current directory)\n  --source <spec|scan>  model source; with scan, bind the artefact path next (default: spec)\n  --format <fmt>        mermaid or plantuml (default: mermaid)\n  --output <path>       write the diagram to that file (default: stdout unless archspec.toml [output] sets a destination); `--output -` writes to stdout and creates no file — never a path positional\n  --check               compare the diagram to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n\nArtefact form: `archspec diagram --source scan docs/archspec/scan.json` — with `--source scan`, the argument is a scan-JSON artefact file written by `archspec scan`, not a project directory.\n\nThe scan source is exploratory: `archspec diagram --source scan <path>` with no `--output` renders to stdout, states the skip with `note: destination <path> not written`, and never touches the configured destination; pass `--output <path>` to write that render.\n";
 
 /// `--source scan` binds the token immediately after `scan` as the artefact
 /// path, so it never lands in the positional list (which stays the project
@@ -114,13 +114,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
         _ => unreachable!(),
     };
 
-    let destination = config::resolve(
+    let mut route = config::route(
         parsed.values.get("output").map(String::as_str),
         config.diagram.as_deref(),
         project_root,
+        config::is_human(format),
     );
     let check = parsed.switches.contains("check");
-    config::emit(&diagram, destination, check, "diagram", "diagram")
+    // blind4 D02: the destination belongs to the canonical source (spec mode).
+    // An exploratory `--source scan` render with no explicit `--output` prints
+    // to stdout and never touches the configured destination — the rule
+    // `report` follows on its format axis, applied to the source axis — so a
+    // committed spec-mode artefact cannot be clobbered by an exploratory run.
+    // With `--output Q` the old capability stays: the body goes to Q (and the
+    // destination stays untouched). `--check` never writes, so its destination
+    // resolution is unchanged.
+    if source == "scan" && !check && !parsed.values.contains_key("output") {
+        route.destination = None;
+    }
+    config::emit(&diagram, route, check, "diagram", "diagram", None)
 }
 
 fn project_dir(parsed: &cli::Args) -> &str {

@@ -9,7 +9,35 @@ use crate::archspec::verify::compare;
 use super::verify::RULE_VIOLATION_REPORTED;
 use std::path::Path;
 
-pub const HELP: &str = "usage: archspec report [path] [--format <text|markdown|json>] [--output <path>] [--check]\nproduce a text, markdown, or json architecture report (diff + metrics)\n\n  path             project directory to report on (default: current directory)\n  --format <fmt>   text, markdown, or json (default: text)\n  --output <path>  write the report to that file (default: stdout unless archspec.toml [output] sets a destination)\n  --check          compare the report to its destination without writing; exit non-zero if stale, missing, or violations are present\n\nexit 0 when the code satisfies its spec; exit 1 on rule violations or operational errors\n";
+pub const HELP: &str = "usage: archspec report [path] [--format <text|markdown|json>] [--output <path>] [--check] [--pretty]\nproduce a text, markdown, or json architecture report (diff + metrics)\n\n  path             project directory to report on (default: current directory)\n  --format <fmt>   text, markdown, or json (default: text)\n  --output <path>  write the report to that file (default: stdout unless archspec.toml [output] sets a destination); `--output -` writes to stdout and creates no file — never a path positional\n  --check          compare the report to its destination without writing; exit non-zero if stale, missing, or violations are present; a fresh check prints `ok: <path> up to date`. A `--check` compares the canonical rendering unless `--format` names another; to verify a `--format`-generated artefact, pass the same `--format` to `--check`.\n  --pretty         accepted for symmetry with `scan`; report json is already indented and no body changes\n\nA configured report destination is provisioned for the default text rendering: a run naming another `--format` renders to stdout and never writes the destination.\n\nThe diagram embedded in a markdown report is file-granular; the module-granular graph is `archspec depgraph modules`.\n\nexit 0 when the code satisfies its spec; exit 1 on rule violations or operational errors\n";
+
+/// The advice half of the guidance sentence (owner: the `--check` line of
+/// `report --help`, welded to `docs/archspec/config.md`) stated where the
+/// mistake happens: appended to a stale finding that compared the canonical
+/// text rendering, absent when a format-named rendering was compared —
+/// there, the exact-form regenerate hint already is the advice (blind5 D01).
+const CANONICAL_ADVICE: &str =
+    "; pass the same --format to --check to verify a --format-generated artefact";
+
+/// The parenthetical a stale report `--check` prints: it names the rendering
+/// the comparison actually made and hints that rendering's exact command
+/// form, so following the hint regenerates the compared body byte-exactly
+/// instead of rewriting it in another format (blind5 D01). The rendering is
+/// the one already resolved for this run — the naming states no new routing
+/// decision; the canonical text rendering regenerates bare and carries the
+/// advice clause, a format-named rendering carries the `--format` suffix and
+/// no clause.
+fn stale_finding(format: &str) -> String {
+    if format == "text" {
+        format!(
+            "compared the text rendering; regenerate with: archspec report{CANONICAL_ADVICE}"
+        )
+    } else {
+        format!(
+            "compared the {format} rendering; regenerate with: archspec report --format {format}"
+        )
+    }
+}
 
 /// `archspec report [path] [--format <text|markdown|json>] [--output <path>]`
 /// (commands/report/cli.md). Spec-driven: the spec's `[project] language`
@@ -30,6 +58,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
             },
             FlagSpec {
                 name: "check",
+                takes_value: false,
+            },
+            FlagSpec {
+                // Accepted for one-flag-set symmetry with `scan`; report
+                // json is already indented and other formats have no json
+                // layout to change (blind4 D03).
+                name: "pretty",
                 takes_value: false,
             },
         ],
@@ -100,25 +135,29 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &loaded.project.language,
             &metrics,
             &diff,
+            &model.roles,
             diagram.as_deref(),
         ),
-        "json" => report::render_json(&loaded.project.language, &metrics, &diff),
-        _ => report::render_text(&loaded.project.language, &metrics, &diff),
+        "json" => report::render_json(&loaded.project.language, &metrics, &diff, &model.roles),
+        _ => report::render_text(&loaded.project.language, &metrics, &diff, &model.roles),
     };
 
     let output_flag = parsed.values.get("output");
     let check = parsed.switches.contains("check");
-    let mut destination = config::resolve(
+    let mut route = config::route(
         output_flag.map(String::as_str),
         config.report.as_deref(),
         root_path,
+        config::is_human(format),
     );
     // Precedence: `--output` always wins. Otherwise the configured destination
     // receives only the format it is provisioned for — the default text report
     // (what a plain `report` writes and `--check` compares). An explicit
     // `--format` that differs from it goes to stdout instead of being written
     // into the text artefact (serializing JSON into `report.md` would clobber
-    // the committed report and make `--check` flag it stale). `--check` never
+    // the committed report and make `--check` flag it stale), and stdout names
+    // the destination it skipped — in a human body only; a machine body stays
+    // byte-clean (D02). `--check` never
     // writes, so its destination resolution is unchanged.
     if output_flag.is_none()
         && !check
@@ -126,9 +165,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
         && parsed.values.contains_key("format")
         && format != "text"
     {
-        destination = None;
+        route.destination = None;
     }
-    config::emit(&rendered, destination, check, "report", "report")?;
+    config::emit(
+        &rendered,
+        route,
+        check,
+        "report",
+        "report",
+        Some(&stale_finding(format)),
+    )?;
     if diff.fails(false) {
         return Err(RULE_VIOLATION_REPORTED.to_string());
     }

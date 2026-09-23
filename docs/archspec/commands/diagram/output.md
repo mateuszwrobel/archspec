@@ -3,7 +3,7 @@
 ## Destination
 
 - Default: diagram written to **stdout**, exit code `0`.
-- `--output <path>`: diagram written to the file, **stdout stays empty**, exit code `0`.
+- `--output <path>`: diagram written to the file, **stdout stays empty**, exit code `0`. `--output -` prints the diagram on stdout and creates no file.
 
 ## Formats
 
@@ -22,8 +22,11 @@ The diagram always contains:
 2. **One edge per dependency** between them. Edge direction: depending component/unit → depended-upon.
 3. **External crates in a separate cluster** (scan mode): dependencies to external crates are grouped into a visually distinct cluster, separated from the project's own nodes. In spec mode there are no external crates — the declared model contains no extracted dependencies.
 4. **Violating/forbidden edges marked**: dashed red arrows. In spec mode these are the dependencies the spec declares forbidden. In scan mode these are extracted edges that violate the governing spec's constraints.
+5. **Role markers on role-addressed nodes (scan mode only)**: a node is marked iff the model's `roles` map holds a key equal to that node's name under the `.`/`::` separator equivalence (the key `Shop::Api` marks the node `Shop.Api`) — exact identity, no fold and no subtree containment. Mermaid carries the marker as a quoted-label suffix (`Shop_Api_9243f63f["Shop.Api [composition]"]`), PlantUML carries it as a stereotype on the declaration (`component Shop.Api <<composition>>`) while edge lines stay raw; node ids and every other node line keep their exact unmarked bytes, and the external cluster — addressed by no roles key — never marks.
 
 Marked edges are the picture's "danger" signal: edges the architecture forbids, either because they are declared banned (spec mode) or because the code has drifted from the declaration (scan mode with a spec present). When no spec forbids anything, no edges are marked.
+
+Role marks exist in scan mode only: spec mode's nodes are declared components rather than model paths, so `diagram` in its default mode reads no roles map and its bytes never move. A role keyed below the unit tier — the rust bin composition key `tool::main` — addresses no node of the diagram's unit vocabulary and marks nothing here while `inspect tree` marks the same entry one tier down (see `../inspect/output.md`).
 
 ## Determinism
 
@@ -66,4 +69,4 @@ graph TD
   auth --> serde
 ```
 
-Node labels are unit names; external crates are grouped in their own cluster; the edge that violates the governing spec is dashed.
+Node labels are unit names; external crates are grouped in their own cluster; the edge that violates the governing spec is dashed. This snapshot states no roles, so no node carries item 5's marker — add `"roles": { "auth": "composition" }` to the artefact and the `auth` label renders as `auth["auth [composition]"]` while every other line keeps its bytes.

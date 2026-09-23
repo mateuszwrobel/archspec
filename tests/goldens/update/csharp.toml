@@ -1,0 +1,28 @@
+[project]
+language = "csharp"
+
+[[module]]
+name = "app"
+matches = { units = ["app"] }
+allowed = { depend_on = ["shared"] }
+
+[[module]]
+name = "shared"
+matches = { units = ["shared"] }
+
+[[module]]
+name = "app::Core"
+matches = { modules = ["app::Core"] }
+allowed = { depend_on = ["app::Ui"] }
+
+[[module]]
+name = "app::Ui"
+matches = { modules = ["app::Ui"] }
+
+[[module]]
+name = "shared::Models"
+matches = { modules = ["shared::Models"] }
+
+[[constraint]]
+type = "no_cycles"
+

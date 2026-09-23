@@ -168,17 +168,38 @@ fn write_reports(report: &shared::report::MatrixReport) {
 /// with a `warning: ` prefix there; the label here is the unprefixed form.
 /// The scenario list pins which behaviors must produce each label.
 const DIAGNOSTIC_CATEGORIES: &[(&str, &[&str])] = &[
-    ("missing component:", &["undeclared_component_is_reported_missing"]),
-    ("unexpected component:", &["undeclared_unit_reports_unexpected_component"]),
-    ("unassigned unit:", &["dotted_subunit_of_declared_component_is_unassigned"]),
-    ("ambiguous module match:", &["two_boundaries_claim_module_at_equal_specificity"]),
-    ("forbidden edge:", &["undeclared_dependency_exceeds_allowed_ceiling"]),
-    ("missing edge:", &["stale_allowed_dependency_reports_missing_edge"]),
+    (
+        "missing component:",
+        &["undeclared_component_is_reported_missing"],
+    ),
+    (
+        "unexpected component:",
+        &["undeclared_unit_reports_unexpected_component"],
+    ),
+    (
+        "unassigned unit:",
+        &["dotted_subunit_of_declared_component_is_unassigned"],
+    ),
+    (
+        "ambiguous module match:",
+        &["two_boundaries_claim_module_at_equal_specificity"],
+    ),
+    (
+        "forbidden edge:",
+        &["undeclared_dependency_exceeds_allowed_ceiling"],
+    ),
+    (
+        "missing edge:",
+        &["stale_allowed_dependency_reports_missing_edge"],
+    ),
     (
         "disallowed cross-component dependency:",
         &["undeclared_dependency_exceeds_allowed_ceiling"],
     ),
-    ("facade dependency:", &["import_of_facade_root_reexport_is_violation"]),
+    (
+        "facade dependency:",
+        &["import_of_facade_root_reexport_is_violation"],
+    ),
     (
         "contract leak:",
         &[
@@ -194,7 +215,10 @@ const DIAGNOSTIC_CATEGORIES: &[(&str, &[&str])] = &[
         ],
     ),
     ("public api leak:", &["rust_root_public_api_leak_pin"]),
-    ("unverifiable glob export:", &["rust_unverifiable_glob_export_pin"]),
+    (
+        "unverifiable glob export:",
+        &["rust_unverifiable_glob_export_pin"],
+    ),
     ("empty glob export:", &["rust_empty_glob_export_pin"]),
     (
         "forbidden external crate:",
@@ -212,7 +236,10 @@ const DIAGNOSTIC_CATEGORIES: &[(&str, &[&str])] = &[
         "forbidden submodule dependency:",
         &["forbidden_submodule_dependency_across_sibling_children"],
     ),
-    ("unresolved module file:", &["rust_unresolved_module_file_pin"]),
+    (
+        "unresolved module file:",
+        &["rust_unresolved_module_file_pin"],
+    ),
     (
         "unowned module edge endpoint:",
         &["unclaimed_module_edge_endpoint_is_reported_unowned"],
@@ -221,7 +248,10 @@ const DIAGNOSTIC_CATEGORIES: &[(&str, &[&str])] = &[
         "laundered forbidden edge:",
         &["forbidden_edge_routed_through_conduit_hop_is_laundered"],
     ),
-    ("dead reference:", &["dead_reference_to_source_module_classifies_per_language"]),
+    (
+        "dead reference:",
+        &["dead_reference_to_source_module_classifies_per_language"],
+    ),
     (
         "vacuous constraint:",
         &[

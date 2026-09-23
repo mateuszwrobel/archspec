@@ -324,7 +324,10 @@ fn verify_scenario_79_cfg_on_chain_link_blocks_resolution() {
     let gated_link = glob_fixture(
         "mod a;\nmod b;\npub use a::*;\n",
         &[
-            ("src/a.rs", "#[cfg(feature = \"deep\")]\npub use crate::b::*;\npub struct InA;\n"),
+            (
+                "src/a.rs",
+                "#[cfg(feature = \"deep\")]\npub use crate::b::*;\npub struct InA;\n",
+            ),
             ("src/b.rs", "pub struct InB;\n"),
         ],
         &["InA", "InB"],
@@ -406,7 +409,11 @@ fn verify_scenario_81_external_dependency_prefix_is_unresolvable() {
 // without `--strict`.
 #[test]
 fn verify_scenario_82_empty_resolvable_glob_fails_closed() {
-    let fixture = glob_fixture("mod empty_mod {}\npub use empty_mod::*;\n", &[], &["Anything"]);
+    let fixture = glob_fixture(
+        "mod empty_mod {}\npub use empty_mod::*;\n",
+        &[],
+        &["Anything"],
+    );
     for args in [&["verify"][..], &["verify", "--strict"][..]] {
         let output = fixture.run(args);
         assert_ne!(
@@ -436,7 +443,10 @@ fn verify_scenario_82_empty_resolvable_glob_fails_closed() {
 fn verify_scenario_83_empty_glob_through_chain_fails_closed() {
     let fixture = glob_fixture(
         "mod a;\nmod b;\npub use a::*;\n",
-        &[("src/a.rs", "pub use crate::b::*;\n"), ("src/b.rs", "struct Hidden;\n")],
+        &[
+            ("src/a.rs", "pub use crate::b::*;\n"),
+            ("src/b.rs", "struct Hidden;\n"),
+        ],
         &["Anything"],
     );
     assert_fail(
@@ -472,7 +482,10 @@ fn verify_scenario_86_root_module_outranks_dependency_of_same_name() {
         "Cargo.toml",
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nserde = \"1\"\n",
     );
-    fixture.write("src/lib.rs", "mod serde { pub struct Local; }\npub use serde::*;\n");
+    fixture.write(
+        "src/lib.rs",
+        "mod serde { pub struct Local; }\npub use serde::*;\n",
+    );
     fixture.write(
         "architecture.spec.toml",
         "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"app\"\nmatches = { units = [\"app\"] }\n\n[[constraint]]\ntype = \"public_api_allowlist\"\nallowed = [\"Local\"]\n",
@@ -618,7 +631,10 @@ fn verify_scenario_92_path_link_in_glob_chain_resolves() {
             "src/wrapper.rs",
             "#[path = \"renamed/inner_file.rs\"]\nmod inner;\n",
         ),
-        ("src/renamed/inner_file.rs", "pub use crate::legacy::Real;\n"),
+        (
+            "src/renamed/inner_file.rs",
+            "pub use crate::legacy::Real;\n",
+        ),
         ("src/legacy.rs", "pub struct Real;\n"),
     ];
     let fixture = glob_fixture(lib, &extra, &["Real"]);
@@ -677,7 +693,10 @@ fn verify_scenario_93_cfg_attr_path_link_in_glob_chain_resolves() {
 fn verify_scenario_94_path_link_with_missing_target_fails_closed() {
     let fixture = glob_fixture(
         "mod wrapper;\npub use wrapper::inner::*;\n",
-        &[("src/wrapper.rs", "#[path = \"renamed/missing_file.rs\"]\nmod inner;\n")],
+        &[(
+            "src/wrapper.rs",
+            "#[path = \"renamed/missing_file.rs\"]\nmod inner;\n",
+        )],
         &["Anything"],
     );
     assert_fail(
@@ -698,7 +717,11 @@ fn verify_scenario_94_path_link_with_missing_target_fails_closed() {
 /// (`matches.modules`, no `matches.units`). The unit is assigned to the
 /// `config` boundary by module ownership; crate-root exports must NOT be
 /// dumped onto that boundary.
-fn module_tier_public_api_fixture(lib: &str, extra: &[(&str, &str)], allowed: &[&str]) -> common::Fixture {
+fn module_tier_public_api_fixture(
+    lib: &str,
+    extra: &[(&str, &str)],
+    allowed: &[&str],
+) -> common::Fixture {
     let fixture = common::Fixture::new();
     fixture.write(
         "Cargo.toml",
@@ -782,10 +805,7 @@ fn external_crate_fixture(from: &[&str], forbid: &[&str]) -> common::Fixture {
         &[
             ("src/lib.rs", "pub mod core;\npub mod infra;\n"),
             ("src/core.rs", "use clap::Parser;\npub fn core() {}\n"),
-            (
-                "src/infra.rs",
-                "use anyhow::Error;\npub fn infra() {}\n",
-            ),
+            ("src/infra.rs", "use anyhow::Error;\npub fn infra() {}\n"),
         ],
         &spec,
     )
@@ -904,24 +924,18 @@ fn manifest_integrity_checks_per_unit_facts_at_workspace() {
 
 // === manifest_integrity #53/#54/#55: each member manifest checked individually ===
 
-fn workspace_manifest_fixture(
-    members: &[(&str, &str)],
-    spec_body: &str,
-) -> common::Fixture {
+fn workspace_manifest_fixture(members: &[(&str, &str)], spec_body: &str) -> common::Fixture {
     let fixture = common::Fixture::new();
-    let member_list: Vec<String> = members.iter().map(|(path, _)| format!("\"{path}\"")).collect();
+    let member_list: Vec<String> = members
+        .iter()
+        .map(|(path, _)| format!("\"{path}\""))
+        .collect();
     fixture.write(
         "Cargo.toml",
-        &format!(
-            "[workspace]\nmembers = [{}]\n",
-            member_list.join(", ")
-        ),
+        &format!("[workspace]\nmembers = [{}]\n", member_list.join(", ")),
     );
     for (path, manifest) in members {
-        fixture.write(
-            &format!("{path}/Cargo.toml"),
-            manifest,
-        );
+        fixture.write(&format!("{path}/Cargo.toml"), manifest);
         let name = path.rsplit('/').next().unwrap();
         fixture.write(
             &format!("{path}/src/lib.rs"),
@@ -932,16 +946,12 @@ fn workspace_manifest_fixture(
         .iter()
         .map(|(path, _)| {
             let name = path.rsplit('/').next().unwrap();
-            format!(
-                "[[module]]\nname = \"{name}\"\nmatches = {{ units = [\"{name}\"] }}\n\n"
-            )
+            format!("[[module]]\nname = \"{name}\"\nmatches = {{ units = [\"{name}\"] }}\n\n")
         })
         .collect();
     fixture.write(
         "architecture.spec.toml",
-        &format!(
-            "[project]\nlanguage = \"rust\"\n\n{module_decls}{spec_body}"
-        ),
+        &format!("[project]\nlanguage = \"rust\"\n\n{module_decls}{spec_body}"),
     );
     fixture
 }
@@ -1208,7 +1218,8 @@ fn submodule_spec_paths(parent: &str, from: &[&str], forbid: &[&str]) -> String 
 
 // The leak edge: `common` imports `control_loop`, one intra-parent submodule
 // edge under `app::orchestration`.
-const COMMON_LEAKS_CONTROL_LOOP: &str = "use crate::orchestration::control_loop::Loop;\npub fn common() {}\n";
+const COMMON_LEAKS_CONTROL_LOOP: &str =
+    "use crate::orchestration::control_loop::Loop;\npub fn common() {}\n";
 const BREAKDOWN_CLEAN: &str = "pub fn breakdown() {}\n";
 
 // Full-path `parent`/`from`/`forbid` (the manual's recommended precise form)
@@ -1453,10 +1464,7 @@ fn verify_fails_strict_when_forbidden_edge_is_laundered_via_intermediate_boundar
         stdout(&output)
     );
     let output = fixture.run(&["verify", "--strict"]);
-    assert_fail(
-        &output,
-        &["laundered forbidden edge: a -> b via shell"],
-    );
+    assert_fail(&output, &["laundered forbidden edge: a -> b via shell"]);
 }
 
 #[test]
@@ -1475,7 +1483,10 @@ fn verify_forbidden_external_crates_see_path_attribute_modules() {
         "Cargo.toml",
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nserde = \"1\"\n",
     );
-    fixture.write("src/lib.rs", "pub mod visible;\n#[path = \"misc/thing.rs\"]\npub mod hidden;\n");
+    fixture.write(
+        "src/lib.rs",
+        "pub mod visible;\n#[path = \"misc/thing.rs\"]\npub mod hidden;\n",
+    );
     fixture.write("src/visible.rs", "pub fn visible() {}\n");
     fixture.write(
         "src/misc/thing.rs",
@@ -1620,7 +1631,11 @@ fn layering_forbidden_fixture(mixed: bool) -> common::Fixture {
         );
     }
     fixture.write("src/b.rs", "pub fn bee() {}\n");
-    let a_deps = if mixed { "[\"x\", \"conduit\"]" } else { "[\"x\"]" };
+    let a_deps = if mixed {
+        "[\"x\", \"conduit\"]"
+    } else {
+        "[\"x\"]"
+    };
     let conduit_module = if mixed {
         "\n[[module]]\nname = \"conduit\"\nmatches = { units = [\"app\"] }\n\n[module.allowed]\ndepend_on = [\"b\"]\n"
     } else {
@@ -1912,7 +1927,10 @@ fn external_free_pure_module_passes_without_vacuity_noise() {
 fn external_free_contamination_fails_and_names_packages() {
     let fixture = purity_app(&purity_constraint("app::core", ""), CONTAMINATED_CORE);
     let output = fixture.run(&["verify"]);
-    assert_fail(&output, &["not external free: core imports serde, serde_json"]);
+    assert_fail(
+        &output,
+        &["not external free: core imports serde, serde_json"],
+    );
 }
 
 #[test]
@@ -1929,7 +1947,9 @@ fn external_free_dead_pattern_is_vacuous_with_distinct_diagnostic() {
     assert!(out.contains("vacuous constraint:"), "report:\n{out}");
     assert!(out.contains("external_free"), "report:\n{out}");
     assert!(
-        out.contains("'from' pattern \"app::domian\" matches no module or unit present in the model"),
+        out.contains(
+            "'from' pattern \"app::domian\" matches no module or unit present in the model"
+        ),
         "the diagnostic must name the dead pattern and say presence, not externals:\n{out}"
     );
     assert!(
@@ -1946,7 +1966,10 @@ fn external_free_dead_pattern_is_vacuous_with_distinct_diagnostic() {
 
 #[test]
 fn external_free_warning_severity_tolerated_without_strict_fails_with_it() {
-    let fixture = purity_app(&purity_constraint("app::core", "warning"), CONTAMINATED_CORE);
+    let fixture = purity_app(
+        &purity_constraint("app::core", "warning"),
+        CONTAMINATED_CORE,
+    );
     let output = fixture.run(&["verify"]);
     assert_eq!(
         output.status.code(),
@@ -1960,7 +1983,11 @@ fn external_free_warning_severity_tolerated_without_strict_fails_with_it() {
         "finding listed as warning:\n{out}"
     );
     let strict = fixture.run(&["verify", "--strict"]);
-    assert_eq!(strict.status.code(), Some(1), "--strict promotes the warning");
+    assert_eq!(
+        strict.status.code(),
+        Some(1),
+        "--strict promotes the warning"
+    );
     assert!(
         stdout(&strict).contains("not external free: core imports serde, serde_json"),
         "promoted line keeps the finding:\n{}",
@@ -2040,7 +2067,10 @@ fn external_free_pure_go_package_unit_passes_non_vacuously() {
     let fixture = common::Fixture::new();
     fixture.write("go.mod", "module example.com/demo\ngo 1.21\n");
     fixture.write("core/core.go", "package core\n\nfunc Order() {}\n");
-    fixture.write("app/app.go", "package app\n\nimport \"modernc.org/sqlite\"\n\nfunc Run() { _ = sqlite.Open }\n");
+    fixture.write(
+        "app/app.go",
+        "package app\n\nimport \"modernc.org/sqlite\"\n\nfunc Run() { _ = sqlite.Open }\n",
+    );
     fixture.write(
         "architecture.spec.toml",
         "[project]\nlanguage = \"go\"\n\n\
@@ -2100,7 +2130,10 @@ fn external_free_csharp_pure_module_passes_and_contamination_names_package() {
         "App/App.csproj",
         "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include=\"Newtonsoft.Json\" />\n  </ItemGroup>\n</Project>\n",
     );
-    fixture.write("App/Core.cs", "namespace App.Core;\npublic class Order { }\n");
+    fixture.write(
+        "App/Core.cs",
+        "namespace App.Core;\npublic class Order { }\n",
+    );
     fixture.write(
         "App/Ui.cs",
         "using Newtonsoft.Json;\nnamespace App.Ui;\npublic class Ui { public void Render() { Newtonsoft.Json.JsonConvert.Null.ToString(); } }\n",
@@ -2136,5 +2169,415 @@ fn external_free_csharp_pure_module_passes_and_contamination_names_package() {
     assert!(
         out.contains("not external free: Core imports Newtonsoft.Json"),
         "the finding names the module and the package:\n{out}"
+    );
+}
+
+/// Scenario 98f (workplan archspec_roles, US 05; de-vacuated by US 05b): the
+/// bin-root exemption of the facade rule is stated by the composition ROLE,
+/// not the `::main` name. The scan records `<unit>::main` with the
+/// composition role (the `mod wiring;` edge out of main is the wiring fact)
+/// and the BIN unit is a DECLARED boundary consuming its lib by name — the
+/// verdict is asserted by exit code, not a substring filter (the old model's
+/// only findings were the undeclared bin unit's `unexpected component` noise,
+/// vacuous for the exemption). The rust module tier never crosses units (a
+/// `use app::Thing` records the unit-tier edge only — proven by the scan
+/// model), so the edge INTO a facade root recorded under a composition-role
+/// module — the exemption branch itself — is pinned by scenario 98h on c#,
+/// where such edges exist.
+#[test]
+fn verify_scenario_98f_bin_root_exemption_is_stated_by_the_composition_role() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "mod engine;\npub use engine::Thing;\n");
+    fixture.write("src/engine.rs", "pub struct Thing;\n");
+    fixture.write(
+        "src/wiring.rs",
+        "pub struct Bound;\npub use crate::Thing;\n",
+    );
+    fixture.write(
+        "src/main.rs",
+        "use app::Thing;\nmod wiring;\nfn main() { let _ = Thing; let _ = wiring::Bound; }\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"umbrella\"\nmatches = { units = [\"app\"] }\n\n[module.allowed]\ndepend_on = [\"engine\"]\n\n[[module]]\nname = \"engine\"\nmatches = { modules = [\"app::engine\"] }\n\n[[module]]\nname = \"bin\"\nmatches = { units = [\"app-bin\"] }\n\n[module.allowed]\ndepend_on = [\"umbrella\"]\n",
+    );
+    let model: serde_json::Value =
+        serde_json::from_str(&stdout(&fixture.run(&["scan"]))).expect("scan json");
+    assert_eq!(
+        model["roles"]["app-bin::main"].as_str(),
+        Some("composition"),
+        "the bin target (unit `app-bin`) carries the composition role: {:?}",
+        model["roles"]
+    );
+    let output = fixture.run(&["verify", "--strict"]);
+    assert_pass(&output);
+}
+
+/// Scenario 98g (workplan archspec_roles, US 05): the exemption follows the
+/// role, not the name — a LIB module that happens to be named `main` and
+/// imports through the root re-export is an internal module consuming the
+/// facade like any other, and is reported.
+#[test]
+fn verify_scenario_98g_lib_module_named_main_is_internal_under_facade_root() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "src/lib.rs",
+        "mod engine;\npub use engine::Thing;\n#[path = \"worker.rs\"]\nmod main;\n",
+    );
+    fixture.write("src/engine.rs", "pub struct Thing;\n");
+    fixture.write("src/worker.rs", "use crate::Thing;\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"umbrella\"\nmatches = { units = [\"app\"] }\n\n[module.allowed]\ndepend_on = [\"engine\"]\n\n[[module]]\nname = \"engine\"\nmatches = { modules = [\"app::engine\"] }\n\n[module.allowed]\ndepend_on = [\"umbrella\"]\n",
+    );
+    let output = fixture.run(&["verify"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a lib module named `main` without the composition role is internal:\n{}",
+        stdout(&output)
+    );
+    assert!(
+        stdout(&output).contains("facade dependency: app::main -> app"),
+        "the name alone must not exempt a module:\n{}",
+        stdout(&output)
+    );
+}
+
+// === the composition exemption is hop-level (workplan archspec_roles,
+// US 05b hardening) ===
+// The boundary-level bearer whitelist (landed in US 05) sanctioned a WHOLE
+// boundary that owned any composition-role path: one planted bin main plus a
+// catch-all boundary claiming the bin's unit laundered every ban routed
+// through that boundary (X2). The exemption is now keyed on the roles map's
+// PATHS: a hop is sanctioned exactly when its source module carries the
+// composition role — irrelevant which boundary claims the path's unit. The
+// stage-1/2/3 attribution ladder is gone with the boundary-level whitelist.
+
+/// X2 adversarial (code review of US 05): the laundered fixture (#87, strict
+/// exit 1) gains a planted `src/main.rs` (composition at `app-bin::main`) and
+/// the `shell` catch-all claims both units (`units = ["app", "app-bin"]`), so
+/// `shell` becomes the boundary that owns the composition path — exactly the
+/// shape the old whitelist whitelisted whole. The banned route `a -> shell -> b`
+/// rides hops attributed from `app::a` and `app::hidden`: neither path carries
+/// the composition role, so the laundering must survive the planted main.
+/// RED on the pre-fix tree (exit 0), green with the hop-level exemption.
+#[test]
+fn verify_scenario_99_laundered_ban_survives_a_composition_role_on_the_catchall_boundary() {
+    let fixture = laundered_forbidden_fixture(true);
+    fixture.write("src/main.rs", "mod glue;\nfn main() { glue::nothing(); }\n");
+    fixture.write("src/glue.rs", "pub fn nothing() {}\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"a\"\nmatches = { modules = [\"app::a\"] }\n\n[module.allowed]\ndepend_on = [\"shell\"]\nforbidden = [\"b\"]\n\n[[module]]\nname = \"b\"\nmatches = { modules = [\"app::b\"] }\n\n[[module]]\nname = \"shell\"\nmatches = { modules = [\"app::shell\"], units = [\"app\", \"app-bin\"] }\n\n[module.allowed]\ndepend_on = [\"b\"]\n",
+    );
+    let model: serde_json::Value =
+        serde_json::from_str(&stdout(&fixture.run(&["scan"]))).expect("scan json");
+    assert_eq!(
+        model["roles"]["app-bin::main"].as_str(),
+        Some("composition"),
+        "the planted main wiring is the composition the catch-all boundary claims: {:?}",
+        model["roles"]
+    );
+    let output = fixture.run(&["verify", "--strict"]);
+    assert_fail(
+        &output,
+        &["laundered forbidden edge: a -> b via shell"],
+    );
+}
+
+/// The roles map of a model as a plain sorted list of (model path, role).
+fn role_pairs(model: &serde_json::Value) -> Vec<(String, String)> {
+    model["roles"]
+        .as_object()
+        .expect("roles must be an object")
+        .iter()
+        .map(|(path, role)| (path.clone(), role.as_str().expect("role").to_string()))
+        .collect()
+}
+
+/// The c# facade-plus-composition-root pair: unit `App` publishes through its
+/// root namespace (using-facts-only, the facade role); unit `Api` is an entry
+/// project referencing it whose `Program.cs` wires the umbrella BY ITS ROOT
+/// NAMESPACE (`using App;` — the edge INTO the facade root recorded under the
+/// entry root module). `registrations` decides whether that root also carries
+/// DI registration calls (composition at `Api`) or only usings (facade).
+fn csharp_facade_and_root(registrations: bool) -> common::Fixture {
+    let csproj = |references: &[&str]| {
+        let mut text = String::from(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n",
+        );
+        if !references.is_empty() {
+            text.push_str("  <ItemGroup>\n");
+            for reference in references {
+                text.push_str(&format!(
+                    "    <ProjectReference Include=\"..\\{reference}\\{reference}.csproj\" />\n"
+                ));
+            }
+            text.push_str("  </ItemGroup>\n");
+        }
+        text.push_str("</Project>\n");
+        text
+    };
+    let fixture = common::Fixture::new();
+    fixture.write("App/App.csproj", &csproj(&[]));
+    fixture.write("App/Root.cs", "namespace App\n{\n    using App.Engine;\n}\n");
+    fixture.write(
+        "App/Engine.cs",
+        "namespace App.Engine;\npublic class Engine { }\n",
+    );
+    fixture.write("Api/Api.csproj", &csproj(&["App"]));
+    fixture.write(
+        "Api/Program.cs",
+        &format!(
+            "using App;\nvar builder = WebApplication.CreateBuilder(args);\n{}\nvar app = builder.Build();\napp.Run();\n",
+            if registrations {
+                "builder.Services.AddScoped<IOrderService, OrderService>();"
+            } else {
+                "// no registrations"
+            }
+        ),
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"umbrella\"\nmatches = { modules = [\"App\"] }\n\n[module.allowed]\ndepend_on = [\"engine\"]\n\n[[module]]\nname = \"engine\"\nmatches = { modules = [\"App::Engine\"] }\n\n[[module]]\nname = \"api\"\nmatches = { units = [\"Api\"] }\n\n[module.allowed]\ndepend_on = [\"umbrella\"]\n",
+    );
+    fixture
+}
+
+/// Scenario 98h (US 05b de-vacuation of 98f): the facade rule's
+/// Role::Composition exemption branch executes in a REAL fixture. The rust
+/// module tier never crosses units (a bin consumes its lib through the
+/// unit-tier edge — proven by 98f's model), so an edge INTO a facade root
+/// recorded under a composition-role module exists on c# drivers: the
+/// composition root wires the umbrella by root namespace and the verdict is
+/// asserted by exit code — no substring tolerance.
+#[test]
+fn verify_scenario_98h_csharp_composition_root_wiring_the_facade_root_is_exempt() {
+    let fixture = csharp_facade_and_root(true);
+    let model: serde_json::Value =
+        serde_json::from_str(&stdout(&fixture.run(&["scan"]))).expect("scan json");
+    assert_eq!(
+        role_pairs(&model),
+        vec![
+            ("Api".to_string(), "composition".to_string()),
+            ("App".to_string(), "facade".to_string()),
+        ],
+        "one roles map states both the composition root and the facade root: {:?}",
+        model["roles"]
+    );
+    let output = fixture.run(&["verify", "--strict"]);
+    assert_pass(&output);
+}
+
+/// Scenario 98i (companion of 98h): the same shape WITHOUT the composition
+/// role — no registration calls, the entry root states facade — makes the edge
+/// INTO the facade root pure consumption, and the facade finding FIRES.
+#[test]
+fn verify_scenario_98i_root_wiring_into_facade_without_composition_role_is_reported() {
+    let fixture = csharp_facade_and_root(false);
+    let output = fixture.run(&["verify", "--strict"]);
+    assert_fail(&output, &["facade dependency: Api -> App"]);
+}
+
+/// The multi-segment bridge (solution `Company` + `Company.App`): the
+/// composition root is the multi-segment unit root `Company::App`, which no
+/// `matches.modules` pattern and no unit rollup reaches — rollup splits at the
+/// FIRST `::` and attributes every `Company.*` path to the neighbour boundary
+/// claiming the `Company` unit. The composition boundary claims its unit
+/// through `units` alone.
+fn csharp_multi_segment_bridge(backdoor: bool) -> common::Fixture {
+    let csproj = |references: &[&str]| {
+        let mut text = String::from(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n",
+        );
+        if !references.is_empty() {
+            text.push_str("  <ItemGroup>\n");
+            for reference in references {
+                text.push_str(&format!(
+                    "    <ProjectReference Include=\"..\\{reference}\\{reference}.csproj\" />\n"
+                ));
+            }
+            text.push_str("  </ItemGroup>\n");
+        }
+        text.push_str("</Project>\n");
+        text
+    };
+    let fixture = common::Fixture::new();
+    fixture.write("Company/Company.csproj", &csproj(&[]));
+    fixture.write(
+        "Company/OrderService.cs",
+        "namespace Company.Services;\nusing Company.Data;\npublic class OrderService { private readonly IOrderRepository _repo; public OrderService(IOrderRepository repo) { _repo = repo; } }\n",
+    );
+    fixture.write(
+        "Company/OrderRepository.cs",
+        "namespace Company.Data;\npublic interface IOrderRepository { }\npublic class OrderRepository : IOrderRepository { }\n",
+    );
+    if backdoor {
+        fixture.write(
+            "Company/Ghost.cs",
+            "namespace Company.Ghost;\nusing Company.Services;\npublic class Ghost { }\n",
+        );
+    }
+    fixture.write("Company.App/Company.App.csproj", &csproj(&["Company"]));
+    fixture.write(
+        "Company.App/Program.cs",
+        "using Company.Services;\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddScoped<IOrderService, OrderService>();\nvar app = builder.Build();\napp.Run();\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"comp\"\nmatches = { units = [\"Company.App\"] }\n\n[module.allowed]\ndepend_on = [\"lib\"]\n\n[[module]]\nname = \"lib\"\nmatches = { units = [\"Company\"] }\n\n[module.allowed]\nforbidden = [\"data\"]\n\n[[module]]\nname = \"services\"\nmatches = { modules = [\"Company::Services\"] }\n\n[module.allowed]\ndepend_on = [\"data\"]\n\n[[module]]\nname = \"data\"\nmatches = { modules = [\"Company::Data\"] }\n",
+    );
+    fixture
+}
+
+/// Scenario 98j (US 05b): a ban on the boundary whose territory is only
+/// attributed by UNIT membership (`Company`, next to the composition unit)
+/// verifies clean when nothing routes through it — the composition root's
+/// wiring hop is sanctioned by its path and no hop is attributed to the ban.
+/// A backdoor planted in that same territory (`Company::Ghost` using the
+/// composition-wired `Company::Services`) launders the ban through the
+/// sanctioned hop and fails `--strict`: the hop-level exemption sanctions the
+/// composition hop itself, never the whole attributed neighbourhood. On the
+/// old ladder the composition-adjacent boundary was whitelisted wholesale and
+/// the backdoor vanished (exit 0 — red pre-fix).
+#[test]
+fn verify_scenario_98j_multisegment_composition_hop_sanctioned_sibling_not_whitelisted() {
+    let wiring = csharp_multi_segment_bridge(false);
+    let model: serde_json::Value =
+        serde_json::from_str(&stdout(&wiring.run(&["scan"]))).expect("scan json");
+    assert_eq!(
+        role_pairs(&model),
+        vec![("Company::App".to_string(), "composition".to_string())],
+        "the multi-segment unit root carries the composition role at its PATH: {:?}",
+        model["roles"]
+    );
+    let output = wiring.run(&["verify", "--strict"]);
+    assert_pass(&output);
+    let backdoor = csharp_multi_segment_bridge(true);
+    let output = backdoor.run(&["verify", "--strict"]);
+    assert_fail(&output, &["laundered forbidden edge"]);
+}
+
+/// Scenario 100 (US 05b): multi-root roles-map sanity — one workspace, two
+/// publication-only lib roots (`app` and `core`, each a facade) and a bin
+/// (`cli`) whose main root wires modules (one composition at `cli::main`).
+/// The hop-level exemption reads the roles map as a SET OF PATHS: several
+/// facades plus a composition must not confuse the map consumers, and honest
+/// wiring across two umbrellas verifies clean.
+#[test]
+fn verify_scenario_100_roles_map_with_two_facades_and_a_composition_root_verifies_clean() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"app\", \"core\", \"cli\"]\nresolver = \"2\"\n",
+    );
+    fixture.write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "app/src/lib.rs",
+        "mod engine;\npub use engine::Thing;\n",
+    );
+    fixture.write("app/src/engine.rs", "pub struct Thing;\n");
+    fixture.write(
+        "core/Cargo.toml",
+        "[package]\nname = \"core\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("core/src/lib.rs", "mod db;\npub use db::Pool;\n");
+    fixture.write("core/src/db.rs", "pub struct Pool;\n");
+    fixture.write(
+        "cli/Cargo.toml",
+        "[package]\nname = \"cli\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\napp = { path = \"../app\" }\ncore = { path = \"../core\" }\n",
+    );
+    fixture.write("cli/src/main.rs", "mod glue;\nfn main() { glue::run(); }\n");
+    fixture.write(
+        "cli/src/glue.rs",
+        "pub fn run() {\n    let _ = app::Thing;\n    let _ = core::Pool;\n}\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"app_umbrella\"\nmatches = { units = [\"app\"] }\n\n[module.allowed]\ndepend_on = [\"engine\"]\n\n[[module]]\nname = \"engine\"\nmatches = { modules = [\"app::engine\"] }\n\n[[module]]\nname = \"core_umbrella\"\nmatches = { units = [\"core\"] }\n\n[module.allowed]\ndepend_on = [\"db\"]\n\n[[module]]\nname = \"db\"\nmatches = { modules = [\"core::db\"] }\n\n[[module]]\nname = \"cli\"\nmatches = { units = [\"cli\"] }\n\n[module.allowed]\ndepend_on = [\"app_umbrella\", \"core_umbrella\"]\n",
+    );
+    let model: serde_json::Value =
+        serde_json::from_str(&stdout(&fixture.run(&["scan"]))).expect("scan json");
+    assert_eq!(
+        role_pairs(&model),
+        vec![
+            ("app".to_string(), "facade".to_string()),
+            ("cli::main".to_string(), "composition".to_string()),
+            ("core".to_string(), "facade".to_string()),
+        ],
+        "two facade roots and the composition root coexist in one roles map: {:?}",
+        model["roles"]
+    );
+    let output = fixture.run(&["verify", "--strict"]);
+    assert_pass(&output);
+}
+
+/// ADR-018 regression net: the unit-ownership lookup is an ALLOWANCE lookup
+/// only. A declared `depend_on` entry is still satisfied by a unit-tier pair
+/// — a namespace-attributed edge whose unit attribution the spec never
+/// connects by a reference (no unit edge) leaves the declared dependency
+/// missing: the missing-edge check resolves pairs as before, so the fix
+/// cannot quietly re-key what counts as a stated dependency.
+#[test]
+fn namespace_attribution_does_not_satisfy_a_declared_depend_on() {
+    let fixture = common::Fixture::new();
+    let csproj = |references: &[&str]| {
+        let mut text = String::from(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n",
+        );
+        if !references.is_empty() {
+            text.push_str("  <ItemGroup>\n");
+            for reference in references {
+                text.push_str(&format!(
+                    "    <ProjectReference Include=\"..\\{reference}\\{reference}.csproj\" />\n"
+                ));
+            }
+            text.push_str("  </ItemGroup>\n");
+        }
+        text.push_str("</Project>\n");
+        text
+    };
+    fixture.write("Shop.Api/Shop.Api.csproj", &csproj(&["Shop.Data"]));
+    fixture.write(
+        "Shop.Api/Program.cs",
+        "using Shop.Data;\nbuilder.Services.AddScoped<IOrderService, OrderService>();\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Build().Run();\n",
+    );
+    fixture.write("Shop.Data/Shop.Data.csproj", &csproj(&[]));
+    fixture.write(
+        "Shop.Data/OrderService.cs",
+        "namespace Shop.Data;\npublic class OrderService { }\npublic class IOrderService { }\n",
+    );
+    fixture.write("Shop.Domain/Shop.Domain.csproj", &csproj(&[]));
+    fixture.write(
+        "Shop.Domain/Contracts.cs",
+        "namespace Shop.Domain;\npublic interface IOrderRepository { }\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"Shop.Api\"\nmatches = { units = [\"Shop.Api\"] }\nallowed = { depend_on = [\"Shop.Data\", \"Shop.Domain\"] }\n\n[[module]]\nname = \"Shop.Data\"\nmatches = { units = [\"Shop.Data\"] }\n\n[[module]]\nname = \"Shop.Domain\"\nmatches = { units = [\"Shop.Domain\"] }\n\n[[module]]\nname = \"Shop::Api\"\nmatches = { modules = [\"Shop::Api\"] }\n",
+    );
+    let output = fixture.run(&["verify"]);
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "a declared dependency with no stated edge must fail verify (stdout: {})",
+        stdout(&output)
+    );
+    assert!(
+        stdout(&output).contains("missing edge: Shop.Api -> Shop.Domain"),
+        "the missing-edge check stays unit-tier: {}",
+        stdout(&output)
     );
 }

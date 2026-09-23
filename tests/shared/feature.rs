@@ -170,8 +170,7 @@ fn probe_verify_boundaries(driver: &Driver) -> bool {
     driver.materialize(&fx, &driver.probe_tree());
     fx.write("architecture.spec.toml", &boundary_spec(driver));
     let output = driver.run(&fx, &["verify"]);
-    output.status.code() == Some(0)
-        && common::stdout(&output).contains("matches source model")
+    output.status.code() == Some(0) && common::stdout(&output).contains("matches source model")
 }
 
 fn probe_verify_no_cycles(driver: &Driver) -> bool {
@@ -266,9 +265,7 @@ fn probe_report(driver: &Driver) -> bool {
     fx.write("architecture.spec.toml", &boundary_spec(driver));
     let output = driver.run(&fx, &["report"]);
     let text = common::stdout(&output);
-    output.status.code() == Some(0)
-        && text.contains("Result:")
-        && text.contains("components:")
+    output.status.code() == Some(0) && text.contains("Result:") && text.contains("components:")
 }
 
 fn probe_inspect_file(driver: &Driver) -> bool {
@@ -276,8 +273,7 @@ fn probe_inspect_file(driver: &Driver) -> bool {
     driver.materialize(&fx, &driver.probe_tree());
     let output = driver.run(&fx, &["inspect"]);
     let text = common::stdout(&output);
-    output.status.code() == Some(0)
-        && (text.contains("graph TD") || text.contains("@startuml"))
+    output.status.code() == Some(0) && (text.contains("graph TD") || text.contains("@startuml"))
 }
 
 /// Structural tree view: unit subgraphs with module nodes and module edges.
@@ -341,21 +337,22 @@ fn probe_init(driver: &Driver) -> bool {
 fn probe_help_diagnostics(driver: &Driver) -> bool {
     let fx = common::Fixture::new();
     let output = driver.run(&fx, &["help", "diagnostics"]);
-    output.status.code() == Some(0)
-        && common::stdout(&output).contains("laundered forbidden edge")
+    output.status.code() == Some(0) && common::stdout(&output).contains("laundered forbidden edge")
 }
 
-/// The root facade needs the publication-surface fact `root-facade`. The
+/// The facade rule needs the role fact `role-facade`. The
 /// capability table is the single source of truth — verify's inert-rule note
-/// reads that same row — so a driver whose row is `not-emitted` (csharp, go)
-/// can never fire the rule: the probe declares the fact unavailable, exactly
+/// reads that same row — so a driver whose row is `not-emitted` (go) can
+/// never fire the rule on its own trees: the probe declares the fact
+/// unavailable, exactly
 /// how every other not-emitted fact renders skipped, rather than grepping a
-/// stdout string. Only a driver emitting the fact at full granularity (rust)
+/// stdout string. Only a driver emitting the role fact at full granularity
+/// (rust, csharp)
 /// runs the end-to-end fixture proving the violation actually fires. Grepping
 /// the bare rule name would be vacuous: the inert note "facade dependency rule
 /// inert for <lang>" mentions the rule name without the rule ever firing.
 fn probe_verify_root_facade(driver: &Driver) -> bool {
-    if !crate::shared::capability::table().granular(driver.language.as_str(), "root-facade") {
+    if !crate::shared::capability::table().granular(driver.language.as_str(), "role-facade") {
         return false;
     }
     let fx = common::Fixture::new();
@@ -507,6 +504,5 @@ fn probe_artefact_freshness(driver: &Driver) -> bool {
     }
     fx.write("model.json", "STALE ON PURPOSE\n");
     let stale = driver.run(&fx, &["scan", "--check", "--output", "model.json"]);
-    stale.status.code() != Some(0)
-        && common::stderr(&stale).contains("out of date model")
+    stale.status.code() != Some(0) && common::stderr(&stale).contains("out of date model")
 }

@@ -24,7 +24,7 @@ archspec inspect [tree|scanner] [path] [--format <mermaid|plantuml>] [--output <
 | `inspect tree [path]` | the extracted **model** rendered by unit and module boundary (module-level edges only) |
 | `inspect scanner [path]` | the extracted model **plus** cross-unit hard edges (units + modules + edges) |
 
-The mode keyword, when present, is the first positional argument; `path` then follows it. The model modes detect the language, run the same `scan` extraction, and render the model via `structural::render_model` — so they work for any language with a driver, not only Rust. `--format` is validated in every mode but **only the default mode honours it**: `tree` and `scanner` always emit a Mermaid model diagram, ignoring `--format plantuml`. `--output` and `--check` behave identically in all modes.
+The mode keyword, when present, is the first positional argument; `path` then follows it. The model modes detect the language, run the same `scan` extraction, and render the model via `structural::render_model` / `structural::render_model_plantuml` — so they work for any language with a driver, not only Rust. `--format` is honoured in every mode: the default mode renders the file-level map and `tree` and `scanner` render the model diagram in the requested format (Mermaid by default, PlantUML via `--format plantuml`). `--output` and `--check` behave identically in all modes.
 
 ## Accepted flag values
 

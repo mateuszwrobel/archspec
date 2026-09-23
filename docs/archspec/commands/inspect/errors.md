@@ -11,7 +11,7 @@ A parse failure **aborts the run** — the diagram is not produced for a partial
 | path does not exist | the invalid path | non-zero |
 | path is a regular file | the path, the inspect modes that exist (file-level import maps for rust/csharp/go and structural `tree`/`scanner` model views) and the directory form to pass instead | non-zero |
 | no supported-language sources found (recursively) | that no supported-language sources were found, and where | non-zero |
-| `inspect tree` on a model without a module tier (single-`go.mod` Go trees) | that the tree view needs the module tier, that this model has none, and how a Go tree acquires one (go.work members) — a model-fact refusal, not a language verdict; `scanner` renders such a model | non-zero |
+| `inspect tree` on a model without a module tier (a Go tree whose packages record no reference to each other; the tier is derived from those references, so a single-module go tree with references renders) | that the tree view needs the module tier and this model has none, plus the tier rule — the module tier is derived from the tree's package references — a model-fact refusal, not a language verdict; `scanner` renders such a model | non-zero |
 | detected language whose `scan` driver is unavailable (`tree`/`scanner` modes, or an env-disabled driver) | the detected language and a pointer to run `archspec doctor` | non-zero |
 | a source file fails to parse | the name of the failing file | non-zero |
 | unsupported `--format` value | the value and the supported formats | non-zero |
@@ -39,9 +39,9 @@ error: no supported-language sources found under: ./docs
 $ archspec inspect ./only-target-left
 error: no Rust sources found under: ./only-target-left
 
-# the tree view projects the module tier; a single-module Go model has none
+# the tree view projects the module tier; a Go tree recording no package references derives none
 $ archspec inspect tree ./go-service
-error: inspect tree needs the module tier, which this model has none of; a Go tree acquires one through go.work members (2+), 'inspect scanner' renders the unit-tier model
+error: inspect tree needs the module tier, which this model has none of; the module tier is derived from the tree's package references, which this tree records none of, 'inspect scanner' renders the unit-tier model
 
 # driver for the detected language is unavailable (tree/scanner modes)
 $ archspec inspect tree ./service

@@ -45,6 +45,14 @@
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+- **model_states_roles_map_per_language** — the roles map states the entries each driver derives from its own facts on the canonical tree: rust names its mod-declaration-only roots `facade`, c# names its DI-wired entrypoint root and go its `package main` unit `composition`, and every stated value comes from the closed vocabulary
+  - rust: pass
+  - csharp: pass
+  - go: pass
+- **roles_map_never_states_facade_where_fact_not_emitted** — on a driver whose table marks role-facade not-emitted the roles map states no facade value anywhere while its own derived entries stay stated — honest absence per path, never a guessed stand-in
+  - rust: skipped (role-facade: granular)
+  - csharp: skipped (role-facade: granular)
+  - go: pass
 
 ## scan.soft_structure
 **Capability:** rust=implemented, csharp=implemented, go=not-implemented
@@ -65,22 +73,22 @@
   - go: skipped (scan.soft_structure not implemented)
 
 ## scan.module_edges
-**Capability:** rust=implemented, csharp=implemented, go=not-implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented
 
 **Behaviors:**
 
 - **records_module_edge_from_internal_using** — a using/import from one declared module to another records a module edge
   - rust: pass
   - csharp: pass
-  - go: skipped (scan.module_edges not implemented)
+  - go: pass
 - **does_not_create_module_edge_to_external_target** — a using/import of an external package produces no module edge
   - rust: pass
   - csharp: pass
-  - go: skipped (scan.module_edges not implemented)
+  - go: pass
 - **no_module_edges_for_units_without_soft_reference** — a unit whose modules reference nothing emits no module edges
   - rust: pass
   - csharp: pass
-  - go: skipped (scan.module_edges not implemented)
+  - go: pass
 
 ## scan.external
 **Capability:** rust=implemented, csharp=implemented, go=implemented
@@ -120,7 +128,7 @@
 - **keeps_external_usage_off_sibling_modules** — only the module that uses an external package records it, never its siblings
   - rust: pass
   - csharp: pass
-  - go: skipped (module-tier: go.work tier only (2+ members); declared grouping otherwise)
+  - go: pass
 - **misaligned_package_identity_replaces_namespace** — a using whose namespace misaligns with its referenced package id attributes the package (longest shared prefix), never the namespace; siblings sharing only a shorter prefix stay unattributed and namespaces stay in the soft tier
   - rust: skipped (project shape not applicable)
   - csharp: pass
@@ -172,7 +180,7 @@
 - **module_boundary_with_allowed_dependency_verifies_clean** — a module-boundary spec whose depend_on allows the module edge verifies clean
   - rust: pass
   - csharp: pass
-  - go: skipped (module-tier: go.work tier only (2+ members); declared grouping otherwise)
+  - go: pass
 - **undeclared_component_is_reported_missing** — a spec component matching no unit is reported as a missing component
   - rust: pass
   - csharp: pass
@@ -181,15 +189,15 @@
   - rust: pass
   - csharp: pass
   - go: pass
-- **facade_rule_note_announces_facade_tierless_driver** — on a driver whose table marks root-facade not-emitted verify states the facade rule inert instead of staying silent, with the verdict and exit status unchanged
-  - rust: skipped (root-facade: granular)
-  - csharp: pass
+- **facade_rule_note_announces_facade_tierless_driver** — on a driver whose table marks role-facade not-emitted verify states the facade rule inert instead of staying silent, with the verdict and exit status unchanged
+  - rust: skipped (role-facade: granular)
+  - csharp: skipped (role-facade: granular)
   - go: pass
 - **undeclared_dependency_exceeds_allowed_ceiling** — an extracted edge no boundary declares fails with the cross-component ceiling label, and an explicit ban reroutes it to the forbidden-edge label
   - rust: pass
   - csharp: pass
   - go: pass
-- **dead_reference_to_source_module_classifies_per_language** — an undeclared depend_on target is classified per capability table: granular soft-tier drivers see a source module, a driver without the tier says not verifiable instead of claiming non-existence
+- **dead_reference_to_source_module_classifies_per_language** — an undeclared depend_on target is classified by model visibility: a target addressable as a module path reports exists in source but undeclared, one addressing nothing on an exact-import-path driver reports does not exist
   - rust: pass
   - csharp: pass
   - go: pass
@@ -204,11 +212,11 @@
 - **two_boundaries_claim_module_at_equal_specificity** — two boundaries claiming one module at equal specificity fail with the ambiguous-match report
   - rust: pass
   - csharp: pass
-  - go: skipped (module-tier: go.work tier only (2+ members); declared grouping otherwise)
-- **unclaimed_module_edge_endpoint_is_reported_unowned** — a module edge endpoint no boundary claims is a warning-level unowned endpoint, promoted by --strict
+  - go: pass
+- **unclaimed_module_edge_endpoint_is_reported_unowned** — a module edge endpoint no boundary claims is a warning-level unowned endpoint, promoted by --strict; on go the endpoint's package is also an unclaimed unit, so the warning travels with unit-level findings
   - rust: pass
   - csharp: pass
-  - go: skipped (module-tier: go.work tier only (2+ members); declared grouping otherwise)
+  - go: pass
 - **top_level_contract_forbid_stereotype_surfaced_by_unit** — a boundary contract forbidding a stereotype whose pattern matches the claimed unit name leaks
   - rust: pass
   - csharp: pass
@@ -276,7 +284,7 @@
 - **module_outside_forbid_list_passes** — a module not listed in the forbid constraint passes even when a sibling violates
   - rust: pass
   - csharp: pass
-  - go: skipped (module-tier: go.work tier only (2+ members); declared grouping otherwise)
+  - go: pass
 - **forbid_by_package_name_fires_on_misaligned_namespace** — a forbid rule naming the exact package id fires on a module whose only using maps to that package by longest shared prefix
   - rust: skipped (project shape not applicable)
   - csharp: pass
@@ -293,6 +301,10 @@
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+- **external_free_engages_the_serialized_module_tier** — an external_free pattern naming a module engages the module subtree on every module-tier driver: a pure match passes non-vacuously, contamination fails naming module and packages
+  - rust: pass
+  - csharp: pass
+  - go: pass
 
 ## verify.manifest_integrity
 **Capability:** rust=implemented, csharp=implemented, go=not-implemented
@@ -325,6 +337,14 @@
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+- **seed_test_tier_follows_cfg_gating_not_module_name** — the rust dialect of the seed test-tier provenance: a #[cfg(test)] module (a cfg on a root declaration, the `root-module-declarations` row this leg is keyed on) seeds no boundary while a module merely named tests seeds one with its production edge
+  - rust: pass
+  - csharp: skipped (root-module-declarations: not-emitted)
+  - go: skipped (root-module-declarations: not-emitted)
+- **seed_omits_go_test_file_imports_and_marks_no_module** — the go dialect of the same provenance: imports carried only by *_test.go files seed no dependency and no module carries a test mark — keyed inert on `test-tier` because the table states go applies the exclusion at the file tier with no serialized mark
+  - rust: skipped (test-tier: granular)
+  - csharp: skipped (test-tier: granular)
+  - go: pass
 
 ## report.metrics
 **Capability:** rust=implemented, csharp=implemented, go=implemented
@@ -344,6 +364,10 @@
   - csharp: pass
   - go: pass
 - **report_json_clean_project_has_empty_findings** — a clean project reports empty findings and exit 0 in the json format
+  - rust: pass
+  - csharp: pass
+  - go: pass
+- **report_restates_model_roles_verbatim** — the report restates the model's roles map exactly — the json roles field equals the scan map key for key, and the text report names each populated closed-vocabulary group with its model paths
   - rust: pass
   - csharp: pass
   - go: pass
@@ -375,6 +399,10 @@
   - rust: pass
   - csharp: pass
   - go: pass
+- **inspect_tree_marks_role_carrying_nodes** — every node whose model path carries a role entry renders its visible label suffixed with that role's marker, so why a node looks important reads off the diagram alone
+  - rust: pass
+  - csharp: pass
+  - go: pass
 
 ## inspect.structural_scanner
 **Capability:** rust=implemented, csharp=implemented, go=implemented
@@ -387,22 +415,26 @@
   - go: pass
 
 ## depgraph
-**Capability:** rust=implemented, csharp=implemented, go=not-implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented
 
 **Behaviors:**
 
 - **modules_projects_top_level_graph** — depgraph modules collapses nested module paths to top-level nodes and may draw several (cross product of folded top-nodes)
   - rust: pass
   - csharp: pass
-  - go: skipped (depgraph not implemented)
+  - go: pass
 - **api_usage_view_emits_table_contract** — depgraph api-usage emits the fixed-column table or the explicit no-usage statement
   - rust: pass
   - csharp: pass
-  - go: skipped (depgraph not implemented)
+  - go: pass
 - **submodules_view_scopes_to_parent** — depgraph submodules expands one parent into its children (plus mod) and the edges between them
   - rust: pass
   - csharp: skipped (project shape not applicable)
-  - go: skipped (depgraph not implemented)
+  - go: skipped (project shape not applicable)
+- **modules_mark_folded_role_carriers** — depgraph modules marks a rendered node exactly when the roles keys folded through the view's own projection state one distinct role there, so no marker appears without an entry and no entry the view can honestly name is dropped
+  - rust: pass
+  - csharp: pass
+  - go: pass
 
 ## diagram
 **Capability:** rust=implemented, csharp=implemented, go=implemented
@@ -414,6 +446,10 @@
   - csharp: pass
   - go: pass
 - **marks_forbidden_edge_dashed** — diagram renders a forbidden edge dashed and keeps allowed edges solid
+  - rust: pass
+  - csharp: pass
+  - go: pass
+- **scan_mode_marks_role_carriers** — diagram --source scan marks exactly the nodes the model's roles map addresses under the `.`/`::` separator equivalence, and nothing else, so a node looks special in the diagram exactly when the model says it is
   - rust: pass
   - csharp: pass
   - go: pass
@@ -443,17 +479,21 @@
   - go: pass
 
 ## verify.root_facade
-**Capability:** rust=implemented, csharp=not-implemented, go=not-implemented
+**Capability:** rust=implemented, csharp=implemented, go=not-implemented
 
 **Behaviors:**
 
 - **import_of_facade_root_reexport_is_violation** — an internal module importing an item through a publication-only root is a facade dependency
   - rust: pass
-  - csharp: skipped (verify.root_facade not implemented)
+  - csharp: pass
   - go: skipped (verify.root_facade not implemented)
 - **canonical_import_stays_clean_under_active_facade** — canonical imports never touch the facade root, so verify passes with the rule active
   - rust: pass
-  - csharp: skipped (verify.root_facade not implemented)
+  - csharp: pass
+  - go: skipped (verify.root_facade not implemented)
+- **umbrella_root_consumed_by_referencing_unit_is_violation** — a project referencing the umbrella consumes it through the root namespace (`using <Root>;`): the facade rule engages on the roles map and reports the cross-unit edge
+  - rust: skipped (project shape not applicable)
+  - csharp: pass
   - go: skipped (verify.root_facade not implemented)
 
 ## verify.forbidden_laundering
@@ -465,7 +505,7 @@
   - rust: pass
   - csharp: pass
   - go: pass
-- **worktree_free_go_tree_announces_laundering_capability** — a single-module go tree (no go.work) announces consistently: a fired rule reports the laundered finding without any tier note, a clean run states no native module tier this run
+- **worktree_free_go_tree_enforces_laundering_without_tier_note** — a single-module go tree (no go.work) engages the laundering check directly: a fired rule reports the laundered finding, a clean run reports nothing, and neither run carries any tier note
   - rust: skipped (project shape not applicable)
   - csharp: skipped (project shape not applicable)
   - go: pass
@@ -473,28 +513,32 @@
   - rust: pass
   - csharp: pass
   - go: pass
+- **composition_root_wiring_sanctions_the_banned_bridge** — a ban whose route rides a hop owned by a composition-role-carrying boundary is sanctioned wiring — clean under `verify --strict`; the same edges without the composition role keep warning
+  - rust: skipped (project shape not applicable)
+  - csharp: pass
+  - go: pass
 
 ## verify.submodule_contracts
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=not-implemented
 
 **Behaviors:**
 
 - **submodule_contract_leak_reported_under_submodule_path** — a contract.forbid stereotype surfacing under a submodule boundary leaks under the submodule's path
   - rust: pass
   - csharp: pass
-  - go: pass
+  - go: skipped (verify.submodule_contracts not implemented)
 - **go_submodule_contract_stereotype_needs_full_path_glob** — a submodule contract over go packages fires for a stereotype globbing the full import path under a parent that claims its units, and reads inert for a bare-name stereotype that matches no go unit
   - rust: skipped (project shape not applicable)
   - csharp: skipped (project shape not applicable)
-  - go: pass
+  - go: skipped (verify.submodule_contracts not implemented)
 - **forbidden_submodule_dependency_across_sibling_children** — an edge between sibling submodules banned by the parent constraint is reported with the submodule-dependency label
   - rust: pass
   - csharp: pass
-  - go: skipped (module-tier: go.work tier only (2+ members); declared grouping otherwise)
+  - go: skipped (verify.submodule_contracts not implemented)
 - **forbidden_submodule_dependency_full_path_engages** — the same sibling-submodule ban expressed with full module-path from/forbid engages identically on every module-tier driver and is never reported vacuous
   - rust: pass
   - csharp: pass
-  - go: skipped (module-tier: go.work tier only (2+ members); declared grouping otherwise)
+  - go: skipped (verify.submodule_contracts not implemented)
 
 ## cli.artefact_freshness
 **Capability:** rust=implemented, csharp=implemented, go=implemented

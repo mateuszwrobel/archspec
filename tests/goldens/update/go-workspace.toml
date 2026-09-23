@@ -1,0 +1,15 @@
+[project]
+language = "go"
+
+[[module]]
+name = "example.com/api"
+matches = { units = ["example.com/api", "example.com/api/internal/handler"] }
+allowed = { depend_on = ["example.com/store"] }
+
+[[module]]
+name = "example.com/store"
+matches = { units = ["example.com/store"] }
+
+[[constraint]]
+type = "no_cycles"
+

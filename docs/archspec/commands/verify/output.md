@@ -11,7 +11,7 @@
 
 `verify` resolves the spec's declared boundaries (see `../../spec.md`) against whatever the tree has. A boundary matched by `matches.units` resolves against crates/packages; one matched by `matches.modules` resolves against module paths inside units; a boundary may span both. Edges are judged on the union of the two tiers, so the same spec is verified identically whether the tree is a single crate, a multi-crate workspace, or a hybrid — no shape selection. Report lines name resolved boundaries, and module-level items appear as dotted paths (e.g. `orchestration::common`).
 
-Go trees carry a module tier in two derivations, and every module-granularity check runs on whichever exists. A `go.work` with two or more member modules is the native fact: the scan model carries the tier (member modules as groups, their packages as members) and `verify` enforces over it. A single-`go.mod` tree carries no tier of its own; when the spec declares modules that claim its packages, `verify` derives the tier for the comparison — membership from the declarations, edges from real cross-package imports, presented in the same import-path shape (`example.com/demo/auth`) the native tier normalizes to. Module-granularity rules therefore enforce over claimed packages only: a production package claimed by no module is loud through the component categories (`unexpected component` / `unassigned unit`) rather than silently skipped, and mapping it into a module clears it. The derivation is visible by construction: `scan` output stays tier-free for a single-`go.mod` tree (the derivation needs the spec), a native tier is never overridden, and the emitted-by notes below state which language/derivation each module-tier check can fire on.
+Go trees carry a module tier whenever the tree offers package references, and every module-granularity check runs on whichever tier exists. A `go.work` with two or more member modules is the native fact: the scan model carries the tier (member modules as groups, their packages as members). A single-`go.mod` tree whose packages import one another carries the tier the driver derives from those package references — the fact `archspec capability matrix` reports as `go module-tier granular` — and the scan model itself carries it: `scan` output shows the edges, `depgraph` renders them. On a tree recording no cross-package references (a single package being the limit), when the spec declares modules that claim its packages, `verify` derives the grouping for the comparison — membership from the declarations, edges from real cross-package imports, presented in the same import-path shape (`example.com/demo/auth`) the native tier normalizes to. Module-granularity rules therefore enforce over claimed packages only: a production package claimed by no module is loud through the component categories (`unexpected component` / `unassigned unit`) rather than silently skipped, and mapping it into a module clears it. A native tier is never overridden, and the emitted-by notes below state which language each module-tier check can fire on.
 
 ## Pass output
 
@@ -27,16 +27,14 @@ The exact wording is not a contract; that a short confirmation appears on stdout
 
 After the confirmation or the report, `verify` may print short informational
 lines stating which capability-table-listed rules can never fire for the
-language (or, for a conditional fact such as the go module tier, ran this run
-with no native scan fact to ride on). A rule whose own finding appears in the
+language. A rule whose own finding appears in the
 run is demonstrably not inert — its note is suppressed and the finding is the
 announcement. Notes are **output, not findings**: they never enter the
 diff, never change the verdict or the exit status, and rust runs stay
-byte-identical (rust emits every rule fact). Representative examples:
+byte-identical (rust emits every rule fact). Representative example:
 
 ```
-note: facade dependency rule inert for csharp: driver emits no root-facade fact
-note: laundered forbidden edge rule: no native module tier this run (grouping derived from spec declarations)
+note: facade dependency rule inert for go: no derivable role-facade idiom — alias umbrella, public-package and root delegation forms investigated, recorded in ADR-017
 ```
 
 The single source is the in-code capability table (`archspec::capability`);
@@ -55,8 +53,8 @@ On failure, the report lists **every** difference across all checks — not the 
 | forbidden edge | dependency present in the source but banned by the spec | `forbidden edge: Billing -> Portal` |
 | missing edge | dependency declared by the spec, absent from the source | `missing edge: Billing -> Shared` |
 | disallowed cross-component dep | dependency crossing a boundary the spec forbids | `disallowed cross-component dependency: Portal -> Billing.Data` |
-| facade dependency | structural (no constraint declares it): an internal module depends on its own crate root whose file defines nothing — a publication-only facade of `mod` declarations and re-exports; declaring the root in `depend_on` does not legalize it, the fix is canonicalizing the import; emitted by rust only — the csharp/go drivers populate no root-facade fact, so the rule is inert there | `facade dependency: app::engine -> app` |
-| contract leak | exposed surface bleeds outside the declared contract; on a submodule the contract is enforced over the surface crossing the submodule's boundary path (submodule form emitted by rust, csharp, and go — needs the module tier; go acquires one from go.work members or from spec modules claiming its packages); on go the surface is claimed membership over full import paths — the parent module must claim the submodule's packages (a module claiming none is a `missing component`) and a stereotype pattern must glob the whole import path (`example.com/demo/**/entity`), because the bare-segment concession addresses `::` paths only: a bare-name stereotype matches no go unit and the contract leaks nothing, verify green, no warning | `contract leak: Billing exposes entity (forbidden)` |
+| facade dependency | structural (no constraint declares it): an internal module depends on a module carrying the `facade` role in the model's roles map — in rust a crate root whose file defines nothing but `mod` declarations and re-exports, in csharp a using-only umbrella root module; declaring the root in `depend_on` does not legalize it, the fix is canonicalizing the import; emitted by rust and csharp — each driver derives facade roles into the model from its own facts; the go driver derives no facade role, so the rule is inert there | `facade dependency: app::engine -> app` |
+| contract leak | exposed surface bleeds outside the declared contract; on a submodule the contract is enforced over the surface crossing the submodule's boundary path (submodule form emitted by rust, csharp, and go — needs the module tier, which the go driver derives from the tree's package references, takes natively from go.work members, or — on a tree with no references — takes from spec modules claiming its packages); on go the surface is claimed membership over full import paths — the parent module must claim the submodule's packages (a module claiming none is a `missing component`) and a stereotype pattern must glob the whole import path (`example.com/demo/**/entity`), because the bare-segment concession addresses `::` paths only: a bare-name stereotype matches no go unit and the contract leaks nothing, verify green, no warning | `contract leak: Billing exposes entity (forbidden)` |
 | cycle | `no_cycles` constraint violated over the declared groups | `cycle: Billing -> Portal -> Billing` |
 | public api leak | public export not allowlisted by `public_api_allowlist` (named exports and names enumerated from resolvable root globs) | `public api leak: Billing exposes X (not allowlisted)` |
 | unverifiable glob export | root glob re-export the scan cannot resolve from source (external crate, unknown path, cfg-gated declaration or chain link, poisoned chain), so `public_api_allowlist` cannot prove its set against `allowed` | `unverifiable glob export: Billing exposes core::types::*` |
@@ -69,10 +67,29 @@ On failure, the report lists **every** difference across all checks — not the 
 | dead reference | an `allowed.depend_on`/`allowed.forbidden` boundary reference or `contract.forbid` stereotype reference that can never engage (names no declared top-level module / stereotype), classified by source existence where the driver's soft-visibility facts allow and by capability honesty where they do not, with a did-you-mean where feasible | `dead reference: module 'model' allowed.forbidden target "fold" does not exist — create it or fix the reference` |
 | vacuous constraint | a constraint whose effective domain is empty (no module, edge, manifest, or export to check) | `vacuous constraint: [constraint #2] forbid_external_crates: 'from' pattern "app::persistnce" matches no module with external dependencies` |
 | unresolved module file | a file-backed `mod x;` resolves to no parsed file (conventional variants, any `#[path]` target, and any `#[cfg_attr(.., path = "..")]` candidate missed), so its contents would be invisible to every check; emitted by rust only — mod-file resolution is a rust-driver fact | `unresolved module file: app::ghost` |
-| unowned module edge endpoint | a soft module-edge endpoint claimed by no boundary (`matches.modules` and unit fallback both miss), so it cannot appear on the boundary graph; emitted by rust, csharp, and go when a module tier exists (go.work members, or spec modules deriving the tier over packages) — a tier-less tree has no soft edges to own | `unowned module edge endpoint: app::hidden` |
-| laundered forbidden edge | a declared `allowed.forbidden` pair shows no direct boundary edge, yet some route from source to target rides at least one hop owned only via the unit fallback (catch-all `units` boundary, units-as-layer boundary, or modules no boundary claims); a ban bridged only through explicitly claimed boundaries is legal layering and stays silent; the trace sees only routes on the pair graph — an intermediate claimed by no boundary (neither `matches.modules` nor its unit's `matches.units`) contributes no pairs, so a ban routed through unclaimed territory surfaces here not at all but as `unexpected component` / `unowned module edge endpoint`, and laundering analysis engages only once the conduit's territory is claimed; emitted by rust, csharp, and go (hop ownership resolves through the module tier — go carries one natively from go.work members or acquires one when spec modules claim its packages) | `laundered forbidden edge: a -> b via shell` |
+| unowned module edge endpoint | a soft module-edge endpoint claimed by no boundary (`matches.modules` and unit fallback both miss), so it cannot appear on the boundary graph; emitted by rust, csharp, and go when a module tier exists (go.work members, the tree's own package references, or spec modules on a tree that records none) — a tier-less tree has no soft edges to own | `unowned module edge endpoint: app::hidden` |
+| laundered forbidden edge | a declared `allowed.forbidden` pair shows no direct boundary edge, yet some route from source to target rides at least one hop owned only via the unit fallback (catch-all `units` boundary, units-as-layer boundary, or modules no boundary claims); a ban bridged only through explicitly claimed boundaries is legal layering and stays silent, and a hop owned by a boundary carrying a `composition`-role path (the entrypoint wiring ports to bindings) is sanctioned wiring, never fallback territory; the trace sees only routes on the pair graph — an intermediate claimed by no boundary (neither `matches.modules` nor its unit's `matches.units`) contributes no pairs, so a ban routed through unclaimed territory surfaces here not at all but as `unexpected component` / `unowned module edge endpoint`, and laundering analysis engages only once the conduit's territory is claimed; emitted by rust, csharp, and go (hop ownership resolves through the module tier — the go driver derives one from the tree's package references or takes it natively from go.work members) | `laundered forbidden edge: a -> b via shell` |
 
 Every item carries the severity the spec assigns its constraint; a warning-level item is listed but does not fail the run unless `--strict` promotes it. The report always covers all failing checks, in canonical order.
+
+### Roles-rule engagement across drivers
+
+Both roles-consuming rules — the structural `facade dependency` check and the
+`composition`-role exemption inside `laundered forbidden edge` — engage where
+the driver's capability rows say their role facts exist, and nowhere else; the
+table rows are the single statement of that, this paragraph is the reading:
+
+| driver | facade rule (`role-facade`) | composition exemption (`role-composition`) |
+|---|---|---|
+| rust | engages — a root file defining only declarations and re-exports derives the role | engages — a wiring bin `main` root derives the role |
+| csharp | engages — a using-only umbrella root derives the role from the project's own facts | engages — registration wiring derives the role |
+| go | does not engage — the table marks `role-facade` not-emitted, and the run says so: `note: facade dependency rule inert for go: no derivable role-facade idiom — alias umbrella, public-package and root delegation forms investigated, recorded in ADR-017` | engages — a `package main` derives the role |
+
+The values are the `role-facade` and `role-composition` rows of the capability
+table ([../capability/index.md](../capability/index.md)); derivations and the
+two-role vocabulary are decided in ADR-017, not restated here. Whether go's
+facade inertness is the terminal state is a driver-development question this
+contract does not answer — it states the current fact without endorsing it.
 
 ## Vacuous constraints
 
@@ -91,7 +108,7 @@ An `allowed.depend_on`/`allowed.forbidden` target is resolved by exact declared 
 
 - a name that exists in the source model (a unit or module path) but is declared nowhere: `exists in source but undeclared — references resolve to declared top-level module names only`;
 - a name absent everywhere, on a driver whose module-tier fact is granular: `does not exist — create it or fix the reference`, with a `(did you mean "…"?` candidate when a declared name is within a small edit distance;
-- a name whose existence the driver cannot judge — its capability table row for the module tier is not granular for this tree (a go tree whose scan carries no native tier: a `go.work` with two or more members, since a one-member work is the single-module path; grouping derived from spec declarations counts for the boundary checks but proves nothing about unclaimed source): `not verifiable from source — driver emits no module-tier fact for this tree`, never a claim of non-existence.
+- a name whose existence the driver cannot judge — its capability table row for the module tier is not granular for this tree (a go tree whose packages record no cross-package references, so no tier can be derived; grouping derived from spec declarations counts for the boundary checks but proves nothing about unclaimed source): `not verifiable from source — driver emits no module-tier fact for this tree`, never a claim of non-existence.
 
 A reference naming a declared module or stereotype is engaged and never reported here. `constraint.modules` references are exempt: an undeclared name there is a schema error raised at load, not a warning. Like every warning-level finding, `--strict` promotes a dead reference to an error and the run exits `1`.
 

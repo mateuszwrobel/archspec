@@ -1,0 +1,28 @@
+[project]
+language = "rust"
+
+[[module]]
+name = "app"
+matches = { units = ["app"] }
+allowed = { depend_on = ["shared"] }
+
+[[module]]
+name = "shared"
+matches = { units = ["shared"] }
+
+[[module]]
+name = "app::core"
+matches = { modules = ["app::core"] }
+allowed = { depend_on = ["app::ui"] }
+
+[[module]]
+name = "app::ui"
+matches = { modules = ["app::ui"] }
+
+[[module]]
+name = "shared::models"
+matches = { modules = ["shared::models"] }
+
+[[constraint]]
+type = "no_cycles"
+

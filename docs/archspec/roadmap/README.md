@@ -28,6 +28,7 @@ All phase-1 commands now have behavior contracts. `inspect` is the reference exa
 | Configurable output destinations (`archspec.toml`) | inspect, diagram, report, scan | implemented | `../config.md` |
 | Report with embedded diagram + marked violations | `report` | implemented | `../commands/report/` |
 | Model-faithful dependency views (modules, api-usage, submodules) | `depgraph` | implemented | `../commands/depgraph/` |
+| Installable agent audit skill (in-binary deliverable) | `skill` | implemented | `../commands/skill/` |
 
 ## Planning notes
 

@@ -27,39 +27,110 @@ fn category_value(text: &str, name: &str) -> String {
         .to_string()
 }
 
-/// Metric values dictated by the scan model. Metric definition: internal counts
-/// every production unit→unit edge between in-tree units (including cross-crate
-/// Rust edges) plus unit-internal module edges; external counts unit→external
-/// targets only. Module-level external targets are not folded into external.
+/// Metric values dictated by the scan model. Metric definition: internal is
+/// the count of distinct internal dependency pairs at unit tier — production
+/// unit→unit edges plus module edges projected onto their endpoint units,
+/// each pair counted exactly once (self-pairs and test-gated pairs are
+/// dropped); external counts unit→external targets only. Module-level external
+/// targets are not folded into external.
 fn scan_model_edge_metrics(fixture: &common::Fixture) -> (usize, usize) {
     let scan = fixture.run(&["scan"]);
     assert_eq!(scan.status.code(), Some(0), "stderr: {}", stderr(&scan));
     let model: serde_json::Value = serde_json::from_str(&stdout(&scan)).expect("scan JSON");
-    let units: BTreeSet<&str> = model["units"]
+    let external = model["external"]
+        .as_array()
+        .expect("model external array")
+        .len();
+    (model_pair_union(&model), external)
+}
+
+/// The pair union mirroring `count_model_edges` over a serialized scan model:
+/// unit-tier pairs (self-pairs dropped) union module edges projected onto
+/// their endpoint units. Ownership resolves by the longest soft path below a
+/// unit, else by the longest unit name that prefixes the path under any tier
+/// separator (`::`, `.` or `/`); an unowned `from` endpoint falls back to the
+/// edge's using unit, an unowned `to` endpoint keeps the module path as its
+/// identity so the pair still counts exactly once. The serialized model omits
+/// the test-gate proof set, so every module edge counts as production here —
+/// the fixtures driving this oracle carry no `cfg(test)` modules.
+fn model_pair_union(model: &serde_json::Value) -> usize {
+    let units: Vec<&str> = model["units"]
         .as_array()
         .expect("model units array")
         .iter()
         .map(|unit| unit["name"].as_str().expect("unit name"))
         .collect();
-    let mut unit_edges = 0usize;
+    let soft: Vec<(&str, &str)> = model["soft_structure"]
+        .as_object()
+        .expect("model soft_structure map")
+        .iter()
+        .map(|(unit, paths)| {
+            (
+                unit.as_str(),
+                paths
+                    .as_array()
+                    .expect("soft paths array")
+                    .iter()
+                    .map(|path| path.as_str().expect("soft path"))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .flat_map(|(unit, paths)| paths.into_iter().map(move |path| (unit, path)))
+        .collect();
+    let owner_of = |path: &str| -> String {
+        if let Some(unit) = soft
+            .iter()
+            .filter(|(_, owner_path)| path == *owner_path || path.starts_with(&format!("{owner_path}::")))
+            .max_by_key(|(_, owner_path)| owner_path.len())
+            .map(|(unit, _)| (*unit).to_string())
+        {
+            return unit;
+        }
+        let dotted = path.replace("::", ".");
+        let slashed = path.replace("::", "/");
+        let unit_hit = units
+            .iter()
+            .filter(|unit| {
+                path.starts_with(&format!("{unit}::"))
+                    || dotted == **unit
+                    || dotted.starts_with(&format!("{unit}."))
+                    || slashed == **unit
+                    || slashed.starts_with(&format!("{unit}/"))
+            })
+            .max_by_key(|unit| unit.len())
+            .map(|unit| (*unit).to_string());
+        unit_hit.unwrap_or_else(|| path.to_string())
+    };
+    let mut pairs: BTreeSet<(String, String)> = BTreeSet::new();
     for edge in model["edges"].as_array().expect("model edges array") {
         let from = edge["from"].as_str().expect("edge from");
         let to = edge["to"].as_str().expect("edge to");
         assert!(
-            units.contains(from) && units.contains(to),
+            units.contains(&from) && units.contains(&to),
             "hard edge {from} -> {to} is not unit→unit between in-tree units: units {units:?}"
         );
-        unit_edges += 1;
+        if from != to {
+            pairs.insert((from.to_string(), to.to_string()));
+        }
     }
-    let module_edges = model["module_edges"]
-        .as_array()
-        .expect("model module_edges array")
-        .len();
-    let external = model["external"]
-        .as_array()
-        .expect("model external array")
-        .len();
-    (unit_edges + module_edges, external)
+    for edge in model["module_edges"].as_array().expect("model module_edges array") {
+        let from_unit = edge["unit"].as_str().expect("edge unit");
+        let from = edge["from"].as_str().expect("module edge from");
+        let to = edge["to"].as_str().expect("module edge to");
+        let from_owner = {
+            let resolved = owner_of(from);
+            if resolved == from {
+                from_unit.to_string()
+            } else {
+                resolved
+            }
+        };
+        let to_owner = owner_of(to);
+        if from_owner != to_owner {
+            pairs.insert((from_owner, to_owner));
+        }
+    }
+    pairs.len()
 }
 
 /// Two crates where billing depends on auth; the spec declares both components
@@ -227,7 +298,10 @@ fn module_boundaries_fixture() -> common::Fixture {
         "src/lib.rs",
         "mod auth;\nmod billing;\nmod config;\nmod portal;\n",
     );
-    fixture.write("src/billing.rs", "use crate::auth;\nuse crate::config;\npub fn bill() {}\n");
+    fixture.write(
+        "src/billing.rs",
+        "use crate::auth;\nuse crate::config;\npub fn bill() {}\n",
+    );
     fixture.write("src/auth.rs", "use crate::portal;\npub fn auth() {}\n");
     fixture.write("src/config.rs", "pub fn config() {}\n");
     fixture.write("src/portal.rs", "pub fn portal() {}\n");
@@ -258,8 +332,8 @@ fn report_scenario_twenty_two_module_boundaries_count_as_components() {
     assert_eq!(metric_value(&out, "units"), "1");
     assert_eq!(
         metric_value(&out, "edges (internal)"),
-        "3",
-        "all module-tier edges are unit-internal (single crate):\n{out}"
+        "0",
+        "every module edge projects onto a unit self-pair (single crate): a unit-\n             internal module edge adds nothing to the distinct-pair count:\n{out}"
     );
     assert_eq!(
         metric_value(&out, "edges (external)"),
@@ -439,7 +513,7 @@ fn report_scenario_three_forbidden_edge_is_listed_and_counted() {
 }
 
 #[test]
-fn report_scenario_four_output_file_contains_report_and_stdout_empty() {
+fn report_scenario_four_output_file_contains_report_and_echoes_wrote() {
     let fixture = forbidden_edge_fixture();
     let output = fixture.run(&["report", "--output", "report.md"]);
 
@@ -449,9 +523,10 @@ fn report_scenario_four_output_file_contains_report_and_stdout_empty() {
         "violations demand a non-zero exit (stderr: {})",
         stderr(&output)
     );
-    assert!(
-        stdout(&output).is_empty(),
-        "stdout must stay empty with --output"
+    assert_eq!(
+        stdout(&output),
+        "wrote report.md\n",
+        "the violation run still echoes the universal wrote line before the exit (blind4 D01)"
     );
     let file = fixture.read("report.md");
     assert!(file.contains("Architecture report"), "file header:\n{file}");
@@ -917,7 +992,10 @@ fn crate_root_edges_report_fixture() -> common::Fixture {
         "Cargo.toml",
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    fixture.write("src/lib.rs", "pub struct App;\nmod commands;\nmod config;\n");
+    fixture.write(
+        "src/lib.rs",
+        "pub struct App;\nmod commands;\nmod config;\n",
+    );
     fixture.write("src/commands/mod.rs", "pub mod index;\n");
     fixture.write(
         "src/commands/index.rs",
@@ -931,12 +1009,14 @@ fn crate_root_edges_report_fixture() -> common::Fixture {
     fixture
 }
 
-/// report #23: all three module edges must be counted — none silently dropped
-/// (#50). Every module edge lives inside the single `app` crate, so each is
-/// unit-internal: `edges_internal` = 3 and `edges_external` = 0 (no external
-/// crates).
+/// report #23 (rekeyed by the pair-union metric): all three module edges live
+/// inside the single `app` crate, so each projects onto a unit self-pair and
+/// is dropped: `edges_internal` = 0 and `edges_external` = 0 (no external
+/// crates). The edges stay visible in the model and every module view — the
+/// metric counts each internal dependency pair once at unit tier, so unit-
+/// internal module edges add nothing rather than inflating the count.
 #[test]
-fn report_crate_root_edges_all_counted_no_silent_drop() {
+fn report_crate_root_unit_internal_edges_drop_from_pair_count() {
     let fixture = crate_root_edges_report_fixture();
     let output = fixture.run(&["report"]);
 
@@ -947,16 +1027,15 @@ fn report_crate_root_edges_all_counted_no_silent_drop() {
         stderr(&output)
     );
     let out = stdout(&output);
-    let internal: usize = metric_value(&out, "edges (internal)").parse().expect("internal count");
-    let external: usize = metric_value(&out, "edges (external)").parse().expect("external count");
+    let internal: usize = metric_value(&out, "edges (internal)")
+        .parse()
+        .expect("internal count");
+    let external: usize = metric_value(&out, "edges (external)")
+        .parse()
+        .expect("external count");
     assert_eq!(
-        internal + external,
-        3,
-        "all three module edges (two touching the crate root) must be counted:\n{out}"
-    );
-    assert_eq!(
-        internal, 3,
-        "every module edge is internal (all endpoints share the app crate):\n{out}"
+        internal, 0,
+        "every module edge projects onto a self-pair of the app unit — none is a\n             distinct internal dependency pair:\n{out}"
     );
     assert_eq!(external, 0, "no true external crates:\n{out}");
     assert_eq!(metric_value(&out, "components"), "3");
@@ -990,11 +1069,15 @@ fn report_internal_edges_keyed_on_unit_not_boundary() {
         stderr(&output)
     );
     let out = stdout(&output);
-    let internal: usize = metric_value(&out, "edges (internal)").parse().expect("internal count");
-    let external: usize = metric_value(&out, "edges (external)").parse().expect("external count");
-    assert!(
-        internal >= 1,
-        "a -> b is unit-internal and must be counted internal:\n{out}"
+    let internal: usize = metric_value(&out, "edges (internal)")
+        .parse()
+        .expect("internal count");
+    let external: usize = metric_value(&out, "edges (external)")
+        .parse()
+        .expect("external count");
+    assert_eq!(
+        internal, 0,
+        "a -> b is unit-internal: it projects onto a self-pair of the app unit and\n             adds nothing to the distinct-pair count (it must NOT surface as an\n             external or cross-unit pair):\n{out}"
     );
     assert_eq!(
         external, 0,
@@ -1003,10 +1086,11 @@ fn report_internal_edges_keyed_on_unit_not_boundary() {
     assert!(out.contains("Result: clean"), "summary:\n{out}");
 }
 
-/// report #25: a single crate with one internal module edge (`app::b -> app::a`)
-/// AND three true external crates (serde, tokio, clap). `edges_internal` counts
-/// the unit-internal edge; `edges_external` reflects the external crates — the
-/// two are distinguishable and not conflated.
+/// report #25 (pair-union rekey): a single crate with one unit-internal module
+/// edge (`app::b -> app::a`) AND three true external crates (serde, tokio,
+/// clap). The unit-internal edge projects onto a self-pair and adds nothing,
+/// so `edges_internal` = 0 while `edges_external` reflects the external crates
+/// — the two tiers stay distinguishable and are not conflated.
 #[test]
 fn report_internal_and_external_distinguishable() {
     let fixture = common::Fixture::new();
@@ -1032,8 +1116,8 @@ fn report_internal_and_external_distinguishable() {
     let out = stdout(&output);
     assert_eq!(
         metric_value(&out, "edges (internal)"),
-        "1",
-        "the unit-internal module edge must be counted internal:\n{out}"
+        "0",
+        "the unit-internal module edge projects onto a self-pair and adds nothing:\n{out}"
     );
     assert_eq!(
         metric_value(&out, "edges (external)"),
@@ -1248,7 +1332,10 @@ fn report_warning_findings_keep_categories_apart() {
         out.contains("cycle detected in: auth -> billing -> auth"),
         "warning cycle renders under cycles category:\n{out}"
     );
-    assert!(out.contains("dead reference:"), "dead reference category:\n{out}");
+    assert!(
+        out.contains("dead reference:"),
+        "dead reference category:\n{out}"
+    );
     assert!(out.contains("\"ghost\""), "names the dead target:\n{out}");
     assert!(
         !out.contains("cycle detected in: module 'auth'"),
@@ -1303,9 +1390,10 @@ fn report_check_fresh_artefact_for_violating_code_exits_nonzero() {
 
     let check = fixture.run(&["report", "--check", "--output", "report.md"]);
     assert_eq!(check.status.code(), Some(1), "stderr: {}", stderr(&check));
-    assert!(
-        stdout(&check).is_empty(),
-        "--check must not print the report body"
+    assert_eq!(
+        stdout(&check),
+        "ok: report.md up to date\n",
+        "freshness verdict on stdout; the report body stays unprinted"
     );
     assert!(stderr(&check).is_empty(), "stderr: {}", stderr(&check));
 }
@@ -1340,10 +1428,7 @@ fn report_go_edge_metrics_match_scan_model() {
     let scan = fixture.run(&["scan"]);
     assert_eq!(scan.status.code(), Some(0), "stderr: {}", stderr(&scan));
     let model: serde_json::Value = serde_json::from_str(&stdout(&scan)).expect("scan JSON");
-    let unit_edges = model["edges"]
-        .as_array()
-        .expect("model edges array")
-        .len();
+    let unit_edges = model["edges"].as_array().expect("model edges array").len();
     let module_edges = model["module_edges"]
         .as_array()
         .expect("model module_edges array")
@@ -1352,8 +1437,19 @@ fn report_go_edge_metrics_match_scan_model() {
         .as_array()
         .expect("model external array")
         .len();
-    let scan_internal = unit_edges + module_edges;
-    let total_scanned_edges = scan_internal + external;
+    let pair_union = model_pair_union(&model);
+    assert!(
+        unit_edges > 0 && module_edges > 0,
+        "the fixture must carry unit edges AND twin module edges (each package \
+         reference projects to the module tier), got unit_edges={unit_edges} \
+         module_edges={module_edges} — otherwise this test proves nothing"
+    );
+    assert_eq!(
+        pair_union, unit_edges,
+        "every module edge here twins a unit-tier pair, so the pair union is the \
+         unit pair count — strictly below the doubled tier sum {}",
+        unit_edges + module_edges
+    );
 
     let output = fixture.run(&["report"]);
     assert_eq!(
@@ -1365,8 +1461,9 @@ fn report_go_edge_metrics_match_scan_model() {
     let out = stdout(&output);
     assert_eq!(
         metric_value(&out, "edges (internal)"),
-        scan_internal.to_string(),
-        "Go internal edges must match the scan model's unit-edge tier:\n{out}"
+        pair_union.to_string(),
+        "Go internal edges must count each internal dependency pair once at unit \
+         tier — a module-tier twin of a stated unit pair adds nothing:\n{out}"
     );
     assert_eq!(
         metric_value(&out, "edges (external)"),
@@ -1376,13 +1473,141 @@ fn report_go_edge_metrics_match_scan_model() {
     let internal: usize = metric_value(&out, "edges (internal)")
         .parse()
         .expect("internal count");
-    let external_count: usize = metric_value(&out, "edges (external)")
-        .parse()
-        .expect("external count");
+    assert_ne!(
+        internal,
+        unit_edges + module_edges,
+        "the doubled count (unit tier plus its module-tier twins) must no \
+         longer be reported:\n{out}"
+    );
+}
+
+/// A C# solution where the module tier states a dependency the unit tier does
+/// not: `App` reaches `Core.Entities` only through a TRANSITIVE reference (App
+/// → Worker → Core; MSBuild flows references down, no direct ProjectReference).
+/// The unit tier states 2 pairs; the module tier states the same two (twins)
+/// plus the cross-project orphan pair once. The pair-union metric counts each
+/// internal dependency exactly once: unit pairs + 1, never unit+module sums.
+#[test]
+fn report_csharp_module_tier_only_pair_counts_exactly_once() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "App/App.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <ProjectReference Include=\"..\\Worker\\Worker.csproj\" />\n  </ItemGroup>\n</Project>\n",
+    );
+    fixture.write(
+        "App/Controller.cs",
+        "using App.Core;\nusing Core.Entities;\nnamespace App.Controllers;\npublic class Controller { }\n",
+    );
+    fixture.write(
+        "App/Core.cs",
+        "namespace App.Core;\npublic class Helper { }\n",
+    );
+    fixture.write(
+        "Worker/Worker.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <ProjectReference Include=\"..\\Core\\Core.csproj\" />\n  </ItemGroup>\n</Project>\n",
+    );
+    fixture.write(
+        "Worker/Job.cs",
+        "using Core.Entities;\nnamespace Worker.Jobs;\npublic class Job { }\n",
+    );
+    fixture.write(
+        "Core/Core.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+    );
+    fixture.write(
+        "Core/Order.cs",
+        "namespace Core.Entities;\npublic class Order { }\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"App\"\nmatches = { units = [\"App\"] }\n\n[module.allowed]\ndepend_on = [\"Worker\", \"Core\"]\n\n[[module]]\nname = \"Worker\"\nmatches = { units = [\"Worker\"] }\n\n[module.allowed]\ndepend_on = [\"Core\"]\n\n[[module]]\nname = \"Core\"\nmatches = { units = [\"Core\"] }\n",
+    );
+
+    let scan = fixture.run(&["scan"]);
+    assert_eq!(scan.status.code(), Some(0), "stderr: {}", stderr(&scan));
+    let model: serde_json::Value = serde_json::from_str(&stdout(&scan)).expect("scan JSON");
+    let unit_edges = model["edges"].as_array().expect("model edges array").len();
+    let module_edges = model["module_edges"]
+        .as_array()
+        .expect("model module_edges array")
+        .len();
     assert_eq!(
-        internal + external_count,
-        total_scanned_edges,
-        "the two metrics must together cover every scanned edge:\n{out}"
+        (unit_edges, module_edges),
+        (2, 3),
+        "fixture truth: two ProjectReference unit edges; the module tier states \
+         the twin pair, the transitive cross-project orphan pair and one unit-\n         internal namespace use"
+    );
+
+    let output = fixture.run(&["report"]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    let internal: usize = metric_value(&out, "edges (internal)")
+        .parse()
+        .expect("internal count");
+    assert_eq!(
+        internal,
+        unit_edges + 1,
+        "the cross-project usage with no direct reference adds its pair EXACTLY \
+         once — and the module-tier twin of the stated unit pair adds nothing \
+         (the doubled tier sum {} must not be reported):\n{out}",
+        unit_edges + module_edges
+    );
+}
+
+/// A rust workspace where one crate both depends on another (unit-tier edge)
+/// and carries unit-internal module edges. The metric reports the unit-tier
+/// pair count: the intra-crate module edges project onto self-pairs and add
+/// nothing, so the module tier cannot inflate the count.
+#[test]
+fn report_rust_unit_internal_module_edges_add_nothing_to_pair_count() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/app\", \"crates/lib\"]\n",
+    );
+    fixture.write(
+        "crates/app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nlib = { path = \"../lib\" }\n",
+    );
+    fixture.write("crates/app/src/lib.rs", "pub mod x;\npub mod y;\n");
+    fixture.write("crates/app/src/x.rs", "pub fn x() {}\n");
+    fixture.write(
+        "crates/app/src/y.rs",
+        "use crate::x;\npub fn y() { x::x(); }\n",
+    );
+    fixture.write(
+        "crates/lib/Cargo.toml",
+        "[package]\nname = \"lib\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("crates/lib/src/lib.rs", "pub fn lib() {}\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"app\"\nmatches = { units = [\"app\"] }\n\n[module.allowed]\ndepend_on = [\"lib\"]\n\n[[module]]\nname = \"lib\"\nmatches = { units = [\"lib\"] }\n",
+    );
+
+    let scan = fixture.run(&["scan"]);
+    assert_eq!(scan.status.code(), Some(0), "stderr: {}", stderr(&scan));
+    let model: serde_json::Value = serde_json::from_str(&stdout(&scan)).expect("scan JSON");
+    let unit_edges = model["edges"].as_array().expect("model edges array").len();
+    let module_edges = model["module_edges"]
+        .as_array()
+        .expect("model module_edges array")
+        .len();
+    assert!(
+        unit_edges == 1 && module_edges >= 1,
+        "fixture truth: one unit→unit edge plus intra-crate module edges, got \
+         unit_edges={unit_edges} module_edges={module_edges}"
+    );
+
+    let output = fixture.run(&["report"]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    assert_eq!(
+        metric_value(&out, "edges (internal)"),
+        "1",
+        "the report must equal the unit-tier pair count — intra-crate module \
+         edges (the doubled sum would be {}) add nothing:\n{out}",
+        unit_edges + module_edges
     );
 }
 
@@ -1415,8 +1640,14 @@ fn json_findings(value: &serde_json::Value) -> Vec<(String, String)> {
                 "unknown finding severity: {severity}"
             );
             (
-                finding["category"].as_str().expect("finding category").to_string(),
-                finding["message"].as_str().expect("finding message").to_string(),
+                finding["category"]
+                    .as_str()
+                    .expect("finding category")
+                    .to_string(),
+                finding["message"]
+                    .as_str()
+                    .expect("finding message")
+                    .to_string(),
             )
         })
         .collect()
@@ -1426,7 +1657,11 @@ fn json_findings(value: &serde_json::Value) -> Vec<(String, String)> {
 fn report_json_violations_parse_match_text_and_exit_one() {
     let fixture = several_violations_fixture();
     let text = fixture.run(&["report"]);
-    assert_eq!(text.status.code(), Some(1), "text run must exit 1 on violations");
+    assert_eq!(
+        text.status.code(),
+        Some(1),
+        "text run must exit 1 on violations"
+    );
 
     let output = fixture.run(&["report", "--format", "json"]);
     assert_eq!(
@@ -1509,7 +1744,7 @@ fn report_json_warning_findings_carry_warning_severity_and_exit_zero() {
 }
 
 #[test]
-fn report_json_output_file_is_valid_json_and_stdout_empty() {
+fn report_json_output_file_is_valid_json_and_echoes_wrote() {
     let fixture = forbidden_edge_fixture();
     let output = fixture.run(&["report", "--format", "json", "--output", "report.json"]);
     assert_eq!(
@@ -1517,7 +1752,11 @@ fn report_json_output_file_is_valid_json_and_stdout_empty() {
         Some(1),
         "violations still exit 1 with --output"
     );
-    assert!(stdout(&output).is_empty(), "stdout stays empty with --output");
+    assert_eq!(
+        stdout(&output),
+        "wrote report.json\n",
+        "the violations exit code rides unchanged beside the universal wrote echo (blind4 D01, D08)"
+    );
     let file = fixture.read("report.json");
     let value: serde_json::Value = serde_json::from_str(&file).expect("file is valid json");
     let findings = json_findings(&value);
@@ -1553,7 +1792,10 @@ fn report_json_format_with_config_destination_goes_to_stdout_and_spares_the_file
     let seed = fixture.run(&["report"]);
     assert_eq!(seed.status.code(), Some(1), "stderr: {}", stderr(&seed));
     let seeded = fixture.read("docs/archspec/report.md");
-    assert!(seeded.contains("Architecture report"), "seeded text artefact:\n{seeded}");
+    assert!(
+        seeded.contains("Architecture report"),
+        "seeded text artefact:\n{seeded}"
+    );
 
     let output = fixture.run(&["report", "--format", "json"]);
     assert_eq!(
@@ -1589,7 +1831,10 @@ fn report_markdown_format_with_config_destination_goes_to_stdout_and_creates_no_
         stderr(&output)
     );
     let out = stdout(&output);
-    assert!(out.contains("# Architecture report"), "markdown on stdout:\n{out}");
+    assert!(
+        out.contains("# Architecture report"),
+        "markdown on stdout:\n{out}"
+    );
     assert!(
         !fixture.path("docs/archspec/report.md").exists(),
         "a different explicit format must not be written into the configured destination"
@@ -1601,9 +1846,10 @@ fn report_explicit_text_format_with_config_destination_still_writes_the_file() {
     let fixture = config_destination_fixture();
     let output = fixture.run(&["report", "--format", "text"]);
     assert_eq!(output.status.code(), Some(1), "stderr: {}", stderr(&output));
-    assert!(
-        stdout(&output).is_empty(),
-        "same-format run keeps stdout empty"
+    assert_eq!(
+        stdout(&output),
+        "wrote docs/archspec/report.md\n",
+        "same-format run writes the destination and says so (US 04, D01)"
     );
     let file = fixture.read("docs/archspec/report.md");
     assert!(file.contains("Architecture report"), "file:\n{file}");
@@ -1614,9 +1860,10 @@ fn report_no_format_with_config_destination_writes_the_file_as_today() {
     let fixture = config_destination_fixture();
     let output = fixture.run(&["report"]);
     assert_eq!(output.status.code(), Some(1), "stderr: {}", stderr(&output));
-    assert!(
-        stdout(&output).is_empty(),
-        "no --format: stdout empty, file written"
+    assert_eq!(
+        stdout(&output),
+        "wrote docs/archspec/report.md\n",
+        "no --format: the destination write is announced, nothing else (US 04, D01)"
     );
     let file = fixture.read("docs/archspec/report.md");
     assert!(file.contains("Architecture report"), "file:\n{file}");
@@ -1627,13 +1874,17 @@ fn report_output_flag_wins_over_config_destination_even_with_json() {
     let fixture = config_destination_fixture();
     let output = fixture.run(&["report", "--format", "json", "--output", "report.json"]);
     assert_eq!(output.status.code(), Some(1), "stderr: {}", stderr(&output));
-    assert!(
-        stdout(&output).is_empty(),
-        "stdout stays empty when --output is given"
+    assert_eq!(
+        stdout(&output),
+        "wrote report.json\n",
+        "the flag write echoes the universal wrote line (blind4 D01)"
     );
     let file = fixture.read("report.json");
     let value: serde_json::Value = serde_json::from_str(&file).expect("--output file is json");
-    assert!(!json_findings(&value).is_empty(), "violations yield findings");
+    assert!(
+        !json_findings(&value).is_empty(),
+        "violations yield findings"
+    );
     assert!(
         !fixture.path("docs/archspec/report.md").exists(),
         "the config destination must stay untouched when --output wins"
@@ -1655,9 +1906,11 @@ fn report_check_stays_fresh_after_json_stdout_run_with_config_destination() {
 
     let json = fixture.run(&["report", "--format", "json"]);
     assert_eq!(json.status.code(), Some(0), "stderr: {}", stderr(&json));
-    let value: serde_json::Value =
-        serde_json::from_str(&stdout(&json)).expect("json on stdout");
-    assert!(json_findings(&value).is_empty(), "clean run: empty findings");
+    let value: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json on stdout");
+    assert!(
+        json_findings(&value).is_empty(),
+        "clean run: empty findings"
+    );
 
     let check = fixture.run(&["report", "--check"]);
     assert_eq!(
@@ -1665,5 +1918,245 @@ fn report_check_stays_fresh_after_json_stdout_run_with_config_destination() {
         Some(0),
         "--check must still find the text artefact fresh (stderr: {})",
         stderr(&check)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Roles: report surfaces the model's role facts (workplan archspec_roles,
+// US 06) — the "why is this node special" mystery class dies in the output.
+// ---------------------------------------------------------------------------
+
+/// rust lib+bin tree: the lib root defines nothing but declarations (the
+/// driver states `facade` at `kit`), the bin's main wires its own modules
+/// (the driver states `composition` at `kit-bin::main`). The spec maps both
+/// units so the diff stays clean and the roles section is the only role
+/// statement in the report.
+fn roles_fixture() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"kit\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "mod engine;\npub use engine::Thing;\n");
+    fixture.write("src/engine.rs", "pub struct Thing;\n");
+    fixture.write(
+        "src/main.rs",
+        "mod wire;\nuse crate::wire::glue;\nfn main() { glue(); }\n",
+    );
+    fixture.write("src/wire.rs", "pub fn glue() {}\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"kit\"\nmatches = { units = [\"kit\"] }\n\n[[module]]\nname = \"kit-bin\"\nmatches = { units = [\"kit-bin\"] }\n",
+    );
+    fixture
+}
+
+/// A csharp tree whose entrypoint project registers cross-layer services
+/// (a layered C# service tree's DI shape): the driver states `composition` at the
+/// entrypoint's root module path `App::Api` — and never `facade` beside it.
+fn csharp_roles_fixture() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "App.Api/App.Api.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    \
+         <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  \
+         <ItemGroup>\n    <ProjectReference Include=\"..\\App.Core\\App.Core.csproj\" />\n  \
+         </ItemGroup>\n</Project>\n",
+    );
+    fixture.write(
+        "App.Api/Program.cs",
+        "using App.Core;\n\
+         var builder = WebApplication.CreateBuilder(args);\n\
+         builder.Services.AddScoped<IEngine, Engine>();\n\
+         builder.Services.AddHostedService<SyncWorker>();\n\
+         var app = builder.Build();\n\
+         app.Run();\n",
+    );
+    fixture.write(
+        "App.Core/App.Core.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    \
+         <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+    );
+    fixture.write(
+        "App.Core/Core.cs",
+        "namespace App.Core;\npublic interface IEngine { }\npublic class Engine { }\npublic class SyncWorker { }\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"App::Api\"\nmatches = { modules = [\"App::Api\"] }\n\n[module.allowed]\ndepend_on = [\"App::Core\"]\n\n[[module]]\nname = \"App::Core\"\nmatches = { modules = [\"App::Core\"] }\n",
+    );
+    fixture
+}
+
+/// The `Roles` section of a text report as (label, paths) rows.
+fn role_rows(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .skip_while(|line| !line.starts_with("Roles"))
+        .skip(2)
+        .take_while(|line| !line.trim().is_empty())
+        .filter_map(|line| line.split_once(": "))
+        .map(|(label, paths)| (label.to_string(), paths.to_string()))
+        .collect()
+}
+
+#[test]
+fn report_text_roles_section_names_facades_and_composition_roots() {
+    let fixture = roles_fixture();
+    let output = fixture.run(&["report"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "clean roles tree must exit 0 (stderr: {})",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    assert_eq!(
+        role_rows(&out),
+        vec![
+            ("facades".to_string(), "kit".to_string()),
+            ("composition roots".to_string(), "kit-bin::main".to_string()),
+        ],
+        "roles section must name both role groups in closed-vocabulary order:\n{out}"
+    );
+    // The section sits between Metrics and the Diff: model facts before
+    // differences, and an empty line separates it from what follows.
+    let metrics = out.find("Metrics\n").expect("metrics section");
+    let roles = out.find("Roles\n-----\n").expect("roles section");
+    let diff = out.find("Diff: extracted vs declared").expect("diff section");
+    assert!(
+        metrics < roles && roles < diff,
+        "roles section must sit between metrics and diff:\n{out}"
+    );
+}
+
+#[test]
+fn report_markdown_roles_section_names_the_same_nodes() {
+    let fixture = roles_fixture();
+    let output = fixture.run(&["report", "--format", "markdown"]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.contains("## Roles"),
+        "markdown roles section missing:\n{out}"
+    );
+    assert!(
+        out.contains("| facades | kit |"),
+        "markdown facades row missing:\n{out}"
+    );
+    assert!(
+        out.contains("| composition roots | kit-bin::main |"),
+        "markdown composition row missing:\n{out}"
+    );
+}
+
+#[test]
+fn report_json_roles_map_is_path_keyed_and_ordered_after_metrics() {
+    let fixture = roles_fixture();
+    let output = fixture.run(&["report", "--format", "json"]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    let value: serde_json::Value = serde_json::from_str(&out).expect("json");
+    assert_eq!(
+        value["roles"]["kit"].as_str(),
+        Some("facade"),
+        "facade entry:\n{out}"
+    );
+    assert_eq!(
+        value["roles"]["kit-bin::main"].as_str(),
+        Some("composition"),
+        "composition entry:\n{out}"
+    );
+    assert_eq!(
+        value["roles"]
+            .as_object()
+            .expect("roles object")
+            .len(),
+        2,
+        "only stated roles appear:\n{out}"
+    );
+    // Key order is the contract anchor for sorted model paths: the `roles`
+    // object lists `kit` before `kit-bin::main`, and it sits between the
+    // metrics block and the findings array.
+    let roles = out.find("\"roles\":").expect("roles key");
+    let facade = out.find("\"kit\": \"facade\"").expect("facade entry");
+    let composition = out
+        .find("\"kit-bin::main\": \"composition\"")
+        .expect("composition entry");
+    let findings = out.find("\"findings\":").expect("findings key");
+    assert!(
+        facade < composition,
+        "roles keys must serialize in sorted model-path order:\n{out}"
+    );
+    let metrics = out.find("\"metrics\":").expect("metrics key");
+    assert!(
+        metrics < roles && roles < findings,
+        "roles must sit between metrics and findings:\n{out}"
+    );
+}
+
+#[test]
+fn report_csharp_di_tree_names_the_composition_root_by_module_path() {
+    let fixture = csharp_roles_fixture();
+    let text = fixture.run(&["report"]);
+    assert_eq!(text.status.code(), Some(0), "stderr: {}", stderr(&text));
+    let text = stdout(&text);
+    assert_eq!(
+        role_rows(&text),
+        vec![("composition roots".to_string(), "App::Api".to_string())],
+        "the DI-wired entrypoint is named by its module path, nothing else:\n{text}"
+    );
+
+    let json = fixture.run(&["report", "--format", "json"]);
+    assert_eq!(json.status.code(), Some(0), "stderr: {}", stderr(&json));
+    let value: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
+    assert_eq!(
+        value["roles"]["App::Api"].as_str(),
+        Some("composition"),
+        "json names the composition root by module path:\n{}",
+        stdout(&json)
+    );
+    assert_eq!(
+        value["roles"].as_object().expect("roles object").len(),
+        1,
+        "the exclusivity of the derivation holds into the report:\n{}",
+        stdout(&json)
+    );
+}
+
+/// Absence, not "roles: none" theater: a tree whose model states no role
+/// prints no Roles section in any format and carries no `roles` key in the
+/// report JSON (the model's skip_serializing contract reaches the report).
+#[test]
+fn report_with_no_derived_roles_prints_no_section_noise() {
+    let fixture = matching_fixture();
+    for format in [vec!["report"], vec!["report", "--format", "markdown"]] {
+        let output = fixture.run(&format);
+        assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+        let out = stdout(&output);
+        assert!(
+            !out.contains("Roles"),
+            "`{}` must print no roles section without role facts:\n{out}",
+            format.join(" ")
+        );
+    }
+    let output = fixture.run(&["report", "--format", "json"]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert!(
+        !stdout(&output).contains("\"roles\""),
+        "no role facts => no roles key:\n{}",
+        stdout(&output)
+    );
+}
+
+/// Determinism: the roles section is a pure function of the model — repeated
+/// runs are byte-identical.
+#[test]
+fn report_roles_section_is_byte_stable_across_runs() {
+    let fixture = roles_fixture();
+    let first = fixture.run(&["report", "--format", "json"]);
+    let repeat = fixture.run(&["report", "--format", "json"]);
+    assert_eq!(
+        first.stdout, repeat.stdout,
+        "roles section must render byte-identically across runs"
     );
 }

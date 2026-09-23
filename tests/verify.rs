@@ -850,7 +850,11 @@ fn verify_contract_forbid_is_accepted() {
         !err.contains("invalid spec:") && !err.contains("contract.expose"),
         "enforced forbid must load cleanly:\n{err}"
     );
-    assert_eq!(output.status.code(), Some(0), "clean forbid verifies:\n{err}");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "clean forbid verifies:\n{err}"
+    );
 }
 
 /// Enforced `forbid` inside a submodule is accepted by the loader.
@@ -974,10 +978,16 @@ fn verify_submodule_contract_forbid_naming_no_stereotype_is_dead_reference() {
     );
     let out = stdout(&output);
     assert!(out.contains("dead reference:"), "report:\n{out}");
-    assert!(out.contains("'a::b'"), "report names the submodule path:\n{out}");
+    assert!(
+        out.contains("'a::b'"),
+        "report names the submodule path:\n{out}"
+    );
     assert!(out.contains("\"ghost\""), "report:\n{out}");
     assert!(out.contains("names no stereotype"), "report:\n{out}");
-    assert!(!out.contains("contract leak"), "no leak without stereotype:\n{out}");
+    assert!(
+        !out.contains("contract leak"),
+        "no leak without stereotype:\n{out}"
+    );
 
     let strict = fixture.run(&["verify", "--strict"]);
     assert_ne!(
@@ -1182,7 +1192,10 @@ fn verify_hybrid_unit_and_module_boundaries_together() {
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nauth = { path = \"../auth\" }\n",
     );
     fixture.write("crates/app/src/lib.rs", "mod billing;\nmod config;\n");
-    fixture.write("crates/app/src/billing.rs", "use crate::config;\npub fn bill() {}\n");
+    fixture.write(
+        "crates/app/src/billing.rs",
+        "use crate::config;\npub fn bill() {}\n",
+    );
     fixture.write("crates/app/src/config.rs", "pub fn config() {}\n");
     fixture.write(
         "crates/auth/Cargo.toml",
@@ -1248,7 +1261,10 @@ fn commands_subtree_fixture() -> common::Fixture {
         "src/commands/mod.rs",
         "pub mod init;\npub mod project_resolution;\npub mod start;\n",
     );
-    fixture.write("src/commands/start.rs", "use crate::config;\npub fn start() {}\n");
+    fixture.write(
+        "src/commands/start.rs",
+        "use crate::config;\npub fn start() {}\n",
+    );
     fixture.write("src/commands/init.rs", "pub fn init() {}\n");
     fixture.write(
         "src/commands/project_resolution.rs",
@@ -1304,10 +1320,7 @@ fn verify_forbidden_edge_from_descendant_submodule_flags_boundary() {
     );
     let output = fixture.run(&["verify"]);
 
-    assert_divergent(
-        &output,
-        &["forbidden edge: commands -> config"],
-    );
+    assert_divergent(&output, &["forbidden edge: commands -> config"]);
 }
 
 /// A leaf pattern (`commands::start`) still matches exactly that module; the
@@ -1335,10 +1348,7 @@ fn verify_leaf_module_pattern_matches_exactly_the_leaf() {
         "leaf pattern must match exactly the leaf (stderr: {})",
         stderr(&output)
     );
-    assert!(
-        stdout(&output).starts_with("ok: "),
-        "pass confirmation"
-    );
+    assert!(stdout(&output).starts_with("ok: "), "pass confirmation");
     assert!(stderr(&output).is_empty(), "no stderr on pass");
 }
 
@@ -1441,8 +1451,14 @@ fn verify_grouped_edges_between_same_boundaries_are_deduplicated() {
     );
     fixture.write("src/lib.rs", "mod commands;\nmod config;\n");
     fixture.write("src/commands/mod.rs", "pub mod start;\npub mod init;\n");
-    fixture.write("src/commands/start.rs", "use crate::config;\npub fn start() {}\n");
-    fixture.write("src/commands/init.rs", "use crate::config;\npub fn init() {}\n");
+    fixture.write(
+        "src/commands/start.rs",
+        "use crate::config;\npub fn start() {}\n",
+    );
+    fixture.write(
+        "src/commands/init.rs",
+        "use crate::config;\npub fn init() {}\n",
+    );
     fixture.write("src/config.rs", "pub fn config() {}\n");
     fixture.write(
         "architecture.spec.toml",
@@ -1491,11 +1507,11 @@ fn crate_root_edge_fixture() -> common::Fixture {
         "Cargo.toml",
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    fixture.write("src/lib.rs", "pub struct App;\nmod commands;\nmod config;\n");
     fixture.write(
-        "src/commands/mod.rs",
-        "pub mod index;\n",
+        "src/lib.rs",
+        "pub struct App;\nmod commands;\nmod config;\n",
     );
+    fixture.write("src/commands/mod.rs", "pub mod index;\n");
     fixture.write(
         "src/commands/index.rs",
         "use crate::App;\nuse crate::config;\npub fn index() {}\n",
@@ -1545,10 +1561,7 @@ fn verify_forbidden_crate_root_edge_is_reported() {
     );
     let output = fixture.run(&["verify"]);
 
-    assert_divergent(
-        &output,
-        &["forbidden edge: commands -> app"],
-    );
+    assert_divergent(&output, &["forbidden edge: commands -> app"]);
 }
 
 /// A single crate named `app` whose root lib.rs declares production modules
@@ -1596,10 +1609,7 @@ fn verify_test_module_edges_do_not_produce_disallowed_findings() {
         stderr(&output)
     );
     let out = stdout(&output);
-    assert!(
-        out.starts_with("ok: "),
-        "pass confirmation:\n{out}"
-    );
+    assert!(out.starts_with("ok: "), "pass confirmation:\n{out}");
     assert!(
         !out.contains("disallowed cross-component dependency:"),
         "no test-module edge may be reported disallowed:\n{out}"
@@ -1784,7 +1794,10 @@ fn verify_cfg_test_module_cycle_remains_excluded() {
         "Cargo.toml",
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    fixture.write("src/lib.rs", "mod prod;\nmod config;\n#[cfg(test)]\nmod tests;\n");
+    fixture.write(
+        "src/lib.rs",
+        "mod prod;\nmod config;\n#[cfg(test)]\nmod tests;\n",
+    );
     fixture.write("src/prod.rs", "use crate::config;\npub fn prod() {}\n");
     fixture.write("src/config.rs", "pub fn config() {}\n");
     fixture.write("src/tests.rs", "use crate::prod;\n");
@@ -1925,10 +1938,7 @@ fn verify_go_declared_grouping_flags_laundered_forbidden_edge() {
         stdout(&output)
     );
     let strict = fixture.run(&["verify", "--strict"]);
-    assert_divergent(
-        &strict,
-        &["laundered forbidden edge: a -> store via shell"],
-    );
+    assert_divergent(&strict, &["laundered forbidden edge: a -> store via shell"]);
 }
 
 /// A go.work workspace carries the module tier natively, so the
@@ -1937,7 +1947,10 @@ fn verify_go_declared_grouping_flags_laundered_forbidden_edge() {
 #[test]
 fn verify_go_work_members_enforce_laundered_forbidden_edge() {
     let fixture = common::Fixture::new();
-    fixture.write("go.work", "go 1.21\n\nuse (\n\t./a\n\t./shell\n\t./store\n)\n");
+    fixture.write(
+        "go.work",
+        "go 1.21\n\nuse (\n\t./a\n\t./shell\n\t./store\n)\n",
+    );
     fixture.write("a/go.mod", "module example.com/a\ngo 1.21\n");
     fixture.write(
         "a/a.go",
@@ -1967,28 +1980,57 @@ fn verify_go_work_members_enforce_laundered_forbidden_edge() {
         stdout(&output)
     );
     let strict = fixture.run(&["verify", "--strict"]);
-    assert_divergent(
-        &strict,
-        &["laundered forbidden edge: a -> store via shell"],
-    );
+    assert_divergent(&strict, &["laundered forbidden edge: a -> store via shell"]);
 }
 
 /// Declared grouping makes submodule contracts enforce on go: the submodule
-/// claims the entity package by module path, so its `contract.forbid` engages
-/// the package the parent imports.
+/// claims the entity package through `matches.units`, so its `contract.forbid`
+/// engages the package the parent imports and the leak is reported. A
+/// single-`go.mod` tree now carries the module tier natively (derived from its
+/// package references), which skips the declared-grouping derivation entirely,
+/// and the contract's module-path branch reads soft module paths — which a
+/// single-module go tree records none of — so a boundary declared only through
+/// `matches.modules` stays inert (pinned below as the contrast leg).
 #[test]
 fn verify_go_declared_grouping_enforces_submodule_contract() {
     let fixture = common::Fixture::new();
     fixture.write("go.mod", "module example.com/demo\ngo 1.21\n");
     write_go_package(&fixture, "auth", "auth", &["example.com/demo/auth/entity"]);
     write_go_package(&fixture, "auth/entity", "entity", &[]);
+    let base = "[project]\nlanguage = \"go\"\n\n[[stereotype]]\nname = \"entity\"\nmatch = { paths = [\"example.com/demo/auth/entity\"] }\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"example.com/demo/auth\", \"example.com/demo/auth/entity\"] }\n";
     fixture.write(
         "architecture.spec.toml",
-        "[project]\nlanguage = \"go\"\n\n[[stereotype]]\nname = \"entity\"\nmatch = { paths = [\"example.com/demo/auth/entity\"] }\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"example.com/demo/auth\", \"example.com/demo/auth/entity\"] }\n\n[[module.submodules]]\nname = \"auth::entity\"\nmatches = { modules = [\"example.com/demo/auth/entity\"] }\n\n[module.submodules.contract]\nforbid = [\"entity\"]\n",
+        &format!(
+            "{base}\n[[module.submodules]]\nname = \"auth::entity\"\nmatches = {{ units = [\"example.com/demo/auth/entity\"] }}\n\n[module.submodules.contract]\nforbid = [\"entity\"]\n"
+        ),
     );
     assert_divergent(
         &fixture.run(&["verify"]),
         &["contract leak: auth::entity exposes entity (forbidden)"],
+    );
+
+    // Contrast leg: the same contract with the boundary declared through
+    // `matches.modules` naming the package path. The native single-module tier
+    // has no soft paths, so the boundary matches nothing, no constraint runs,
+    // and the run is clean — the enforcement above must come from the unit
+    // claim, not from this vocabulary.
+    fixture.write(
+        "architecture.spec.toml",
+        &format!(
+            "{base}\n[[module.submodules]]\nname = \"auth::entity\"\nmatches = {{ modules = [\"example.com/demo/auth/entity\"] }}\n\n[module.submodules.contract]\nforbid = [\"entity\"]\n"
+        ),
+    );
+    let inert = fixture.run(&["verify"]);
+    assert_eq!(
+        inert.status.code(),
+        Some(0),
+        "module-path boundary must stay inert on a single-module go tree (stderr: {})",
+        stderr(&inert)
+    );
+    assert!(
+        !stdout(&inert).contains("contract leak"),
+        "the inert vocabulary must not report a leak:\n{}",
+        stdout(&inert)
     );
 }
 
@@ -2048,5 +2090,162 @@ fn verify_go_declared_grouping_clean_spec_passes_with_checks_running() {
         !out.contains("laundered forbidden edge:") && !out.contains("disallowed cross-component"),
         "the derived tier must add no findings on a mapped-clean tree (the informational \
          inert-rule notes are not findings):\n{out}"
+    );
+}
+
+/// The composition root of the go driver is the main package (US 03): its file
+/// imports wire the graph without type positions. A ban whose route rides the
+/// main package's legal hop is sanctioned wiring, not laundering — under
+/// `--strict` the verify passes. The same tree with a named package (no
+/// composition role anywhere) is the pure conduit again, still reported.
+#[test]
+fn verify_go_main_package_wiring_sanctions_the_composition_bridge() {
+    let tree = |main_pkg: &str| {
+        let fixture = common::Fixture::new();
+        fixture.write("go.mod", "module example.com/demo\ngo 1.21\n");
+        write_go_package(&fixture, "a", "a", &["example.com/demo/store"]);
+        write_go_package(&fixture, "store", "store", &[]);
+        write_go_package(&fixture, "cmd/server", main_pkg, &["example.com/demo/a"]);
+        fixture.write(
+            "architecture.spec.toml",
+            "[project]\nlanguage = \"go\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"example.com/demo/a\"] }\n\n[module.allowed]\ndepend_on = [\"store\"]\n\n[[module]]\nname = \"store\"\nmatches = { units = [\"example.com/demo/store\"] }\n\n[[module]]\nname = \"wiring\"\nmatches = { units = [\"example.com/demo/cmd/server\"] }\n\n[module.allowed]\ndepend_on = [\"a\"]\nforbidden = [\"store\"]\n",
+        );
+        fixture
+    };
+    // sanity: the main package carries the composition role
+    let wired = tree("main");
+    let model: serde_json::Value =
+        serde_json::from_str(&stdout(&wired.run(&["scan"]))).expect("scan json");
+    assert_eq!(
+        model["roles"]["example.com/demo/cmd/server"].as_str(),
+        Some("composition"),
+        "the go composition root is keyed at the main package's import path:\n{}",
+        model["roles"]
+    );
+    let output = wired.run(&["verify", "--strict"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the composition root's wiring hop is sanctioned, not laundering (stdout: {})",
+        stdout(&output)
+    );
+    // same edges, no main package: no composition entry, conduit reported
+    let conduit = tree("server");
+    let output = conduit.run(&["verify", "--strict"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "strict laundering must exit 1"
+    );
+    assert!(
+        stdout(&output).contains("laundered forbidden edge"),
+        "the named-package route stays a conduit:\n{}",
+        stdout(&output)
+    );
+}
+
+/// The identity-split geometry of the C# audit (workplan
+/// archspec_audit_defects US 05 / ADR-018), in neutral names: three projects —
+/// `Shop.Api` referencing `Shop.Data` directly, `Shop.Data` referencing
+/// `Shop.Domain` (so `Shop.Domain` is TRANSITIVELY reachable from the api),
+/// each project's namespace mirrored as a second, allowance-less boundary
+/// identity (`Shop::Api` etc., `matches.modules`) beside the unit boundary
+/// (`matches.units`) that carries the allowances. The api project's
+/// composition-root file (`Program.cs`, no namespace declaration) wires the
+/// Data services and a controller uses + injects a Data interface: every
+/// dependency is stated once as a hard unit edge (ProjectReference) and once
+/// attributed under the namespace identity. `with_domain_wiring` adds the
+/// companion shape: the composition root also wires a `Shop.Domain` type that
+/// no rule declares for the api unit.
+fn identity_split_fixture(with_domain_wiring: bool) -> common::Fixture {
+    let fixture = common::Fixture::new();
+    let csproj = |references: &[&str]| {
+        let mut text = String::from(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n",
+        );
+        if !references.is_empty() {
+            text.push_str("  <ItemGroup>\n");
+            for reference in references {
+                text.push_str(&format!(
+                    "    <ProjectReference Include=\"..\\{reference}\\{reference}.csproj\" />\n"
+                ));
+            }
+            text.push_str("  </ItemGroup>\n");
+        }
+        text.push_str("</Project>\n");
+        text
+    };
+    fixture.write("Shop.Api/Shop.Api.csproj", &csproj(&["Shop.Data"]));
+    fixture.write(
+        "Shop.Api/Program.cs",
+        &format!(
+            "using Shop.Data;\n{}\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Build().Run();\n",
+            if with_domain_wiring {
+                "using Shop.Domain;\nbuilder.Services.AddScoped<IOrderService, OrderRepository>();\nbuilder.Services.AddScoped<IOrderRepository, OrderRepository>();"
+            } else {
+                "builder.Services.AddScoped<IOrderService, OrderService>();"
+            }
+        ),
+    );
+    fixture.write(
+        "Shop.Api/Controllers/OrderController.cs",
+        "using Shop.Data;\nnamespace Shop.Api.Controllers;\npublic class OrderController\n{\n    private readonly IOrderService _service;\n    public OrderController(IOrderService service)\n    {\n        _service = service;\n    }\n}\n",
+    );
+    fixture.write("Shop.Data/Shop.Data.csproj", &csproj(&["Shop.Domain"]));
+    fixture.write(
+        "Shop.Data/OrderService.cs",
+        "using Shop.Domain;\nnamespace Shop.Data;\npublic class OrderService { private readonly IOrderRepository _repo; public OrderService(IOrderRepository repo) { _repo = repo; } }\npublic class IOrderService { }\npublic class OrderRepository : IOrderRepository { }\n",
+    );
+    fixture.write("Shop.Domain/Shop.Domain.csproj", &csproj(&[]));
+    fixture.write(
+        "Shop.Domain/Contracts.cs",
+        "namespace Shop.Domain;\npublic interface IOrderRepository { }\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"Shop.Api\"\nmatches = { units = [\"Shop.Api\"] }\nallowed = { depend_on = [\"Shop.Data\"] }\n\n[[module]]\nname = \"Shop.Data\"\nmatches = { units = [\"Shop.Data\"] }\nallowed = { depend_on = [\"Shop.Domain\"] }\n\n[[module]]\nname = \"Shop.Domain\"\nmatches = { units = [\"Shop.Domain\"] }\n\n[[module]]\nname = \"Shop::Api\"\nmatches = { modules = [\"Shop::Api\"] }\n\n[[module]]\nname = \"Shop::Data\"\nmatches = { modules = [\"Shop::Data\"] }\n\n[[module]]\nname = \"Shop::Domain\"\nmatches = { modules = [\"Shop::Domain\"] }\n",
+    );
+    fixture
+}
+
+/// ADR-018 / audit defect D5, the audit's finding shape: every dependency is
+/// stated once as a unit edge (allowed by the unit boundary's `depend_on`)
+/// and once attributed under the namespace identity, where the mirrored
+/// boundary grants nothing. The allowances are owned by the unit boundary, so
+/// a unit-tier allowance survives namespace attribution: zero `disallowed
+/// cross-component dependency` findings. Before the fix this failed with the
+/// audit's warnings: the namespace pair was re-adjudicated where no allowance
+/// was visible.
+#[test]
+fn unit_tier_allowance_survives_namespace_attribution() {
+    let fixture = identity_split_fixture(false);
+    let output = fixture.run(&["verify"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "namespace-attributed twins of allowed unit edges must not void the grant (stdout: {})",
+        stdout(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        !out.contains("disallowed cross-component dependency:"),
+        "no identity-split dependency may be reported disallowed:\n{out}"
+    );
+    assert!(stderr(&output).is_empty(), "no stderr on pass");
+}
+
+/// The fix must not become an exemption hole (ADR-018 Consequences): a
+/// dependency attributed under the namespace identity that the owning unit
+/// boundary does not name is still reported. The composition-root file wires
+/// a `Shop.Domain` type reached through the reference chain only — no unit
+/// edge states it, no `depend_on` names it — so the owning unit boundary's
+/// default-deny governs and the pair stays a finding, text unchanged.
+#[test]
+fn undeclared_target_under_namespace_attribution_stays_disallowed() {
+    let fixture = identity_split_fixture(true);
+    let output = fixture.run(&["verify"]);
+    assert_divergent(
+        &output,
+        &["disallowed cross-component dependency: Shop::Api -> Shop::Domain"],
     );
 }

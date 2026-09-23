@@ -5,8 +5,8 @@ use crate::shared::scenario::{Applies, Scenario};
 use serde_json::Value;
 
 pub mod cli;
-pub mod diagram;
 pub mod depgraph;
+pub mod diagram;
 pub mod help;
 pub mod init;
 pub mod inspect;
@@ -154,7 +154,7 @@ pub(crate) fn csharp_project_files(driver: &Driver) -> bool {
 }
 
 /// True only for the go driver — behaviors pinned to what a go SCAN emits
-/// (module-tier conditional on go.work, no root-facade fact).
+/// (module-tier conditional on go.work, no derivable facade role).
 pub(crate) fn go_driver(driver: &Driver) -> bool {
     matches!(driver.language, Language::Go)
 }
@@ -267,6 +267,63 @@ pub(crate) fn boundary_spec(driver: &Driver) -> String {
         driver.unit_name("app"),
         driver.unit_name("shared")
     )
+}
+
+/// Parse the node declaration lines of a generated mermaid graph. Both graph
+/// views emit the same three line kinds for declarations — bare `id`, quoted
+/// `id["raw"]`, and marked `id["raw [role]"]` — while `graph TD`, subgraph
+/// headers, `end`, and edge lines carry no node identity. Maps each raw node
+/// name to `Some(marker)` when its declaration line carries a ` [word]` label
+/// suffix and to `None` when it stays unmarked; a name declared twice (marked
+/// and not) is an inconsistency of the view, reported as an error. The marker
+/// word is returned as parsed, so scenarios compare it against the model
+/// rather than trusting a hard-coded vocabulary.
+pub(crate) fn mermaid_node_markers(
+    stdout: &str,
+) -> Result<std::collections::BTreeMap<String, Option<String>>, String> {
+    let mut nodes: std::collections::BTreeMap<String, Option<String>> = std::collections::BTreeMap::new();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty()
+            || line == "graph TD"
+            || line.starts_with("subgraph")
+            || line == "end"
+            || line.contains("-->")
+        {
+            continue;
+        }
+        let (raw, marker) = match line.split_once("[\"") {
+            None => (line.to_string(), None),
+            Some((_, rest)) => {
+                let label = rest.strip_suffix("\"]").ok_or_else(|| {
+                    format!("node declaration line has no closing quote: {line}")
+                })?;
+                match label.rsplit_once(" [") {
+                    Some((head, tail))
+                        if !tail.is_empty()
+                            && tail.ends_with(']')
+                            && !tail[..tail.len() - 1].contains(['[', ']', ' ']) =>
+                    {
+                        (
+                            head.to_string(),
+                            Some(tail[..tail.len() - 1].to_string()),
+                        )
+                    }
+                    _ => (label.to_string(), None),
+                }
+            }
+        };
+        match nodes.get(&raw) {
+            None => {
+                nodes.insert(raw, marker);
+            }
+            Some(existing) if *existing == marker => {}
+            Some(_) => {
+                return Err(format!("node {raw} is declared marked and unmarked:\n{stdout}"));
+            }
+        }
+    }
+    Ok(nodes)
 }
 
 /// Extract a metric value from a report line like `components:          2`.

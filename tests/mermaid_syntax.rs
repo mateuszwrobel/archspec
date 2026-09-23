@@ -75,11 +75,11 @@ fn rust_project() -> common::Fixture {
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     fixture.write("app/src/lib.rs", "mod core;\nmod orchestration;\n");
+    fixture.write("app/src/core.rs", "pub fn core() {}\n");
     fixture.write(
-        "app/src/core.rs",
-        "pub fn core() {}\n",
+        "app/src/orchestration/mod.rs",
+        "mod control_loop;\npub fn orchestration() {}\n",
     );
-    fixture.write("app/src/orchestration/mod.rs", "mod control_loop;\npub fn orchestration() {}\n");
     fixture.write(
         "app/src/orchestration/control_loop.rs",
         "pub fn control_loop() {}\n",
@@ -90,8 +90,8 @@ fn rust_project() -> common::Fixture {
 fn csharp_project() -> common::Fixture {
     let fixture = common::Fixture::new();
     for (unit, ns) in [
-        ("HomeBudget.Api", "HomeBudget.Api.Models"),
-        ("HomeBudget.Domain", "HomeBudget.Domain.Entities"),
+        ("Shop.Api", "Shop.Api.Models"),
+        ("Shop.Domain", "Shop.Domain.Entities"),
     ] {
         fixture.write(
             &format!("{unit}/{unit}.csproj"),
@@ -100,7 +100,7 @@ fn csharp_project() -> common::Fixture {
         let path = ns.replace('.', "/");
         let leaf = ns.rsplit('.').next().unwrap();
         let usings = if unit.ends_with("Api") {
-            "using HomeBudget.Domain.Entities;\n"
+            "using Shop.Domain.Entities;\n"
         } else {
             ""
         };
@@ -109,6 +109,21 @@ fn csharp_project() -> common::Fixture {
             &format!("{usings}namespace {ns};\npublic class {leaf} {{ }}\n"),
         );
     }
+    fixture
+}
+
+/// The canonical single-module go tree: package `app` imports sibling
+/// package `shared`. The units address themselves with `/` and the module
+/// edges with `::`, so no soft-tier declaration covers an edge endpoint —
+/// the shape audit defect D3 was found in.
+fn go_project() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write("go.mod", "module example.com/demo\ngo 1.21\n");
+    fixture.write(
+        "app/app.go",
+        "package app\n\nimport \"example.com/demo/shared\"\n\nfunc Run() { shared.Help() }\n",
+    );
+    fixture.write("shared/shared.go", "package shared\n\nfunc Help() {}\n");
     fixture
 }
 
@@ -121,7 +136,9 @@ fn file_level_rust_ids_render_parseable_mermaid() {
     assert_eq!(output.status.code(), Some(0), "{}", common::stderr(&output));
     let out = common::stdout(&output);
     assert!(
-        out.contains("src_orchestration_control_loop_rs_77bae0a4[\"src/orchestration/control_loop.rs\"]"),
+        out.contains(
+            "src_orchestration_control_loop_rs_77bae0a4[\"src/orchestration/control_loop.rs\"]"
+        ),
         "file ids must appear quoted under sanitized ids:\n{out}"
     );
     assert_parseable_mermaid("inspect rust file-level", &out);
@@ -137,7 +154,9 @@ fn structural_rust_module_paths_render_parseable_mermaid() {
         assert_eq!(output.status.code(), Some(0), "{}", common::stderr(&output));
         let out = common::stdout(&output);
         assert!(
-            out.contains("app__orchestration__control_loop_7eaf07ca[\"app::orchestration::control_loop\"]"),
+            out.contains(
+                "app__orchestration__control_loop_7eaf07ca[\"app::orchestration::control_loop\"]"
+            ),
             "module path ids must appear quoted under sanitized ids:\n{out}"
         );
         assert_parseable_mermaid(&format!("inspect {mode} rust"), &out);
@@ -158,7 +177,7 @@ fn csharp_dotted_ids_render_parseable_mermaid() {
         assert_eq!(output.status.code(), Some(0), "{}", common::stderr(&output));
         let out = common::stdout(&output);
         assert!(
-            out.contains("HomeBudget_Api_42a5bcc9[\"HomeBudget.Api\"]"),
+            out.contains("Shop_Api_9243f63f[\"Shop.Api\"]"),
             "unit ids must appear quoted under sanitized ids: {args:?}\n{out}"
         );
         assert_parseable_mermaid(&format!("csharp {args:?}"), &out);
@@ -176,35 +195,35 @@ fn spec_diagram_dotted_ids_render_parseable_mermaid() {
 language = "rust"
 
 [[module]]
-name = "HomeBudget.Api"
-matches = { units = ["HomeBudget.Api*"] }
+name = "Shop.Api"
+matches = { units = ["Shop.Api*"] }
 
 [module.allowed]
-depend_on = ["HomeBudget.Domain"]
+depend_on = ["Shop.Domain"]
 forbidden = []
 
 [[module.submodules]]
-name = "HomeBudget.Api.Models"
-matches = { units = ["HomeBudget.Api.Models*"] }
+name = "Shop.Api.Models"
+matches = { units = ["Shop.Api.Models*"] }
 
 [[module]]
-name = "HomeBudget.Domain"
-matches = { units = ["HomeBudget.Domain*"] }
+name = "Shop.Domain"
+matches = { units = ["Shop.Domain*"] }
 "#,
     );
     let output = fixture.run(&["diagram"]);
     assert_eq!(output.status.code(), Some(0), "{}", common::stderr(&output));
     let out = common::stdout(&output);
     assert!(
-        out.contains("HomeBudget_Api_42a5bcc9[\"HomeBudget.Api\"]"),
+        out.contains("Shop_Api_9243f63f[\"Shop.Api\"]"),
         "dotted module nodes must be quoted:\n{out}"
     );
     assert!(
-        out.contains("subgraph HomeBudget_Api_42a5bcc9[\"HomeBudget.Api\"]"),
+        out.contains("subgraph Shop_Api_9243f63f[\"Shop.Api\"]"),
         "dotted cluster headers must be quoted:\n{out}"
     );
     assert!(
-        out.contains("HomeBudget_Api_42a5bcc9 --> HomeBudget_Domain_5e1122ef"),
+        out.contains("Shop_Api_9243f63f --> Shop_Domain_c40afbde"),
         "edges must reference sanitized ids:\n{out}"
     );
     assert_parseable_mermaid("spec diagram", &out);
@@ -254,13 +273,19 @@ fn file_graph_slash_and_underscore_siblings_keep_distinct_ids() {
         "app/Cargo.toml",
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    fixture.write("app/src/lib.rs", "pub mod a;\npub mod a_b;\npub mod util;\npub mod other;\n");
+    fixture.write(
+        "app/src/lib.rs",
+        "pub mod a;\npub mod a_b;\npub mod util;\npub mod other;\n",
+    );
     fixture.write("app/src/a/mod.rs", "pub mod b;\n");
     fixture.write(
         "app/src/a/b.rs",
         "use crate::util::u;\npub fn b() { u(); }\n",
     );
-    fixture.write("app/src/a_b.rs", "use crate::other::o;\npub fn a_b() { o(); }\n");
+    fixture.write(
+        "app/src/a_b.rs",
+        "use crate::other::o;\npub fn a_b() { o(); }\n",
+    );
     fixture.write("app/src/util.rs", "pub fn u() {}\n");
     fixture.write("app/src/other.rs", "pub fn o() {}\n");
     let output = fixture.run(&["inspect", "app"]);
@@ -269,8 +294,16 @@ fn file_graph_slash_and_underscore_siblings_keep_distinct_ids() {
 
     let slash_ids = ids_for_label(&out, "src/a/b.rs");
     let under_ids = ids_for_label(&out, "src/a_b.rs");
-    assert_eq!(slash_ids.len(), 1, "src/a/b.rs node missing/duplicated:\n{out}");
-    assert_eq!(under_ids.len(), 1, "src/a_b.rs node missing/duplicated:\n{out}");
+    assert_eq!(
+        slash_ids.len(),
+        1,
+        "src/a/b.rs node missing/duplicated:\n{out}"
+    );
+    assert_eq!(
+        under_ids.len(),
+        1,
+        "src/a_b.rs node missing/duplicated:\n{out}"
+    );
     let slash = &slash_ids[0];
     let under = &under_ids[0];
     assert_ne!(
@@ -373,4 +406,101 @@ fn subgraph_sibling_directories_keep_distinct_ids() {
         "sibling directories must not share one subgraph id:\n{out}"
     );
     assert_parseable_mermaid("subgraph collision", &out);
+}
+
+// Scenario (audit defect D3, workplan archspec_audit_defects US 03): the
+// structural renders referenced ids like `…_admin_5a0de90b` in arrows
+// without ever declaring them, so mermaid drew detached, unlabelled nodes
+// disconnected from their subgraphs. Every id left of `-->` must already
+// have appeared in a node or subgraph-header declaration. The property runs
+// over the live structural views (both formats of model view: `tree` and
+// `scanner`) and over the four frozen `inspect-tree` goldens, so neither a
+// behaviour change nor a golden re-record can smuggle an undeclared id back
+// in.
+#[test]
+fn structural_views_declare_every_referenced_id() {
+    for (fixture, path) in [
+        (rust_project(), "app"),
+        (csharp_project(), "."),
+        (go_project(), "."),
+    ] {
+        for mode in ["tree", "scanner"] {
+            let output = fixture.run(&["inspect", mode, path]);
+            assert_eq!(
+                output.status.code(),
+                Some(0),
+                "`inspect {mode} {path}` must exit 0: {}",
+                common::stderr(&output)
+            );
+            let out = common::stdout(&output);
+            common::assert_declared_before_reference(&format!("inspect {mode} {path}"), &out);
+        }
+    }
+}
+
+#[test]
+fn inspect_tree_goldens_declare_every_referenced_id() {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/goldens/inspect-tree");
+    let mut goldens: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|err| panic!("cannot read {}: {err}", dir.display()))
+        .map(|entry| entry.expect("golden entry").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "mmd"))
+        .collect();
+    goldens.sort();
+    assert_eq!(
+        goldens.len(),
+        4,
+        "the four inspect-tree goldens must all be present:\n{goldens:?}"
+    );
+    for path in goldens {
+        let text = std::fs::read_to_string(&path).expect("golden readable");
+        common::assert_declared_before_reference(&path.display().to_string(), &text);
+    }
+}
+
+// Scenario (roles-views US 01, acceptance #28): scan-mode node lines carrying
+// role markers must still parse — the marker rides the quoted label, so the
+// id of a marked node equals the id the same node carries unmarked, every edge
+// line is unchanged, and declaration-before-reference holds.
+#[test]
+fn scan_diagram_role_marks_parse_and_leave_ids_and_edges_unchanged() {
+    let units_edges = "\"schema_version\": 1,\n  \"language\": \"csharp\",\n  \"units\": [\n    { \"name\": \"Shop.Api\", \"kind\": \"project\", \"path\": \"Shop.Api\" },\n    { \"name\": \"Shop.Domain\", \"kind\": \"project\", \"path\": \"Shop.Domain\" }\n  ],\n  \"edges\": [\n    { \"from\": \"Shop.Api\", \"to\": \"Shop.Domain\" },\n    { \"from\": \"Shop.Api\", \"to\": \"Newtonsoft.Json\" }\n  ],\n  \"external\": [\"Newtonsoft.Json\"]";
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "model-roles.json",
+        &format!("{{\n  {units_edges},\n  \"roles\": {{ \"Shop::Api\": \"composition\", \"Shop.Domain\": \"facade\" }}\n}}\n"),
+    );
+    fixture.write("model-plain.json", &format!("{{\n  {units_edges}\n}}\n"));
+
+    let marked = fixture.run(&["diagram", "--source", "scan", "model-roles.json"]);
+    assert_eq!(marked.status.code(), Some(0), "{}", common::stderr(&marked));
+    let plain = fixture.run(&["diagram", "--source", "scan", "model-plain.json"]);
+    assert_eq!(plain.status.code(), Some(0), "{}", common::stderr(&plain));
+
+    let marked = common::stdout(&marked);
+    let plain = common::stdout(&plain);
+    assert_parseable_mermaid("scan diagram with role marks", &marked);
+    common::assert_declared_before_reference("scan diagram with role marks", &marked);
+    assert_eq!(
+        edge_lines(&marked),
+        edge_lines(&plain),
+        "markers must not touch a single edge line"
+    );
+    // The id a marked node carries is the id the unmarked render gives it.
+    assert_eq!(
+        ids_for_label(&marked, "Shop.Api [composition]"),
+        ids_for_label(&plain, "Shop.Api"),
+        "the marked node must keep the unmarked node's id"
+    );
+    assert_eq!(
+        ids_for_label(&marked, "Shop.Domain [facade]"),
+        ids_for_label(&plain, "Shop.Domain"),
+        "the marked node must keep the unmarked node's id"
+    );
+    assert_eq!(
+        ids_for_label(&marked, "Newtonsoft.Json"),
+        ids_for_label(&plain, "Newtonsoft.Json"),
+        "the unaddressed external node must render the same line as unmarked"
+    );
 }

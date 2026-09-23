@@ -69,6 +69,15 @@ pub fn mermaid_node(name: &str) -> String {
     }
 }
 
+/// Render a mermaid node line whose label carries a marker suffix (e.g. the
+/// ` [facade]` role marker a roles map states for this model path). The id
+/// stays the bare `mermaid_id` form, so edge references are unaffected; the
+/// marker only reaches the visible label text — a node the model leaves
+/// unmarked renders exactly what `mermaid_node` emits.
+pub fn mermaid_node_marked(name: &str, marker: &str) -> String {
+    format!("{}[\"{}{}\"]", mermaid_id(name), quoted_escape(name), marker)
+}
+
 /// Render a mermaid subgraph header: escaped id, plus a `["title"]` whenever
 /// the mermaid-safe id differs from the raw name, so folder and unit names
 /// with `::`, `.` or `/` stay parseable and readable.
@@ -79,6 +88,20 @@ pub fn mermaid_subgraph(name: &str) -> String {
     } else {
         format!("subgraph {id}")
     }
+}
+
+/// Render a mermaid subgraph header whose title carries a marker suffix (the
+/// role marker a roles map states for this unit path). Like
+/// `mermaid_node_marked`, the id stays the bare form and the marker reaches
+/// only the visible title — unmarked units keep exactly what
+/// `mermaid_subgraph` emits, marker bytes included.
+pub fn mermaid_subgraph_marked(name: &str, marker: &str) -> String {
+    format!(
+        "subgraph {}[\"{}{}\"]",
+        mermaid_id(name),
+        quoted_escape(name),
+        marker
+    )
 }
 
 /// Render a mermaid edge referencing escaped ids only.
@@ -109,6 +132,25 @@ pub fn plantuml_component(name: &str) -> String {
     format!("component {name}")
 }
 
+/// Render a plantuml component declaration with a quoted, escaped name, for
+/// names carrying characters plantuml cannot parse as bare identifiers
+/// (`::`, `.`, `/`), mirroring the lossless quoting of `plantuml_entity`.
+pub fn plantuml_quoted_component(name: &str) -> String {
+    format!("component \"{}\"", quoted_escape(name))
+}
+
+/// Render a plantuml component declaration carrying a stereotype marker
+/// (the role a roles map states for this model path). The quoted name stays
+/// the component's identity — edges quoting the raw name keep binding to the
+/// declared component — so the marker reaches the rendered stereotype and
+/// never rewrites the endpoint grammar.
+pub fn plantuml_quoted_component_marked(name: &str, stereotype: &str) -> String {
+    format!(
+        "component \"{}\" <<{stereotype}>>",
+        quoted_escape(name)
+    )
+}
+
 /// Render a plantuml entity declaration with a quoted, escaped name.
 pub fn plantuml_entity(name: &str) -> String {
     format!("entity \"{}\"", quoted_escape(name))
@@ -133,6 +175,16 @@ pub fn plantuml_violation_edge(from: &str, to: &str, label: &str) -> String {
     format!("{from} -[#red]-> {to} : {label}")
 }
 
+/// Render a plantuml component declaration carrying a stereotype marker on a
+/// BARE identifier (the role a roles map states for this model path, in the
+/// views that declare components bare — `diagram --source scan`). The edges
+/// reference the same bare identifier, so the stereotype never rewrites the
+/// endpoint grammar: a node the roles map leaves unaddressed keeps exactly
+/// what `plantuml_component` emits.
+pub fn plantuml_component_marked(name: &str, stereotype: &str) -> String {
+    format!("component {name} <<{stereotype}>>")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,8 +198,8 @@ mod tests {
     #[test]
     fn mermaid_node_quotes_and_escapes_renderer_hostile_ids() {
         assert_eq!(
-            mermaid_node("HomeBudget.Api"),
-            "HomeBudget_Api_42a5bcc9[\"HomeBudget.Api\"]"
+            mermaid_node("Shop.Api"),
+            "Shop_Api_9243f63f[\"Shop.Api\"]"
         );
         assert_eq!(
             mermaid_node("std::collections::Queue"),
@@ -204,6 +256,58 @@ mod tests {
         );
     }
 
+    /// Role markers (roles US 06): the marker reaches the quoted label only —
+    /// ids and edge grammar are the unmarked render's ids, so every reference
+    /// keeps binding and an unmarked declaration's bytes never move.
+    #[test]
+    fn mermaid_markers_append_the_role_text_to_the_label() {
+        assert_eq!(
+            mermaid_node_marked("kit", " [facade]"),
+            "kit[\"kit [facade]\"]"
+        );
+        assert_eq!(
+            mermaid_node_marked("kit-bin::main", " [composition]"),
+            "kit_bin__main_edf44f3e[\"kit-bin::main [composition]\"]"
+        );
+        assert_eq!(
+            mermaid_subgraph_marked("kit", " [facade]"),
+            "subgraph kit[\"kit [facade]\"]"
+        );
+        assert_eq!(
+            mermaid_subgraph_marked("example.com/demo", " [composition]"),
+            "subgraph example_com_demo_e32e1841[\"example.com/demo [composition]\"]"
+        );
+    }
+
+    /// The plantuml marker is a stereotype on the declaration: the quoted
+    /// name stays the identity edges reference.
+    #[test]
+    fn plantuml_markers_are_stereotypes_on_the_declaration() {
+        assert_eq!(
+            plantuml_quoted_component_marked("App::Api", "composition"),
+            "component \"App::Api\" <<composition>>"
+        );
+        assert_eq!(
+            plantuml_quoted_component_marked("kit", "facade"),
+            "component \"kit\" <<facade>>"
+        );
+    }
+
+    /// The bare-identifier twin of the quoted marker (roles-views US 01):
+    /// views declaring bare names put the stereotype on the same identifier
+    /// their edges reference, so identity grammar is unchanged.
+    #[test]
+    fn plantuml_bare_component_markers_keep_identifier_identity() {
+        assert_eq!(
+            plantuml_component_marked("Shop.Api", "composition"),
+            "component Shop.Api <<composition>>"
+        );
+        assert_eq!(
+            plantuml_component_marked("kit", "facade"),
+            "component kit <<facade>>"
+        );
+    }
+
     #[test]
     fn mermaid_edges_reference_escaped_ids() {
         assert_eq!(mermaid_edge("my-mod", "core"), "my_mod_f59bd035 --> core");
@@ -213,8 +317,8 @@ mod tests {
         );
         assert_eq!(mermaid_layout_link("my-mod", "core"), "my_mod_f59bd035 ~~~ core");
         assert_eq!(
-            mermaid_edge("src/a.rs", "HomeBudget.Api"),
-            "src_a_rs_d1e1ab14 --> HomeBudget_Api_42a5bcc9"
+            mermaid_edge("src/a.rs", "Shop.Api"),
+            "src_a_rs_d1e1ab14 --> Shop_Api_9243f63f"
         );
         assert_eq!(mermaid_edge("A.B", "A_B"), "A_B_fa73d919 --> A_B");
     }
@@ -222,6 +326,10 @@ mod tests {
     #[test]
     fn plantuml_primitives_keep_identifier_styles() {
         assert_eq!(plantuml_component("cli"), "component cli");
+        assert_eq!(
+            plantuml_quoted_component("a::b"),
+            "component \"a::b\""
+        );
         assert_eq!(plantuml_entity("src/a.rs"), "entity \"src/a.rs\"");
         assert_eq!(plantuml_edge("a", "b"), "a --> b");
         assert_eq!(plantuml_quoted_edge("a", "b"), "\"a\" --> \"b\"");

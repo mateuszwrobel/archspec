@@ -26,7 +26,10 @@ matches = { units = ["Shared*"] }
 /// Two crates where billing depends on auth; the spec matches exactly.
 fn rust_pair_fixture() -> Fixture {
     let fixture = Fixture::new();
-    fixture.write("Cargo.toml", "[workspace]\nmembers = [\"crates/auth\", \"crates/billing\"]\n");
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/auth\", \"crates/billing\"]\n",
+    );
     fixture.write(
         "crates/auth/Cargo.toml",
         "[package]\nname = \"auth\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -81,8 +84,16 @@ fn diagram_check_passes_when_artefact_matches() {
 
     let check = fixture.run(&["diagram", "--check", "--output", "out.mmd"]);
     assert_eq!(check.status.code(), Some(0), "{}", stderr(&check));
-    assert!(stdout(&check).is_empty(), "stdout empty on fresh check");
-    assert_eq!(fixture.read("out.mmd"), before, "check must not touch a fresh file");
+    assert_eq!(
+        stdout(&check),
+        "ok: out.mmd up to date\n",
+        "green check prints exactly the ok-line"
+    );
+    assert_eq!(
+        fixture.read("out.mmd"),
+        before,
+        "check must not touch a fresh file"
+    );
 }
 
 #[test]
@@ -96,7 +107,11 @@ fn diagram_check_fails_when_artefact_differs_and_writes_nothing() {
     assert!(err.contains("differs from generated output"), "{err}");
     assert!(err.contains("out.mmd"), "{err}");
     assert!(err.contains("archspec diagram"), "{err}");
-    assert_eq!(fixture.read("out.mmd"), "STALE ON PURPOSE\n", "check must not overwrite");
+    assert_eq!(
+        fixture.read("out.mmd"),
+        "STALE ON PURPOSE\n",
+        "check must not overwrite"
+    );
 }
 
 #[test]
@@ -105,7 +120,10 @@ fn diagram_check_fails_when_artefact_missing_and_creates_nothing() {
     let check = fixture.run(&["diagram", "--check", "--output", "missing.mmd"]);
     assert_ne!(check.status.code(), Some(0), "missing must fail");
     assert!(stderr(&check).contains("is missing"), "{}", stderr(&check));
-    assert!(!fixture.path("missing.mmd").exists(), "check must not create the file");
+    assert!(
+        !fixture.path("missing.mmd").exists(),
+        "check must not create the file"
+    );
 }
 
 #[test]
@@ -130,7 +148,11 @@ fn scan_check_passes_when_artefact_matches() {
 
     let check = fixture.run(&["scan", "--check", "--output", "model.json"]);
     assert_eq!(check.status.code(), Some(0), "{}", stderr(&check));
-    assert!(stdout(&check).is_empty(), "stdout empty on fresh check");
+    assert_eq!(
+        stdout(&check),
+        "ok: model.json up to date\n",
+        "green check prints exactly the ok-line"
+    );
 }
 
 #[test]
@@ -156,7 +178,11 @@ fn report_check_passes_when_artefact_matches() {
 
     let check = fixture.run(&["report", "--check", "--output", "report.md"]);
     assert_eq!(check.status.code(), Some(0), "{}", stderr(&check));
-    assert!(stdout(&check).is_empty(), "stdout empty on fresh check");
+    assert_eq!(
+        stdout(&check),
+        "ok: report.md up to date\n",
+        "green check prints exactly the ok-line"
+    );
 }
 
 #[test]
@@ -165,8 +191,16 @@ fn report_check_fails_when_artefact_differs() {
     write_then_corrupt(&fixture, &["report"], "report.md");
     let check = fixture.run(&["report", "--check", "--output", "report.md"]);
     assert_ne!(check.status.code(), Some(0));
-    assert!(stderr(&check).contains("differs from generated output"), "{}", stderr(&check));
-    assert_eq!(fixture.read("report.md"), "STALE ON PURPOSE\n", "check must not overwrite");
+    assert!(
+        stderr(&check).contains("differs from generated output"),
+        "{}",
+        stderr(&check)
+    );
+    assert_eq!(
+        fixture.read("report.md"),
+        "STALE ON PURPOSE\n",
+        "check must not overwrite"
+    );
 }
 
 #[test]
@@ -199,7 +233,11 @@ fn inspect_check_fails_when_artefact_differs() {
     write_then_corrupt(&fixture, &["inspect"], "inspect.mmd");
     let check = fixture.run(&["inspect", "--check", "--output", "inspect.mmd"]);
     assert_ne!(check.status.code(), Some(0));
-    assert!(stderr(&check).contains("differs from generated output"), "{}", stderr(&check));
+    assert!(
+        stderr(&check).contains("differs from generated output"),
+        "{}",
+        stderr(&check)
+    );
 }
 
 #[test]
@@ -224,7 +262,11 @@ fn depgraph_check_passes_when_artefact_matches() {
 
     let check = fixture.run(&["depgraph", "modules", "--check", "--output", "graph.mmd"]);
     assert_eq!(check.status.code(), Some(0), "{}", stderr(&check));
-    assert!(stdout(&check).is_empty(), "stdout empty on fresh check");
+    assert_eq!(
+        stdout(&check),
+        "ok: graph.mmd up to date\n",
+        "green check prints exactly the ok-line"
+    );
 }
 
 #[test]
@@ -233,7 +275,11 @@ fn depgraph_check_fails_when_artefact_differs() {
     write_then_corrupt(&fixture, &["depgraph", "modules"], "graph.mmd");
     let check = fixture.run(&["depgraph", "modules", "--check", "--output", "graph.mmd"]);
     assert_ne!(check.status.code(), Some(0));
-    assert!(stderr(&check).contains("differs from generated output"), "{}", stderr(&check));
+    assert!(
+        stderr(&check).contains("differs from generated output"),
+        "{}",
+        stderr(&check)
+    );
 }
 
 #[test]
@@ -257,6 +303,9 @@ fn every_output_command_documents_check_flag() {
         let help = fixture.run(&[cmd, "--help"]);
         assert_eq!(help.status.code(), Some(0), "{} help must exit 0", cmd);
         let out = stdout(&help);
-        assert!(out.contains("--check"), "{cmd} --help must document --check:\n{out}");
+        assert!(
+            out.contains("--check"),
+            "{cmd} --help must document --check:\n{out}"
+        );
     }
 }

@@ -13,7 +13,7 @@ Running `report` on a fixture project with a valid `architecture.spec.toml` writ
 | 1 | project with a valid spec; sources match the spec exactly | run `report` | exit 0; stdout report with metrics and a no-violations statement |
 | 2 | project with a valid spec; sources match the spec exactly | run `report --format markdown` | exit 0; Markdown report on stdout with the same metrics and diff content as the text run |
 | 3 | project with a forbidden edge present in the code | run `report` | exit non-zero; report lists the forbidden edge and counts it under violations by category |
-| 4 | project with a forbidden edge present in the code | run `report --output report.md` | exit non-zero; `report.md` contains the report; stdout empty |
+| 4 | project with a forbidden edge present in the code | run `report --output report.md` | exit non-zero; `report.md` contains the report; stdout is `wrote report.md` |
 
 ## Exit code
 
@@ -36,10 +36,10 @@ Running `report` on a fixture project with a valid `architecture.spec.toml` writ
 | 9 | project where a declared component has no matching units | run `report` | exit non-zero; report lists the missing component |
 | 10 | project with a unit not covered by any declared component | run `report` | exit non-zero; report lists the unassigned unit |
 | 11 | project with a cycle among components | run `report` | exit non-zero; report shows the cycle detected and counts it under violations by category |
-| 22 | spec declares module boundaries over a single crate; the source satisfies it | run `report` | exit 0; `components` counts the declared module boundaries (not 1); `edges` reflects the module edges |
-| 23 | spec declares module boundaries; the source has an edge whose endpoint is the crate root | run `report` | exit 0; the edge is counted (not silently dropped); `edges_internal`/`edges_external` sum to the extracted module edges |
-| 24 | single-crate project with two modules `a` and `b` each declared as its own boundary; `a -> b` edge exists | run `report` | exit 0; the `a -> b` edge is counted as INTERNAL (both endpoints are in the same unit/crate), not external — internal/external is keyed on the owning unit, not on boundary-declaration granularity |
-| 25 | single-crate project with internal module edges and N true external crates | run `report` | exit 0; `edges_internal` counts the unit-internal edges; `edges_external` reflects the true external-crate edges, and the two are distinguishable (not conflated) |
+| 22 | spec declares module boundaries over a single crate; the source satisfies it | run `report` | exit 0; `components` counts the declared module boundaries (not 1); `edges (internal)` counts each distinct dependency pair at unit tier |
+| 23 | spec declares module boundaries; the source has an edge whose endpoint is the crate root | run `report` | exit 0; a module edge whose endpoints share one unit projects onto a unit self-pair and adds nothing to the internal pair count — never external, never dropped from the model or module views |
+| 24 | single-crate project with two modules `a` and `b` each declared as its own boundary; `a -> b` edge exists | run `report` | exit 0; the unit-internal `a -> b` edge adds nothing to the internal pair count and must NOT surface as external — internal/external is keyed on the owning unit, not on boundary-declaration granularity |
+| 25 | single-crate project with internal module edges and N true external crates | run `report` | exit 0; `edges_internal` is the unit-tier pair count (unit-internal module edges add nothing); `edges_external` reflects the true external-crate edges, and the two are distinguishable (not conflated) |
 | 36 | project with a vacuous constraint (empty effective domain) | run `report` | exit 0; report lists the vacuous constraint line as content |
 | 37 | project with a dead reference (`allowed.depend_on` target names no declared module) | run `report` | exit 0; report lists the dead reference line as content |
 
@@ -61,11 +61,17 @@ Running `report` on a fixture project with a valid `architecture.spec.toml` writ
 | 40 | project with a warnings-only diff | run `report --format json` | exit 0; the findings carry `severity: "warning"` |
 | 41 | rust, csharp, and go projects with a violation each | run `report --format json` on all three | each parses as JSON with populated findings and the identical schema — no driver-specific shape |
 
+## Roles
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 42 | canonical probe tree per language whose scan derives roles (rust: `facade` roots; c#: `composition` entrypoint root; go: `composition` main-package unit) | run `report` (text) then `report --format json` | text output carries a `Roles` section with one row per populated closed-vocabulary group (`facades: <paths>` / `composition roots: <paths>`, no row for an empty group); the json output's `roles` object equals the scan model's roles map key for key — a restatement, not a second derivation |
+
 ## Config default destination
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 30 | project with valid spec and `archspec.toml` with `[output] report = "docs/archspec/report.md"` | run `report` | exit 0; report written to `docs/archspec/report.md`; stdout empty |
+| 30 | project with valid spec and `archspec.toml` with `[output] report = "docs/archspec/report.md"` | run `report` | exit 0; report written to `docs/archspec/report.md`; stdout is `wrote docs/archspec/report.md` |
 | 31 | project with valid spec and a config default set | run `report --output custom.md` | exit 0; report written to `custom.md`; the configured path is not created |
 | 32 | project with a malformed `archspec.toml` | run `report` | non-zero exit; message names the config file; no report written |
 
@@ -88,6 +94,6 @@ Running `report` on a fixture project with a valid `architecture.spec.toml` writ
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 33 | `--output` destination already holds the generated report | run `report --output <f> --check` | exit 0; file untouched; stdout empty |
+| 33 | `--output` destination already holds the generated report | run `report --output <f> --check` | exit 0; file untouched; stdout is `ok: <f> up to date` |
 | 34 | `--output` destination differs from the generated report | run `report --output <f> --check` | non-zero exit; message says it differs and names the regenerate command; file untouched |
 | 35 | no `[output] report` configured and no `--output` | run `report --check` | non-zero exit; message says `--check` requires an output destination |

@@ -1,7 +1,7 @@
-use crate::archspec::model::{Model, Unit};
+use crate::archspec::model::{Model, Role, Unit};
 use rust_arch_test_kit::render::{
-    mermaid_edge, mermaid_labeled_edge, mermaid_node, mermaid_subgraph, plantuml_component,
-    plantuml_edge, plantuml_violation_edge,
+    mermaid_edge, mermaid_labeled_edge, mermaid_node, mermaid_node_marked, mermaid_subgraph,
+    plantuml_component, plantuml_component_marked, plantuml_edge, plantuml_violation_edge,
 };
 use crate::archspec::spec::{Module, Spec, Stereotype};
 use std::collections::{BTreeMap, BTreeSet};
@@ -293,13 +293,33 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     row[text.len()]
 }
 
+/// The role a scan-sourced node carries (roles-views US 01): the node is
+/// marked iff the model's `roles` map holds a key equal to the node's name
+/// under the `.`/`::` separator equivalence `depgraph::parent_matches` uses
+/// (rust keys at `kit`, c# at `Shop::Api`, the node stands for unit
+/// `Shop.Api`). Exact identity — no subtree containment, no fold — so a node
+/// the map does not address keeps its exact unmarked bytes, and presentation
+/// stays a pure lookup like `inspect structural`'s marker.
+fn scan_role_marker(model: &Model, name: &str) -> Option<Role> {
+    let normalized = name.replace("::", ".");
+    model
+        .roles
+        .iter()
+        .find(|(key, _)| key.replace("::", ".") == normalized)
+        .map(|(_, role)| *role)
+}
+
 pub fn render_scan_mermaid(model: &Model, governing: Option<&Spec>) -> String {
     let graph = build_scan_graph(model, governing);
     let mut out = String::from("graph TD\n");
     if !graph.project_nodes.is_empty() {
         let _ = writeln!(out, "  subgraph project");
         for node in &graph.project_nodes {
-            let _ = writeln!(out, "    {}", mermaid_node(node));
+            let line = match scan_role_marker(model, node) {
+                Some(role) => mermaid_node_marked(node, &format!(" [{}]", role.as_str())),
+                None => mermaid_node(node),
+            };
+            let _ = writeln!(out, "    {line}");
         }
         for (from, to) in &graph.edges {
             let _ = writeln!(out, "    {}", mermaid_edge(from, to));
@@ -316,7 +336,11 @@ pub fn render_scan_mermaid(model: &Model, governing: Option<&Spec>) -> String {
     if !graph.external_nodes.is_empty() {
         let _ = writeln!(out, "  subgraph external");
         for node in &graph.external_nodes {
-            let _ = writeln!(out, "    {}", mermaid_node(node));
+            let line = match scan_role_marker(model, node) {
+                Some(role) => mermaid_node_marked(node, &format!(" [{}]", role.as_str())),
+                None => mermaid_node(node),
+            };
+            let _ = writeln!(out, "    {line}");
         }
         let _ = writeln!(out, "  end");
         for (from, to) in &graph.external_edges {
@@ -332,7 +356,11 @@ pub fn render_scan_plantuml(model: &Model, governing: Option<&Spec>) -> String {
     if !graph.project_nodes.is_empty() {
         let _ = writeln!(out, "package project {{");
         for node in &graph.project_nodes {
-            let _ = writeln!(out, "  {}", plantuml_component(node));
+            let line = match scan_role_marker(model, node) {
+                Some(role) => plantuml_component_marked(node, role.as_str()),
+                None => plantuml_component(node),
+            };
+            let _ = writeln!(out, "  {line}");
         }
         for (from, to) in &graph.edges {
             let _ = writeln!(out, "{}", plantuml_edge(from, to));
@@ -349,7 +377,11 @@ pub fn render_scan_plantuml(model: &Model, governing: Option<&Spec>) -> String {
     if !graph.external_nodes.is_empty() {
         let _ = writeln!(out, "package external {{");
         for node in &graph.external_nodes {
-            let _ = writeln!(out, "  {}", plantuml_component(node));
+            let line = match scan_role_marker(model, node) {
+                Some(role) => plantuml_component_marked(node, role.as_str()),
+                None => plantuml_component(node),
+            };
+            let _ = writeln!(out, "  {line}");
         }
         let _ = writeln!(out, "}}");
         for (from, to) in &graph.external_edges {

@@ -85,12 +85,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu, aarch64-unknown-linux-musl
-      - run: sudo apt-get update && sudo apt-get install -y dpkg-dev libarchive-tools zstd
+      - run: sudo apt-get update && sudo apt-get install -y dpkg-dev libarchive-tools zstd musl-tools
       - run: cargo build --release --target aarch64-unknown-linux-gnu
       # The Arch package carries a static binary: Arch gives no guarantee about
       # the glibc a package will run against, and there is no dependency list to
       # record for a glibc build that would hold on both Arch and Arch Linux ARM.
+      # The tree-sitter grammars build C through cc-rs, which treats any target
+      # triple differing from the host triple as cross-compiled — on native arm64
+      # hardware too — and demands aarch64-linux-musl-gcc for it, a binary no
+      # Ubuntu package ships (musl-tools included; cc-rs auto-discovers it for
+      # x86_64-musl only). CC_<target> overrides that lookup and points cc-rs at
+      # musl-gcc, the same compiler the x86_64 job's musl build uses. The linker
+      # stays rustc's default: the musl target ships its own self-contained crt
+      # objects and libc.a, as the green x86_64 musl build already demonstrates.
       - run: cargo build --release --target aarch64-unknown-linux-musl
+        env:
+          CC_aarch64_unknown_linux_musl: musl-gcc
       - name: Package tarball
         run: |
           set -euo pipefail

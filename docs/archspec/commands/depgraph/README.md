@@ -21,6 +21,8 @@ A regenerated doc therefore legitimately differs from an old one in node list an
 | API usage by target | `depgraph api-usage` | Markdown table |
 | one module's submodules | `depgraph submodules --parent <m>` | Mermaid (or PlantUML) graph |
 
+The `modules` and `submodules` graphs mark the role carriers their projection names — the ` [facade]` / ` [composition]` label suffix or `<<facade>>` / `<<composition>>` stereotype, silent where a fold mixes roles (`output.md`, *Role markers*). `api-usage` carries no role column by decision: a role is not a usage fact.
+
 ## Quick usage
 
 ```bash
@@ -40,19 +42,24 @@ Every view projects the model's **module tier** (soft module paths and module
 edges) and nothing language-specific beyond it. rust and csharp always populate
 it (modules / namespaces), so both render today. A Go tree renders exactly when
 its scanned model carries the tier: a `go.work` workspace with several member
-modules does (members are the modules, their packages the members), and every
-view renders it. A single-`go.mod` tree carries no tier in the model and is
-refused on every view with this exact sentence:
+modules does (members are the modules, their packages the members), and a
+single-`go.mod` tree does whenever its packages reference each other (the
+grammar derives the tier from those references). Where such a tree's packages
+all sit under the one module path, the modules view renders their **package
+graph** rather than the single folded node that projection would otherwise be
+(the trivial-fold rule in `output.md`). A tree whose model records no
+package reference is refused on every view with this exact sentence:
 
-> depgraph needs the module tier, which this model has none of; a Go tree acquires one through go.work members (2+)
+> depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of
 
 The guard keys on the model's module tier, not the detected language — so rust
 and csharp runs are untouched, and a tier-carrying Go tree clears the guard and
 renders automatically, with no change to `depgraph`. Note the asymmetry the
 sentence hints at: `depgraph` scans only and never reads a spec, so for THIS
-command only the native derivation (go.work members) ever renders; the
-spec-declared derivation gives `verify` and `update` their tier (the
-derivation needs the spec) but leaves `depgraph` on the refusal path.
+command only the native derivation (workspace members, or the tree's package
+references) ever renders; the spec-declared derivation gives `verify` and
+`update` their tier (the derivation needs the spec) but leaves `depgraph` on
+the refusal path for trees that carry none.
 
 ## Design documents
 

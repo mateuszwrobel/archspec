@@ -11,7 +11,8 @@ print the architecture.spec.toml JSON schema (--schema) or annotated reference
   --schema   print a JSON Schema (draft-07) for architecture.spec.toml to stdout
 
 # architecture.spec.toml — annotated reference
-# Boundaries and relations, not tree shape. See docs/archspec/spec.md.
+# Boundaries and relations, not tree shape. Matching rules: archspec help glob.
+# Constraint keys and severity defaults: archspec help constraints.
 
 [project]
 language = \"rust\"   # rust | csharp | go
@@ -19,12 +20,13 @@ language = \"rust\"   # rust | csharp | go
 [[module]]
 name = \"domain\"                                   # required
 matches = { units = [\"core\"], modules = [\"Billing::domain\"] }
-# a trailing '*' in matches.modules claims a path prefix (grouping): \"Billing::domain::*\"
-# folds every submodule under one boundary; overlaps resolve by specificity, ties fail
+# a named module claims its WHOLE subtree: \"Billing::domain\" already folds every
+# submodule under one boundary, no '*' needed; \"Billing::domain::*\" states that
+# same claim as a pinned path prefix; overlaps resolve by specificity, ties fail
 contract = { forbid = [\"entity\"] }                 # expose is reserved: declaring it is a schema error
 [module.allowed]
-depend_on = [\"domain\", \"ports\"]
-forbidden = [\"infrastructure\"]
+depend_on = [\"domain\", \"ports\"]                   # DECLARED module names — exact, not globs
+forbidden = [\"infrastructure\"]                    # same: declared names, never globs
 
 [module.submodules]                                 # recurses: same shape as [[module]]
 name = \"domain::entities\"
@@ -41,7 +43,7 @@ allowed = [\"domain\"]
 
 [[constraint]]
 type = \"forbid_external_crates\"
-from = [\"app::ui\"]
+from = [\"app::ui\"]                              # model-path globs, case-sensitive — not module names
 forbid = [\"serde\"]
 
 [[constraint]]

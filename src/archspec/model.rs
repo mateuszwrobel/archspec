@@ -80,19 +80,49 @@ pub struct Model {
     /// (fail closed): a module is only excluded when proven test-gated.
     #[serde(skip)]
     pub test_gated_modules: BTreeSet<String>,
-    /// Internal: unit crate names whose crate-root file DEFINES NOTHING —
-    /// only `mod` declarations and `use`/`pub use` re-exports (a `#[cfg(test)]`
-    /// definition does not count; tests are not production surface). Such a
-    /// root is a publication-only facade, so `verify` rejects internal→root
-    /// edges in that unit: routing through the umbrella launders any ban
-    /// (`facade dependency` violations). Kept off the serialized model (JSON
-    /// shape unchanged), like `unresolved_module_files`: only `verify` needs
-    /// it and it reads the model straight from its own scan. A unit absent
-    /// from the set is inactive — its root defines items, or the driver
-    /// (csharp/go) does not implement the fact — so no existing model or
-    /// language gains new findings from its absence.
-    #[serde(skip)]
-    pub facade_roots: BTreeSet<String>,
+    /// Structural roles the driver derives from its own facts, keyed by model
+    /// path with values from the closed vocabulary `Role` (`facade`,
+    /// `composition`). A publication-only crate root carries `facade` at its
+    /// unit path; a composition root (rust: a bin unit's wiring `main` root)
+    /// carries `composition` at that module path. A path with no derivable
+    /// role — or a driver that derives no role at all — carries no entry, and
+    /// the key itself is absent from JSON when the map is empty: absence means
+    /// "no role stated", never "role denied". `verify`'s `facade dependency`
+    /// rule and the role-aware consumers read this map; it replaces the
+    /// serde-skipped in-house `facade_roots` field.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub roles: BTreeMap<String, Role>,
+}
+
+/// The closed structural-role vocabulary of the model's `roles` map (ADR-017
+/// territory: exactly two roles — richer taxonomies were rejected because no
+/// rule consumes them). Serialization is lowercase (`facade`, `composition`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    /// The addressed module is a publication-only facade: its root file
+    /// defines nothing but declarations and re-exports, so internal→root
+    /// edges through it launder bans (`verify`'s `facade dependency` rule).
+    Facade,
+    /// The addressed module is a composition root: its own file wires other
+    /// modules together (a `main` root importing the modules it glues), the
+    /// sanctioned place where cross-part wiring lives.
+    Composition,
+}
+
+impl Role {
+    /// The closed-vocabulary word for this role — the same lowercase text the
+    /// serialized model uses, and the text the report's Roles section and the
+    /// inspect markers print (US 06: a role nobody sees in output reproduces
+    /// the "why is this node special" mystery). Presentation layers format
+    /// the syntax around it (` [facade]` labels, `<<facade>>` stereotypes);
+    /// the word itself has exactly one source.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::Facade => "facade",
+            Role::Composition => "composition",
+        }
+    }
 }
 
 /// Root-manifest facts for `manifest_integrity`. `publish` is `Some(true)` when
@@ -200,7 +230,84 @@ impl Model {
         serde_json::to_string(self).map_err(|err| format!("failed to serialize model: {err}"))
     }
 
+    /// The same facts indented for readers and diffs (`--pretty`, blind4
+    /// D03): a different layout of one model, never a different model.
+    pub fn to_json_pretty(&self) -> Result<String, String> {
+        serde_json::to_string_pretty(self).map_err(|err| format!("failed to serialize model: {err}"))
+    }
+
     pub fn from_json(json: &str) -> Result<Model, String> {
         serde_json::from_str(json).map_err(|err| format!("failed to deserialize model: {err}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_model() -> Model {
+        Model {
+            schema_version: 1,
+            language: "rust".to_string(),
+            units: Vec::new(),
+            edges: Vec::new(),
+            usage: Default::default(),
+            soft_structure: Default::default(),
+            external: Vec::new(),
+            module_edges: Vec::new(),
+            manifest: None,
+            root_public_exports: Default::default(),
+            root_glob_exports: Default::default(),
+            root_empty_glob_exports: Default::default(),
+            module_external: Default::default(),
+            root_module_declarations: Default::default(),
+            unit_manifests: Default::default(),
+            unresolved_module_files: Default::default(),
+            test_gated_modules: Default::default(),
+            roles: Default::default(),
+        }
+    }
+
+    /// The roles map is a serialized model fact: model path -> closed-vocabulary
+    /// role, serialized with lowercase values and restored exactly by a
+    /// round-trip.
+    #[test]
+    fn roles_map_serde_round_trip_pins_the_serialized_shape() {
+        let mut model = empty_model();
+        model.roles.insert("app".to_string(), Role::Facade);
+        model.roles.insert("app-bin::main".to_string(), Role::Composition);
+        let json = model.to_json().expect("model serializes");
+        assert!(
+            json.contains("\"roles\":{\"app\":\"facade\",\"app-bin::main\":\"composition\"}"),
+            "roles must serialize as the last model key with lowercase values:\n{json}"
+        );
+        let back = Model::from_json(&json).expect("model deserializes");
+        assert_eq!(model, back);
+    }
+
+    /// Absence means "no role stated", never "role denied": an empty map emits
+    /// no `roles` key at all (the pre-roles JSON shape is untouched), and JSON
+    /// without the key loads as an empty map.
+    #[test]
+    fn empty_roles_emits_no_key_and_absent_key_loads_empty() {
+        let json = empty_model().to_json().expect("model serializes");
+        assert!(!json.contains("\"roles\""), "no role => no key:\n{json}");
+        let back = Model::from_json(
+            r#"{"schema_version":1,"language":"rust","units":[],"edges":[]}"#,
+        )
+        .expect("a roles-less model still loads");
+        assert!(back.roles.is_empty());
+    }
+
+    /// The vocabulary words `as_str` hands to the report and inspect surfaces
+    /// are exactly the serialized values — the prose can never drift from the
+    /// model JSON it states (roles US 06).
+    #[test]
+    fn role_as_str_matches_the_serialized_vocabulary() {
+        for (role, word) in [(Role::Facade, "facade"), (Role::Composition, "composition")] {
+            assert_eq!(role.as_str(), word);
+            let json = serde_json::to_string(&role).expect("role serializes");
+            assert_eq!(json, format!("\"{word}\""));
+        }
     }
 }

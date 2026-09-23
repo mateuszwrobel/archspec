@@ -5,11 +5,12 @@
 // ordering); only the markup differs. Everything is sorted/canonical so output
 // is byte-stable across runs (report/output.md determinism).
 
-use crate::archspec::model::Model;
+use crate::archspec::model::{Model, Role};
 use crate::archspec::spec::Module;
 use crate::archspec::verify::compare::{self, Diff, Mapping};
 use serde::Serialize;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 /// Model-derived metrics plus per-category violation counts. Metrics are read
 /// straight off the extracted model and the mapping — no scoring, no extra
@@ -22,8 +23,9 @@ pub struct Metrics {
     pub components: usize,
     /// Extracted units (hard boundaries).
     pub units: usize,
-    /// Production edges internal to the project (unit→unit plus unit-internal
-    /// module edges).
+    /// Distinct internal dependency pairs at unit tier: the production
+    /// unit→unit edges set-unioned with module edges projected onto their
+    /// endpoint units — each internal dependency counted exactly once.
     pub edges_internal: usize,
     /// External dependency edges (unit→external targets).
     pub edges_external: usize,
@@ -52,10 +54,11 @@ impl Metrics {
 
 /// Compute metrics from the extracted model and the diff. The mapping is
 /// augmented with the soft (module) tier so declared module boundaries count as
-/// components. Edge metrics mirror the model's scan tiers verbatim: internal is
-/// the production unit→unit tier plus unit-internal module edges; external is
-/// the unit→external tier. Module-level external uses remain in their own tier
-/// and are not folded into the external edge count.
+/// components. Internal is the pair union: the production unit→unit edges
+/// set-unioned with every module edge projected onto its endpoint units, each
+/// internal dependency counted exactly once (self-pairs and test-gated pairs
+/// dropped); external is the unit→external tier. Module-level external uses
+/// remain in their own tier and are not folded into the external edge count.
 pub fn compute_metrics(model: &Model, mapping: &Mapping, modules: &[Module], diff: &Diff) -> Metrics {
     let augmented = compare::augment_with_modules(mapping, model, modules);
     let components =
@@ -184,8 +187,14 @@ fn diff_items(diff: &Diff) -> Vec<(Cow<'static, str>, String)> {
 
 /// Plain-text report (report/output.md example format). Every report contains
 /// header, metrics, diff, and summary; the category table only appears when
-/// there are violations.
-pub fn render_text(language: &str, metrics: &Metrics, diff: &Diff) -> String {
+/// there are violations, and the roles section only where the model states
+/// roles (roles US 06 — absence prints no section noise).
+pub fn render_text(
+    language: &str,
+    metrics: &Metrics,
+    diff: &Diff,
+    roles: &BTreeMap<String, Role>,
+) -> String {
     let mut out = String::new();
     out.push_str("Architecture report\n");
     out.push_str(&"=".repeat("Architecture report".len()));
@@ -201,6 +210,16 @@ pub fn render_text(language: &str, metrics: &Metrics, diff: &Diff) -> String {
         out.push_str(&format!("{:<20} {value}\n", format!("{label}:")));
     }
     out.push('\n');
+
+    if !roles.is_empty() {
+        out.push_str("Roles\n");
+        out.push_str(&"-".repeat("Roles".len()));
+        out.push('\n');
+        for (label, paths) in role_rows(roles) {
+            out.push_str(&format!("{label}: {paths}\n"));
+        }
+        out.push('\n');
+    }
 
     if metrics.total() > 0 {
         out.push_str("Violations by category\n");
@@ -239,6 +258,7 @@ pub fn render_markdown(
     language: &str,
     metrics: &Metrics,
     diff: &Diff,
+    roles: &BTreeMap<String, Role>,
     diagram: Option<&str>,
 ) -> String {
     let mut out = String::new();
@@ -254,6 +274,16 @@ pub fn render_markdown(
         out.push_str(&format!("| {name} | {value} |\n"));
     }
     out.push('\n');
+
+    if !roles.is_empty() {
+        out.push_str("## Roles\n\n");
+        out.push_str("| Role | Model paths |\n");
+        out.push_str("|---|---|\n");
+        for (name, paths) in role_rows(roles) {
+            out.push_str(&format!("| {name} | {paths} |\n"));
+        }
+        out.push('\n');
+    }
 
     if metrics.total() > 0 {
         out.push_str("## Violations by category\n\n");
@@ -326,16 +356,28 @@ pub fn render_markdown(
 /// `help diagnostics` catalog); `metrics` is informational and mirrors the scan
 /// model tiers. The canonical model JSON stays `scan`'s output — the report
 /// JSON embeds no second model encoding (workplan_report_json_format decisions).
-pub fn render_json(language: &str, metrics: &Metrics, diff: &Diff) -> String {
+/// The one stated exception is `roles`: not a second model but the model's
+/// role facts restated verbatim (model path → role, sorted), present only when
+/// the roles map has entries — the same skip-when-empty contract the model
+/// JSON honors (roles US 06).
+pub fn render_json(
+    language: &str,
+    metrics: &Metrics,
+    diff: &Diff,
+    roles: &BTreeMap<String, Role>,
+) -> String {
     #[derive(Serialize)]
     struct ReportJson<'a> {
         language: &'a str,
         metrics: &'a Metrics,
+        #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+        roles: &'a BTreeMap<String, Role>,
         findings: Vec<Finding>,
     }
     let report = ReportJson {
         language,
         metrics,
+        roles,
         findings: findings(diff),
     };
     format!("{}\n", serde_json::to_string_pretty(&report).expect("report serializes"))
@@ -361,6 +403,33 @@ fn category_rows(metrics: &Metrics) -> Vec<(&'static str, usize)> {
         ("contracts", metrics.violations_contracts),
         ("cycles", metrics.violations_cycles),
     ]
+}
+
+/// Role rows in closed-vocabulary order: `facades` then `composition roots`,
+/// each listing its model paths sorted (the `BTreeMap` iteration order),
+/// joined with `, `. A group with no paths yields no row — the roles section
+/// names what the model states, and an empty map states nothing (US 06:
+/// absence, not "roles: none" theater).
+fn role_rows(roles: &BTreeMap<String, Role>) -> Vec<(&'static str, String)> {
+    let paths_for = |role: Role| {
+        roles
+            .iter()
+            .filter(|(_, stated)| **stated == role)
+            .map(|(path, _)| path.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut rows = Vec::new();
+    for (label, role) in [
+        ("facades", Role::Facade),
+        ("composition roots", Role::Composition),
+    ] {
+        let paths = paths_for(role);
+        if !paths.is_empty() {
+            rows.push((label, paths));
+        }
+    }
+    rows
 }
 
 /// Summary line: `Result: clean` when nothing differs, otherwise the total
@@ -500,7 +569,7 @@ mod tests {
     fn json_findings_equal_the_text_rendered_findings() {
         let diff = populated_diff();
         let metrics = Metrics::default();
-        let rendered = render_json("rust", &metrics, &diff);
+        let rendered = render_json("rust", &metrics, &diff, &BTreeMap::default());
         let value: serde_json::Value = serde_json::from_str(&rendered).expect("json parses");
         let json_findings: Vec<(String, String)> = value["findings"]
             .as_array()
@@ -513,7 +582,10 @@ mod tests {
                 )
             })
             .collect();
-        assert_eq!(json_findings, text_findings(&render_text("rust", &metrics, &diff)));
+        assert_eq!(
+            json_findings,
+            text_findings(&render_text("rust", &metrics, &diff, &BTreeMap::default()))
+        );
         assert_eq!(value["language"].as_str(), Some("rust"));
     }
 
@@ -541,5 +613,86 @@ mod tests {
         );
         assert!(has("dead reference", "warning"));
         assert!(has("vacuous constraint", "warning"));
+    }
+
+    /// A roles map stating one path per role.
+    fn roles_map() -> BTreeMap<String, Role> {
+        BTreeMap::from([
+            ("kit-bin::main".to_string(), Role::Composition),
+            ("kit".to_string(), Role::Facade),
+        ])
+    }
+
+    /// The text roles section names both role groups, in closed-vocabulary
+    /// order, with paths sorted inside each group (roles US 06).
+    #[test]
+    fn text_roles_section_names_facades_then_composition_roots() {
+        let rendered = render_text("rust", &Metrics::default(), &Diff::default(), &roles_map());
+        let section: Vec<&str> = rendered
+            .lines()
+            .skip_while(|line| !line.starts_with("Roles"))
+            .skip(2)
+            .take_while(|line| !line.trim().is_empty())
+            .collect();
+        assert_eq!(
+            section,
+            vec!["facades: kit", "composition roots: kit-bin::main"],
+            "roles section:\n{rendered}"
+        );
+    }
+
+    /// Markdown carries the same rows as a table between metrics and diff.
+    #[test]
+    fn markdown_roles_section_carries_the_same_rows() {
+        let rendered = render_markdown(
+            "rust",
+            &Metrics::default(),
+            &Diff::default(),
+            &roles_map(),
+            None,
+        );
+        assert!(rendered.contains("## Roles"), "roles section:\n{rendered}");
+        assert!(rendered.contains("| facades | kit |"), "roles table:\n{rendered}");
+        assert!(
+            rendered.contains("| composition roots | kit-bin::main |"),
+            "roles table:\n{rendered}"
+        );
+    }
+
+    /// Absence is the contract, not theater: an empty roles map prints no
+    /// section in text or markdown, and the JSON omits the key entirely (the
+    /// model's skip_serializing contract reaches the report format).
+    #[test]
+    fn empty_roles_map_prints_no_section_and_omits_the_json_key() {
+        let empty = BTreeMap::default();
+        for rendered in [
+            render_text("rust", &Metrics::default(), &Diff::default(), &empty),
+            render_markdown("rust", &Metrics::default(), &Diff::default(), &empty, None),
+        ] {
+            assert!(
+                !rendered.contains("Roles"),
+                "no role facts => no roles section:\n{rendered}"
+            );
+        }
+        let json = render_json("rust", &Metrics::default(), &Diff::default(), &empty);
+        assert!(!json.contains("\"roles\""), "no role facts => no key:\n{json}");
+    }
+
+    /// The JSON roles map sits between metrics and findings, keyed by model
+    /// path with the serialized vocabulary word — one source of truth with
+    /// the model JSON (`Role::as_str` guards the word).
+    #[test]
+    fn json_roles_map_is_path_keyed_after_metrics() {
+        let json = render_json("rust", &Metrics::default(), &Diff::default(), &roles_map());
+        let value: serde_json::Value = serde_json::from_str(&json).expect("json");
+        assert_eq!(value["roles"]["kit"].as_str(), Some("facade"));
+        assert_eq!(
+            value["roles"]["kit-bin::main"].as_str(),
+            Some("composition")
+        );
+        let roles = json.find("\"roles\":").expect("roles key");
+        let metrics = json.find("\"metrics\":").expect("metrics key");
+        let findings = json.find("\"findings\":").expect("findings key");
+        assert!(metrics < roles && roles < findings, "key order:\n{json}");
     }
 }

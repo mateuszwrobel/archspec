@@ -28,7 +28,7 @@ Running `diagram` on a fixture project renders a byte-stable diagram (Mermaid by
 | # | Given | When | Then |
 |---|---|---|---|
 | 8 | project with a spec | run `diagram --format plantuml` | exit 0; PlantUML output contains nodes and the declared edges |
-| 9 | project with a spec | run `diagram --output out.mmd` | exit 0; `out.mmd` contains the diagram; stdout empty |
+| 9 | project with a spec | run `diagram --output out.mmd` | exit 0; `out.mmd` contains the diagram; stdout is `wrote out.mmd` |
 | 10 | same project, unchanged | run `diagram` twice | both runs byte-identical output |
 | 11 | same scan artefact, unchanged | run `diagram --source scan <artefact>` twice | both runs byte-identical output |
 
@@ -53,7 +53,27 @@ Running `diagram` on a fixture project renders a byte-stable diagram (Mermaid by
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 24 | `--output` destination already holds the generated diagram | run `diagram --output <f> --check` | exit 0; file untouched; stdout empty |
+| 24 | `--output` destination already holds the generated diagram | run `diagram --output <f> --check` | exit 0; file untouched; stdout is `ok: <f> up to date` |
 | 25 | `--output` destination differs from the generated diagram | run `diagram --output <f> --check` | non-zero exit; message says it differs and names the regenerate command; file untouched |
 | 26 | no file at the `--output` destination | run `diagram --output <f> --check` | non-zero exit; message says it is missing; no file created |
 | 27 | no `[output] diagram` configured and no `--output` | run `diagram --check` | non-zero exit; message says `--check` requires an output destination |
+
+## Role marks (`--source scan`)
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 28 | scan artefact whose `roles` map holds a key equal to a rendered node's identity (modulo separator equivalence — `.` and `::` spellings of one path match) | run `diagram --source scan <artefact>` | exit 0; that node's line carries the role's marker in both formats (mermaid `["Name [role]"]` suffix, PlantUML `<<role>>` stereotype on the bare identifier); node ids and every edge line unchanged |
+| 29 | node the `roles` map does not address, including every node of the external cluster | run `diagram --source scan <artefact>` | exit 0; those lines byte-identical to the unmarked render; no line grows marker syntax |
+| 30 | scan artefact with an empty or absent `roles` map; spec mode whose declared components collide with role-carrying model paths | run `diagram --source scan <artefact>` / run `diagram` | exit 0; output byte-identical to the pre-roles bytes; spec mode reads no roles map |
+
+Pins (numbering is contiguous through row 30; these three rows are roles-views
+US 01's append): row 28 — `tests/diagram.rs::diagram_scan_mermaid_marks_the_role_addressed_node`,
+`…::diagram_scan_plantuml_marks_the_role_addressed_node` (the `.`-spelled key
+arm of the separator equivalence), `…::diagram_scan_marks_csharp_composition_root_end_to_end`
+and `…::diagram_scan_role_marks_are_order_independent_and_deterministic`
+(determinism arm); row 29 —
+`…::diagram_scan_external_cluster_carries_no_marker_syntax`; row 30 —
+`…::diagram_scan_empty_roles_map_is_byte_identical_to_pre_plan_bytes` and
+`…::diagram_spec_mode_is_byte_identical_to_pre_plan_bytes`. The bidirectional
+cross-driver leg (marks exactly where the map addresses, on every driver) is
+the shared scenario `diagram / scan_mode_marks_role_carriers`.

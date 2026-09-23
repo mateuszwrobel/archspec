@@ -54,4 +54,11 @@ for cmd in scan diagram inspect report; do
   "$ARCHSPEC_BIN" "$cmd" "$SCRIPT_DIR" --check
 done
 
+# 3. Freshness of the generated third-party credits listing (CREDITS.md).
+#    Cargo-driven like the artefact checks above: it resolves the committed
+#    lockfile and must match the committed listing byte for byte. Fails
+#    closed — a missing cargo/jq or a stale listing is a gate failure.
+echo "Credits freshness: gen-credits --check"
+"$SCRIPT_DIR/scripts/gen-credits.sh" --check
+
 echo "All rust-arch-test-kit tests, clippy, self verify and doc freshness checks passed."

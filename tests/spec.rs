@@ -5,7 +5,10 @@ use common::{stderr, stdout, Fixture};
 fn schema_of(fixture: &Fixture) -> serde_json::Value {
     let output = fixture.run(&["spec", "--schema"]);
     assert_eq!(output.status.code(), Some(0), "spec --schema must exit 0");
-    assert!(stderr(&output).is_empty(), "spec --schema must not write stderr");
+    assert!(
+        stderr(&output).is_empty(),
+        "spec --schema must not write stderr"
+    );
     serde_json::from_str(&stdout(&output)).expect("spec --schema stdout must be valid JSON")
 }
 
@@ -15,7 +18,11 @@ fn schema_exits_zero_with_valid_json_on_stdout() {
     let output = fixture.run(&["spec", "--schema"]);
 
     assert_eq!(output.status.code(), Some(0));
-    assert!(stderr(&output).is_empty(), "stderr must be empty:\n{}", stderr(&output));
+    assert!(
+        stderr(&output).is_empty(),
+        "stderr must be empty:\n{}",
+        stderr(&output)
+    );
     let json: serde_json::Value =
         serde_json::from_str(&stdout(&output)).expect("stdout must be valid JSON");
     assert!(json.is_object());
@@ -57,7 +64,9 @@ fn schema_module_shape() {
     assert_eq!(module["required"], serde_json::json!(["name"]));
     for key in ["units", "modules"] {
         assert!(
-            module["properties"]["matches"]["properties"].get(key).is_some(),
+            module["properties"]["matches"]["properties"]
+                .get(key)
+                .is_some(),
             "matches must accept {key}"
         );
     }
@@ -77,7 +86,9 @@ fn schema_module_shape() {
     );
     for key in ["depend_on", "forbidden"] {
         assert!(
-            module["properties"]["allowed"]["properties"].get(key).is_some(),
+            module["properties"]["allowed"]["properties"]
+                .get(key)
+                .is_some(),
             "allowed must accept {key}"
         );
     }
@@ -149,7 +160,10 @@ fn schema_per_type_required_arrays_match_shared_truth() {
 fn schema_output_is_deterministic() {
     let a = Fixture::new();
     let b = Fixture::new();
-    assert_eq!(stdout(&a.run(&["spec", "--schema"])), stdout(&b.run(&["spec", "--schema"])));
+    assert_eq!(
+        stdout(&a.run(&["spec", "--schema"])),
+        stdout(&b.run(&["spec", "--schema"]))
+    );
 }
 
 #[test]
@@ -163,10 +177,23 @@ fn spec_prints_annotated_reference_toml() {
         !out.trim_start().starts_with('{'),
         "must not be JSON:\n{out}"
     );
-    for marker in ["[project]", "[[module]]", "[[constraint]]", "[[stereotype]]", "language = \"rust\""] {
-        assert!(out.contains(marker), "reference must contain {marker}:\n{out}");
+    for marker in [
+        "[project]",
+        "[[module]]",
+        "[[constraint]]",
+        "[[stereotype]]",
+        "language = \"rust\"",
+    ] {
+        assert!(
+            out.contains(marker),
+            "reference must contain {marker}:\n{out}"
+        );
     }
-    assert!(stderr(&output).is_empty(), "stderr must be empty:\n{}", stderr(&output));
+    assert!(
+        stderr(&output).is_empty(),
+        "stderr must be empty:\n{}",
+        stderr(&output)
+    );
 }
 
 #[test]
@@ -189,10 +216,28 @@ fn help_shares_reference_material() {
 
     assert_eq!(output.status.code(), Some(0));
     let out = stdout(&output);
-    assert!(out.contains("archspec spec"), "must show the usage line:\n{out}");
-    assert!(out.contains("--schema"), "help must document --schema:\n{out}");
-    for marker in ["[project]", "[[module]]", "[[constraint]]", "[[stereotype]]"] {
-        assert!(out.contains(marker), "help must carry the reference material ({marker}):\n{out}");
+    assert!(
+        out.contains("archspec spec"),
+        "must show the usage line:\n{out}"
+    );
+    assert!(
+        out.contains("--schema"),
+        "help must document --schema:\n{out}"
+    );
+    for marker in [
+        "[project]",
+        "[[module]]",
+        "[[constraint]]",
+        "[[stereotype]]",
+    ] {
+        assert!(
+            out.contains(marker),
+            "help must carry the reference material ({marker}):\n{out}"
+        );
     }
-    assert!(stderr(&output).is_empty(), "stderr must be empty:\n{}", stderr(&output));
+    assert!(
+        stderr(&output).is_empty(),
+        "stderr must be empty:\n{}",
+        stderr(&output)
+    );
 }

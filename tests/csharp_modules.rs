@@ -337,7 +337,10 @@ fn scan_scenario_5b_unreachable_project_using_emits_no_edge() {
     let model = model_of(&fixture);
 
     assert!(
-        model["module_edges"].as_array().expect("module_edges").is_empty(),
+        model["module_edges"]
+            .as_array()
+            .expect("module_edges")
+            .is_empty(),
         "a using into a non-reachable project cannot compile and emits no module edge"
     );
     assert!(
@@ -348,7 +351,9 @@ fn scan_scenario_5b_unreachable_project_using_emits_no_edge() {
         model["module_external"].is_null()
             || model["module_external"]
                 .as_object()
-                .map(|map| map.values().all(|v| v.as_array().map(|a| a.is_empty()).unwrap_or(true)))
+                .map(|map| map
+                    .values()
+                    .all(|v| v.as_array().map(|a| a.is_empty()).unwrap_or(true)))
                 .unwrap_or(true),
         "the foreign using must not attribute packages either"
     );
@@ -391,7 +396,10 @@ fn scan_scenario_5c_unused_reference_emits_unit_edge_only() {
         "the unused reference stays a unit edge (manifest truth): {pairs:?}"
     );
     assert!(
-        model["module_edges"].as_array().expect("module_edges").is_empty(),
+        model["module_edges"]
+            .as_array()
+            .expect("module_edges")
+            .is_empty(),
         "no using means no module edge — references and usings are different facts"
     );
 
@@ -481,7 +489,11 @@ fn scan_scenario_5e_test_projects_source_no_production_edges() {
         .iter()
         .map(|u| u["name"].as_str().unwrap_or_default())
         .collect();
-    assert_eq!(units, ["App"], "the test project is excluded from every tier");
+    assert_eq!(
+        units,
+        ["App"],
+        "the test project is excluded from every tier"
+    );
 }
 
 /// Two production units declaring the SAME namespace make prefix ownership
@@ -643,19 +655,19 @@ fn scan_scenario_9_comments_and_strings_do_not_create_false_usings() {
     let model = model_of(&fixture);
 
     assert!(
-        model["module_edges"].as_array().expect("module_edges").is_empty(),
+        model["module_edges"]
+            .as_array()
+            .expect("module_edges")
+            .is_empty(),
         "no fake module edges"
     );
     let module_external = model["module_external"]
         .as_object()
         .expect("module_external");
     assert!(
-        module_external.values().all(|crates| {
-            crates
-                .as_array()
-                .map(|arr| arr.is_empty())
-                .unwrap_or(true)
-        }),
+        module_external
+            .values()
+            .all(|crates| { crates.as_array().map(|arr| arr.is_empty()).unwrap_or(true) }),
         "no external usages from comments/strings"
     );
 }
@@ -673,6 +685,246 @@ fn scan_scenario_10_deterministic_across_runs() {
         stdout(&first),
         stdout(&second),
         "csharp scan output must be byte-identical across runs"
+    );
+}
+
+// === Roles: facade + composition (workplan archspec_roles, US 02) ===
+
+/// A csproj with optional ProjectReferences (the DI fixtures wire cross-project
+/// registrations through them).
+fn csproj_with_refs(references: &[&str]) -> String {
+    let mut csproj = String::from(
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n",
+    );
+    if !references.is_empty() {
+        csproj.push_str("  <ItemGroup>\n");
+        for reference in references {
+            csproj.push_str(&format!(
+                "    <ProjectReference Include=\"..\\{reference}\\{reference}.csproj\" />\n"
+            ));
+        }
+        csproj.push_str("  </ItemGroup>\n");
+    }
+    csproj.push_str("</Project>\n");
+    csproj
+}
+
+/// The model's roles map as comparable tuples; an absent key is an empty vec.
+fn role_entries(model: &Value) -> Vec<(String, String)> {
+    model["roles"]
+        .as_object()
+        .map(|map| {
+            map.iter()
+                .map(|(key, value)| (key.clone(), value.as_str().expect("role value").to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The umbrella-root tree (facade shape): unit `App` owns one namespace-less
+/// file whose only facts are usings, plus the `App::Core` module. The root
+/// module (`App`) declares no type.
+fn umbrella_root_fixture() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write("App/App.csproj", &csproj("net8.0"));
+    fixture.write("App/Root.cs", "using App.Core;\n");
+    fixture.write(
+        "App/Core.cs",
+        "namespace App.Core;\npublic class Engine { }\n",
+    );
+    fixture
+}
+
+/// The DI-wired entrypoint tree (composition shape): `App.Api` (referencing
+/// `App.Core`) whose Program.cs carries the AddScoped/AddHostedService-family
+/// registration calls — the layered C# service-tree shape (api/Shop.Api/Program.cs).
+/// The namespace-less Program.cs is a using-only root file, so the facade
+/// predicate would naively fire on it too: exactly one roles entry
+/// (`composition`) pins the exclusivity.
+fn di_entrypoint_fixture() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write("App.Api/App.Api.csproj", &csproj_with_refs(&["App.Core"]));
+    fixture.write(
+        "App.Api/Program.cs",
+        "using App.Core;\n\
+         var builder = WebApplication.CreateBuilder(args);\n\
+         builder.Services.AddScoped<IEngine, Engine>();\n\
+         builder.Services.AddHostedService<SyncWorker>();\n\
+         var app = builder.Build();\n\
+         app.Run();\n",
+    );
+    fixture.write("App.Core/App.Core.csproj", &csproj("net8.0"));
+    fixture.write(
+        "App.Core/Core.cs",
+        "namespace App.Core;\npublic interface IEngine { }\npublic class Engine { }\npublic class SyncWorker { }\n",
+    );
+    fixture
+}
+
+/// An umbrella root — a root module whose only facts are using-facts — carries
+/// the `facade` role; the using still records its module edge (roles are facts,
+/// not edge changes).
+#[test]
+fn scan_scenario_11_facade_role_on_using_facts_only_root_module() {
+    let model = model_of(&umbrella_root_fixture());
+    assert_eq!(
+        role_entries(&model),
+        vec![("App".to_string(), "facade".to_string())],
+        "the using-only root module is the facade: {:?}",
+        model["roles"]
+    );
+    assert_eq!(
+        module_edge_strings(&model),
+        ["App:App->App::Core:"],
+        "the only edge is the root's using fact — roles add no edges: {:?}",
+        model["module_edges"]
+    );
+}
+
+/// A root module carrying a declared type gains nothing: the facade role
+/// states "publication-only root", and a root that defines a type does not.
+#[test]
+fn scan_scenario_12_facade_absent_when_root_module_declares_types() {
+    let fixture = umbrella_root_fixture();
+    fixture.write("App/Root.cs", "using App.Core;\npublic class Marker { }\n");
+    let model = model_of(&fixture);
+    assert!(
+        !model.as_object().expect("model").contains_key("roles"),
+        "a root module with a declared type states no role:\n{}",
+        model["roles"]
+    );
+}
+
+/// An entrypoint project registering cross-layer services carries the
+/// `composition` role on its root module, and NEVER the facade role in the
+/// same scan: Program.cs is a using-only root file (naive facade shape), so a
+/// single roles entry is the exclusivity pin. Edges stay the using/type facts.
+#[test]
+fn scan_scenario_13_composition_role_on_di_wired_entrypoint_never_facade() {
+    let model = model_of(&di_entrypoint_fixture());
+    assert_eq!(
+        role_entries(&model),
+        vec![("App::Api".to_string(), "composition".to_string())],
+        "the DI-wired entrypoint root is composition, and never also facade: {:?}",
+        model["roles"]
+    );
+    let pairs: Vec<(&str, &str)> = model["edges"]
+        .as_array()
+        .expect("edges")
+        .iter()
+        .map(|edge| {
+            (
+                edge["from"].as_str().unwrap_or_default(),
+                edge["to"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert!(
+        pairs.contains(&("App.Api", "App.Core")),
+        "the ProjectReference stays the hard edge: {pairs:?}"
+    );
+    assert_eq!(
+        module_edge_strings(&model),
+        ["App.Api:App::Api->App::Core:Engine,IEngine,SyncWorker"],
+        "registration types ride the existing using/type-position edge — no new edges: {:?}",
+        model["module_edges"]
+    );
+}
+
+/// A tree with no derivable role carries no roles key at all — absence states
+/// "no role", it never denies one.
+#[test]
+fn scan_scenario_14_plain_tree_carries_no_roles_key() {
+    let model = model_of(&csharp_app_fixture());
+    assert!(
+        !model.as_object().expect("model").contains_key("roles"),
+        "a plain tree states no role:\n{}",
+        model["roles"]
+    );
+}
+
+/// The composition predicate also recognizes the Startup-file shape with
+/// non-generic registrations (`services.AddScoped(typeof(I), typeof(T))`);
+/// a root that also declares types gets composition only.
+#[test]
+fn scan_scenario_15_composition_recognizes_startup_non_generic_registration() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "App.Worker/App.Worker.csproj",
+        &csproj_with_refs(&["App.Core"]),
+    );
+    fixture.write(
+        "App.Worker/Startup.cs",
+        "using App.Core;\n\
+         namespace App.Worker;\n\
+         public class Startup\n\
+         {\n\
+             public void ConfigureServices(IServiceCollection services)\n\
+             {\n\
+                 services.AddScoped(typeof(IEngine), typeof(Engine));\n\
+             }\n\
+         }\n",
+    );
+    fixture.write("App.Core/App.Core.csproj", &csproj("net8.0"));
+    fixture.write(
+        "App.Core/Core.cs",
+        "namespace App.Core;\npublic interface IEngine { }\npublic class Engine { }\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        role_entries(&model),
+        vec![("App::Worker".to_string(), "composition".to_string())],
+        "the registration-carrying entrypoint root is composition: {:?}",
+        model["roles"]
+    );
+}
+
+/// Family precision and noise suppression: registrations named only in
+/// comments or string literals, and framework `Add…` calls outside the
+/// registration family (AddControllers), carry no composition fact.
+#[test]
+fn scan_scenario_16_registration_family_precision_and_noise_suppression() {
+    let fixture = common::Fixture::new();
+    fixture.write("App/App.csproj", &csproj("net8.0"));
+    fixture.write(
+        "App/Program.cs",
+        "// builder.Services.AddScoped<App.Core.IEngine, App.Core.Engine>();\n\
+         var note = \"AddScoped<App.Core.IEngine, App.Core.Engine>\";\n\
+         var builder = WebApplication.CreateBuilder(args);\n\
+         builder.Services.AddControllers();\n\
+         app.Run();\n",
+    );
+    fixture.write(
+        "App/Core.cs",
+        "namespace App.Core;\npublic class Engine { }\n",
+    );
+    let model = model_of(&fixture);
+    assert!(
+        !model.as_object().expect("model").contains_key("roles"),
+        "comments, strings and non-family Add calls state no composition:\n{}",
+        model["roles"]
+    );
+}
+
+/// The csproj-less single-unit construction site derives roles too: a bare
+/// directory with a using-only root file reads as the facade shape.
+#[test]
+fn scan_scenario_17_single_unit_tree_derives_facade_role() {
+    let fixture = common::Fixture::new();
+    fixture.write("Root.cs", "using App.Core;\n");
+    fixture.write("Core.cs", "namespace App.Core;\npublic class Engine { }\n");
+    let model = model_of(&fixture);
+    let entries = role_entries(&model);
+    assert_eq!(
+        entries.len(),
+        1,
+        "the single unit's using-only root carries exactly one role entry: {:?}",
+        model["roles"]
+    );
+    assert_eq!(
+        entries[0].1, "facade",
+        "the using-only root module is the facade: {:?}",
+        model["roles"]
     );
 }
 
@@ -929,8 +1181,8 @@ fn report_scenario_18_shows_csharp_metrics() {
     assert_eq!(metric_value(&out, "units"), "1");
     assert_eq!(
         metric_value(&out, "edges (internal)"),
-        "1",
-        "the module edge is unit-internal:\n{out}"
+        "0",
+        "the module edge is unit-internal — it projects onto a self-pair of the\n             single unit and adds nothing to the distinct-pair count:\n{out}"
     );
     assert_eq!(metric_value(&out, "edges (external)"), "0");
     assert!(out.contains("Result: clean"), "summary:\n{out}");
@@ -1323,7 +1575,9 @@ fn scan_scenario_22_shared_module_key_unions_packages_across_units() {
 
     let crates: Vec<&str> = model["module_external"]["A::B"]
         .as_array()
-        .unwrap_or_else(|| panic!("shared module key A::B must carry both units' packages:\n{model}"))
+        .unwrap_or_else(|| {
+            panic!("shared module key A::B must carry both units' packages:\n{model}")
+        })
         .iter()
         .map(|n| n.as_str().expect("package id"))
         .collect();
@@ -1331,5 +1585,155 @@ fn scan_scenario_22_shared_module_key_unions_packages_across_units() {
         crates,
         ["Newtonsoft.Json", "Serilog"],
         "cross-unit flatten unions per shared module key, never last-write-wins"
+    );
+}
+
+// === verify consumes roles across the map (workplan archspec_roles, US 05) ===
+
+/// The umbrella-consumption tree: unit `App` is the umbrella (its root module
+/// `App` is using-facts-only — the facade role), `App::Engine` the product,
+/// and a second project `App.Consumer` referencing it consumes the umbrella
+/// by its root namespace (`using App;` — the shape the composition root wires
+/// for). The consumer's file lives in its own namespace, so the edge is
+/// cross-unit and records normally.
+fn umbrella_consumption_fixture(consumer_uses_root: bool) -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write("App/App.csproj", &csproj("net8.0"));
+    fixture.write(
+        "App/Root.cs",
+        "namespace App\n{\n    using App.Engine;\n}\n",
+    );
+    fixture.write(
+        "App/Engine.cs",
+        "namespace App.Engine;\npublic class Engine { }\n",
+    );
+    fixture.write(
+        "App.Consumer/App.Consumer.csproj",
+        &csproj_with_refs(&["App"]),
+    );
+    fixture.write(
+        "App.Consumer/X.cs",
+        if consumer_uses_root {
+            "using App;\nnamespace App.Consumer;\npublic class X { }\n"
+        } else {
+            "using App.Engine;\nnamespace App.Consumer;\npublic class X { }\n"
+        },
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        &format!(
+            "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"umbrella\"\nmatches = {{ modules = [\"App\"] }}\n\n[module.allowed]\ndepend_on = [\"engine\"]\n\n[[module]]\nname = \"engine\"\nmatches = {{ modules = [\"App::Engine\"] }}\n\n[[module]]\nname = \"consumer\"\nmatches = {{ modules = [\"App::Consumer\"] }}\n\n[module.allowed]\ndepend_on = [{}]\n",
+            if consumer_uses_root {{
+                "\"umbrella\""
+            }} else {
+                "\"engine\""
+            }
+        ),
+    );
+    fixture
+}
+
+/// The facade rule engages from the roles map, not the rust naming convention:
+/// a unit that is NOT named main consuming the umbrella by its root name is
+/// reported (`facade dependency`), while the composition root's own wiring —
+/// the edge INTO the umbrella recorded under the composition-carrying unit —
+/// is exempt. Consuming the umbrella is not using the facade.
+#[test]
+fn verify_csharp_facade_root_consumed_through_umbrella_is_violation() {
+    let wired = umbrella_consumption_fixture(true);
+    // sanity: the model states the roles the rule reads
+    let model = model_of(&wired);
+    assert_eq!(
+        role_entries(&model),
+        vec![("App".to_string(), "facade".to_string())],
+        "umbrella root states the facade role: {:?}",
+        model["roles"]
+    );
+    assert_fail(
+        &wired.run(&["verify"]),
+        &["facade dependency: App::Consumer -> App"],
+    );
+}
+
+/// Wiring the umbrella's product (never its root) stays clean — the same
+/// tree with the consumer importing through the product namespace.
+#[test]
+fn verify_csharp_facade_wiring_through_facade_product_is_clean() {
+    let wired = umbrella_consumption_fixture(false);
+    assert_pass(&wired.run(&["verify"]));
+}
+
+/// The composition bridge (layered C# service-tree shape): the composition root wires a
+/// legal hop and a forbidden target's port; the forbidden edge never appears
+/// directly. With the roles map the rule sees the root's hop as sanctioned
+/// wiring — `verify --strict` passes. Drop the registration calls (same
+/// usings) and the root states no composition role: the same shape is pure
+/// laundering again, and the check says so.
+#[test]
+fn verify_csharp_composition_root_wiring_sanctions_the_bridge() {
+    let fixture = |registrations: bool| {
+        let fixture = common::Fixture::new();
+        fixture.write("Api/Api.csproj", &csproj("net8.0"));
+        fixture.write(
+            "Api/Program.cs",
+            &format!(
+                "using Api.Services;\n\
+                 var builder = WebApplication.CreateBuilder(args);\n\
+                 {}\n\
+                 var app = builder.Build();\n\
+                 app.Run();\n",
+                if registrations {
+                    "builder.Services.AddScoped<IOrderService, OrderService>();"
+                } else {
+                    "// no registrations"
+                }
+            ),
+        );
+        fixture.write(
+            "Api/Services/OrderService.cs",
+            "using Api.Data;\nnamespace Api.Services;\npublic class OrderService { private readonly IOrderRepository _repo; public OrderService(IOrderRepository repo) { _repo = repo; } }\n",
+        );
+        fixture.write(
+            "Api/Data/IOrderRepository.cs",
+            "namespace Api.Data;\npublic interface IOrderRepository { }\n",
+        );
+        fixture.write(
+            "Api/Data/OrderRepository.cs",
+            "namespace Api.Data;\npublic class OrderRepository : IOrderRepository { }\n",
+        );
+        fixture.write(
+            "architecture.spec.toml",
+            "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"api\"\nmatches = { units = [\"Api\"] }\n\n[module.allowed]\ndepend_on = [\"services\"]\nforbidden = [\"data\"]\n\n[[module]]\nname = \"services\"\nmatches = { modules = [\"Api::Services\"] }\n\n[module.allowed]\ndepend_on = [\"data\"]\n\n[[module]]\nname = \"data\"\nmatches = { modules = [\"Api::Data\"] }\n",
+        );
+        fixture
+    };
+    // sanity: roles state the bridge (composition pins the root, never facade)
+    let wired = fixture(true);
+    let model = model_of(&wired);
+    assert_eq!(
+        role_entries(&model),
+        vec![("Api".to_string(), "composition".to_string())],
+        "the wiring root carries the composition role: {:?}",
+        model["roles"]
+    );
+    assert_pass(&wired.run(&["verify", "--strict"]));
+    // same edges, no registration calls: no composition entry, pure laundering
+    let laundered = fixture(false);
+    assert_eq!(
+        role_entries(&model_of(&laundered)),
+        vec![("Api".to_string(), "facade".to_string())],
+        "using-facts-only root without wiring calls states facade: check shape"
+    );
+    let output = laundered.run(&["verify", "--strict"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "strict laundering must exit 1"
+    );
+    assert!(
+        stdout(&output).contains("laundered forbidden edge")
+            || stderr(&output).contains("laundered forbidden edge"),
+        "warning must survive without the composition role:\n{}",
+        stdout(&output)
     );
 }

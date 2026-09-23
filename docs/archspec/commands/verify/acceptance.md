@@ -122,7 +122,22 @@ Additional constraint `type` values supported by the spec, in addition to `no_cy
 | 47 | spec has `feature_boundary` with `feature = "tauri"`; the source module is actually gated under `#[cfg(feature = "uniffi")]` | run `verify` | non-zero exit; report names the mismatch between the declared feature and the module's actual gating feature |
 | 48 | spec has `feature_boundary` whose `gated_modules` includes a parent module with submodules; a non-allowed module depends on one of the submodules | run `verify` | non-zero exit; report treats the submodule as part of the gated boundary (subtree match) |
 | 49 | spec declares a unit boundary via `matches.units` and module boundaries via `matches.modules`; an internal edge's endpoint is the crate root | run `verify` | exit 0 when satisfied; the crate-root endpoint resolves to the unit boundary, edge counted (not silently dropped) |
-| 50 | spec declares module boundaries; report `edges_internal` counts resolved-boundary edges consistently with the module edges actually extracted | run `verify` | exit 0; no edges are silently dropped from metrics when an endpoint is the crate root |
+| 50 | spec declares module boundaries; report `edges_internal` counts resolved-boundary edges consistently with the module edges actually extracted | run `verify` | exit 0; a module-tier attribution of a dependency the unit tier already states adds no pair to the metrics, and no dependency vanishes from the model |
+
+Row 33's split is one capability fact, not two behaviors. The whole constraint
+reads the model's `root-module-declarations` facts — rust emits them granularly,
+csharp and go emit no such fact at all (the `root-module-declarations` rows of
+the capability table, [capability/index.md](../capability/index.md)).
+Where the facts exist, a `gated_modules` pattern naming no declared module is a
+lie the spec tells about the tree, and the run says so and fails. Where the
+driver emits no declaration map at all, matching a pattern against it could
+only invent model content the tree never provided — every declaration lookup
+returns nothing, so "unknown pattern" would be a statement about the driver,
+not the tree. The honest report is then the capability-reason vacuous
+constraint: one line naming the capability, no per-pattern errors, exit 0
+until `--strict` promotes the vacuity (see [output.md](output.md), whose
+vacuous-constraints section already states that the reason names the
+capability, not a source deficiency).
 
 ### `forbid_submodule_dependency`
 
@@ -141,9 +156,24 @@ Additional constraint `type` values supported by the spec, in addition to `no_cy
 | 89 | spec has `external_free` whose `from` pattern matches no module or unit present in the model | run `verify` | exit 0; report lists the vacuous constraint naming the dead pattern ("matches no module or unit present in the model") — a diagnostic distinct from the pure pass of 87 |
 | 90 | same project as 89 | run `verify --strict` | non-zero exit; vacuous line promoted (no `warning: ` prefix) |
 | 91 | `external_free` with `severity = "warning"` and a contamination present | run `verify` / `verify --strict` | without `--strict`: exit 0, finding listed as `warning: not external free: …`; with `--strict`: non-zero exit, promoted |
-| 92 | single-module go tree (no module tier); `from` names a package unit present in the model with no externals | run `verify` | exit 0; confirmation; engaged at the unit tier, no vacuous warning |
+| 92 | go tree whose packages record no cross-reference (no module tier derivable); `from` names a package unit present in the model with no externals | run `verify` | exit 0; confirmation; engaged at the unit tier, no vacuous warning |
 | 93 | module matched by both `external_free` and a `forbid_external_crates` rule; an external attributed to it | run `verify` | non-zero exit; both findings reported (`forbidden external crate:` and `not external free:`) without duplication of cause |
 | 94 | `external_free` on a composition root that legitimately owns externals | run `verify` | non-zero exit; immediate `not external free:` failure — the guard is misplaced |
+
+Rows 87–92 engage the same check at different depths because the guard monitors
+the tier the driver serializes. Rust and csharp carry a module tier granularly
+(the `module-tier` rows of the capability table,
+[capability/index.md](../capability/index.md)), so a `from` pattern matching a
+module monitors that module's subtree (rows 87–88). A go tree with no module tier
+in the model — its packages record no cross-package references to derive one from —
+serializes no module paths to monitor,
+but its packages are units carrying attributed externals, so a pattern naming
+a package unit engages at the unit tier: the zero-dependency claim is checked
+over every external attributed to the unit, and a pure unit passes for real
+(row 92), not vacuously. Engagement is presence of the matched element either
+way, which is why the pure pass (87, 92) and the dead-pattern vacuity (89, 95)
+stay different reports. The same tier rule is stated at the spec level in
+[`../../spec.md`](../../spec.md) (`external_free` row).
 
 ### Vacuous constraints
 
@@ -167,6 +197,11 @@ A constraint whose effective domain is empty (nothing to check) is reported as a
 | 68 | project with a vacuous constraint | run `report` | exit 0; report lists the vacuous constraint as content |
 | 69 | project with a vacuous constraint, unchanged | run `verify` twice | both runs exit 0; byte-identical stdout |
 | 70 | `forbid_external_crates` whose `from` module HAS an external import (not forbidden) | run `verify` | exit 0; confirmation; never a false vacuous warning |
+| 71 | c# project consuming an umbrella root (`using <Root>;`) from a referencing unit | run `verify` | exit 1; `facade dependency` names the consuming module and the root; the rule engages on the roles map, not rust naming |
+| 72 | c# composition root wires the legal hop and the forbidden target's port under a ban | run `verify --strict` | exit 0; no `laundered forbidden edge` line — the composition role sanctions the bridge |
+| 73 | same tree without the registration calls (same usings, no composition role) | run `verify --strict` | exit 1; `laundered forbidden edge` names the ban and the intermediate |
+| 74 | go tree whose `package main` wiring carries the ban route | run `verify --strict` | exit 0; the main package's composition role sanctions the wiring hop |
+| 75 | lib module named `main` imports an item through the root re-export | run `verify` | exit 1; `facade dependency: app::main -> app` — the exemption is the composition role, never the name |
 
 ## Errors
 

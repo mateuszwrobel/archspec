@@ -24,7 +24,7 @@ The developer runs `verify` after a change (or as a CI gate with `--strict`) and
 |---|---|---|
 | CI gate | fail the build on any divergence, warnings included | `archspec verify --strict` |
 | dev loop | quick check after local changes, warnings tolerated | `archspec verify` |
-| onboarding | first-time grounding of existing code | `archspec init` (scaffold) → `archspec update` (snapshot) → `archspec verify` |
+| onboarding | first-time grounding of existing code | `archspec init` (scaffold) → `archspec update --force` (snapshot — plain `update` refuses the spec `init` just created) → `archspec verify` |
 
 ## Application flow
 

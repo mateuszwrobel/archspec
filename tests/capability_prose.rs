@@ -41,7 +41,9 @@ fn parse_citations(text: &str) -> Vec<Citation> {
             let Some(value_rest) = remainder[eq + 1..].trim_start().strip_prefix('"') else {
                 break;
             };
-            let Some(close) = value_rest.find('"') else { break };
+            let Some(close) = value_rest.find('"') else {
+                break;
+            };
             claims.push((name, value_rest[..close].to_string()));
             remainder = value_rest[close + 1..].to_string();
         }
@@ -59,7 +61,12 @@ fn parse_citations(text: &str) -> Vec<Citation> {
 fn printed_manual() -> String {
     let fixture = common::Fixture::new();
     let mut out = String::new();
-    for args in [&[] as &[&str], &["help", "constraints"], &["help", "spec"], &["help", "diagnostics"]] {
+    for args in [
+        &[] as &[&str],
+        &["help", "constraints"],
+        &["help", "spec"],
+        &["help", "diagnostics"],
+    ] {
         let output = fixture.run(args);
         assert!(
             output.status.success(),
@@ -91,7 +98,10 @@ fn every_capability_citation_equals_the_table() {
         let claimed: BTreeSet<&str> = citation.claims.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(
             claimed,
-            languages.iter().map(String::as_str).collect::<BTreeSet<_>>(),
+            languages
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>(),
             "citation for \"{}\" must claim every language exactly once, so a \
              silent drop cannot hide drift: {:?}",
             citation.fact,
@@ -201,10 +211,9 @@ fn matrix_skip_reasons_quote_the_table() {
     // too: the fact must be in the table and the quoted emission must equal
     // the row for that language, nothing else.
     for json_path in matrix_paths() {
-        let json: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(json_path).expect("feature-matrix.json"),
-        )
-        .expect("matrix report json");
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(json_path).expect("feature-matrix.json"))
+                .expect("matrix report json");
         let languages = json["languages"]
             .as_array()
             .expect("languages array")
@@ -221,16 +230,20 @@ fn matrix_skip_reasons_quote_the_table() {
             let Some(map) = behavior["skip_reasons"].as_object() else {
                 continue;
             };
-            reasons.extend(map.values().filter_map(|value| value.as_str()).map(str::to_string));
+            reasons.extend(
+                map.values()
+                    .filter_map(|value| value.as_str())
+                    .map(str::to_string),
+            );
         }
         for reason in reasons {
             let Some((fact, quoted)) = reason.split_once(": ") else {
                 continue; // non-capability reasons cite no row
             };
             assert!(
-                languages.iter().any(|language| {
-                    table().emission(language, fact) == Some(quoted)
-                }),
+                languages
+                    .iter()
+                    .any(|language| { table().emission(language, fact) == Some(quoted) }),
                 "skip reason {reason:?} quotes no table row for any language"
             );
             assert!(
@@ -249,10 +262,7 @@ fn matrix_paths() -> Vec<std::path::PathBuf> {
 fn table_languages_match_the_matrix_languages() {
     // The matrix report enumerates drivers on disk too; it must name exactly
     // the drivers the capability table states rows for.
-    let json_path = matrix_paths()
-        .into_iter()
-        .next()
-        .expect("matrix path");
+    let json_path = matrix_paths().into_iter().next().expect("matrix path");
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(json_path).expect("feature-matrix.json"))
             .expect("matrix report json");
@@ -265,7 +275,10 @@ fn table_languages_match_the_matrix_languages() {
     let table_languages = table().languages();
     assert_eq!(
         languages,
-        table_languages.iter().map(String::as_str).collect::<BTreeSet<_>>(),
+        table_languages
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>(),
         "matrix languages and the capability table must enumerate the same drivers"
     );
 }

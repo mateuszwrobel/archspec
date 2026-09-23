@@ -1,0 +1,9 @@
+graph TD
+  subgraph app["app [composition]"]
+    app__Core_12cb9a80["app::Core"]
+    app__Ui_bb904923["app::Ui"]
+  end
+  subgraph shared
+    shared__Models_b9b99bb4["shared::Models"]
+  end
+  app__Core_12cb9a80 --> app__Ui_bb904923

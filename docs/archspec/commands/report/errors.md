@@ -70,7 +70,11 @@ error: expected at most one path argument
 
 # --check reports a stale destination, nothing is written
 $ archspec report --output docs/architecture-report.md --check
-error: out of date report: docs/architecture-report.md differs from generated output (regenerate with: archspec report)
+error: out of date report: docs/architecture-report.md differs from generated output (compared the text rendering; regenerate with: archspec report; pass the same --format to --check to verify a --format-generated artefact)
+
+# --check on a markdown artefact names the compared rendering and hints its exact form
+$ archspec report --output docs/architecture-report.md --format markdown --check
+error: out of date report: docs/architecture-report.md differs from generated output (compared the markdown rendering; regenerate with: archspec report --format markdown)
 
 # --check reports a missing destination
 $ archspec report --output docs/architecture-report.md --check

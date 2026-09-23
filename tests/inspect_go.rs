@@ -81,7 +81,10 @@ fn foreign_embed_and_cgo_imports_render_no_edges() {
         !diagram.contains("-->"),
         "stdlib/third-party/cgo/embed imports must render no edges:\n{diagram}"
     );
-    assert!(!diagram.contains("github.com"), "external node leaked:\n{diagram}");
+    assert!(
+        !diagram.contains("github.com"),
+        "external node leaked:\n{diagram}"
+    );
     assert!(stderr(&output).is_empty());
 }
 
@@ -99,7 +102,10 @@ fn test_files_are_nodes_with_edges_in_both_package_forms() {
         "handler/ext_test.go",
         "package handler_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/gotree/upstream\"\n)\n\nfunc TestX(t *testing.T) { _ = upstream.Call }\n",
     );
-    fixture.write("upstream/upstream.go", "package upstream\n\nfunc Call() {}\n");
+    fixture.write(
+        "upstream/upstream.go",
+        "package upstream\n\nfunc Call() {}\n",
+    );
     let output = fixture.run(&["inspect"]);
 
     assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
@@ -134,7 +140,10 @@ fn package_import_edges_never_target_the_directorys_test_files() {
         "store/external_test.go",
         "package store_test\n\nimport \"example.com/gotree/upstream\"\n\nfunc TestE(t *testing.T) { _ = upstream.Call }\n",
     );
-    fixture.write("upstream/upstream.go", "package upstream\n\nfunc Call() {}\n");
+    fixture.write(
+        "upstream/upstream.go",
+        "package upstream\n\nfunc Call() {}\n",
+    );
     let output = fixture.run(&["inspect"]);
 
     assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
@@ -179,7 +188,11 @@ fn workspace_cross_member_imports_are_internal() {
     assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let diagram = stdout(&output);
     edge(&diagram, "api/api.go", "store/store.go");
-    edge(&diagram, "api/internal/handler/handler.go", "store/store.go");
+    edge(
+        &diagram,
+        "api/internal/handler/handler.go",
+        "store/store.go",
+    );
     assert!(stderr(&output).is_empty());
 }
 
@@ -192,15 +205,27 @@ fn exclusion_node_set_matches_the_go_driver_predicate() {
     fixture.write("go.mod", "module example.com/gotree\ngo 1.21\n");
     fixture.write("app/app.go", "package app\n\nfunc App() {}\n");
     fixture.write("vendor/dep/dep.go", "package dep\n\nfunc Dep() {}\n");
-    fixture.write("app/testdata/fixture.go", "package testdata\n\nfunc F() {}\n");
+    fixture.write(
+        "app/testdata/fixture.go",
+        "package testdata\n\nfunc F() {}\n",
+    );
     fixture.write(".cache/x/x.go", "package x\n\nfunc X() {}\n");
-    fixture.write("node_modules/pkg/pkg.go", "package pkg\n\nimport \"example.com/gotree/app\"\n\nfunc P() {}\n");
-    fixture.write("vendorx/vendorx.go", "package vendorx\n\nimport \"example.com/gotree/app\"\n\nfunc V() {}\n");
+    fixture.write(
+        "node_modules/pkg/pkg.go",
+        "package pkg\n\nimport \"example.com/gotree/app\"\n\nfunc P() {}\n",
+    );
+    fixture.write(
+        "vendorx/vendorx.go",
+        "package vendorx\n\nimport \"example.com/gotree/app\"\n\nfunc V() {}\n",
+    );
     let output = fixture.run(&["inspect"]);
 
     assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let diagram = stdout(&output);
-    assert!(diagram.contains("app/app.go"), "real file missing:\n{diagram}");
+    assert!(
+        diagram.contains("app/app.go"),
+        "real file missing:\n{diagram}"
+    );
     for excluded in ["dep.go", "fixture.go", ".cache", "vendor/"] {
         assert!(
             !diagram.contains(excluded),
@@ -271,7 +296,10 @@ fn go_inspect_is_deterministic_across_runs() {
         "a/a.go",
         "package a\n\nimport \"example.com/gotree/b\"\n\nfunc A() {}\n",
     );
-    fixture.write("b/b.go", "package b\n\nimport \"example.com/gotree/a\"\n\nfunc B() {}\n");
+    fixture.write(
+        "b/b.go",
+        "package b\n\nimport \"example.com/gotree/a\"\n\nfunc B() {}\n",
+    );
     let first = fixture.run(&["inspect"]);
     let second = fixture.run(&["inspect"]);
 

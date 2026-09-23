@@ -72,7 +72,7 @@ url = $url
 builddate = $builddate
 packager = $pkgname release automation <$pkgname@invalid>
 size = $size
-license = MIT
+license = Apache-2.0
 arch = $arch
 EOF
 

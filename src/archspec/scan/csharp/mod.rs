@@ -1,10 +1,22 @@
-use crate::archspec::model::{Edge, ManifestInfo, Model, ModuleEdge, Unit};
+pub(crate) mod syntax;
+
+use crate::archspec::model::{Edge, ManifestInfo, Model, ModuleEdge, Role, Unit};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use walkdir::WalkDir;
 
-type ProjectSources = (BTreeSet<String>, BTreeMap<String, BTreeSet<String>>);
+/// Per-unit source facts: declared namespaces, per-namespace `using` targets,
+/// the type-position reference map ([`syntax::TypeFacts`], US 08), and whether
+/// an entrypoint file (Program/Startup — see [`has_di_registration_calls`])
+/// carries a DI-registration call of the [`DI_REGISTRATION_FAMILY`] — the
+/// composition predicate's fact source (roles US 02).
+type ProjectSources = (
+    BTreeSet<String>,
+    BTreeMap<String, BTreeSet<String>>,
+    Option<syntax::TypeFacts>,
+    bool,
+);
 type ScannedFiles = BTreeMap<String, ProjectSources>;
 
 /// C# driver (csharp): units = projects, hard edges = project references,
@@ -132,19 +144,36 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     let mut module_edge_map: BTreeMap<String, BTreeMap<(String, String), BTreeSet<String>>> =
         BTreeMap::new();
 
-    // Scan each project's sources once: namespaces + per-namespace usings.
-    // `unit_manifests` already carries the resolved csproj facts (test-tier
-    // projects were dropped with the classification pass above), so the loop
-    // never reparses a manifest.
+    // Scan each project's sources once: namespaces + per-namespace usings
+    // (+ type-position facts under `syntax`). `unit_manifests` already carries
+    // the resolved csproj facts (test-tier projects were dropped with the
+    // classification pass above), so the loop never reparses a manifest.
     let mut scanned: ScannedFiles = BTreeMap::new();
+    // Tree-wide declared-type map (namespace -> type names it declares): the
+    // precision anchor for bare-name resolution (US 08), merged across
+    // production units so a `using App.Core;` + `new Engine()` resolves even
+    // when `Engine` lives in the referenced project. Dropped test projects
+    // contribute nothing (their references are no production fact anyway).
+    let mut declared_types: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for unit in &units {
         let project_dir = if unit.path == "." {
             root.to_path_buf()
         } else {
             root.join(&unit.path)
         };
-        let (namespaces, usings) = scan_project_sources(&project_dir)?;
-        scanned.insert(unit.name.clone(), (namespaces.clone(), usings.clone()));
+        let (namespaces, usings, type_facts, registrations) = scan_project_sources(&project_dir)?;
+        if let Some(facts) = &type_facts {
+            for (ns, names) in &facts.declared_types {
+                declared_types
+                    .entry(ns.clone())
+                    .or_default()
+                    .extend(names.iter().cloned());
+            }
+        }
+        scanned.insert(
+            unit.name.clone(),
+            (namespaces.clone(), usings.clone(), type_facts, registrations),
+        );
         let mut sorted: Vec<String> = namespaces.iter().map(|ns| ns_to_module(ns)).collect();
         // Sentinel-presence is the truth condition: the "" key exists exactly
         // when some namespace-less file contributed at least one using (the
@@ -173,13 +202,21 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         module_edge_map.insert(unit.name.clone(), BTreeMap::new());
     }
 
+    // Role derivations (roles US 02) address the unit's root module key, and
+    // distinct units CAN share one key (unit `A.B`'s namespace `A.B` and unit
+    // `A.B.C`'s namespace-less composition root both resolve to `A::B`), so
+    // the two predicates accumulate per-key sets first and merge at the end:
+    // a key with any composition fact never reads as facade in the same scan.
+    let mut facade_keys: BTreeSet<String> = BTreeSet::new();
+    let mut composition_keys: BTreeSet<String> = BTreeSet::new();
+
     // Cross-project namespace ownership is only fully known after every unit is
     // scanned, so resolve usings in a second pass.
     for unit in &units {
-        let (_namespaces, usings) = scanned
+        let (_namespaces, usings, type_facts, registrations) = scanned
             .get(&unit.name)
             .cloned()
-            .unwrap_or_default();
+            .unwrap_or_else(|| (BTreeSet::new(), BTreeMap::new(), None, false));
         let referenced: Vec<String> = unit_manifests
             .get(&unit.name)
             .map(|manifest| manifest.dependencies.clone())
@@ -204,16 +241,17 @@ pub fn extract(root: &Path) -> Result<Model, String> {
                 }
                 // Resolve the deepest declared namespace prefix of the target.
                 match resolve_owner_prefix(target, &namespace_unit) {
-                    Some((_, owner)) if owner == unit.name => {
+                    Some((prefix, owner)) if owner == unit.name => {
                         // Within-project: a soft module edge.
                         let from = from_module(from_ns);
-                        let to = ns_to_module(target);
+                        let (to, symbols) = edge_target(prefix, target);
                         if from != to {
                             module_edge_map
                                 .entry(unit.name.clone())
                                 .or_default()
                                 .entry((from, to))
-                                .or_default();
+                                .or_default()
+                                .extend(symbols);
                         }
                     }
                     Some((prefix, owner)) => {
@@ -232,13 +270,14 @@ pub fn extract(root: &Path) -> Result<Model, String> {
                                 .is_some_and(|reachable| reachable.contains(&owner))
                         {
                             let from = from_module(from_ns);
-                            let to = ns_to_module(target);
+                            let (to, symbols) = edge_target(prefix, target);
                             if from != to {
                                 module_edge_map
                                     .entry(unit.name.clone())
                                     .or_default()
                                     .entry((from, to))
-                                    .or_default();
+                                    .or_default()
+                                    .extend(symbols);
                             }
                         }
                     }
@@ -262,6 +301,112 @@ pub fn extract(root: &Path) -> Result<Model, String> {
                 }
             }
         }
+        // ---- Type-position edges (US 08) -----------------------------------
+        // The SAME declared-namespace ownership machinery resolves every type
+        // reference, but the ownership-MISS branch records NOTHING: the
+        // external tier stays using-driven (decision: type-position
+        // references never add module_external entries, so the
+        // tier is purely a using-driven fact). Qualified references and
+        // surviving bare candidates merge into one set per context, so a
+        // fully-qualified and a bare reference to the same type dedup into
+        // the SAME (from, to) edge — including edges the using pass already
+        // recorded, since module_edge_map is shared.
+        if let Some(facts) = &type_facts {
+            let mut references: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+            for (from_ns, qualified) in &facts.qualified {
+                references
+                    .entry(from_ns.clone())
+                    .or_default()
+                    .extend(qualified.iter().cloned());
+            }
+            for (from_ns, candidates) in &facts.candidates {
+                let mut by_ident: BTreeMap<&str, BTreeSet<&String>> = BTreeMap::new();
+                for (ident, reference) in candidates {
+                    by_ident.entry(ident.as_str()).or_default().insert(reference);
+                }
+                for (ident, cands) in by_ident {
+                    // A candidate is REAL when it reduces to `P.ident` with P
+                    // a declared namespace and ident a TYPE P declares (the
+                    // case-sensitive anchor that kills local-variable noise).
+                    // Several REAL resolutions of one identifier could not
+                    // compile, so honestly none is recorded (ambiguity guard).
+                    let mut survivors = cands
+                        .into_iter()
+                        .filter(|reference| {
+                            candidate_resolves_as_declared_type(
+                                reference,
+                                ident,
+                                &namespace_unit,
+                                &declared_types,
+                            )
+                        });
+                    let Some(reference) = survivors.next().cloned() else {
+                        continue;
+                    };
+                    if survivors.next().is_some() {
+                        continue;
+                    }
+                    references.entry(from_ns.clone()).or_default().insert(reference);
+                }
+            }
+            for (from_ns, references) in references {
+                let from = from_module(&from_ns);
+                for reference in &references {
+                    if falls_under_namespace(reference, &dropped_namespaces) {
+                        continue;
+                    }
+                    match resolve_owner_prefix(reference, &namespace_unit) {
+                        Some((prefix, owner)) if owner == unit.name => {
+                            let (to, symbols) = edge_target(prefix, reference);
+                            if from != to {
+                                module_edge_map
+                                    .entry(unit.name.clone())
+                                    .or_default()
+                                    .entry((from.clone(), to))
+                                    .or_default()
+                                    .extend(symbols);
+                            }
+                        }
+                        Some((prefix, owner)) => {
+                            // The same honesty guards as the using path: an
+                            // ambiguously declared prefix or an unreachable
+                            // owner could not compile — no source fact.
+                            if !ambiguous_namespaces.contains(prefix)
+                                && reference_reach
+                                    .get(unit.name.as_str())
+                                    .is_some_and(|reachable| reachable.contains(&owner))
+                            {
+                                let (to, symbols) = edge_target(prefix, reference);
+                                if from != to {
+                                    module_edge_map
+                                        .entry(unit.name.clone())
+                                        .or_default()
+                                        .entry((from.clone(), to))
+                                        .or_default()
+                                        .extend(symbols);
+                                }
+                            }
+                        }
+                        // Ownership miss (BCL/NuGet type used without a
+                        // using): no edge and NO external attribution — by
+                        // decision the external tier stays the using path's.
+                        None => {}
+                    }
+                }
+            }
+        }
+        // Roles derive from this unit's own facts (roles US 02): the facade
+        // predicate reads the root module's using/type facts, the composition
+        // predicate the entrypoint registration calls. Registration calls are
+        // a fact source ONLY — they join no edge map and engage no rule yet.
+        derive_unit_roles(
+            &unit.name,
+            &usings,
+            &type_facts,
+            registrations,
+            &mut facade_keys,
+            &mut composition_keys,
+        );
     }
 
     // Aggregate module edges into the model shape.
@@ -319,6 +464,9 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         .cloned()
         .filter(|_| unit_manifests.len() == 1);
 
+    // Composition beats facade on a shared root key (exclusivity pin).
+    let roles = roles_map(facade_keys, composition_keys);
+
     Ok(Model {
         schema_version: 1,
         language: "csharp".to_string(),
@@ -337,7 +485,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         unit_manifests,
         unresolved_module_files: Default::default(),
         test_gated_modules: Default::default(),
-        facade_roots: Default::default(),
+        roles,
     })
 }
 fn collect_projects(root: &Path) -> Vec<(String, std::path::PathBuf)> {
@@ -661,17 +809,26 @@ fn has_condition(event: &quick_xml::events::BytesStart<'_>) -> bool {
         .any(|attr| attr.key.as_ref() == "Condition")
 }
 
-/// Scan every `.cs` file under a project directory for declared namespaces and
-/// `using` targets, both attributed to the namespace they appear in.
+/// Scan every `.cs` file under a project directory for declared namespaces,
+/// `using` targets (both attributed to the namespace they appear in) and the
+/// type-position reference map ([`syntax::TypeFacts`]). Per file the grammar
+/// walk ([`syntax::scan_cs_source`]) fills the namespace/using collections and
+/// the type facts with the attribution semantics the graph assembly expects.
 ///
-/// Returns `(namespaces, usings)` where `usings` maps a namespace (dotted, as
-/// written) to the set of `using` target namespaces in files of that namespace.
-/// A file-scoped `namespace Foo.Bar;` owns all usings in the file; usings in a
-/// file with no namespace at all are attributed to the unit root (the empty
-/// string is used as a sentinel and translated later).
+/// Returns `(namespaces, usings, type_facts, entrypoint_registrations)` where
+/// `usings` maps a namespace (dotted, as written) to the set of `using` target
+/// namespaces in files of that namespace. A file-scoped `namespace Foo.Bar;`
+/// owns all usings in the file; usings in a file with no namespace at all are
+/// attributed to the unit root (the empty string is used as a sentinel and
+/// translated later). `entrypoint_registrations` is the composition fact
+/// (roles US 02): set when some entrypoint file (Program/Startup — see
+/// [`is_entrypoint_source_file`]) carries a call of the
+/// [`DI_REGISTRATION_FAMILY`].
 fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
     let mut namespaces: BTreeSet<String> = BTreeSet::new();
     let mut usings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut type_facts = Some(syntax::TypeFacts::default());
+    let mut entrypoint_registrations = false;
 
     for entry in WalkDir::new(project_dir).into_iter().filter_map(Result::ok) {
         if !entry.file_type().is_file() {
@@ -688,9 +845,21 @@ fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
         }
         let source = std::fs::read_to_string(path)
             .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-        scan_cs_source(&source, &mut namespaces, &mut usings);
+        if is_entrypoint_source_file(path) {
+            entrypoint_registrations |= has_di_registration_calls(&source);
+        }
+        {
+            let mut per_file = syntax::TypeFacts::default();
+            syntax::scan_cs_source(&source, &mut namespaces, &mut usings, &mut per_file)
+                .map_err(|err| {
+                    format!("failed to parse {}: {err}", path.display())
+                })?;
+            if let Some(collected) = type_facts.as_mut() {
+                collected.merge(per_file);
+            }
+        }
     }
-    Ok((namespaces, usings))
+    Ok((namespaces, usings, type_facts, entrypoint_registrations))
 }
 
 /// True when any rel-path component is `bin`, `obj`, `node_modules`, or starts
@@ -703,295 +872,10 @@ pub(crate) fn is_excluded_cs(rel: &std::path::Path) -> bool {
     })
 }
 
-/// Tokenize a `.cs` source, skipping comments and strings, and collect:
-/// - `namespace` declarations (file-scoped `namespace A.B;` and block
-///   `namespace A.B {`) into `namespaces`
-/// - `using A.B.C;` (and `using static`, `using Alias = ...`, `global using`)
-///   targets into `usings`, keyed by the namespace the using belongs to.
-///   A file with no namespace attribute its usings to "" (unit root).
-pub(crate) fn scan_cs_source(
-    source: &str,
-    namespaces: &mut BTreeSet<String>,
-    usings: &mut BTreeMap<String, BTreeSet<String>>,
-) {
-    let bytes = source.as_bytes();
-    let mut i = 0usize;
-    // Current namespace context: stack for block namespaces; when the file
-    // declares a file-scoped namespace, it applies to the whole file.
-    let mut ns_stack: Vec<String> = Vec::new();
-    // Sentinel: at least one using appeared before any namespace was declared.
-    let mut pending_root_usings: Vec<String> = Vec::new();
-    // True when the file declared any namespace; a file that never declares one
-    // (top-level-statements composition root) attributes its usings to the unit
-    // root sentinel instead of dropping them.
-    let mut saw_namespace = false;
-
-    while i < bytes.len() {
-        let c = bytes[i];
-        // Skip comments and string/char literals.
-        if c == b'/' && i + 1 < bytes.len() {
-            if bytes[i + 1] == b'/' {
-                i = skip_line_comment(bytes, i);
-                continue;
-            }
-            if bytes[i + 1] == b'*' {
-                i = skip_block_comment(bytes, i);
-                continue;
-            }
-        }
-        if c == b'"' {
-            i = skip_string(bytes, i);
-            continue;
-        }
-        if c == b'@' && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
-            i = skip_verbatim_string(bytes, i);
-            continue;
-        }
-        if c == b'$' && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
-            i = skip_interpolated_string(bytes, i);
-            continue;
-        }
-        if c == b'\'' {
-            i = skip_char(bytes, i);
-            continue;
-        }
-
-        if c.is_ascii_alphabetic() {
-            if matches_identifier(bytes, i, b"namespace") {
-                i += "namespace".len();
-                i = skip_ws(bytes, i);
-                let (ns, after_ns) = read_dotted(bytes, i);
-                i = after_ns;
-                i = skip_ws(bytes, i);
-                if i < bytes.len() && bytes[i] == b';' {
-                    // File-scoped namespace: applies to the whole file.
-                    ns_stack.clear();
-                    ns_stack.push(ns.clone());
-                } else if i < bytes.len() && bytes[i] == b'{' {
-                    ns_stack.push(ns.clone());
-                }
-                if !ns.is_empty() {
-                    namespaces.insert(ns);
-                    saw_namespace = true;
-                }
-                continue;
-            }
-            if matches_identifier(bytes, i, b"using") {
-                i += "using".len();
-                i = skip_ws(bytes, i);
-                // `using var x = ...;` / `using (expr) { }` are resource
-                // management statements, not namespace imports.
-                if i < bytes.len() && bytes[i] == b'(' {
-                    i = skip_to_semicolon(bytes, i);
-                    continue;
-                }
-                if matches_identifier(bytes, i, b"var") {
-                    // `using var name = ...;` — skip to the semicolon.
-                    i = skip_to_semicolon(bytes, i);
-                    continue;
-                }
-                // Optional `global` prefix (global using).
-                if matches_identifier(bytes, i, b"global") {
-                    i += "global".len();
-                    i = skip_ws(bytes, i);
-                }
-                // Optional `static` (using static) — target is a type/namespace.
-                if matches_identifier(bytes, i, b"static") {
-                    i += "static".len();
-                    i = skip_ws(bytes, i);
-                }
-                // Optional alias `using Alias = A.B.C;` — read past `... =`.
-                let start = i;
-                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'.') {
-                    i += 1;
-                }
-                // If we stopped right before ` = `, the preceding dotted token
-                // is an alias, not a namespace.
-                i = skip_ws(bytes, i);
-                if i < bytes.len() && bytes[i] == b'=' {
-                    i += 1;
-                    i = skip_ws(bytes, i);
-                } else {
-                    i = start;
-                }
-                let (target, _after_target) = read_dotted(bytes, i);
-                if !target.is_empty() {
-                    if let Some(ns) = ns_stack.last() {
-                        usings
-                            .entry(ns.clone())
-                            .or_default()
-                            .insert(target);
-                    } else {
-                        pending_root_usings.push(target);
-                    }
-                }
-                // Advance past the rest of the statement.
-                i = skip_to_semicolon(bytes, i);
-                continue;
-            }
-        }
-        i += 1;
-    }
-
-    // A file-scoped namespace may be declared before or after usings; usings
-    // before the declaration still belong to it. If only one namespace was
-    // declared in the whole file, fold pending usings into it. A file that
-    // declares no namespace at all (composition root) attributes its usings to
-    // the unit-root sentinel (""), translated to the project's root module by
-    // the callers.
-    if !pending_root_usings.is_empty() {
-        let entry = if ns_stack.len() == 1 {
-            usings.entry(ns_stack[0].clone()).or_default()
-        } else if !saw_namespace {
-            usings.entry(String::new()).or_default()
-        } else {
-            return;
-        };
-        for target in &pending_root_usings {
-            entry.insert(target.clone());
-        }
-    }
-}
-
-/// The dotted name starting at `i` (e.g. `System.Text`). Returns ("", i) when
-/// there is no dotted name. The returned index is the position just past the
-/// name.
-fn read_dotted(bytes: &[u8], i: usize) -> (String, usize) {
-    let mut end = i;
-    while end < bytes.len()
-        && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_' || bytes[end] == b'.')
-    {
-        end += 1;
-    }
-    if end == i {
-        return (String::new(), i);
-    }
-    // A dotted name may be `@ident` (verbatim identifier); strip the `@`.
-    let name = String::from_utf8_lossy(&bytes[i..end]).replace('@', "");
-    (name, end)
-}
-
-/// True if `bytes[i..]` starts with `word` at an identifier boundary.
-fn matches_identifier(bytes: &[u8], i: usize, word: &[u8]) -> bool {
-    if bytes.len() < i + word.len() {
-        return false;
-    }
-    let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
-    let after = i + word.len();
-    let after_ok =
-        after >= bytes.len() || !bytes[after].is_ascii_alphanumeric() && bytes[after] != b'_';
-    before_ok && after_ok && &bytes[i..after] == word
-}
-
-fn skip_ws(bytes: &[u8], mut i: usize) -> usize {
-    while i < bytes.len() && (bytes[i].is_ascii_whitespace()) {
-        i += 1;
-    }
-    i
-}
-
-fn skip_line_comment(bytes: &[u8], mut i: usize) -> usize {
-    while i < bytes.len() && bytes[i] != b'\n' {
-        i += 1;
-    }
-    i
-}
-
-fn skip_block_comment(bytes: &[u8], mut i: usize) -> usize {
-    i += 2;
-    while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-        i += 1;
-    }
-    if i + 1 < bytes.len() {
-        i + 2
-    } else {
-        bytes.len()
-    }
-}
-
-fn skip_string(bytes: &[u8], mut i: usize) -> usize {
-    i += 1;
-    while i < bytes.len() {
-        if bytes[i] == b'\\' {
-            i += 2;
-            continue;
-        }
-        if bytes[i] == b'"' {
-            return i + 1;
-        }
-        i += 1;
-    }
-    bytes.len()
-}
-
-fn skip_verbatim_string(bytes: &[u8], mut i: usize) -> usize {
-    i += 2;
-    while i < bytes.len() {
-        if bytes[i] == b'"' {
-            if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
-                i += 2;
-                continue;
-            }
-            return i + 1;
-        }
-        i += 1;
-    }
-    bytes.len()
-}
-
-fn skip_interpolated_string(bytes: &[u8], mut i: usize) -> usize {
-    // `$"..."` — handle escapes and nested braces roughly; `{}` interpolation
-    // can contain strings/comments, but a conservative scan to the closing
-    // quote is sufficient for keyword detection.
-    i += 2;
-    while i < bytes.len() {
-        if bytes[i] == b'\\' {
-            i += 2;
-            continue;
-        }
-        if bytes[i] == b'"' {
-            return i + 1;
-        }
-        i += 1;
-    }
-    bytes.len()
-}
-
-fn skip_char(bytes: &[u8], mut i: usize) -> usize {
-    i += 1;
-    while i < bytes.len() {
-        if bytes[i] == b'\\' {
-            i += 2;
-            continue;
-        }
-        if bytes[i] == b'\'' {
-            return i + 1;
-        }
-        i += 1;
-    }
-    bytes.len()
-}
-
-/// Advance to the character after the next `;` (or end of input).
-fn skip_to_semicolon(bytes: &[u8], mut i: usize) -> usize {
-    while i < bytes.len() {
-        if bytes[i] == b';' {
-            return i + 1;
-        }
-        // Nested strings/comments inside the statement (e.g. `using var x = $"..."`).
-        if bytes[i] == b'"' {
-            i = skip_string(bytes, i);
-            continue;
-        }
-        i += 1;
-    }
-    bytes.len()
-}
-
 /// The dotted prefixes of `target`, longest first: the whole target, then each
 /// truncation at a dot, down to the first segment (for `A.B.C`: `A.B.C`,
 /// `A.B`, `A`). This is the iteration behind the longest-prefix ownership
-/// rule, shared by [`resolve_owner`], [`falls_under_namespace`], and the
+/// rule, shared by [`resolve_owner_prefix`], [`falls_under_namespace`], and the
 /// inspect file graph so the scan and the inspect map can never drift on
 /// which declaration owns a `using` target.
 pub(crate) fn namespace_prefixes(target: &str) -> impl Iterator<Item = &str> + '_ {
@@ -1009,15 +893,11 @@ pub(crate) fn namespace_prefixes(target: &str) -> impl Iterator<Item = &str> + '
 }
 
 /// Resolve the owning unit of a namespace target: the deepest declared
-/// namespace that is a prefix (dotted) of the target. Returns None when the
-/// target is external.
-fn resolve_owner(target: &str, namespace_unit: &BTreeMap<String, String>) -> Option<String> {
-    resolve_owner_prefix(target, namespace_unit).map(|(_, owner)| owner.to_string())
-}
-
-/// [`resolve_owner`] with the matched declaration prefix, which the cross-unit
-/// ambiguity check needs: the deepest declared prefix decides BOTH the owner
-/// and whether that owner is honest (a prefix declared by two units is not).
+/// namespace that is a prefix (dotted) of the target, returned together with
+/// the matched declaration prefix. Returns None when the target is external.
+/// The prefix decides both the owner AND whether that owner is honest (a
+/// prefix declared by two units is not), and the addressing
+/// rule (see [`edge_target`]).
 fn resolve_owner_prefix<'a>(
     target: &'a str,
     namespace_unit: &'a BTreeMap<String, String>,
@@ -1027,6 +907,45 @@ fn resolve_owner_prefix<'a>(
             .get(candidate)
             .map(|owner| (candidate, owner.as_str()))
     })
+}
+
+/// True when a bare-name CANDIDATE reference (US 08) is real: its deepest
+/// declared prefix `P` leaves exactly the single segment `ident` as the tail,
+/// and `ident` is a TYPE declared under `P` (case-sensitive — a local named
+/// `engine` never matches the type `Engine`). This is the anchored filter
+/// that keeps the bare path silent on locals, instance chains and BCL names
+/// while a qualified `using App.Core;` + `new Engine()` resolves precisely.
+fn candidate_resolves_as_declared_type(
+    reference: &str,
+    ident: &str,
+    namespace_unit: &BTreeMap<String, String>,
+    declared_types: &BTreeMap<String, BTreeSet<String>>,
+) -> bool {
+    match resolve_owner_prefix(reference, namespace_unit) {
+        Some((prefix, _owner)) => {
+            let tail = reference[prefix.len()..].trim_start_matches('.');
+            tail == ident && declared_types.get(prefix).is_some_and(|types| types.contains(ident))
+        }
+        None => false,
+    }
+}
+
+/// The module-edge endpoint and crossing symbols for a `using` target that
+/// resolved to a declared namespace prefix: the edge addresses the deepest
+/// DECLARED prefix — the rust driver's
+/// deepest-known-module rule, one addressing vocabulary across languages —
+/// and carries the remaining target segments (usually the single type name a
+/// type-targeted `using App.Core.Engine;` points at) as the symbols crossing
+/// the boundary. A target that is itself a declared namespace (a pure
+/// namespace using) keeps that endpoint with no symbols.
+fn edge_target(prefix: &str, target: &str) -> (String, Vec<String>) {
+    let symbols = target
+        .strip_prefix(prefix)
+        .map(|tail| tail.trim_start_matches('.'))
+        .filter(|tail| !tail.is_empty())
+        .map(|tail| tail.split('.').map(str::to_string).collect())
+        .unwrap_or_default();
+    (ns_to_module(prefix), symbols)
 }
 
 /// Transitive closure of the project-reference graph per source unit: what
@@ -1057,7 +976,7 @@ fn reference_reachability(edges: &[Edge]) -> BTreeMap<&str, BTreeSet<&str>> {
 }
 
 /// True when `target` equals or falls under any namespace in `namespaces`
-/// (segment-wise dotted prefixes — the same rule [`resolve_owner`] uses).
+/// (segment-wise dotted prefixes — the same rule [`resolve_owner_prefix`] uses).
 fn falls_under_namespace(target: &str, namespaces: &BTreeSet<String>) -> bool {
     namespace_prefixes(target).any(|candidate| namespaces.contains(candidate))
 }
@@ -1127,13 +1046,196 @@ fn ns_to_module(ns: &str) -> String {
 /// converted like any namespace. Mirrors the rust driver placing crate-root
 /// files on the crate's own module.
 fn root_module_key(unit_name: &str) -> String {
-    ns_to_module(
-        &unit_name
-            .split('.')
-            .take(2)
-            .collect::<Vec<_>>()
-            .join("."),
-    )
+    ns_to_module(&root_namespace(unit_name))
+}
+
+/// The dotted root namespace convention of a unit: the first two segments of
+/// the unit name (the csproj `RootNamespace` convention — `Shop.Api`'s
+/// root namespace is `Shop.Api`, `App`'s is `App`). Files declaring it
+/// attribute their facts to the unit's root module, the same key namespace-less
+/// files get translated to.
+fn root_namespace(unit_name: &str) -> String {
+    unit_name.split('.').take(2).collect::<Vec<_>>().join(".")
+}
+
+/// The DI-registration call family behind the composition predicate (roles
+/// US 02): the `IServiceCollection` registration methods expressing cross-layer
+/// interface→implementation and hosted-service wiring — the shapes a
+/// layered C# service tree states in its composition root
+/// (`api/Shop.Api/Program.cs`). Matched as
+/// case-sensitive C# method names in the call shape `.Name<…>` / `.Name(…)`;
+/// framework `Add…` calls outside the family (AddControllers, AddLogging) and
+/// hand-rolled extensions (AddRustSyncClient) are NOT evidence — a name-based
+/// guess there would state a role the code does not prove.
+const DI_REGISTRATION_FAMILY: [&str; 4] =
+    ["AddScoped", "AddTransient", "AddSingleton", "AddHostedService"];
+
+/// The entrypoint file convention: a `.cs` file named `Program.cs` or
+/// `Startup.cs` (case-insensitive stem — the two shapes .NET uses for
+/// composition wiring). The name IS the entrypoint marker; no manifest
+/// OutputType fact participates.
+fn is_entrypoint_source_file(path: &Path) -> bool {
+    path.file_stem().is_some_and(|stem| {
+        let stem = stem.to_string_lossy();
+        stem.eq_ignore_ascii_case("Program") || stem.eq_ignore_ascii_case("Startup")
+    })
+}
+
+/// True when the source of an entrypoint file contains a call of the
+/// [`DI_REGISTRATION_FAMILY`]: a family name with `.` before it (skipping
+/// whitespace — chains may wrap lines) and `<` or `(` after it. Matched on the
+/// source with comments and string/char literals removed
+/// ([`without_comments_or_literals`]), so a registration only named in a
+/// comment or literal is no fact. An identifier merely ENDING in a family name
+/// (`obj.AddScopedWithRetry(`) fails the trailing-shape test and a chain
+/// segment without the leading `.` (`AddScoped(` as a local function call) is
+/// not instance wiring — both state nothing.
+fn has_di_registration_calls(source: &str) -> bool {
+    let code = without_comments_or_literals(source);
+    DI_REGISTRATION_FAMILY.iter().any(|name| {
+        code.match_indices(name).any(|(index, _)| {
+            let before = code[..index].trim_end();
+            let after = code[index + name.len()..].trim_start();
+            before.ends_with('.') && (after.starts_with('<') || after.starts_with('('))
+        })
+    })
+}
+
+/// The source with line and block comments removed and string, verbatim and
+/// char literals replaced by a single space (token separation kept), so call
+/// recognition reads code only. Raw string literals are not tracked
+/// separately: their opening quotes still delimit stripped content.
+fn without_comments_or_literals(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::with_capacity(source.len());
+    let mut index = 0;
+    let len = chars.len();
+    while index < len {
+        match chars[index] {
+            '/' if chars.get(index + 1) == Some(&'/') => {
+                while index < len && chars[index] != '\n' {
+                    index += 1;
+                }
+            }
+            '/' if chars.get(index + 1) == Some(&'*') => {
+                index += 2;
+                while index + 1 < len && !(chars[index] == '*' && chars[index + 1] == '/') {
+                    index += 1;
+                }
+                index += 2;
+                out.push(' ');
+            }
+            '"' => {
+                index += 1;
+                while index < len && chars[index] != '"' {
+                    if chars[index] == '\\' {
+                        index += 1;
+                    }
+                    index += 1;
+                }
+                index += 1;
+                out.push(' ');
+            }
+            '\'' => {
+                index += 1;
+                while index < len && chars[index] != '\'' {
+                    if chars[index] == '\\' {
+                        index += 1;
+                    }
+                    index += 1;
+                }
+                index += 1;
+                out.push(' ');
+            }
+            '@' if chars.get(index + 1) == Some(&'"') => {
+                index += 2;
+                while index < len {
+                    if chars[index] == '"' {
+                        if chars.get(index + 1) == Some(&'"') {
+                            index += 2;
+                        } else {
+                            index += 1;
+                            break;
+                        }
+                    } else {
+                        index += 1;
+                    }
+                }
+                out.push(' ');
+            }
+            other => {
+                out.push(other);
+                index += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Derive one unit's role entries from its own facts (roles US 02), adding
+/// model keys to the per-predicate sets. Both predicates address the unit's
+/// root module key with disjoint evidence:
+/// - `facade`: the root module exists as a fact (a namespace-less file or a
+///   file declaring the root namespace contributed at least one using) and no
+///   file attributed to it declares a type — the csharp mirror of rust's
+///   `root_defines_items` predicate. A root module with no facts at all is not
+///   in the model and gains nothing: absence states "no role", never "denied".
+/// - `composition`: an entrypoint file (Program/Startup) of the unit carries
+///   [`DI_REGISTRATION_FAMILY`] calls. Registration facts are a derivation
+///   input only — they join no edge map and engage no rule yet.
+///
+/// A unit whose Program/Startup files carry registrations gains composition
+/// and NEVER facade, even though the using-only Program.cs satisfies the naive
+/// facade shape — the exclusivity pin of the workplan.
+fn derive_unit_roles(
+    unit_name: &str,
+    usings: &BTreeMap<String, BTreeSet<String>>,
+    type_facts: &Option<syntax::TypeFacts>,
+    registrations: bool,
+    facades: &mut BTreeSet<String>,
+    compositions: &mut BTreeSet<String>,
+) {
+    let root_ns = root_namespace(unit_name);
+    let root_key = ns_to_module(&root_ns);
+    if registrations {
+        compositions.insert(root_key);
+        return;
+    }
+    let using_fact =
+        usings.contains_key("") || usings.get(&root_ns).is_some_and(|t| !t.is_empty());
+    let type_fact = type_facts.as_ref().is_some_and(|facts| {
+        facts
+            .declared_types
+            .get("")
+            .is_some_and(|names| !names.is_empty())
+            || facts
+                .declared_types
+                .get(&root_ns)
+                .is_some_and(|names| !names.is_empty())
+    });
+    if using_fact && !type_fact {
+        facades.insert(root_key);
+    }
+}
+
+/// Merge the per-predicate key sets into the model's roles map: composition
+/// claims are stated first, and a key any unit claimed as composition never
+/// reads as facade in the same scan — the exclusivity holds across units too,
+/// since distinct units can resolve to one root module key.
+fn roles_map(
+    facades: BTreeSet<String>,
+    compositions: BTreeSet<String>,
+) -> BTreeMap<String, Role> {
+    let mut roles: BTreeMap<String, Role> = BTreeMap::new();
+    for key in &compositions {
+        roles.insert(key.clone(), Role::Composition);
+    }
+    for key in facades {
+        if !compositions.contains(&key) {
+            roles.insert(key, Role::Facade);
+        }
+    }
+    roles
 }
 
 /// Canonicalize a path lexically: resolve `.` and `..` components without
@@ -1153,6 +1255,10 @@ fn normalize(path: &Path) -> std::path::PathBuf {
 }
 
 /// No csproj found but csharp detected via .cs sources: one unit for the root.
+/// The same path as the csproj shape: identical source facts (grammar), the
+/// same prefix resolution, and the same [`edge_target`] addressing — only the
+/// graph is trivial (one unit, no references, empty external tier), so no
+/// attribution branches are specialized here.
 fn extract_single_unit(root: &Path) -> Result<Model, String> {
     let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let name = canonical
@@ -1167,7 +1273,7 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
         crate_ids: BTreeSet::new(),
     };
 
-    let (namespaces, usings) = scan_project_sources(&canonical)?;
+    let (namespaces, usings, type_facts, registrations) = scan_project_sources(&canonical)?;
     let mut soft_structure: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut sorted: Vec<String> = namespaces.iter().map(|ns| ns_to_module(ns)).collect();
     let root_key = root_module_key(&name);
@@ -1199,18 +1305,74 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
     };
     for (from_ns, targets) in &usings {
         for target in targets {
-            match resolve_owner(target, &namespace_unit) {
-                Some(_owner) => {
+            match resolve_owner_prefix(target, &namespace_unit) {
+                Some((prefix, _owner)) => {
                     let from = from_module(from_ns);
-                    let to = ns_to_module(target);
+                    let (to, symbols) = edge_target(prefix, target);
                     if from != to {
-                        module_edge_map.entry((from, to)).or_default();
+                        module_edge_map
+                            .entry((from, to))
+                            .or_default()
+                            .extend(symbols);
                     }
                 }
                 None => {
                     for package in used_packages_for_using(target, &referenced) {
                         let from = from_module(from_ns);
                         module_external.entry(from).or_default().insert(package);
+                    }
+                }
+            }
+        }
+    }
+    // Type-position references (US 08) join the same
+    // single-unit edge map: qualified references plus bare candidates whose
+    // ONE real resolution is a type declared under a declared namespace the
+    // file can see. An ownership miss records nothing — the external tier of
+    // a csproj-less tree is empty by construction either way.
+    if let Some(facts) = &type_facts {
+        let mut references: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for (from_ns, qualified) in &facts.qualified {
+            references
+                .entry(from_ns.clone())
+                .or_default()
+                .extend(qualified.iter().cloned());
+        }
+        for (from_ns, candidates) in &facts.candidates {
+            let mut by_ident: BTreeMap<&str, BTreeSet<&String>> = BTreeMap::new();
+            for (ident, reference) in candidates {
+                by_ident.entry(ident.as_str()).or_default().insert(reference);
+            }
+            for (ident, cands) in by_ident {
+                let mut survivors = cands
+                    .into_iter()
+                    .filter(|reference| {
+                        candidate_resolves_as_declared_type(
+                            reference,
+                            ident,
+                            &namespace_unit,
+                            &facts.declared_types,
+                        )
+                    });
+                let Some(reference) = survivors.next().cloned() else {
+                    continue;
+                };
+                if survivors.next().is_some() {
+                    continue;
+                }
+                references.entry(from_ns.clone()).or_default().insert(reference);
+            }
+        }
+        for (from_ns, references) in references {
+            let from = from_module(&from_ns);
+            for reference in &references {
+                if let Some((prefix, _owner)) = resolve_owner_prefix(reference, &namespace_unit) {
+                    let (to, symbols) = edge_target(prefix, reference);
+                    if from != to {
+                        module_edge_map
+                            .entry((from.clone(), to))
+                            .or_default()
+                            .extend(symbols);
                     }
                 }
             }
@@ -1240,6 +1402,21 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
         module_external_model.insert(module, sorted);
     }
 
+    // The csproj-less shape derives roles from the same predicates as the
+    // csproj path (roles US 02) — one unit, so the sets carry at most one key
+    // each and the merge keeps the same exclusivity.
+    let mut facade_keys: BTreeSet<String> = BTreeSet::new();
+    let mut composition_keys: BTreeSet<String> = BTreeSet::new();
+    derive_unit_roles(
+        &name,
+        &usings,
+        &type_facts,
+        registrations,
+        &mut facade_keys,
+        &mut composition_keys,
+    );
+    let roles = roles_map(facade_keys, composition_keys);
+
     Ok(Model {
         schema_version: 1,
         language: "csharp".to_string(),
@@ -1258,6 +1435,6 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
         unit_manifests: Default::default(),
         unresolved_module_files: Default::default(),
         test_gated_modules: Default::default(),
-        facade_roots: Default::default(),
+        roles,
     })
 }

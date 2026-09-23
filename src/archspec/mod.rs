@@ -6,6 +6,7 @@ pub mod depgraph;
 pub mod diagram;
 pub mod language;
 pub mod model;
+pub mod parse;
 pub mod report;
 pub mod scan;
 pub mod spec;
@@ -26,7 +27,7 @@ pub struct CommandInfo {
 pub(crate) const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "init",
-        summary: "scaffold a minimal base spec",
+        summary: "scaffold config + starter spec (no real-tree capture)",
         help: init::HELP,
     },
     CommandInfo {
@@ -46,7 +47,7 @@ pub(crate) const COMMANDS: &[CommandInfo] = &[
     },
     CommandInfo {
         name: "update",
-        summary: "snapshot current model as a seed spec",
+        summary: "seed a spec by snapshotting the real tree",
         help: commands::update::HELP,
     },
     CommandInfo {
@@ -81,8 +82,13 @@ pub(crate) const COMMANDS: &[CommandInfo] = &[
     },
     CommandInfo {
         name: "capability",
-        summary: "print the driver capability table (machine-readable guard surface)",
+        summary: "print the driver capability table (machine-readable guard surface): matrix | granular <language> <fact>",
         help: commands::capability::HELP,
+    },
+    CommandInfo {
+        name: "skill",
+        summary: "print or install the agent-facing audit skill",
+        help: commands::skill::HELP,
     },
 ];
 
@@ -93,7 +99,8 @@ fn print_tool_help() {
         out.push_str(&format!("  {:width$}  {}\n", cmd.name, cmd.summary, width = width));
     }
     out.push_str("\nrun 'archspec <command> --help' for details on a command\n");
-    out.push_str("run 'archspec help' for topics: commands, glob, spec, constraints, languages, workflow, diagnostics\n");
+    out.push_str("run 'archspec --version' for the tool version\n");
+    out.push_str("run 'archspec help' for topics: commands, glob, spec, constraints, languages, roles, workflow, diagnostics\n");
     print!("{out}");
 }
 
@@ -104,6 +111,13 @@ pub fn dispatch(args: &[String]) -> i32 {
     };
     if cmd == "--help" {
         print_tool_help();
+        return 0;
+    }
+    // Identity, not a command: "--version" (muscle memory) and "version"
+    // (subcommand shape) both print the crate version. Unknown commands stay
+    // refused below — this early return names exactly these two spellings.
+    if cmd == "--version" || cmd == "version" {
+        println!("archspec {}", env!("CARGO_PKG_VERSION"));
         return 0;
     }
     let rest = &args[1..];
@@ -125,6 +139,7 @@ pub fn dispatch(args: &[String]) -> i32 {
         "spec" => commands::spec::run(rest),
         "help" => commands::help::run(rest),
         "capability" => commands::capability::run(rest),
+        "skill" => commands::skill::run(rest),
         "doctor" => doctor::run(rest),
         other => {
             eprintln!("error: unknown command: {other}");

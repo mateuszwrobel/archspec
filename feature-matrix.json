@@ -126,6 +126,28 @@
             "go": "project shape not applicable",
             "rust": "project shape not applicable"
           }
+        },
+        {
+          "name": "model_states_roles_map_per_language",
+          "description": "the roles map states the entries each driver derives from its own facts on the canonical tree: rust names its mod-declaration-only roots `facade`, c# names its DI-wired entrypoint root and go its `package main` unit `composition`, and every stated value comes from the closed vocabulary",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "rust": "pass"
+          }
+        },
+        {
+          "name": "roles_map_never_states_facade_where_fact_not_emitted",
+          "description": "on a driver whose table marks role-facade not-emitted the roles map states no facade value anywhere while its own derived entries stay stated — honest absence per path, never a guessed stand-in",
+          "status": {
+            "csharp": "skipped",
+            "go": "pass",
+            "rust": "skipped"
+          },
+          "skip_reasons": {
+            "csharp": "role-facade: granular",
+            "rust": "role-facade: granular"
+          }
         }
       ]
     },
@@ -179,7 +201,7 @@
       "name": "scan.module_edges",
       "language_capability": {
         "csharp": "implemented",
-        "go": "not-implemented",
+        "go": "implemented",
         "rust": "implemented"
       },
       "behaviors": [
@@ -188,11 +210,8 @@
           "description": "a using/import from one declared module to another records a module edge",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "scan.module_edges not implemented"
           }
         },
         {
@@ -200,11 +219,8 @@
           "description": "a using/import of an external package produces no module edge",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "scan.module_edges not implemented"
           }
         },
         {
@@ -212,11 +228,8 @@
           "description": "a unit whose modules reference nothing emits no module edges",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "scan.module_edges not implemented"
           }
         }
       ]
@@ -310,11 +323,8 @@
           "description": "only the module that uses an external package records it, never its siblings",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "module-tier: go.work tier only (2+ members); declared grouping otherwise"
           }
         },
         {
@@ -452,11 +462,8 @@
           "description": "a module-boundary spec whose depend_on allows the module edge verifies clean",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "module-tier: go.work tier only (2+ members); declared grouping otherwise"
           }
         },
         {
@@ -479,14 +486,15 @@
         },
         {
           "name": "facade_rule_note_announces_facade_tierless_driver",
-          "description": "on a driver whose table marks root-facade not-emitted verify states the facade rule inert instead of staying silent, with the verdict and exit status unchanged",
+          "description": "on a driver whose table marks role-facade not-emitted verify states the facade rule inert instead of staying silent, with the verdict and exit status unchanged",
           "status": {
-            "csharp": "pass",
+            "csharp": "skipped",
             "go": "pass",
             "rust": "skipped"
           },
           "skip_reasons": {
-            "rust": "root-facade: granular"
+            "csharp": "role-facade: granular",
+            "rust": "role-facade: granular"
           }
         },
         {
@@ -500,7 +508,7 @@
         },
         {
           "name": "dead_reference_to_source_module_classifies_per_language",
-          "description": "an undeclared depend_on target is classified per capability table: granular soft-tier drivers see a source module, a driver without the tier says not verifiable instead of claiming non-existence",
+          "description": "an undeclared depend_on target is classified by model visibility: a target addressable as a module path reports exists in source but undeclared, one addressing nothing on an exact-import-path driver reports does not exist",
           "status": {
             "csharp": "pass",
             "go": "pass",
@@ -533,23 +541,17 @@
           "description": "two boundaries claiming one module at equal specificity fail with the ambiguous-match report",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "module-tier: go.work tier only (2+ members); declared grouping otherwise"
           }
         },
         {
           "name": "unclaimed_module_edge_endpoint_is_reported_unowned",
-          "description": "a module edge endpoint no boundary claims is a warning-level unowned endpoint, promoted by --strict",
+          "description": "a module edge endpoint no boundary claims is a warning-level unowned endpoint, promoted by --strict; on go the endpoint's package is also an unclaimed unit, so the warning travels with unit-level findings",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "module-tier: go.work tier only (2+ members); declared grouping otherwise"
           }
         },
         {
@@ -721,11 +723,8 @@
           "description": "a module not listed in the forbid constraint passes even when a sibling violates",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "module-tier: go.work tier only (2+ members); declared grouping otherwise"
           }
         },
         {
@@ -778,6 +777,15 @@
           "skip_reasons": {
             "go": "project shape not applicable",
             "rust": "project shape not applicable"
+          }
+        },
+        {
+          "name": "external_free_engages_the_serialized_module_tier",
+          "description": "an external_free pattern naming a module engages the module subtree on every module-tier driver: a pure match passes non-vacuously, contamination fails naming module and packages",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "rust": "pass"
           }
         }
       ]
@@ -854,6 +862,32 @@
             "go": "project shape not applicable",
             "rust": "project shape not applicable"
           }
+        },
+        {
+          "name": "seed_test_tier_follows_cfg_gating_not_module_name",
+          "description": "the rust dialect of the seed test-tier provenance: a #[cfg(test)] module (a cfg on a root declaration, the `root-module-declarations` row this leg is keyed on) seeds no boundary while a module merely named tests seeds one with its production edge",
+          "status": {
+            "csharp": "skipped",
+            "go": "skipped",
+            "rust": "pass"
+          },
+          "skip_reasons": {
+            "csharp": "root-module-declarations: not-emitted",
+            "go": "root-module-declarations: not-emitted"
+          }
+        },
+        {
+          "name": "seed_omits_go_test_file_imports_and_marks_no_module",
+          "description": "the go dialect of the same provenance: imports carried only by *_test.go files seed no dependency and no module carries a test mark — keyed inert on `test-tier` because the table states go applies the exclusion at the file tier with no serialized mark",
+          "status": {
+            "csharp": "skipped",
+            "go": "pass",
+            "rust": "skipped"
+          },
+          "skip_reasons": {
+            "csharp": "test-tier: granular",
+            "rust": "test-tier: granular"
+          }
         }
       ]
     },
@@ -895,6 +929,15 @@
         {
           "name": "report_json_clean_project_has_empty_findings",
           "description": "a clean project reports empty findings and exit 0 in the json format",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "rust": "pass"
+          }
+        },
+        {
+          "name": "report_restates_model_roles_verbatim",
+          "description": "the report restates the model's roles map exactly — the json roles field equals the scan map key for key, and the text report names each populated closed-vocabulary group with its model paths",
           "status": {
             "csharp": "pass",
             "go": "pass",
@@ -956,6 +999,15 @@
             "go": "pass",
             "rust": "pass"
           }
+        },
+        {
+          "name": "inspect_tree_marks_role_carrying_nodes",
+          "description": "every node whose model path carries a role entry renders its visible label suffixed with that role's marker, so why a node looks important reads off the diagram alone",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "rust": "pass"
+          }
         }
       ]
     },
@@ -982,7 +1034,7 @@
       "name": "depgraph",
       "language_capability": {
         "csharp": "implemented",
-        "go": "not-implemented",
+        "go": "implemented",
         "rust": "implemented"
       },
       "behaviors": [
@@ -991,11 +1043,8 @@
           "description": "depgraph modules collapses nested module paths to top-level nodes and may draw several (cross product of folded top-nodes)",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "depgraph not implemented"
           }
         },
         {
@@ -1003,11 +1052,8 @@
           "description": "depgraph api-usage emits the fixed-column table or the explicit no-usage statement",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "depgraph not implemented"
           }
         },
         {
@@ -1020,7 +1066,16 @@
           },
           "skip_reasons": {
             "csharp": "project shape not applicable",
-            "go": "depgraph not implemented"
+            "go": "project shape not applicable"
+          }
+        },
+        {
+          "name": "modules_mark_folded_role_carriers",
+          "description": "depgraph modules marks a rendered node exactly when the roles keys folded through the view's own projection state one distinct role there, so no marker appears without an entry and no entry the view can honestly name is dropped",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "rust": "pass"
           }
         }
       ]
@@ -1045,6 +1100,15 @@
         {
           "name": "marks_forbidden_edge_dashed",
           "description": "diagram renders a forbidden edge dashed and keeps allowed edges solid",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "rust": "pass"
+          }
+        },
+        {
+          "name": "scan_mode_marks_role_carriers",
+          "description": "diagram --source scan marks exactly the nodes the model's roles map addresses under the `.`/`::` separator equivalence, and nothing else, so a node looks special in the diagram exactly when the model says it is",
           "status": {
             "csharp": "pass",
             "go": "pass",
@@ -1103,7 +1167,7 @@
     {
       "name": "verify.root_facade",
       "language_capability": {
-        "csharp": "not-implemented",
+        "csharp": "implemented",
         "go": "not-implemented",
         "rust": "implemented"
       },
@@ -1112,12 +1176,11 @@
           "name": "import_of_facade_root_reexport_is_violation",
           "description": "an internal module importing an item through a publication-only root is a facade dependency",
           "status": {
-            "csharp": "skipped",
+            "csharp": "pass",
             "go": "skipped",
             "rust": "pass"
           },
           "skip_reasons": {
-            "csharp": "verify.root_facade not implemented",
             "go": "verify.root_facade not implemented"
           }
         },
@@ -1125,13 +1188,25 @@
           "name": "canonical_import_stays_clean_under_active_facade",
           "description": "canonical imports never touch the facade root, so verify passes with the rule active",
           "status": {
-            "csharp": "skipped",
+            "csharp": "pass",
             "go": "skipped",
             "rust": "pass"
           },
           "skip_reasons": {
-            "csharp": "verify.root_facade not implemented",
             "go": "verify.root_facade not implemented"
+          }
+        },
+        {
+          "name": "umbrella_root_consumed_by_referencing_unit_is_violation",
+          "description": "a project referencing the umbrella consumes it through the root namespace (`using <Root>;`): the facade rule engages on the roles map and reports the cross-unit edge",
+          "status": {
+            "csharp": "pass",
+            "go": "skipped",
+            "rust": "skipped"
+          },
+          "skip_reasons": {
+            "go": "verify.root_facade not implemented",
+            "rust": "project shape not applicable"
           }
         }
       ]
@@ -1154,8 +1229,8 @@
           }
         },
         {
-          "name": "worktree_free_go_tree_announces_laundering_capability",
-          "description": "a single-module go tree (no go.work) announces consistently: a fired rule reports the laundered finding without any tier note, a clean run states no native module tier this run",
+          "name": "worktree_free_go_tree_enforces_laundering_without_tier_note",
+          "description": "a single-module go tree (no go.work) engages the laundering check directly: a fired rule reports the laundered finding, a clean run reports nothing, and neither run carries any tier note",
           "status": {
             "csharp": "skipped",
             "go": "pass",
@@ -1174,6 +1249,18 @@
             "go": "pass",
             "rust": "pass"
           }
+        },
+        {
+          "name": "composition_root_wiring_sanctions_the_banned_bridge",
+          "description": "a ban whose route rides a hop owned by a composition-role-carrying boundary is sanctioned wiring — clean under `verify --strict`; the same edges without the composition role keep warning",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "rust": "skipped"
+          },
+          "skip_reasons": {
+            "rust": "project shape not applicable"
+          }
         }
       ]
     },
@@ -1181,7 +1268,7 @@
       "name": "verify.submodule_contracts",
       "language_capability": {
         "csharp": "implemented",
-        "go": "implemented",
+        "go": "not-implemented",
         "rust": "implemented"
       },
       "behaviors": [
@@ -1190,8 +1277,11 @@
           "description": "a contract.forbid stereotype surfacing under a submodule boundary leaks under the submodule's path",
           "status": {
             "csharp": "pass",
-            "go": "pass",
+            "go": "skipped",
             "rust": "pass"
+          },
+          "skip_reasons": {
+            "go": "verify.submodule_contracts not implemented"
           }
         },
         {
@@ -1199,11 +1289,12 @@
           "description": "a submodule contract over go packages fires for a stereotype globbing the full import path under a parent that claims its units, and reads inert for a bare-name stereotype that matches no go unit",
           "status": {
             "csharp": "skipped",
-            "go": "pass",
+            "go": "skipped",
             "rust": "skipped"
           },
           "skip_reasons": {
             "csharp": "project shape not applicable",
+            "go": "verify.submodule_contracts not implemented",
             "rust": "project shape not applicable"
           }
         },
@@ -1216,7 +1307,7 @@
             "rust": "pass"
           },
           "skip_reasons": {
-            "go": "module-tier: go.work tier only (2+ members); declared grouping otherwise"
+            "go": "verify.submodule_contracts not implemented"
           }
         },
         {
@@ -1228,7 +1319,7 @@
             "rust": "pass"
           },
           "skip_reasons": {
-            "go": "module-tier: go.work tier only (2+ members); declared grouping otherwise"
+            "go": "verify.submodule_contracts not implemented"
           }
         }
       ]

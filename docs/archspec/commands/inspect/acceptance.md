@@ -26,7 +26,7 @@ Running `inspect` on a fixture Rust crate renders a byte-stable diagram (Mermaid
 | # | Given | When | Then |
 |---|---|---|---|
 | 6 | crate with imports | run `inspect --format plantuml` | exit 0; PlantUML output contains nodes and the resolved edges |
-| 7 | crate with imports | run `inspect --output out.mmd` | exit 0; `out.mmd` contains the diagram; stdout empty |
+| 7 | crate with imports | run `inspect --output out.mmd` | exit 0; `out.mmd` contains the diagram; stdout is `wrote out.mmd` |
 | 8 | same crate, unchanged | run `inspect` twice | both runs byte-identical output |
 
 ## Excluded paths
@@ -43,12 +43,42 @@ Generated, vendored, and hidden directories are never scanned — their `.rs` fi
 
 ## Structural views
 
-`inspect` exposes subcommands that render the extracted model (units + modules + edges) rather than the raw file tree. These read the same scan-phase model so the diagram and the model never disagree.
+`inspect` exposes subcommands that render the extracted model (units + modules + edges) rather than the raw file tree. These read the same model `scan` extracts, so the diagram and the model never disagree (rows 28–29 pin it on the csharp and go trees whose boundary sets are richest in addressing facts).
 
 | # | Given | When | Then |
 |---|---|---|---|
 | 20 | crate with modules and module edges | run `inspect tree` on crate root | exit 0; diagram groups nodes by unit and module (not raw files), edges match the extracted module edges |
 | 21 | crate with modules and module edges | run `inspect scanner` on crate root | exit 0; diagram reflects the scan-phase model (units + module boundaries + edges) |
+
+## Model-view agreement with `scan`
+
+For the trees whose boundaries a naive using-endpoint reading would mis-state, the agreement above is asserted on the real model: the model view must draw exactly the boundaries `scan` records — never a mixture, none dropped, none invented.
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 28 | c# tree with a type-targeted `using` plus a type-position reference (the boundary sets differ from the naive using-endpoint reading) | run `inspect tree` (and `inspect scanner`) and `scan` on the same tree | exit 0; the model view draws exactly the `scan` module boundaries — same from/to endpoints, none dropped, none invented — the owner-addressed edges including the type-position crossing |
+| 29 | go tree: single module with a sibling-package import, and a `go.work` workspace tree (cross-member plus within-member imports) | run `inspect tree` (and `inspect scanner`) and `scan` on the same tree | exit 0; the model-view boundaries equal the `scan` model — the intra-module package edge of `scan` row 56 and, for the workspace, the cross-member plus within-member edges of row 58 |
+| 30 | any supported tree (rust, csharp or go) | run `inspect` file-level map | exit 0; the map is file-granular discovery produced without model extraction, so it reflects the parsed files regardless of what the model carries |
+| 31 | go tree whose packages record no reference to each other (single-package module) | run `inspect tree` | exit 1; stderr exactly `inspect tree needs the module tier, which this model has none of; the module tier is derived from the tree's package references, which this tree records none of, 'inspect scanner' renders the unit-tier model`; on this same tree `inspect scanner` renders the unit-tier model and exits 0 |
+
+The refusal sentence of row 31 is one of the module-tier refusal family:
+`depgraph` refuses the same model state (`commands/depgraph/acceptance.md`,
+row 31 — see it) with its own sentence — one family, per-view wording. The two
+share the clause "needs the module tier, which this model has none of; the
+module tier is derived from package references, which this tree records none
+of" — here with the references addressed as "the tree's", the same fact either
+way — and each view states its own remedy: this sentence names `inspect
+scanner` as the unit-tier fallback, the depgraph sentence adds none beyond the
+fact. The sentences stay per-view by decision, one decision per view —
+`worklog/done/workplan_depgraph_message_real_remedies.md`.
+
+## Roles in the tree
+
+The tree marks the special nodes with the model's own words (roles US 06): a node whose model path carries a roles entry gets that role as a label marker — a pure lookup, so a node is marked exactly where the model speaks, on every driver.
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 32 | canonical probe tree per language (rust: `facade` unit roots; c#: `composition` entrypoint root; go: `composition` main-package unit) | run `inspect tree` | exit 0; every roles entry's path renders with its marker — the node's visible label carries ` [<role>]` — and a model without roles renders byte-identical to the pre-marker era |
 
 ## Errors
 
@@ -65,6 +95,6 @@ Generated, vendored, and hidden directories are never scanned — their `.rs` fi
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 22 | `--output` destination already holds the generated diagram | run `inspect --output <f> --check` | exit 0; file untouched; stdout empty |
+| 22 | `--output` destination already holds the generated diagram | run `inspect --output <f> --check` | exit 0; file untouched; stdout is `ok: <f> up to date` |
 | 23 | `--output` destination differs from the generated diagram | run `inspect --output <f> --check` | non-zero exit; message says it differs and names the regenerate command; file untouched |
 | 24 | no `[output] inspect` configured and no `--output` | run `inspect --check` | non-zero exit; message says `--check` requires an output destination |

@@ -1,0 +1,15 @@
+[project]
+language = "go"
+
+[[module]]
+name = "example.com/demo/app"
+matches = { units = ["example.com/demo/app"] }
+allowed = { depend_on = ["example.com/demo/shared"] }
+
+[[module]]
+name = "example.com/demo/shared"
+matches = { units = ["example.com/demo/shared"] }
+
+[[constraint]]
+type = "no_cycles"
+

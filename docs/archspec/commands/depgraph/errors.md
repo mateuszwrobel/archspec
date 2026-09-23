@@ -14,7 +14,7 @@ Every failure produces a clear human message naming the cause and exit code `1`.
 | path is a regular file | `path is not a directory: <path>` |
 | no supported-language sources | `no supported-language sources found under: <path>` |
 | driver for detected language missing | `detected language '<lang>' but the <lang> driver is not available (run 'archspec doctor')` |
-| model has no module tier to render (the go driver emits none) | `depgraph needs the module tier, which this model has none of; a Go tree acquires one through go.work members (2+)` |
+| model has no module tier (the tree's packages reference none of each other) | `depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of` |
 | unsupported `--format` (graph views) | `unsupported format: <x> (supported: mermaid, plantuml)` |
 | `--format` on `api-usage` other than markdown | `unsupported format for api-usage: <x> (supported: markdown)` |
 | `submodules` without `--parent` | `submodules view requires --parent <module>` |
@@ -53,13 +53,13 @@ $ archspec depgraph submodules --parent ghost .
 error: parent module not found in model: ghost (known top-level modules: app::auth, app::billing)
 
 $ archspec depgraph modules ./go-tree
-error: depgraph needs the module tier, which this model has none of; a Go tree acquires one through go.work members (2+)
+error: depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of
 
 $ archspec depgraph api-usage ./go-tree
-error: depgraph needs the module tier, which this model has none of; a Go tree acquires one through go.work members (2+)
+error: depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of
 
 $ archspec depgraph submodules --parent config ./go-tree
-error: depgraph needs the module tier, which this model has none of; a Go tree acquires one through go.work members (2+)
+error: depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of
 
 $ archspec depgraph modules --output docs/modules.mmd --check
 error: out of date dependency graph: docs/modules.mmd differs from generated output (regenerate with: archspec depgraph)
@@ -68,14 +68,17 @@ $ archspec depgraph modules --check
 error: --check requires an output destination (no default configured for dependency graph; use --output <path>)
 ```
 
-> The module-tier guard runs before any view renders, so a Go tree gets this
-> capability sentence on **every** view (including `submodules`, where it
+> The module-tier guard runs before any view renders, so a tier-less tree gets
+> this capability sentence on **every** view (including `submodules`, where it
 > replaces the per-parent `parent module not found` complaint). The guard keys on
 > the model's module tier, not the detected language: a rust/csharp model always
 > carries the tier, and a Go tree whose scanned model carries it — a multi-member
-> `go.work` workspace — clears the guard and renders with no change here. A
-> single-`go.mod` tree stays refused, because `depgraph` scans only and the
-> spec-declared derivation exists solely inside the compare (`verify`/`update`).
+> `go.work` workspace, or a single-`go.mod` tree whose packages reference each
+> other (the grammar derives the tier from those references) — clears the guard
+> and renders. A Go tree that records no package reference at all (a single
+> package importing only the standard library) stays refused, because `depgraph`
+> scans only and the spec-declared derivation exists solely inside the compare
+> (`verify`/`update`).
 
 ## Output on error
 
