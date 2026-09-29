@@ -37,6 +37,12 @@ pub const FACT_ROOT_MODULE_DECLARATIONS: &str = "root-module-declarations";
 pub const FACT_TEST_TIER: &str = "test-tier";
 /// External packages attributed to modules and the project.
 pub const FACT_EXTERNAL_PACKAGES: &str = "external-packages";
+/// Public API surface facts consumed by `public_api_allowlist`: rust states
+/// them as crate-root exports (the `root_public_exports` family), the C#
+/// driver as module-attributed public types (`module_public_types`); a
+/// driver with neither source states `not-emitted` and can never engage the
+/// constraint for real.
+pub const FACT_PUBLIC_API_SURFACE: &str = "public-api-surface";
 
 /// The structural facade-role check of `verify` (rule name unchanged; the
 /// fact source is the model's roles map).
@@ -69,6 +75,14 @@ pub const CAPABILITIES: &[(Language, &str, &str)] = &[
     (Language::Rust, FACT_EXTERNAL_PACKAGES, GRANULAR),
     (Language::Csharp, FACT_EXTERNAL_PACKAGES, GRANULAR),
     (Language::Go, FACT_EXTERNAL_PACKAGES, GRANULAR),
+    // Public API surface (the C# gap closed here): both fact sources were
+    // live-probed — rust's root-export enumeration by the existing suite,
+    // csharp's module public types by the csharp_public_api probes (issue
+    // repro tree and the 3-segment corporate tree); go populates no public
+    // API fact at all and its allowlist stays a fact-emptiness vacuity.
+    (Language::Rust, FACT_PUBLIC_API_SURFACE, GRANULAR),
+    (Language::Csharp, FACT_PUBLIC_API_SURFACE, GRANULAR),
+    (Language::Go, FACT_PUBLIC_API_SURFACE, NOT_EMITTED),
 ];
 
 /// Checks that consume a capability fact: `(rule, required fact)`. A rule is
@@ -111,7 +125,7 @@ mod tests {
                 .filter(|(row_language, _, _)| *row_language == language)
                 .map(|(_, fact, emission)| (*fact, *emission))
                 .collect();
-            assert_eq!(rows.len(), 7, "{language:?} must state all seven facts");
+            assert_eq!(rows.len(), 8, "{language:?} must state all eight facts");
             for (fact, value) in rows {
                 assert_eq!(
                     emission(language, fact),
@@ -230,5 +244,27 @@ mod tests {
                 "the sole extraction path carries crossing symbols on module edges"
             );
         }
+    }
+
+    #[test]
+    fn public_api_surface_fact_distinguishes_the_drivers() {
+        // Live-probed fact sources (csharp public-api plan, US 03): rust
+        // enumerates crate-root exports (the pinned root-suite behavior),
+        // csharp attributes module public types (proven on the issue repro
+        // tree and the 3-segment corporate probe in tests/csharp_public_api),
+        // and go populates no public API fact — its allowlist stays the
+        // fact-emptiness vacuity the engine already announces.
+        assert_eq!(
+            emission(Language::Rust, FACT_PUBLIC_API_SURFACE),
+            Some(GRANULAR)
+        );
+        assert_eq!(
+            emission(Language::Csharp, FACT_PUBLIC_API_SURFACE),
+            Some(GRANULAR)
+        );
+        assert_eq!(
+            emission(Language::Go, FACT_PUBLIC_API_SURFACE),
+            Some(NOT_EMITTED)
+        );
     }
 }

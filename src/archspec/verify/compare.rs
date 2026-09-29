@@ -1578,6 +1578,32 @@ fn check_public_api(
                 }
             }
         }
+        // Module-tier public API facts (the csharp shape of this constraint,
+        // US 02): `allowed` patterns glob-match MODULE paths; every public
+        // type of a module outside the list is a leak attributed to that
+        // module. Unlike a boundary's `matches.modules`, an allowlist entry
+        // claims no ancestor territory — gating a namespace does not expose
+        // namespaces beneath it, mirroring the rust root shape where only
+        // listed exports are allowed. The map is empty wherever the
+        // root-export family above is the fact source, so drivers keep
+        // exactly one of the two loops hot.
+        for (module, types) in &model.module_public_types {
+            let allowlisted = constraint
+                .allowed
+                .iter()
+                .any(|pattern| matches_pattern(module, pattern));
+            if !allowlisted {
+                for type_name in types {
+                    push_finding(
+                        format!("{module} exposes {type_name} (not allowlisted)"),
+                        &constraint.severity,
+                        "public api leak",
+                        &mut errors,
+                        &mut warnings,
+                    );
+                }
+            }
+        }
         for (unit, globs) in &model.root_glob_exports {
             let owner = owner(unit);
             for glob in globs {
@@ -2177,16 +2203,45 @@ fn check_vacuous_constraints(
                     None
                 }
             }
-            // Engaged iff any crate-root public export (named or glob-derived),
-            // unverifiable glob, or empty glob exists.
+            // Engaged iff there is a public API fact to check: any
+            // crate-root export family member (rust) or any module carrying
+            // public types (csharp). On a module-fact tree whose `allowed`
+            // patterns address no such module, the allowlist gates nothing —
+            // stated like the `from`-pattern arm instead of passing silently
+            // (US 03: engagement honesty). No facts at all announce the
+            // emptiness with the driver's own vocabulary: csharp states
+            // "public API facts", rust keeps its crate-root sentence
+            // verbatim (byte-pinned by the rust vacuity guards).
             "public_api_allowlist" => {
-                if model.root_public_exports.is_empty()
+                let root_surface = !(model.root_public_exports.is_empty()
                     && model.root_glob_exports.is_empty()
-                    && model.root_empty_glob_exports.is_empty()
-                {
-                    Some("no crate-root public exports to check".to_string())
-                } else {
+                    && model.root_empty_glob_exports.is_empty());
+                if root_surface {
                     None
+                } else if !model.module_public_types.is_empty() {
+                    let engaged = constraint.allowed.iter().any(|pattern| {
+                        model
+                            .module_public_types
+                            .keys()
+                            .any(|module| matches_pattern(module, pattern))
+                    });
+                    if engaged {
+                        None
+                    } else {
+                        let patterns: Vec<String> = constraint
+                            .allowed
+                            .iter()
+                            .map(|pattern| format!("\"{pattern}\""))
+                            .collect();
+                        Some(format!(
+                            "'allowed' pattern {} matches no module with public types in the model",
+                            patterns.join(", ")
+                        ))
+                    }
+                } else if language::from_name(&model.language) == Some(language::Language::Csharp) {
+                    Some("no public API facts to check".to_string())
+                } else {
+                    Some("no crate-root public exports to check".to_string())
                 }
             }
             // Engaged iff any module edge has a common ancestor matching `parent`

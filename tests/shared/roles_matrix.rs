@@ -113,7 +113,15 @@ pub const VIEWS: &[View] = &[
 ];
 
 /// The fixtures, in display order.
-pub const FIXTURES: &[&str] = &["rust-probe", "rust-libbin", "csharp-probe", "go-probe"];
+pub const FIXTURES: &[&str] = &[
+    "rust-probe",
+    "rust-libbin",
+    "csharp-probe",
+    "csharp-di-ext",
+    "csharp-sibling-claim",
+    "csharp-conflicting-fold",
+    "go-probe",
+];
 
 /// The pinned table (one row per fixture, cells in `VIEWS` order), derived
 /// from recorded output as the roles plan requires and re-pinned whenever a
@@ -145,6 +153,48 @@ pub const TABLE: &[(&str, &[Cell; VIEWS.len()])] = &[
     ),
     (
         "csharp-probe",
+        &[
+            Cell::Marks,
+            Cell::Marks,
+            Cell::None,
+            Cell::None,
+            Cell::NoneByDecision,
+            Cell::NoneByDecision,
+            Cell::Marks,
+        ],
+    ),
+    // The corporate 3-segment trees (roles reality US 06, probe-recorded
+    // shapes): the matrix's c# evidence no longer rests on two-segment toys.
+    // The DI-extension tree states composition at the resolved root; the
+    // sibling tree states BOTH units; the conflicting-fold tree marks every
+    // node-addressable view but folds to one silent node in the modules
+    // graph — a `None` cell whose recorded output carries the stated note.
+    (
+        "csharp-di-ext",
+        &[
+            Cell::Marks,
+            Cell::Marks,
+            Cell::None,
+            Cell::Marks,
+            Cell::NoneByDecision,
+            Cell::NoneByDecision,
+            Cell::Marks,
+        ],
+    ),
+    (
+        "csharp-sibling-claim",
+        &[
+            Cell::Marks,
+            Cell::Marks,
+            Cell::None,
+            Cell::Marks,
+            Cell::NoneByDecision,
+            Cell::NoneByDecision,
+            Cell::Marks,
+        ],
+    ),
+    (
+        "csharp-conflicting-fold",
         &[
             Cell::Marks,
             Cell::Marks,
@@ -191,6 +241,28 @@ pub struct Observed {
     pub roles: Vec<(String, String)>,
 }
 
+/// Write a c# project directory with its csproj: `name` names both the
+/// directory and the csproj file (the .NET convention the drivers key on),
+/// `sdk` selects the project SDK, `references` are ProjectReference paths.
+fn csharp_csproj(fx: &Fixture, name: &str, sdk: &str, references: &[&str]) {
+    let refs = if references.is_empty() {
+        String::new()
+    } else {
+        let mut lines = String::from("  <ItemGroup>\n");
+        for reference in references {
+            lines.push_str(&format!("    <ProjectReference Include=\"{reference}\" />\n"));
+        }
+        lines.push_str("  </ItemGroup>\n");
+        lines
+    };
+    fx.write(
+        &format!("{name}/{name}.csproj"),
+        &format!(
+            "<Project Sdk=\"{sdk}\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n{refs}</Project>\n"
+        ),
+    );
+}
+
 /// Materialize one matrix fixture into the (empty) fixture directory.
 pub fn materialize(fixture: &str, fx: &Fixture) {
     match fixture {
@@ -220,6 +292,85 @@ pub fn materialize(fixture: &str, fx: &Fixture) {
             fx.write("src/lib.rs", "pub mod store;\npub use store::Db;\n");
             fx.write("src/main.rs", "mod store;\nuse store::Db;\nfn main() { let _ = Db; }\n");
             fx.write("src/store.rs", "pub struct Db;\n");
+        }
+        // The v5 probe shape: corporate 3-segment names, DI registrations
+        // living in an Extensions file, controller wiring by ctor injection.
+        "csharp-di-ext" => {
+            csharp_csproj(
+                fx,
+                "Acmecorp.Inventory.Api",
+                "Microsoft.NET.Sdk.Web",
+                &["../Acmecorp.Inventory.Core/Acmecorp.Inventory.Core.csproj"],
+            );
+            fx.write(
+                "Acmecorp.Inventory.Api/Program.cs",
+                "namespace Acmecorp.Inventory.Api;\nusing Acmecorp.Inventory.Api.Extensions;\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddInfrastructure();\nvar app = builder.Build();\napp.Run();\n",
+            );
+            fx.write(
+                "Acmecorp.Inventory.Api/Extensions/DependencyInjection.cs",
+                "namespace Acmecorp.Inventory.Api.Extensions;\nusing Acmecorp.Inventory.Core.Abstractions;\nusing Acmecorp.Inventory.Core.Domain;\nusing Microsoft.Extensions.DependencyInjection;\npublic static class DependencyInjection\n{\n    public static IServiceCollection AddInfrastructure(this IServiceCollection services)\n    {\n        services.AddScoped<IOrderRepository, OrderRepository>();\n        services.AddSingleton<IClock, SystemClock>();\n        return services;\n    }\n}\n",
+            );
+            fx.write(
+                "Acmecorp.Inventory.Api/Controllers/OrdersController.cs",
+                "namespace Acmecorp.Inventory.Api.Controllers;\nusing Acmecorp.Inventory.Core.Abstractions;\nusing Microsoft.AspNetCore.Mvc;\npublic class OrdersController : ControllerBase\n{\n    public OrdersController(IOrderRepository repo) { }\n}\n",
+            );
+            csharp_csproj(fx, "Acmecorp.Inventory.Core", "Microsoft.NET.Sdk", &[]);
+            fx.write(
+                "Acmecorp.Inventory.Core/Abstractions/IOrderRepository.cs",
+                "namespace Acmecorp.Inventory.Core.Abstractions;\npublic interface IOrderRepository { Order Get(Guid id); }\npublic class OrderRepository : IOrderRepository { public Order Get(Guid id) => new(); }\npublic interface IClock { DateTimeOffset Now { get; } }\npublic class SystemClock : IClock { public DateTimeOffset Now => DateTimeOffset.UtcNow; }\n",
+            );
+            fx.write(
+                "Acmecorp.Inventory.Core/Domain/Order.cs",
+                "namespace Acmecorp.Inventory.Core.Domain;\npublic class Order { public Guid Id { get; set; } }\n",
+            );
+        }
+        // The v4b probe shape: a composition unit and a sibling facade unit
+        // whose using-only root sits under its own root namespace.
+        "csharp-sibling-claim" => {
+            csharp_csproj(
+                fx,
+                "Acorp.Inventory.App",
+                "Microsoft.NET.Sdk.Web",
+                &["../Acorp.Inventory.Lib/Acorp.Inventory.Lib.csproj"],
+            );
+            fx.write(
+                "Acorp.Inventory.App/Program.cs",
+                "using Acorp.Inventory.Lib;\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddScoped<IWidget, Widget>();\nbuilder.Build().Run();\n",
+            );
+            csharp_csproj(fx, "Acorp.Inventory.Lib", "Microsoft.NET.Sdk", &[]);
+            fx.write(
+                "Acorp.Inventory.Lib/GlobalUsings.cs",
+                "namespace Acorp.Inventory.Lib;\nusing Acorp.Inventory.Lib.Internal;\n",
+            );
+            fx.write(
+                "Acorp.Inventory.Lib/Internal/Widget.cs",
+                "namespace Acorp.Inventory.Lib.Internal;\npublic class Widget : IWidget { }\npublic interface IWidget { }\n",
+            );
+        }
+        // The v17b probe shape, widened to corporate naming (roles reality
+        // US 05 corpus): two three-segment projects whose unit names differ
+        // but whose top modules fold onto ONE depgraph node with DIFFERENT
+        // roles — the conflicting fold with its stated note, welded at the
+        // naming depth the root ladder's truncation leg actually speaks.
+        "csharp-conflicting-fold" => {
+            csharp_csproj(fx, "Acorp.Platform.Api", "Microsoft.NET.Sdk.Web", &[]);
+            fx.write(
+                "Acorp.Platform.Api/Program.cs",
+                "using Microsoft.Extensions.DependencyInjection;\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddScoped<IThing, Thing>();\nbuilder.Build().Run();\n",
+            );
+            fx.write(
+                "Acorp.Platform.Api/Thing.cs",
+                "namespace Acorp.Platform.Api.Things;\npublic interface IThing { }\npublic class Thing : IThing { }\n",
+            );
+            csharp_csproj(fx, "Bcorp.Platform.Api", "Microsoft.NET.Sdk", &[]);
+            fx.write(
+                "Bcorp.Platform.Api/GlobalUsings.cs",
+                "using Bcorp.Platform.Api.Internal;\n",
+            );
+            fx.write(
+                "Bcorp.Platform.Api/Internal/Impl.cs",
+                "namespace Bcorp.Platform.Api.Internal;\npublic class Impl { }\n",
+            );
         }
         other => panic!("unknown matrix fixture {other}"),
     }

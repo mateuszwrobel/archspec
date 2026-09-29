@@ -7,14 +7,19 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 /// Per-unit source facts: declared namespaces, per-namespace `using` targets,
-/// the type-position reference map ([`syntax::TypeFacts`], US 08), and whether
-/// an entrypoint file (Program/Startup — see [`has_di_registration_calls`])
-/// carries a DI-registration call of the [`DI_REGISTRATION_FAMILY`] — the
-/// composition predicate's fact source (roles US 02).
+/// the type-position reference map ([`syntax::TypeFacts`], US 08), the
+/// entrypoint-gate evidence (whether the unit has a Program/Startup file —
+/// see [`is_entrypoint_source_file`]) and whether the registration family
+/// ([`DI_REGISTRATION_FAMILY`]) is called ANYWHERE in the unit's production
+/// files (S3: composition is the gate AND this fact) and whether an
+/// `[assembly: TypeForwardedTo]` attribute appears (the facade predicate's
+/// re-export evidence, S4).
 type ProjectSources = (
     BTreeSet<String>,
     BTreeMap<String, BTreeSet<String>>,
     Option<syntax::TypeFacts>,
+    bool,
+    bool,
     bool,
 );
 type ScannedFiles = BTreeMap<String, ProjectSources>;
@@ -73,8 +78,13 @@ pub fn extract(root: &Path) -> Result<Model, String> {
 
     let mut units = Vec::new();
     let mut unit_manifests: BTreeMap<String, ManifestInfo> = BTreeMap::new();
-    for (rel_path, _full_path, manifest) in &production {
+    // Unit name -> its csproj path: the identity properties
+    // (`RootNamespace`/`AssemblyName`) resolve the unit's root namespace in
+    // the source-scan pass below (roles reality US 01).
+    let mut unit_csproj: BTreeMap<String, std::path::PathBuf> = BTreeMap::new();
+    for (rel_path, full_path, manifest) in &production {
         let name = project_name(rel_path);
+        unit_csproj.insert(name.clone(), full_path.clone());
         let path = match Path::new(rel_path).parent() {
             Some(parent) if !parent.as_os_str().is_empty() => parent.to_string_lossy().into_owned(),
             _ => ".".to_string(),
@@ -144,11 +154,22 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     let mut module_edge_map: BTreeMap<String, BTreeMap<(String, String), BTreeSet<String>>> =
         BTreeMap::new();
 
+    // unit name -> module path -> public type names (US 01): the union of the
+    // production units' public-API facts, attributed like the soft tier
+    // (namespace `A.B` -> `A::B`; global declarations -> the unit root key).
+    // A namespace declared by several units UNIONS its types (the
+    // module_external flatten law: no last-write-wins).
+    let mut module_public_types: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
     // Scan each project's sources once: namespaces + per-namespace usings
     // (+ type-position facts under `syntax`). `unit_manifests` already carries
     // the resolved csproj facts (test-tier projects were dropped with the
     // classification pass above), so the loop never reparses a manifest.
     let mut scanned: ScannedFiles = BTreeMap::new();
+    // Unit name -> its resolved root namespace (roles reality US 01): the
+    // address every roles claim and every namespace-less ("sentinel") file
+    // fact uses — see [`resolve_root_namespace`].
+    let mut unit_root_ns: BTreeMap<String, String> = BTreeMap::new();
     // Tree-wide declared-type map (namespace -> type names it declares): the
     // precision anchor for bare-name resolution (US 08), merged across
     // production units so a `using App.Core;` + `new Engine()` resolves even
@@ -161,7 +182,16 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         } else {
             root.join(&unit.path)
         };
-        let (namespaces, usings, type_facts, registrations) = scan_project_sources(&project_dir)?;
+        let (namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded) =
+            scan_project_sources(&project_dir)?;
+        // The unit's root address resolves from its csproj identity properties
+        // and its declared namespaces BEFORE any fact is attributed (US 01).
+        let csproj_root = unit_csproj
+            .get(&unit.name)
+            .and_then(|path| csproj_root_namespace(path));
+        let root_ns = resolve_root_namespace(&unit.name, csproj_root.as_deref(), &namespaces);
+        unit_root_ns.insert(unit.name.clone(), root_ns.clone());
+        let root_key = ns_to_module(&root_ns);
         if let Some(facts) = &type_facts {
             for (ns, names) in &facts.declared_types {
                 declared_types
@@ -169,10 +199,31 @@ pub fn extract(root: &Path) -> Result<Model, String> {
                     .or_default()
                     .extend(names.iter().cloned());
             }
+            // Public-API facts (US 01): production-tier declarations only —
+            // test projects were dropped before this loop and their
+            // declarations join nothing. Attribution mirrors the soft tier.
+            for (ns, names) in &facts.public_types {
+                let module = if ns.is_empty() {
+                    root_key.clone()
+                } else {
+                    ns_to_module(ns)
+                };
+                module_public_types
+                    .entry(module)
+                    .or_default()
+                    .extend(names.iter().cloned());
+            }
         }
         scanned.insert(
             unit.name.clone(),
-            (namespaces.clone(), usings.clone(), type_facts, registrations),
+            (
+                namespaces.clone(),
+                usings.clone(),
+                type_facts,
+                entrypoint_file,
+                registration_family,
+                forwarded,
+            ),
         );
         let mut sorted: Vec<String> = namespaces.iter().map(|ns| ns_to_module(ns)).collect();
         // Sentinel-presence is the truth condition: the "" key exists exactly
@@ -180,7 +231,6 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         // entry is created with its first target), so the root module joins the
         // soft structure iff it carries a fact — a using-free namespace-less
         // file adds no module, like any other empty one.
-        let root_key = root_module_key(&unit.name);
         if usings.contains_key("") && !sorted.contains(&root_key) {
             sorted.push(root_key.clone());
         }
@@ -205,25 +255,32 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // Role derivations (roles US 02) address the unit's root module key, and
     // distinct units CAN share one key (unit `A.B`'s namespace `A.B` and unit
     // `A.B.C`'s namespace-less composition root both resolve to `A::B`), so
-    // the two predicates accumulate per-key sets first and merge at the end:
-    // a key with any composition fact never reads as facade in the same scan.
-    let mut facade_keys: BTreeSet<String> = BTreeSet::new();
-    let mut composition_keys: BTreeSet<String> = BTreeSet::new();
+    // Role claims are collected per unit at the unit's resolved root and
+    // merged at the end: same role states once, different roles on one key
+    // state nothing (ambiguity guard) — never a cross-unit override.
+    let mut role_claims: Vec<(String, Role)> = Vec::new();
 
     // Cross-project namespace ownership is only fully known after every unit is
     // scanned, so resolve usings in a second pass.
     for unit in &units {
-        let (_namespaces, usings, type_facts, registrations) = scanned
+        let (_namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded) =
+            scanned
             .get(&unit.name)
             .cloned()
-            .unwrap_or_else(|| (BTreeSet::new(), BTreeMap::new(), None, false));
+            .unwrap_or_else(|| (BTreeSet::new(), BTreeMap::new(), None, false, false, false));
         let referenced: Vec<String> = unit_manifests
             .get(&unit.name)
             .map(|manifest| manifest.dependencies.clone())
             .unwrap_or_default();
         // The unit-root sentinel ("" = namespace-less file) translates to the
-        // project's root module key before it can reach any model tier.
-        let root_key = root_module_key(&unit.name);
+        // project's root module key before it can reach any model tier. The
+        // scan pass resolved every production unit; the fallback is the
+        // ladder's own last voice (the unit's full name), unreachable here.
+        let root_ns = unit_root_ns
+            .get(&unit.name)
+            .cloned()
+            .unwrap_or_else(|| unit.name.clone());
+        let root_key = ns_to_module(&root_ns);
         let from_module = |from_ns: &str| {
             if from_ns.is_empty() {
                 root_key.clone()
@@ -395,17 +452,24 @@ pub fn extract(root: &Path) -> Result<Model, String> {
                 }
             }
         }
-        // Roles derive from this unit's own facts (roles US 02): the facade
-        // predicate reads the root module's using/type facts, the composition
-        // predicate the entrypoint registration calls. Registration calls are
-        // a fact source ONLY — they join no edge map and engage no rule yet.
+        // Roles derive from this unit's own facts (roles US 02, S3): the
+        // facade predicate reads the root module's using/type facts; the
+        // composition predicate is an ENTRYPOINT GATE — a Program/Startup
+        // file or the csproj's own run declaration (host Sdk, OutputType=Exe)
+        // — AND a registration-family fact anywhere in the unit's production
+        // files. Registration calls are a fact source ONLY — they join no
+        // edge map and engage no rule yet.
+        let gate_open = entrypoint_file
+            || unit_csproj
+                .get(&unit.name)
+                .is_some_and(|path| csproj_entrypoint_gate(path));
         derive_unit_roles(
-            &unit.name,
+            &root_ns,
             &usings,
             &type_facts,
-            registrations,
-            &mut facade_keys,
-            &mut composition_keys,
+            registration_family && gate_open,
+            forwarded,
+            &mut role_claims,
         );
     }
 
@@ -464,8 +528,15 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         .cloned()
         .filter(|_| unit_manifests.len() == 1);
 
-    // Composition beats facade on a shared root key (exclusivity pin).
-    let roles = roles_map(facade_keys, composition_keys);
+    // Same role from several units states once; conflicting claims on one key
+    // state nothing (ambiguity guard — the merge is per-claim, not per-predicate).
+    let roles = roles_map(role_claims);
+
+    // Sorted vectors: the fact tier is deterministic like every other map.
+    let module_public_types: BTreeMap<String, Vec<String>> = module_public_types
+        .into_iter()
+        .map(|(module, types)| (module, types.into_iter().collect()))
+        .collect();
 
     Ok(Model {
         schema_version: 1,
@@ -480,6 +551,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         root_public_exports: Default::default(),
         root_glob_exports: Default::default(),
         root_empty_glob_exports: Default::default(),
+        module_public_types,
         module_external: module_external_model,
         root_module_declarations: Default::default(),
         unit_manifests,
@@ -815,20 +887,25 @@ fn has_condition(event: &quick_xml::events::BytesStart<'_>) -> bool {
 /// walk ([`syntax::scan_cs_source`]) fills the namespace/using collections and
 /// the type facts with the attribution semantics the graph assembly expects.
 ///
-/// Returns `(namespaces, usings, type_facts, entrypoint_registrations)` where
-/// `usings` maps a namespace (dotted, as written) to the set of `using` target
-/// namespaces in files of that namespace. A file-scoped `namespace Foo.Bar;`
+/// Returns `(namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded)`
+/// where `usings` maps a namespace (dotted, as written) to the set of `using`
+/// target namespaces in files of that namespace. A file-scoped `namespace Foo.Bar;`
 /// owns all usings in the file; usings in a file with no namespace at all are
 /// attributed to the unit root (the empty string is used as a sentinel and
-/// translated later). `entrypoint_registrations` is the composition fact
-/// (roles US 02): set when some entrypoint file (Program/Startup — see
-/// [`is_entrypoint_source_file`]) carries a call of the
-/// [`DI_REGISTRATION_FAMILY`].
+/// translated later). The two composition facts (S3): `entrypoint_file` marks
+/// that some file follows the Program/Startup convention
+/// ([`is_entrypoint_source_file`]), and `registration_family` that a call of
+/// the [`DI_REGISTRATION_FAMILY`] appears in ANY production file of the unit —
+/// composition requires both, this pair plus the csproj's own gate evidence.
+/// `forwarded` marks an assembly-level `TypeForwardedTo` attribute anywhere
+/// in the unit — the facade predicate's re-export evidence (S4).
 fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
     let mut namespaces: BTreeSet<String> = BTreeSet::new();
     let mut usings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut type_facts = Some(syntax::TypeFacts::default());
-    let mut entrypoint_registrations = false;
+    let mut entrypoint_file = false;
+    let mut registration_family = false;
+    let mut forwarded = false;
 
     for entry in WalkDir::new(project_dir).into_iter().filter_map(Result::ok) {
         if !entry.file_type().is_file() {
@@ -846,8 +923,10 @@ fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
         let source = std::fs::read_to_string(path)
             .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
         if is_entrypoint_source_file(path) {
-            entrypoint_registrations |= has_di_registration_calls(&source);
+            entrypoint_file = true;
         }
+        registration_family |= has_di_registration_calls(&source);
+        forwarded |= has_type_forwarded_to(&source);
         {
             let mut per_file = syntax::TypeFacts::default();
             syntax::scan_cs_source(&source, &mut namespaces, &mut usings, &mut per_file)
@@ -859,7 +938,7 @@ fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
             }
         }
     }
-    Ok((namespaces, usings, type_facts, entrypoint_registrations))
+    Ok((namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded))
 }
 
 /// True when any rel-path component is `bin`, `obj`, `node_modules`, or starts
@@ -1040,22 +1119,169 @@ fn ns_to_module(ns: &str) -> String {
     ns.replace('.', "::")
 }
 
-/// The module key owning files that declare no namespace (composition roots):
-/// the project's root module — the first two segments of the unit's namespace
-/// root (the csproj `RootNamespace` convention; the unit name is its default),
-/// converted like any namespace. Mirrors the rust driver placing crate-root
-/// files on the crate's own module.
-fn root_module_key(unit_name: &str) -> String {
-    ns_to_module(&root_namespace(unit_name))
+/// Resolve a unit's root namespace (roles reality US 01) — the module every
+/// namespace-less ("sentinel") file fact attributes to and both role
+/// predicates address. The ladder: (a) the csproj `RootNamespace` property,
+/// else `AssemblyName` (MSBuild's own default chain); (b) the longest common
+/// dotted prefix of the namespaces the unit's files declare, TRUNCATED to the
+/// unit-name segment count — a project whose files all sit under
+/// `A.B.C.Extras` roots at its own name `A.B.C`, not at a sub-module and not
+/// at the shared parent `A::B` every sibling would collide on; (c) the full
+/// unit name. ≤2-segment unit names without properties keep the first-two-
+/// segments era's bytes exactly — the ladder's new voices only show on
+/// corporate-depth names and property-bearing projects.
+fn resolve_root_namespace(
+    unit_name: &str,
+    csproj_root: Option<&str>,
+    namespaces: &BTreeSet<String>,
+) -> String {
+    if let Some(value) = csproj_root.map(str::trim).filter(|value| !value.is_empty()) {
+        return value.to_string();
+    }
+    // The unit name's segment COUNT caps the truncation (empty segments a
+    // dot-prefixed directory name yields are not name segments).
+    let stem_segments = unit_name.split('.').filter(|segment| !segment.is_empty()).count();
+    match common_namespace_prefix(namespaces) {
+        Some(prefix) => prefix
+            .split('.')
+            .take(stem_segments.max(1))
+            .collect::<Vec<_>>()
+            .join("."),
+        // No namespaces (top-level-statements-only projects) — or namespaces
+        // sharing nothing, which behaves like none: the name fallback.
+        None => unit_name.to_string(),
+    }
 }
 
-/// The dotted root namespace convention of a unit: the first two segments of
-/// the unit name (the csproj `RootNamespace` convention — `Shop.Api`'s
-/// root namespace is `Shop.Api`, `App`'s is `App`). Files declaring it
-/// attribute their facts to the unit's root module, the same key namespace-less
-/// files get translated to.
-fn root_namespace(unit_name: &str) -> String {
-    unit_name.split('.').take(2).collect::<Vec<_>>().join(".")
+/// The longest common dotted prefix of a set of namespaces, or `None` for an
+/// empty set or namespaces sharing no first segment.
+fn common_namespace_prefix(namespaces: &BTreeSet<String>) -> Option<String> {
+    let mut namespaces = namespaces.iter().map(String::as_str);
+    let first = namespaces.next()?;
+    let mut prefix: Vec<&str> = first.split('.').collect();
+    for namespace in namespaces {
+        let shared = namespace
+            .split('.')
+            .zip(prefix.iter().copied())
+            .take_while(|(left, right)| left == right)
+            .count();
+        prefix.truncate(shared);
+        if prefix.is_empty() {
+            break;
+        }
+    }
+    (!prefix.is_empty()).then(|| prefix.join("."))
+}
+
+/// The csproj identity properties' text (US 01): the first literal
+/// `<RootNamespace>` element, else the first `<AssemblyName>` — MSBuild's
+/// default chain. Conditioned duplicates stay out of the ladder's way (first
+/// literal wins, a documented residual); a read or parse failure states
+/// `None` — the stem ladder covers what the csproj does not tell.
+fn csproj_root_namespace(full_path: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(full_path).ok()?;
+    let mut reader = quick_xml::Reader::from_str(&raw);
+    reader.config_mut().trim_text(true);
+    let mut inside: Option<String> = None;
+    let mut root_namespace: Option<String> = None;
+    let mut assembly_name: Option<String> = None;
+    loop {
+        let event = reader.read_event();
+        match event {
+            Ok(quick_xml::events::Event::Start(ref e)) => {
+                let qname = e.name();
+                let name: &str = qname.as_ref();
+                if name == "RootNamespace" || name == "AssemblyName" {
+                    inside = Some(name.to_string());
+                }
+            }
+            Ok(quick_xml::events::Event::Text(ref t)) => {
+                if let Some(name) = inside.take() {
+                    let raw: &str = t.as_ref();
+                    let value = quick_xml::escape::unescape(raw)
+                        .unwrap_or(std::borrow::Cow::Borrowed(raw))
+                        .trim()
+                        .to_string();
+                    if value.is_empty() {
+                        continue;
+                    }
+                    if name == "RootNamespace" {
+                        root_namespace.get_or_insert(value);
+                    } else {
+                        assembly_name.get_or_insert(value);
+                    }
+                }
+            }
+            Ok(quick_xml::events::Event::End(ref e)) => {
+                let qname = e.name();
+                let name: &str = qname.as_ref();
+                if name == "RootNamespace" || name == "AssemblyName" {
+                    inside = None;
+                }
+            }
+            Ok(quick_xml::events::Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    root_namespace.or(assembly_name)
+}
+
+/// The csproj's entrypoint-gate evidence (S3): the `Sdk` attribute names a
+/// host model (`Microsoft.NET.Sdk.Web` / `.Worker`) or a property group
+/// states `OutputType=Exe` — .NET's own declaration that the unit RUNS,
+/// whichever file carries its wiring. A read or parse failure states
+/// `false`; absence of gate evidence is honest, the filename convention
+/// still opens the gate separately.
+fn csproj_entrypoint_gate(full_path: &Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(full_path) else {
+        return false;
+    };
+    let mut reader = quick_xml::Reader::from_str(&raw);
+    reader.config_mut().trim_text(true);
+    let mut inside_output_type = false;
+    let mut gate = false;
+    loop {
+        let event = reader.read_event();
+        match event {
+            Ok(quick_xml::events::Event::Start(ref e)) => {
+                let qname = e.name();
+                match qname.as_ref() {
+                    "Project" => {
+                        for attribute in e.attributes().flatten() {
+                            if attribute.key.as_ref() != "Sdk" {
+                                continue;
+                            }
+                            let value: &str = attribute.value.as_ref();
+                            let host_model =
+                                value.ends_with(".Web") || value.ends_with(".Worker");
+                            if host_model {
+                                gate = true;
+                            }
+                        }
+                    }
+                    "OutputType" => inside_output_type = true,
+                    _ => {}
+                }
+            }
+            Ok(quick_xml::events::Event::Text(ref t)) => {
+                if inside_output_type {
+                    let raw: &str = t.as_ref();
+                    if raw.trim().eq_ignore_ascii_case("exe") {
+                        gate = true;
+                    }
+                }
+            }
+            Ok(quick_xml::events::Event::End(ref e)) => {
+                let qname = e.name();
+                if qname.as_ref() == "OutputType" {
+                    inside_output_type = false;
+                }
+            }
+            Ok(quick_xml::events::Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    gate
 }
 
 /// The DI-registration call family behind the composition predicate (roles
@@ -1066,9 +1292,11 @@ fn root_namespace(unit_name: &str) -> String {
 /// case-sensitive C# method names in the call shape `.Name<…>` / `.Name(…)`;
 /// framework `Add…` calls outside the family (AddControllers, AddLogging) and
 /// hand-rolled extensions (AddRustSyncClient) are NOT evidence — a name-based
-/// guess there would state a role the code does not prove.
-const DI_REGISTRATION_FAMILY: [&str; 4] =
-    ["AddScoped", "AddTransient", "AddSingleton", "AddHostedService"];
+/// guess there would state a role the code does not prove. The EF and caching
+/// members joined the family with S3: a composition root that wires through
+/// them wires the application exactly as one calling the lifetime members.
+const DI_REGISTRATION_FAMILY: [&str; 6] =
+    ["AddScoped", "AddTransient", "AddSingleton", "AddHostedService", "AddDbContext", "AddMemoryCache"];
 
 /// The entrypoint file convention: a `.cs` file named `Program.cs` or
 /// `Startup.cs` (case-insensitive stem — the two shapes .NET uses for
@@ -1098,6 +1326,20 @@ fn has_di_registration_calls(source: &str) -> bool {
             let after = code[index + name.len()..].trim_start();
             before.ends_with('.') && (after.starts_with('<') || after.starts_with('('))
         })
+    })
+}
+
+/// True when the source carries an assembly-level `TypeForwardedTo`
+/// attribute (S4): `TypeForwardedTo` in a call/attribute shape — preceded by
+/// `:` (the `[assembly: …]` spelling, qualified or not) or by `.` (fully
+/// qualified) and followed by `(`. Comments and literals are stripped first
+/// (same guard as the registration family).
+fn has_type_forwarded_to(source: &str) -> bool {
+    let code = without_comments_or_literals(source);
+    code.match_indices("TypeForwardedTo").any(|(index, _)| {
+        let before = code[..index].trim_end();
+        let after = code[index + "TypeForwardedTo".len()..].trim_start();
+        (before.ends_with('.') || before.ends_with(':')) && after.starts_with('(')
     })
 }
 
@@ -1175,34 +1417,43 @@ fn without_comments_or_literals(source: &str) -> String {
 /// Derive one unit's role entries from its own facts (roles US 02), adding
 /// model keys to the per-predicate sets. Both predicates address the unit's
 /// root module key with disjoint evidence:
-/// - `facade`: the root module exists as a fact (a namespace-less file or a
-///   file declaring the root namespace contributed at least one using) and no
-///   file attributed to it declares a type — the csharp mirror of rust's
-///   `root_defines_items` predicate. A root module with no facts at all is not
-///   in the model and gains nothing: absence states "no role", never "denied".
-/// - `composition`: an entrypoint file (Program/Startup) of the unit carries
-///   [`DI_REGISTRATION_FAMILY`] calls. Registration facts are a derivation
-///   input only — they join no edge map and engage no rule yet.
+/// - `facade`: a root module that has root-tier facts, declares no types,
+///   and whose facts re-export. C# states that shape in three evidence
+///   shapes (S4): a using-only root file (the sentinel or under the root
+///   namespace — including `global using` files), an `[assembly:
+///   TypeForwardedTo]` forwarding file, or both. A root file that declares
+///   a type — any wrapper/`static class Program` spelling — is NOT a
+///   facade: BY DESIGN (rust parity, `root_defines_items`), stated not
+///   accidental. A root module with no facts at all is not in the model and
+///   gains nothing: absence states "no role", never "denied". The entrypoint
+///   gate opens no facade exception: an entrypoint root that wires nothing
+///   stays the conduit reading the laundering check sanctions (ADR-017).
+/// - `composition`: the unit's entrypoint gate is open — a Program/Startup
+///   file, a host `Sdk` (`.Web`/`.Worker`) or `OutputType=Exe` — AND the
+///   [`DI_REGISTRATION_FAMILY`] is called somewhere in its production files
+///   (S3: gate AND family, neither alone states the role). Registration
+///   facts are a derivation input only — they join no edge map and engage no
+///   rule yet.
 ///
-/// A unit whose Program/Startup files carry registrations gains composition
-/// and NEVER facade, even though the using-only Program.cs satisfies the naive
-/// facade shape — the exclusivity pin of the workplan.
+/// The unit's composition predicate (gate AND family, S3 — computed by the
+/// caller) claims composition; otherwise a using-only root states facade.
+/// The unit claims at most one role, at its own resolved root: composition
+/// beating facade is this unit's exclusivity, not a cross-unit override.
 fn derive_unit_roles(
-    unit_name: &str,
+    root_ns: &str,
     usings: &BTreeMap<String, BTreeSet<String>>,
     type_facts: &Option<syntax::TypeFacts>,
-    registrations: bool,
-    facades: &mut BTreeSet<String>,
-    compositions: &mut BTreeSet<String>,
+    composition: bool,
+    forwarded: bool,
+    claims: &mut Vec<(String, Role)>,
 ) {
-    let root_ns = root_namespace(unit_name);
-    let root_key = ns_to_module(&root_ns);
-    if registrations {
-        compositions.insert(root_key);
+    let root_key = ns_to_module(root_ns);
+    if composition {
+        claims.push((root_key, Role::Composition));
         return;
     }
     let using_fact =
-        usings.contains_key("") || usings.get(&root_ns).is_some_and(|t| !t.is_empty());
+        usings.contains_key("") || usings.get(root_ns).is_some_and(|t| !t.is_empty());
     let type_fact = type_facts.as_ref().is_some_and(|facts| {
         facts
             .declared_types
@@ -1210,29 +1461,36 @@ fn derive_unit_roles(
             .is_some_and(|names| !names.is_empty())
             || facts
                 .declared_types
-                .get(&root_ns)
+                .get(root_ns)
                 .is_some_and(|names| !names.is_empty())
     });
-    if using_fact && !type_fact {
-        facades.insert(root_key);
+    if (using_fact || forwarded) && !type_fact {
+        claims.push((root_key, Role::Facade));
     }
 }
 
-/// Merge the per-predicate key sets into the model's roles map: composition
-/// claims are stated first, and a key any unit claimed as composition never
-/// reads as facade in the same scan — the exclusivity holds across units too,
-/// since distinct units can resolve to one root module key.
-fn roles_map(
-    facades: BTreeSet<String>,
-    compositions: BTreeSet<String>,
-) -> BTreeMap<String, Role> {
+/// Merge the per-unit root claims into the model's roles map: the same role
+/// claimed under one key states that role once, and a key two units claim
+/// with DIFFERENT roles states nothing — the ambiguity guard. Composition
+/// beating facade is an exclusivity WITHIN a unit (derive_unit_roles), never
+/// a cross-unit override: one unit's claim must not swallow, silence or
+/// outvote another's.
+fn roles_map(claims: Vec<(String, Role)>) -> BTreeMap<String, Role> {
     let mut roles: BTreeMap<String, Role> = BTreeMap::new();
-    for key in &compositions {
-        roles.insert(key.clone(), Role::Composition);
-    }
-    for key in facades {
-        if !compositions.contains(&key) {
-            roles.insert(key, Role::Facade);
+    let mut doubted: BTreeSet<String> = BTreeSet::new();
+    for (key, role) in claims {
+        if doubted.contains(&key) {
+            continue;
+        }
+        match roles.get(&key) {
+            Some(existing) if *existing == role => {}
+            Some(_) => {
+                roles.remove(&key);
+                doubted.insert(key);
+            }
+            None => {
+                roles.insert(key, role);
+            }
         }
     }
     roles
@@ -1273,10 +1531,22 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
         crate_ids: BTreeSet::new(),
     };
 
-    let (namespaces, usings, type_facts, registrations) = scan_project_sources(&canonical)?;
+    let (namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded) =
+        scan_project_sources(&canonical)?;
     let mut soft_structure: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut sorted: Vec<String> = namespaces.iter().map(|ns| ns_to_module(ns)).collect();
-    let root_key = root_module_key(&name);
+    let unit_csproj = std::fs::read_dir(root).ok().and_then(|entries| {
+        entries.flatten().find(|entry| {
+            entry.path().extension().and_then(|ext| ext.to_str()) == Some("csproj")
+        })
+    });
+    let csproj_root = unit_csproj
+        .as_ref()
+        .and_then(|entry| csproj_root_namespace(&entry.path()));
+    let csproj_gate = unit_csproj
+        .as_ref()
+        .is_some_and(|entry| csproj_entrypoint_gate(&entry.path()));
+    let root_key = resolve_root_namespace(&name, csproj_root.as_deref(), &namespaces);
     if usings.contains_key("") && !sorted.contains(&root_key) {
         sorted.push(root_key.clone());
     }
@@ -1403,19 +1673,40 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
     }
 
     // The csproj-less shape derives roles from the same predicates as the
-    // csproj path (roles US 02) — one unit, so the sets carry at most one key
-    // each and the merge keeps the same exclusivity.
-    let mut facade_keys: BTreeSet<String> = BTreeSet::new();
-    let mut composition_keys: BTreeSet<String> = BTreeSet::new();
+    // csproj path (roles US 02) — one unit claiming at its resolved root.
+    let mut role_claims: Vec<(String, Role)> = Vec::new();
+    let gate_open = entrypoint_file || csproj_gate;
     derive_unit_roles(
-        &name,
+        &root_key,
         &usings,
         &type_facts,
-        registrations,
-        &mut facade_keys,
-        &mut composition_keys,
+        registration_family && gate_open,
+        forwarded,
+        &mut role_claims,
     );
-    let roles = roles_map(facade_keys, composition_keys);
+    let roles = roles_map(role_claims);
+
+    // Public-API facts for the csproj-less shape, attributed exactly like the
+    // csproj path (US 01): namespaces to their module paths, global
+    // declarations to the unit root key.
+    let mut public_types_sets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    if let Some(facts) = &type_facts {
+        for (ns, names) in &facts.public_types {
+            let module = if ns.is_empty() {
+                root_key.clone()
+            } else {
+                ns_to_module(ns)
+            };
+            public_types_sets
+                .entry(module)
+                .or_default()
+                .extend(names.iter().cloned());
+        }
+    }
+    let module_public_types: BTreeMap<String, Vec<String>> = public_types_sets
+        .into_iter()
+        .map(|(module, types)| (module, types.into_iter().collect()))
+        .collect();
 
     Ok(Model {
         schema_version: 1,
@@ -1430,6 +1721,7 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
         root_public_exports: Default::default(),
         root_glob_exports: Default::default(),
         root_empty_glob_exports: Default::default(),
+        module_public_types,
         module_external: module_external_model,
         root_module_declarations: Default::default(),
         unit_manifests: Default::default(),

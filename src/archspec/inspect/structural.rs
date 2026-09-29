@@ -1,4 +1,4 @@
-use crate::archspec::model::Model;
+use crate::archspec::model::{Model, Role};
 use rust_arch_test_kit::render::{
     mermaid_edge, mermaid_node, mermaid_node_marked, mermaid_subgraph, mermaid_subgraph_marked,
     plantuml_quoted_component, plantuml_quoted_component_marked, plantuml_quoted_edge,
@@ -15,6 +15,21 @@ fn label_marker(model: &Model, name: &str) -> Option<String> {
         .roles
         .get(name)
         .map(|role| format!(" [{}]", role.as_str()))
+}
+
+/// The unit-header marker (roles reality US 05): the header names a unit
+/// (`ACorp.Api`) while the roles map keys it as a module path
+/// (`ACorp::Api`), so the header resolves through the same `.`/`::`
+/// identity `diagram::scan_role_marker` and `depgraph::parent_matches` use
+/// — one claim, one declaration, no spelling-dependent silence. Module
+/// lines keep the exact lookup above: their spelling is the key's spelling.
+fn header_marker(model: &Model, name: &str) -> Option<Role> {
+    let normalized = name.replace("::", ".");
+    model
+        .roles
+        .iter()
+        .find(|(key, _)| key.replace("::", ".") == normalized)
+        .map(|(_, role)| *role)
 }
 
 /// Renders the scan-phase model as a Mermaid flowchart. Nodes are the module
@@ -51,8 +66,8 @@ pub fn render_model(model: &Model, include_unit_edges: bool) -> String {
     let mut declared: BTreeSet<&str> = BTreeSet::new();
     for unit in &units {
         declared.insert(unit.name.as_str());
-        let header = match label_marker(model, &unit.name) {
-            Some(marker) => mermaid_subgraph_marked(&unit.name, &marker),
+        let header = match header_marker(model, &unit.name) {
+            Some(role) => mermaid_subgraph_marked(&unit.name, &format!(" [{}]", role.as_str())),
             None => mermaid_subgraph(&unit.name),
         };
         let _ = writeln!(out, "  {header}");
@@ -138,7 +153,7 @@ pub fn render_model_plantuml(model: &Model, include_unit_edges: bool) -> String 
     let mut units = model.units.clone();
     units.sort_by(|left, right| left.name.cmp(&right.name));
     for unit in &units {
-        match model.roles.get(unit.name.as_str()) {
+        match header_marker(model, &unit.name) {
             Some(role) => {
                 let _ = writeln!(out, "package \"{}\" <<{}>> {{", unit.name, role.as_str());
             }

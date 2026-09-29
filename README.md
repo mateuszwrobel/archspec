@@ -82,9 +82,19 @@ duplicated here.
 ## Self-dogfood
 
 This crate checks its own architecture: `architecture.spec.toml` declares the
-`commands` / `engines` / `foundations` boundaries, and `run-unit-tests.sh` runs
-`archspec verify --strict` plus `--check` freshness gates on the committed
-artefacts (`scan`/`diagram`/`inspect`/`report`).
+`commands`, `engines` and `foundations` groups plus the library boundary
+`rust-arch-test-kit` — and the `lib-collector` / `lib-render` prefix groups
+that let the cycle checks see inside the library unit — and polices itself
+with four of the seven constraint types: `no_cycles`, `public_api_allowlist`,
+`forbid_external_crates` and `manifest_integrity`. Test-gated modules and
+whatever only they import are excluded from the `depend_on` comparison — the
+same rule the `depgraph --help` statement spells out for the graph views —
+and this crate keeps even its engine tests pointed down-layer rather than
+leaning on that exemption. `run-unit-tests.sh` runs `archspec verify --strict`
+plus `--check` freshness gates on the committed artefacts
+(`scan`/`diagram`/`inspect`/`report`), and `tests/spec_self_verify.rs` keeps
+that strict self-verify reachable from a plain `cargo test`, without the git
+hook or the runner script.
 
 ---
 

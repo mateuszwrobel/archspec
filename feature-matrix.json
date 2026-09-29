@@ -602,6 +602,19 @@
           }
         },
         {
+          "name": "csharp_public_api_leak_pin",
+          "description": "on a 3-segment corporate tree an unallowlisted public type leaks attributed to the module the model derives, and the corporate scan is byte-deterministic",
+          "status": {
+            "csharp": "pass",
+            "go": "skipped",
+            "rust": "skipped"
+          },
+          "skip_reasons": {
+            "go": "project shape not applicable",
+            "rust": "project shape not applicable"
+          }
+        },
+        {
           "name": "rust_unverifiable_glob_export_pin",
           "description": "a root glob re-export that resolves to nothing is reported as unverifiable",
           "status": {

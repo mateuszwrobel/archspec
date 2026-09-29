@@ -263,6 +263,13 @@ pub fn all() -> Vec<Scenario> {
             "root-module-declarations",
             rust_root_public_api_leak_pin,
         ),
+        scenario_when(
+            Feature::VerifyModuleBoundaries,
+            "csharp_public_api_leak_pin",
+            "on a 3-segment corporate tree an unallowlisted public type leaks attributed to the module the model derives, and the corporate scan is byte-deterministic",
+            csharp_project_files,
+            csharp_public_api_leak_pin,
+        ),
         scenario_when_capability(
             Feature::VerifyModuleBoundaries,
             "rust_unverifiable_glob_export_pin",
@@ -1998,8 +2005,7 @@ fn rust_root_public_api_leak_pin(driver: &Driver, fx: &common::Fixture) -> Resul
 }
 
 fn rust_unverifiable_glob_export_pin(driver: &Driver, fx: &common::Fixture) -> Result<(), String> {
-    rust_root_fixture(fx, "pub fn serve() {}\npub use ghost::*;\n");
-    fx.write(
+    rust_root_fixture(fx, "pub fn serve() {}\npub use ghost::*;\n");    fx.write(
         "architecture.spec.toml",
         &rust_api_spec("[[constraint]]\ntype = \"public_api_allowlist\"\nallowed = [\"serve\"]\n"),
     );
@@ -2010,6 +2016,52 @@ fn rust_unverifiable_glob_export_pin(driver: &Driver, fx: &common::Fixture) -> R
     let stdout = common::stdout(&output);
     if !stdout.contains("unverifiable glob export: app exposes ghost::*") {
         return Err(format!("report must name the unverifiable glob:\n{stdout}"));
+    }
+    Ok(())
+}
+
+/// The C# twin of the rust root public-API pin, welded at 3-segment
+/// corporate naming (`Acmecorp.Inventory.*`): the corpus lesson from the
+/// roles cells says the behavior must be proven on a tree shaped like real
+/// solutions, not on two-segment toys. Hand-written C# sources (the shape is
+/// csharp-only by registration), leak named, scan byte-deterministic.
+fn csharp_public_api_leak_pin(driver: &Driver, fx: &common::Fixture) -> Result<(), String> {
+    let csproj = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n";
+    fx.write("Acmecorp.Inventory.Api/Acmecorp.Inventory.Api.csproj", csproj);
+    fx.write(
+        "Acmecorp.Inventory.Api/Endpoints.cs",
+        "namespace Acmecorp.Inventory.Api;\npublic sealed class Endpoints { }\n",
+    );
+    fx.write(
+        "Acmecorp.Inventory.Api/IContract.cs",
+        "namespace Acmecorp.Inventory.Api;\npublic interface IContract { }\n",
+    );
+    fx.write("Acmecorp.Inventory.Core/Acmecorp.Inventory.Core.csproj", csproj);
+    fx.write(
+        "Acmecorp.Inventory.Core/Stock.cs",
+        "namespace Acmecorp.Inventory.Core;\npublic sealed class Stock { }\nnamespace Acmecorp.Inventory.Core.Internal;\npublic sealed class BackDoor { }\n",
+    );
+    fx.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"api\"\nmatches = { units = [\"Acmecorp.Inventory.Api\"] }\n\n[[module]]\nname = \"core\"\nmatches = { units = [\"Acmecorp.Inventory.Core\"] }\n\n[[constraint]]\ntype = \"public_api_allowlist\"\nallowed = [\"Acmecorp::Inventory::Api\", \"Acmecorp::Inventory::Core\"]\n",
+    );
+    let output = driver.run(fx, &["verify"]);
+    if output.status.code() == Some(0) {
+        return Err(
+            "a public type under a namespace the allowlist does not address must leak"
+                .into(),
+        );
+    }
+    let stdout = common::stdout(&output);
+    if !stdout.contains(
+        "public api leak: Acmecorp::Inventory::Core::Internal exposes BackDoor (not allowlisted)",
+    ) {
+        return Err(format!("report must name the corporate leak:\n{stdout}"));
+    }
+    let first = driver.run(fx, &["scan"]);
+    let second = driver.run(fx, &["scan"]);
+    if first.status.code() != Some(0) || common::stdout(&first) != common::stdout(&second) {
+        return Err("the corporate public-API scan must be byte-deterministic".into());
     }
     Ok(())
 }

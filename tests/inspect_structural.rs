@@ -761,6 +761,72 @@ fn inspect_tree_marks_the_csharp_composition_root_by_module_path() {
     );
 }
 
+/// The corporate 3-segment tree (probe v15 shape): the roles map addresses the
+/// units as `Acmecorp::Inventory::Api`/`...Core` while the headers name them
+/// `Acmecorp.Inventory.Api`/`...Core`. The header resolves through the
+/// `::`↔`.` identity the diagram twin already used (roles reality US 05), and
+/// the phantom two-segment name that owns no unit carries no marked
+/// declaration anywhere — the duplication the base recorded is welded away.
+#[test]
+fn inspect_tree_marks_corporate_csharp_unit_headers_through_identity() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "Acmecorp.Inventory.Api/Acmecorp.Inventory.Api.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk.Web\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <ProjectReference Include=\"../Acmecorp.Inventory.Core/Acmecorp.Inventory.Core.csproj\" />\n  </ItemGroup>\n</Project>\n",
+    );
+    fixture.write(
+        "Acmecorp.Inventory.Api/Program.cs",
+        "using Microsoft.Extensions.DependencyInjection;\nusing Acmecorp.Inventory.Api.Extensions;\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddApiServices();\nbuilder.Build().Run();\n",
+    );
+    fixture.write(
+        "Acmecorp.Inventory.Api/Extensions/DependencyInjection.cs",
+        "namespace Acmecorp.Inventory.Api.Extensions;\nusing Microsoft.Extensions.DependencyInjection;\npublic static class DependencyInjection\n{\n    public static IServiceCollection AddApiServices(this IServiceCollection services)\n    {\n        services.AddScoped<IOrderRepository, OrderRepository>();\n        return services;\n    }\n}\n",
+    );
+    fixture.write(
+        "Acmecorp.Inventory.Core/Acmecorp.Inventory.Core.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+    );
+    fixture.write(
+        "Acmecorp.Inventory.Core/GlobalUsings.cs",
+        "using Acmecorp.Inventory.Core.Domain;\nusing System.Threading.Tasks;\n",
+    );
+    fixture.write(
+        "Acmecorp.Inventory.Core/Domain/Order.cs",
+        "namespace Acmecorp.Inventory.Core.Domain;\npublic class Order { }\npublic interface IOrderRepository { }\npublic class OrderRepository : IOrderRepository { }\n",
+    );
+
+    let diagram = String::from_utf8(inspect(&fixture, "tree")).expect("utf-8");
+    assert!(
+        diagram.contains("[\"Acmecorp.Inventory.Api [composition]\"]"),
+        "the composition unit must carry its role in the dotted header:\n{diagram}"
+    );
+    assert!(
+        diagram.contains("[\"Acmecorp.Inventory.Core [facade]\"]"),
+        "the facade unit must carry its role in the dotted header:\n{diagram}"
+    );
+    // The phantom: a marked declaration under the two-segment root name no
+    // unit owns would re-materialize the base's duplication.
+    assert!(
+        !diagram.contains("\"Acmecorp::Inventory [")
+            && !diagram.contains("\"Acmecorp.Inventory ["),
+        "the phantom two-segment root must own no marked declaration:\n{diagram}"
+    );
+
+    let plantuml = inspect_format(&fixture, "tree", "plantuml");
+    assert!(
+        plantuml.contains("package \"Acmecorp.Inventory.Api\" <<composition>> {"),
+        "the plantuml twin resolves the header through the same identity:\n{plantuml}"
+    );
+    assert!(
+        plantuml.contains("package \"Acmecorp.Inventory.Core\" <<facade>> {"),
+        "the facade package must carry its stereotype in plantuml too:\n{plantuml}"
+    );
+    assert!(
+        !plantuml.contains("\"Acmecorp::Inventory\" <<"),
+        "the phantom root must own no stereotyped declaration either:\n{plantuml}"
+    );
+}
+
 #[test]
 fn inspect_tree_marks_the_go_main_package_composition_root() {
     let fixture = go_main_fixture();

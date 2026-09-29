@@ -123,6 +123,7 @@ project onto its nodes (row 37 states the no-node case).
 | 36 | several projected roles paths folding onto one node and agreeing on one role | `depgraph modules` | exit 0; the node carries that role's marker exactly once |
 | 37 | a roles key whose projection names a node the view does not render (unit-tier rust/c# keys folding to `root`; keys below/outside a submodule view's parent) | `depgraph modules`, `depgraph submodules --parent <m>` | exit 0; the key contributes nothing — no node is invented to carry a role and bytes equal the pre-plan golden (the rust probe tree's golden is its own byte pin) |
 | 38 | any tree with derived roles | `depgraph api-usage` | exit 0; the three fixed columns and the rows are unchanged by roles and the emptiness statements are untouched (rows 21, 23, 29, 33 keep their bytes) — a role is not a usage fact, and the roles answer for module-level questions is the modules graph plus the report's Roles section; this table stays silent by decision, not oversight |
+| 39 | a fold silences a rendered node because different roles landed on it (row 35's shape) | `depgraph modules`, `depgraph submodules --parent <m>`, `--format mermaid` and `plantuml` | exit 0; after the graph the renderer appends the conditional note line — `note: N role facts folded onto one node with different roles, so the node states nothing — explained in 'archspec help roles'` (a `%%` comment line in mermaid, a `'` line in plantuml) — with N the claims the fold silenced on that node; a view whose fold places every claim prints no note line at all and keeps its exact bytes (the rust and go goldens unchanged) |
 
 Pins (rows 34–38 are roles-views US 02's append; row numbers are ids —
 the gaps at 24–26, 28 and 30 are sibling plans' reserved space, and no number
@@ -137,6 +138,9 @@ row 35 — `…::modules_conflicting_fold_prints_no_marker`; row 36 —
 `…::modules_rust_facade_key_folds_to_no_rendered_node_and_prints_no_marker`
 and `…::modules_bytes_on_the_rust_probe_tree_match_the_golden_that_carries_no_marks`;
 row 38 — no roles-specific test: the view reads no roles map, and rows 21, 23,
-29 and 33's own pins already lock every body api-usage can print. The
+29 and 33's own pins already lock every body api-usage can print. Row 39 is
+roles reality US 05's append — `…::modules_conflicting_fold_prints_no_marker`
+(note present) and `…::modules_agreeing_fold_marks_the_node_once` (note
+absent) weld the conditional stated fold. The
 bidirectional cross-driver leg is the shared scenario
 `depgraph / modules_mark_folded_role_carriers`.

@@ -868,9 +868,22 @@ fn modules_marks_csharp_project_root_composition() {
 /// node whose roles differ: the fold is too coarse to state a role, so the
 /// node carries no marker and nothing else moves (acceptance row 35). With
 /// `second_facade` the two agree on one role and the node is marked — once
-/// (acceptance row 36).
-fn csharp_fold_fixture(second_facade: bool) -> Fixture {
+/// (acceptance row 36). With `corporate` the same shape is spelled at
+/// three-segment unit names (`Xcorp::Platform::Api`, `Ycorp::Platform::Api`
+/// — the naming depth the root ladder's truncation leg speaks), where the
+/// projection trivially folds at the top tier and descends one level, yet
+/// the rendered nodes, the edge and the stated note keep their bytes.
+fn csharp_fold_fixture_named(second_facade: bool, corporate: bool) -> Fixture {
     let fixture = Fixture::new();
+    let (api_x, api_y, shared) = if corporate {
+        (
+            "Xcorp.Platform.Api",
+            "Ycorp.Platform.Api",
+            "Ycorp.Platform.Shared",
+        )
+    } else {
+        ("X.Api", "Y.Api", "Y.Shared")
+    };
     let csproj = |reference: &str| {
         format!(
             "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n{}{}</Project>\n",
@@ -882,26 +895,44 @@ fn csharp_fold_fixture(second_facade: bool) -> Fixture {
             }
         )
     };
-    fixture.write("X.Api/X.Api.csproj", &csproj("../Y.Shared/Y.Shared.csproj"));
+    fixture.write(
+        &format!("{api_x}/{api_x}.csproj"),
+        &csproj(&format!("../{shared}/{shared}.csproj")),
+    );
     // Root-namespace wiring without declared types: the driver's facade
     // predicate (imports but defines nothing).
-    fixture.write("X.Api/Wiring.cs", "using Y.Shared;\nnamespace X.Api;\n");
+    fixture.write(
+        &format!("{api_x}/Wiring.cs"),
+        &format!("using {shared};\nnamespace {api_x};\n"),
+    );
     if second_facade {
-        fixture.write("Y.Api/Y.Api.csproj", &csproj(""));
-        fixture.write("Y.Api/Wiring.cs", "using Y.Shared;\nnamespace Y.Api;\n");
-    } else {
-        fixture.write("Y.Api/Y.Api.csproj", &csproj("../Y.Shared/Y.Shared.csproj"));
+        fixture.write(&format!("{api_y}/{api_y}.csproj"), &csproj(""));
         fixture.write(
-            "Y.Api/Program.cs",
-            "using Microsoft.Extensions.DependencyInjection;\nusing Y.Shared;\nnamespace Y.Api;\npublic static class Program\n{\n    public static void Main()\n    {\n        var services = new ServiceCollection();\n        services.AddScoped<ICache, Cache>();\n    }\n}\n",
+            &format!("{api_y}/Wiring.cs"),
+            &format!("using {shared};\nnamespace {api_y};\n"),
+        );
+    } else {
+        fixture.write(
+            &format!("{api_y}/{api_y}.csproj"),
+            &csproj(&format!("../{shared}/{shared}.csproj")),
+        );
+        fixture.write(
+            &format!("{api_y}/Program.cs"),
+            &format!("using Microsoft.Extensions.DependencyInjection;\nusing {shared};\nnamespace {api_y};\npublic static class Program\n{{\n    public static void Main()\n    {{\n        var services = new ServiceCollection();\n        services.AddScoped<ICache, Cache>();\n    }}\n}}\n"),
         );
     }
-    fixture.write("Y.Shared/Y.Shared.csproj", &csproj(""));
+    fixture.write(&format!("{shared}/{shared}.csproj"), &csproj(""));
     fixture.write(
-        "Y.Shared/Shared.cs",
-        "namespace Y.Shared;\npublic interface ICache { }\npublic class Cache : ICache { }\n",
+        &format!("{shared}/Shared.cs"),
+        &format!("namespace {shared};\npublic interface ICache {{ }}\npublic class Cache : ICache {{ }}\n"),
     );
     fixture
+}
+
+/// The two-segment spellings of [`csharp_fold_fixture_named`] — the shapes
+/// whose root resolution keeps the first-two-segments era's exact bytes.
+fn csharp_fold_fixture(second_facade: bool) -> Fixture {
+    csharp_fold_fixture_named(second_facade, false)
 }
 
 #[test]
@@ -922,6 +953,51 @@ fn modules_conflicting_fold_prints_no_marker() {
         out.contains("Api --> Shared"),
         "the fold's silence must not move an edge:\n{out}"
     );
+    // The stated fold (roles reality US 05): silence about the DROP ends —
+    // the two role facts the fold could not place name themselves in a note.
+    assert!(
+        out.contains(
+            "%% note: 2 role facts folded onto one node with different roles, \
+             so the node states nothing — explained in 'archspec help roles'"
+        ),
+        "a conflicting fold must state its drop:\n{out}"
+    );
+}
+
+/// The same honesty chain at three-segment corporate naming (roles reality
+/// US 05 corpus): the ladder keys the two role facts at their full roots
+/// (`Xcorp::Platform::Api`, `Ycorp::Platform::Api`), the top-level
+/// projection folds them onto one node and the view descends one level —
+/// yet the folded node still renders unmarked, the edge does not move, and
+/// the note states the same drop in the same bytes. Without this leg a
+/// regression that lost or truncated the corporate role keys would keep
+/// every cell's bytes while the note silently vanished (the phantom keys
+/// would fold outside the rendered nodes).
+#[test]
+fn modules_conflicting_fold_prints_no_marker_at_corporate_naming() {
+    let fixture = csharp_fold_fixture_named(false, true);
+    let output = fixture.run(&["depgraph", "modules"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.lines().any(|line| line.trim() == "Api"),
+        "the folded node must still be rendered at corporate naming:\n{out}"
+    );
+    assert!(
+        !out.contains('[') && !out.contains("<<"),
+        "a conflicting corporate fold must print no marker syntax:\n{out}"
+    );
+    assert!(
+        out.contains("Api --> Shared"),
+        "the fold's silence must not move an edge at corporate naming:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "%% note: 2 role facts folded onto one node with different roles, \
+             so the node states nothing — explained in 'archspec help roles'"
+        ),
+        "a conflicting corporate fold must state its drop:\n{out}"
+    );
 }
 
 #[test]
@@ -938,6 +1014,12 @@ fn modules_agreeing_fold_marks_the_node_once() {
     assert!(
         out.contains("Api --> Shared"),
         "edge lines stay byte-identical:\n{out}"
+    );
+    // Conditional note (roles reality US 05): a fold that places every claim
+    // keeps its exact bytes — no note line anywhere.
+    assert!(
+        !out.contains("note:"),
+        "an agreeing fold must state no note:\n{out}"
     );
 }
 

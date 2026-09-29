@@ -139,9 +139,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
 }
 
 fn render_graph(graph: &depgraph::ModuleGraph, format: &str) -> Result<String, String> {
-    Ok(match format {
+    let mut body = match format {
         "mermaid" => depgraph::render_mermaid(graph),
         "plantuml" => depgraph::render_plantuml(graph),
         _ => unreachable!("format validated above"),
-    })
+    };
+    // The stated fold (roles reality US 05): a fold that silences markers on
+    // a node because DIFFERENT roles landed there says so — conditional, so
+    // views whose fold places every claim keep their exact bytes.
+    if graph.unplaced_claims > 0 {
+        let note = depgraph::fold_note(graph.unplaced_claims);
+        match format {
+            "mermaid" => body.push_str(&format!("  %% {note}\n")),
+            _ => body.push_str(&format!("'{note}\n")),
+        }
+    }
+    Ok(body)
 }

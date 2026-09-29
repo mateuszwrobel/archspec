@@ -13,7 +13,10 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX \
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "Running rust-arch-test-kit tests..."
-cargo test --manifest-path "$SCRIPT_DIR/Cargo.toml" "$@"
+# nextest (hardening lane A): per-test timeouts (see .config/nextest.toml).
+# Doctest parity: doc tests stay on cargo test (nextest does not run them).
+cargo nextest run --no-tests=pass --config-file "$SCRIPT_DIR/.config/nextest.toml" --manifest-path "$SCRIPT_DIR/Cargo.toml" "$@"
+cargo test --doc --manifest-path "$SCRIPT_DIR/Cargo.toml"
 
 echo "Running rust-arch-test-kit clippy gate..."
 cargo clippy --manifest-path "$SCRIPT_DIR/Cargo.toml" --all-targets -- -D warnings

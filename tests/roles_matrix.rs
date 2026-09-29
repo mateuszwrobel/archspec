@@ -388,3 +388,96 @@ fn the_matrix_owns_the_sentences_meaning() {
         "the roles topic quotes the emitted note verbatim:\n{topic}"
     );
 }
+
+// ---- roles reality US 06: corporate fixtures carry the matrix's c# evidence --
+
+/// The corporate fixtures — the probe-recorded v5, v4b and v17b shapes —
+/// must state their roles at CORPORATE names. The pins below are equality
+/// pins on the derived roles map: if the driver ever regressed to emitting
+/// no roles (or a phantom truncated key) on three-segment trees, the cell
+/// columns of those rows would flip from Marks to None and this test names
+/// the failing roles maps — the matrix cannot silently re-pin to shallow
+/// trees while claiming the c# evidence is corporate.
+#[test]
+fn corporate_fixtures_state_roles_at_three_segment_naming() {
+    let expected: Vec<(&str, Vec<(&str, &str)>)> = vec![
+        (
+            "csharp-di-ext",
+            vec![("Acmecorp::Inventory::Api", "composition")],
+        ),
+        (
+            "csharp-sibling-claim",
+            vec![
+                ("Acorp::Inventory::App", "composition"),
+                ("Acorp::Inventory::Lib", "facade"),
+            ],
+        ),
+        (
+            "csharp-conflicting-fold",
+            vec![
+                ("Acorp::Platform::Api", "composition"),
+                ("Bcorp::Platform::Api", "facade"),
+            ],
+        ),
+    ];
+    for (fixture, want) in expected {
+        let row = matrix::observe(fixture);
+        let got: Vec<(&str, &str)> = row
+            .roles
+            .iter()
+            .map(|(name, role)| (name.as_str(), role.as_str()))
+            .collect();
+        assert_eq!(
+            got, want,
+            "the corporate fixture {fixture} must state its roles at the full \
+             corporate keys (no silent shallowing of the c# corpus)"
+        );
+    }
+}
+
+/// The fold note as the mermaid renderer states it (the depgraph module's
+/// `fold_note` sentence behind the mermaid comment prefix) — the matrix's
+/// copy of the bytes the conflicting-fold fixture must emit.
+const FOLD_NOTE_LINE: &str = "%% note: 2 role facts folded onto one node with different roles, so the node states nothing — explained in 'archspec help roles'";
+
+/// Scenario: the honest modules cell is welded to its stated note. The
+/// conflicting-fold row reads `none` in the modules graph because the fold
+/// silences its node — that silence is honest only while the recorded
+/// output states the drop. If the ladder ever regressed so the corporate
+/// role keys folded outside the rendered nodes (phantom keys, lost facts),
+/// the cell would keep its bytes while the note vanished: this guard fails
+/// on the missing note and names both halves of the weld.
+#[test]
+fn conflicting_fold_none_cell_is_welded_to_the_stated_note() {
+    let row = matrix::observe("csharp-conflicting-fold");
+    let cells = matrix::observed_cells(&row);
+    let index = matrix::VIEWS
+        .iter()
+        .position(|v| v.name == "depgraph modules")
+        .expect("registered");
+    assert_eq!(
+        cells[index],
+        Cell::None,
+        "the conflicting fold must render no role marker on the corporate tree"
+    );
+    let text = &row
+        .outputs
+        .iter()
+        .find(|(name, _, _)| *name == "depgraph modules")
+        .expect("every view runs")
+        .2;
+    assert!(
+        !matrix::has_role_marker(text),
+        "a silent fold carries no marker syntax anywhere:\n{text}"
+    );
+    assert!(
+        text.lines().any(|line| line.trim() == "Api"),
+        "the folded node must still be rendered on the corporate tree:\n{text}"
+    );
+    assert!(
+        text.contains(FOLD_NOTE_LINE),
+        "the corporate fixture's recorded modules-graph output must carry the \
+         stated fold note verbatim — a `none` cell without the note would \
+         present a dropped fact as an absent one:\n{text}"
+    );
+}

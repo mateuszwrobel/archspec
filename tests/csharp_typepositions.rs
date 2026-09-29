@@ -324,10 +324,20 @@ fn locals_and_instance_chains_and_string_content_stay_silent() {
         "the using-driven external tier records no BCL fact from type positions \
          or framework usings: {rendered_external}"
     );
-    let rendered = serde_json::to_string(&model).expect("model");
+    // The public-API surface fact is the one place an unreferenced public
+    // type may appear: usage stays silent and an API fact is not a usage
+    // claim. Every other field keeps the whole-model sweep.
+    assert_eq!(
+        model["module_public_types"],
+        serde_json::json!({"App::Api": ["Api"], "App::Core": ["Registry"]}),
+        "the API tier states exactly the public types of both namespaces"
+    );
+    let mut usage_view = model.clone();
+    usage_view["module_public_types"] = serde_json::json!({});
+    let rendered = serde_json::to_string(&usage_view).expect("model");
     assert!(
         !rendered.contains("Registry"),
-        "the unreferenced App.Core type appears nowhere: {rendered}"
+        "the unreferenced App.Core type appears nowhere outside its API fact: {rendered}"
     );
 }
 

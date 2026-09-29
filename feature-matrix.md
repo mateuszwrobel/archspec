@@ -233,6 +233,10 @@
   - rust: pass
   - csharp: skipped (root-module-declarations: not-emitted)
   - go: skipped (root-module-declarations: not-emitted)
+- **csharp_public_api_leak_pin** — on a 3-segment corporate tree an unallowlisted public type leaks attributed to the module the model derives, and the corporate scan is byte-deterministic
+  - rust: skipped (project shape not applicable)
+  - csharp: pass
+  - go: skipped (project shape not applicable)
 - **rust_unverifiable_glob_export_pin** — a root glob re-export that resolves to nothing is reported as unverifiable
   - rust: pass
   - csharp: skipped (root-module-declarations: not-emitted)

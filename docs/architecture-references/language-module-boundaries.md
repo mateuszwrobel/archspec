@@ -145,5 +145,5 @@ Boundary rules (the ones worth verifying):
    - Rust: crate-root `pub` surface + feature set.
    - Go: capitalized exports; `internal/` marks private class.
    - C#: `.Abstractions` project surface; `internal` by default; NuGet refs.
-4. **Composition/wiring point is recognizable in all three**: Rust `main.rs`/`server` crate; Go `cmd/*`; C# host `Program.cs`. Together with DI registration extension in .NET.
+4. **Composition/wiring point is recognizable in all three**: Rust `main.rs`/`server` crate; Go `cmd/*`; C# host `Program.cs` — or the project's own run declaration (`Sdk` `.Web`/`.Worker`, `OutputType=Exe`), with the DI registration family as the wiring fact wherever it lives.
 5. **Framework/architecture conventions** ship in no preset: there is no preset/profile catalog and no recognition engine (see archspec design §8, ADR-013). The spec format is uniform across shapes; conventions live only as user-declared stereotypes in the spec, with illustrative starter specs (no runtime meaning).

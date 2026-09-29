@@ -928,6 +928,212 @@ fn scan_scenario_17_single_unit_tree_derives_facade_role() {
     );
 }
 
+// === Roles reality: per-unit root resolution (workplan_csharp_roles_reality US 01) ===
+
+/// A csproj with a chosen `Sdk` attribute, extra properties and optional
+/// ProjectReferences — the shapes the root-resolution ladder reads
+/// (`RootNamespace`/`AssemblyName`), later the composition gate reads
+/// (`OutputType`, `.Web`/`.Worker` SDKs).
+fn csproj_shape(sdk: &str, props: &[(&str, &str)], references: &[&str]) -> String {
+    let mut csproj = format!("<Project Sdk=\"{sdk}\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n");
+    for (name, value) in props {
+        csproj.push_str(&format!("    <{name}>{value}</{name}>\n"));
+    }
+    csproj.push_str("  </PropertyGroup>\n");
+    if !references.is_empty() {
+        csproj.push_str("  <ItemGroup>\n");
+        for reference in references {
+            csproj.push_str(&format!(
+                "    <ProjectReference Include=\"..\\{reference}\\{reference}.csproj\" />\n"
+            ));
+        }
+        csproj.push_str("  </ItemGroup>\n");
+    }
+    csproj.push_str("</Project>\n");
+    csproj
+}
+
+/// Every string value the model tiers carry (roles keys, soft-structure
+/// module paths, module-edge endpoints) — the haystack the phantom-key
+/// absence scenarios search.
+fn model_path_strings(model: &Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(map) = model["roles"].as_object() {
+        out.extend(map.keys().cloned());
+    }
+    for modules in model["soft_structure"]
+        .as_object()
+        .expect("soft_structure")
+        .values()
+    {
+        out.extend(
+            modules
+                .as_array()
+                .expect("modules")
+                .iter()
+                .map(|m| m.as_str().expect("module path").to_string()),
+        );
+    }
+    for edge in model["module_edges"].as_array().expect("module_edges") {
+        for key in ["from", "to"] {
+            if let Some(value) = edge[key].as_str() {
+                out.push(value.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// The corporate tree (probe v5 shape): 3-segment unit names, every file
+/// declaring a file-scoped namespace, DI wiring in
+/// `Extensions/DependencyInjection.cs`. The first-two-segments address
+/// resolved BOTH units to the phantom `Acmecorp::Inventory`; the resolution
+/// ladder roots each unit at its own name.
+fn corporate_tree_fixture() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "src/Acmecorp.Inventory.Api/Acmecorp.Inventory.Api.csproj",
+        &csproj_shape(
+            "Microsoft.NET.Sdk.Web",
+            &[],
+            &["Acmecorp.Inventory.Core"],
+        ),
+    );
+    fixture.write(
+        "src/Acmecorp.Inventory.Api/Program.cs",
+        "namespace Acmecorp.Inventory.Api;\nusing Acmecorp.Inventory.Api.Extensions;\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddInfrastructure();\nbuilder.Build().Run();\n",
+    );
+    fixture.write(
+        "src/Acmecorp.Inventory.Api/Extensions/DependencyInjection.cs",
+        "namespace Acmecorp.Inventory.Api.Extensions;\nusing Acmecorp.Inventory.Core.Abstractions;\npublic static class DependencyInjection\n{\n    public static IServiceCollection AddInfrastructure(this IServiceCollection services)\n    {\n        services.AddScoped<IOrderRepository, OrderRepository>();\n        return services;\n    }\n}\n",
+    );
+    fixture.write(
+        "src/Acmecorp.Inventory.Api/Controllers/OrdersController.cs",
+        "namespace Acmecorp.Inventory.Api.Controllers;\nusing Acmecorp.Inventory.Core.Abstractions;\npublic class OrdersController\n{\n    public OrdersController(IOrderRepository repo) { }\n}\n",
+    );
+    fixture.write(
+        "src/Acmecorp.Inventory.Core/Acmecorp.Inventory.Core.csproj",
+        &csproj("net8.0"),
+    );
+    fixture.write(
+        "src/Acmecorp.Inventory.Core/Domain/Order.cs",
+        "namespace Acmecorp.Inventory.Core.Domain;\npublic class Order { }\n",
+    );
+    fixture.write(
+        "src/Acmecorp.Inventory.Core/Abstractions/IOrderRepository.cs",
+        "namespace Acmecorp.Inventory.Core.Abstractions;\npublic interface IOrderRepository { }\npublic class OrderRepository : IOrderRepository { }\n",
+    );
+    fixture
+}
+
+#[test]
+fn scan_reality_corporate_naming_has_no_phantom_root_key() {
+    let model = model_of(&corporate_tree_fixture());
+    let phantom_free = |value: &str| {
+        assert_ne!(
+            value, "Acmecorp::Inventory",
+            "the first-two-segments phantom must address nothing on a 3-segment tree: {:?}",
+            model_path_strings(&model)
+        );
+    };
+    model_path_strings(&model).iter().for_each(|v| phantom_free(v));
+    let roles = model["roles"]
+        .as_object()
+        .unwrap_or_else(|| panic!("the corporate tree must state roles at all: {:?}", model.get("roles")));
+    assert!(
+        !roles.is_empty(),
+        "each unit's own root is addressable — the empty map was the user symptom: {:?}",
+        model["roles"]
+    );
+    for key in roles.keys() {
+        assert!(
+            key == "Acmecorp::Inventory::Api" || key == "Acmecorp::Inventory::Core",
+            "roles address units at their own roots: {key}"
+        );
+    }
+    for (unit, modules) in model["soft_structure"].as_object().expect("soft_structure") {
+        for module in modules.as_array().expect("modules") {
+            let module = module.as_str().expect("module path");
+            let owner_is_api = unit.ends_with(".Api");
+            let rooted = if owner_is_api {
+                module.starts_with("Acmecorp::Inventory::Api")
+            } else {
+                module.starts_with("Acmecorp::Inventory::Core")
+            };
+            assert!(
+                rooted,
+                "unit {unit} must root at its own name, not a shared parent: {module}"
+            );
+        }
+    }
+}
+
+#[test]
+fn scan_reality_rootnamespace_property_addresses_the_root() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Whatever.Api/Whatever.Api.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[("RootNamespace", "Acme.Whatever")], &[]),
+    );
+    fixture.write("Whatever.Api/GlobalUsings.cs", "using Acme.Whatever.Models;\n");
+    fixture.write(
+        "Whatever.Api/Models/Thing.cs",
+        "namespace Acme.Whatever.Models;\npublic class Thing { }\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        role_entries(&model),
+        vec![("Acme::Whatever".to_string(), "facade".to_string())],
+        "the csproj RootNamespace property is the root's voice: {:?}",
+        model["roles"]
+    );
+    let modules: Vec<&str> = model["soft_structure"]["Whatever.Api"]
+        .as_array()
+        .expect("soft_structure")
+        .iter()
+        .map(|m| m.as_str().expect("module"))
+        .collect();
+    assert!(
+        modules.contains(&"Acme::Whatever") && modules.contains(&"Acme::Whatever::Models"),
+        "the sentinel root attributes to the property root: {modules:?}"
+    );
+}
+
+#[test]
+fn scan_reality_assembly_name_is_the_second_property_voice() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Tool/Tool.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[("AssemblyName", "Acme.Tool")], &[]),
+    );
+    fixture.write("Tool/GlobalUsings.cs", "using System.Threading.Tasks;\n");
+    let model = model_of(&fixture);
+    assert_eq!(
+        role_entries(&model),
+        vec![("Acme::Tool".to_string(), "facade".to_string())],
+        "no RootNamespace falls to AssemblyName before any stem rule: {:?}",
+        model["roles"]
+    );
+}
+
+#[test]
+fn scan_reality_common_prefix_is_capped_at_the_unit_name() {
+    let fixture = common::Fixture::new();
+    fixture.write("A.B.C/A.B.C.csproj", &csproj("net8.0"));
+    fixture.write("A.B.C/Root.cs", "using A.B.C.Extras;\n");
+    fixture.write(
+        "A.B.C/Extras/Extra.cs",
+        "namespace A.B.C.Extras;\npublic class Extra { }\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        role_entries(&model),
+        vec![("A::B::C".to_string(), "facade".to_string())],
+        "the LCP caps at the unit-name segments — never a sub-module, never the shared parent: {:?}",
+        model["roles"]
+    );
+}
+
 // === Verify constraints ===
 
 /// A single project `Orders` with namespaces `Orders::App` (uses `Orders::Models`)
@@ -971,6 +1177,356 @@ fn verify_scenario_12_forbidden_module_dependency_is_caught() {
     assert_fail(
         &fixture.run(&["verify"]),
         &["disallowed cross-component dependency: Orders::App -> Orders::Models"],
+    );
+}
+
+/// Sibling units at corporate naming each state their OWN role at their own
+/// resolved root — the merge never lets one unit's composition claim swallow
+/// (or suppress) the other's facade (probe v4b: the pre-ladder scan stated
+/// only the phantom `Acorp::Inventory`).
+#[test]
+fn scan_reality_sibling_units_each_state_their_own_role() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acme.Platform.App/Acme.Platform.App.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[], &["Acme.Platform.Lib"]),
+    );
+    fixture.write(
+        "Acme.Platform.App/Program.cs",
+        "using Microsoft.Extensions.DependencyInjection;\nusing Acme.Platform.Lib;\nbuilder.Services.AddSingleton<Lib.Service>();\n",
+    );
+    fixture.write(
+        "Acme.Platform.Lib/Acme.Platform.Lib.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[], &[]),
+    );
+    fixture.write(
+        "Acme.Platform.Lib/Lib.cs",
+        "using Acme.Platform.Lib.Core;\nnamespace Acme.Platform.Lib;\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        model["roles"],
+        serde_json::json!({
+            "Acme::Platform::App": "composition",
+            "Acme::Platform::Lib": "facade"
+        }),
+        "both units' roots state their own role, no phantom shared key:\n{model}"
+    );
+}
+
+/// Composition beats facade WITHIN one unit even at corporate naming: the
+/// unit's root is the using-only Program.cs shape AND carries registration
+/// calls — the exclusivity pin, unchanged bytes from the two-segment era.
+#[test]
+fn scan_reality_one_unit_entrypoint_registration_beats_using_shape() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acme.Platform.App/Acme.Platform.App.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[], &[]),
+    );
+    fixture.write(
+        "Acme.Platform.App/Program.cs",
+        "using Microsoft.Extensions.DependencyInjection;\nusing Microsoft.Extensions.Hosting;\nbuilder.Services.AddHostedService<Worker>();\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        model["roles"]["Acme::Platform::App"], "composition",
+        "the exclusivity holds on the unit's own root:\n{model}"
+    );
+    let roles = model["roles"].as_object().expect("roles map");
+    assert_eq!(roles.len(), 1, "exactly one claim, no facade shadow:\n{model}");
+}
+
+/// Two units stating the SAME root (both csprops point RootNamespace at one
+/// namespace) while one reads as composition and the other as facade state
+/// NOTHING at the shared key — the driver's ambiguity guard, not one unit's
+/// claim winning over the other's (today: composition silently wins).
+#[test]
+fn scan_reality_shared_root_different_roles_state_nothing() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Svc.One/Svc.One.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[("RootNamespace", "Acme.Shared")], &[]),
+    );
+    fixture.write(
+        "Svc.One/Program.cs",
+        "using Microsoft.Extensions.DependencyInjection;\nbuilder.Services.AddSingleton<Svc.One.Thing>();\n",
+    );
+    fixture.write(
+        "Svc.Two/Svc.Two.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[("RootNamespace", "Acme.Shared")], &[]),
+    );
+    fixture.write(
+        "Svc.Two/Two.cs",
+        "using System.Text.Json;\nnamespace Acme.Shared;\n",
+    );
+    let model = model_of(&fixture);
+    assert!(
+        model["roles"].get("Acme::Shared").is_none(),
+        "a key two units claim with different roles states nothing:\n{model}"
+    );
+    assert!(
+        model["units"]
+            .as_array()
+            .is_some_and(|units| units.len() == 2),
+        "the collision cancels the ROLE, not the units' facts:\n{model}"
+    );
+}
+
+/// Two units resolving to one root key that claim the SAME role state it
+/// exactly once — the merge deduplicates instead of duplicating or doubting.
+#[test]
+fn scan_reality_shared_root_same_role_states_once() {
+    let fixture = common::Fixture::new();
+    for name in ["Svc.One", "Svc.Two"] {
+        fixture.write(
+            &format!("{name}/{name}.csproj"),
+            &csproj_shape("Microsoft.NET.Sdk", &[("RootNamespace", "Acme.Shared")], &[]),
+        );
+        fixture.write(
+            &format!("{name}/Umbrella.cs"),
+            "using System.Text.Json;\nnamespace Acme.Shared;\n",
+        );
+    }
+    let model = model_of(&fixture);
+    assert_eq!(
+        model["roles"],
+        serde_json::json!({ "Acme::Shared": "facade" }),
+        "the same claim from two units states once:\n{model}"
+    );
+}
+
+/// A Web app that wires through a DI extension file — the corporate shape
+/// where the composition fact lives AWAY from Program.cs — states
+/// composition at the unit root (pre-S3 the extension body was invisible to
+/// the predicate and the app mislabeled).
+#[test]
+fn scan_reality_di_in_extension_file_of_web_app_is_composition() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acme.Platform.Web/Acme.Platform.Web.csproj",
+        &csproj_shape("Microsoft.NET.Sdk.Web", &[], &[]),
+    );
+    fixture.write(
+        "Acme.Platform.Web/Program.cs",
+        "using Microsoft.Extensions.DependencyInjection;\nbuilder.Services.AddAppServices();\nbuilder.Build().Run();\n",
+    );
+    fixture.write(
+        "Acme.Platform.Web/Services.cs",
+        "using Microsoft.Extensions.DependencyInjection;\npublic static class Services\n{\n    public static IServiceCollection AddAppServices(this IServiceCollection services)\n    {\n        services.AddScoped<IWidget, Widget>();\n        return services;\n    }\n}\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        model["roles"]["Acme::Platform::Web"], "composition",
+        "entrypoint gate + family fact anywhere in the unit is composition:\n{model}"
+    );
+}
+
+/// EF's `AddDbContext` is registration vocabulary even though it is not one
+/// of the four lifetime members: a Worker app whose Program.cs carries only
+/// it is a composition root.
+#[test]
+fn scan_reality_ef_registration_counts_without_the_four() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acme.Platform.Worker/Acme.Platform.Worker.csproj",
+        &csproj_shape("Microsoft.NET.Sdk.Worker", &[], &[]),
+    );
+    fixture.write(
+        "Acme.Platform.Worker/Program.cs",
+        "builder.Services.AddDbContext<ShopDb>(options => options.UseSqlite(\"Db\"));\nbuilder.Build().Run();\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        model["roles"]["Acme::Platform::Worker"], "composition",
+        "the registration family includes the framework's own Add* members:\n{model}"
+    );
+}
+
+/// The entrypoint gate is .NET's own vocabulary, not a filename: an Sdk.Web
+/// unit whose wiring lives in `Bootstrapper.cs` — no Program/Startup file
+/// anywhere — is still a composition root.
+#[test]
+fn scan_reality_sdk_gate_without_program_file_is_composition() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Factory/Factory.csproj",
+        &csproj_shape("Microsoft.NET.Sdk.Web", &[], &[]),
+    );
+    fixture.write(
+        "Factory/Bootstrapper.cs",
+        "public static class Boot\n{\n    public static void Wire(IServiceCollection services)\n    {\n        services.AddScoped<IWidget, Widget>();\n    }\n}\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        model["roles"]["Factory"], "composition",
+        "Sdk evidence opens the gate without a Program/Startup filename:\n{model}"
+    );
+}
+
+/// The gate never manufactures a role without wiring: an Sdk.Web app with no
+/// registration-family call in any file states no composition.
+#[test]
+fn scan_reality_gate_without_wiring_states_no_composition() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acme.Platform.Web/Acme.Platform.Web.csproj",
+        &csproj_shape("Microsoft.NET.Sdk.Web", &[], &[]),
+    );
+    fixture.write(
+        "Acme.Platform.Web/Program.cs",
+        "var app = builder.Build();\napp.Run();\n",
+    );
+    let model = model_of(&fixture);
+    assert_ne!(
+        model["roles"]["Acme::Platform::Web"], "composition",
+        "the gate alone states nothing:\n{model}"
+    );
+}
+
+/// The gate also never lets a plain library's wiring table pose as a
+/// composition root: family calls in an IServiceCollection extension, no
+/// gate evidence anywhere — honest absence, not a near-miss.
+#[test]
+fn scan_reality_wiring_library_without_gate_states_nothing() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acme.Platform.Shared/Acme.Platform.Shared.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[], &[]),
+    );
+    fixture.write(
+        "Acme.Platform.Shared/Services.cs",
+        "using Microsoft.Extensions.DependencyInjection;\npublic static class Services\n{\n    public static IServiceCollection AddShared(this IServiceCollection services)\n    {\n        services.AddScoped<IWidget, Widget>();\n        return services;\n    }\n}\n",
+    );
+    let model = model_of(&fixture);
+    assert!(
+        model["roles"].get("Acme::Platform::Shared").is_none(),
+        "a wiring library states no role at its root:\n{model}"
+    );
+}
+
+/// The umbrella file sitting under the unit's FULL-NAME namespace is facade
+/// evidence at the resolved root (pre-S1 this evidence lived one name deeper
+/// than the phantom root could read — the claim was invisible).
+#[test]
+fn scan_reality_umbrella_at_full_name_namespace_is_facade() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acorp.Inventory.Lib/Acorp.Inventory.Lib.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[], &[]),
+    );
+    fixture.write(
+        "Acorp.Inventory.Lib/GlobalUsings.cs",
+        "using Acorp.Inventory.Lib.Internal;\nnamespace Acorp.Inventory.Lib;\n",
+    );
+    fixture.write(
+        "Acorp.Inventory.Lib/Internal/Widget.cs",
+        "namespace Acorp.Inventory.Lib.Internal;\npublic class Widget { }\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        model["roles"]["Acorp::Inventory::Lib"], "facade",
+        "using-only root file under the root namespace is umbrella evidence:\n{model}"
+    );
+}
+
+/// An assembly-info forwarding file is facade evidence on its own — the
+/// `[assembly: TypeForwardedTo]` attribute is .NET's declaration "this project
+/// re-exports types it does not declare". The attribute-only spelling (no
+/// using lines at all) must fire too: the using-incidental path was luck.
+#[test]
+fn scan_reality_type_forwarded_to_assembly_is_facade() {
+    for name in ["WithUsings", "AttributeOnly"] {
+        let fixture = common::Fixture::new();
+        fixture.write(
+            "Acorp.Contracts/Acorp.Contracts.csproj",
+            &csproj_shape("Microsoft.NET.Sdk", &[], &[]),
+        );
+        fixture.write(
+            "Acorp.Contracts/Forwards.cs",
+            if name == "WithUsings" {
+                "using System.Runtime.CompilerServices;\n[assembly: TypeForwardedTo(typeof(Widget))]\n"
+            } else {
+                "[assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Widget))]\n"
+            },
+        );
+        let model = model_of(&fixture);
+        assert_eq!(
+            model["roles"]["Acorp::Contracts"], "facade",
+            "the forwarding attribute states the umbrella ({name} spelling):\n{model}"
+        );
+    }
+}
+
+/// The global-using-only umbrella keeps its facade — already correct bytes,
+/// pinned as corpus so the S1/S2 refactors cannot drift it.
+#[test]
+fn scan_reality_global_using_only_umbrella_keeps_facade() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acorp.Shim/Acorp.Shim.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[], &[]),
+    );
+    fixture.write(
+        "Acorp.Shim/GlobalUsings.cs",
+        "global using Acorp.Shim.Internal;\n",
+    );
+    fixture.write(
+        "Acorp.Shim/Internal/Widget.cs",
+        "namespace Acorp.Shim.Internal;\npublic class Widget { }\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        model["roles"]["Acorp::Shim"], "facade",
+        "global usings reach the root sentinel exactly like plain ones:\n{model}"
+    );
+}
+
+/// Wrapper-type projects stay UNMARKED by design (rust parity: a root that
+/// declares items is not a re-export shell) — a root file with usings AND a
+/// declared type states no facade.
+#[test]
+fn scan_reality_wrapper_type_root_stays_unmarked() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acorp.Wrapper/Acorp.Wrapper.csproj",
+        &csproj_shape("Microsoft.NET.Sdk", &[], &[]),
+    );
+    fixture.write(
+        "Acorp.Wrapper/Wrapper.cs",
+        "using Acorp.Wrapper.Internal;\nnamespace Acorp.Wrapper;\npublic class Wrapper\n{\n    public static Widget Make() => new();\n}\n",
+    );
+    fixture.write(
+        "Acorp.Wrapper/Internal/Widget.cs",
+        "namespace Acorp.Wrapper.Internal;\npublic class Widget { }\n",
+    );
+    let model = model_of(&fixture);
+    assert!(
+        model["roles"].get("Acorp::Wrapper").is_none(),
+        "a root that declares types is not a facade — by design:\n{model}"
+    );
+}
+
+/// The sanctioned conduit reading stays (ADR-017's laundering semantics):
+/// an entrypoint root that declares nothing and wires nothing states
+/// `facade` — the shape the `facade dependency` check watches. Dropping the
+/// wiring calls off a composition root exposes the conduit again, and the
+/// roles map says so instead of staying silent.
+#[test]
+fn scan_reality_unwired_entrypoint_root_stays_a_conduit() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Acme.Platform.Web/Acme.Platform.Web.csproj",
+        &csproj_shape("Microsoft.NET.Sdk.Web", &[], &[]),
+    );
+    fixture.write(
+        "Acme.Platform.Web/Program.cs",
+        "using System.Text.Json;\nvar app = builder.Build();\napp.Run();\n",
+    );
+    let model = model_of(&fixture);
+    assert_eq!(
+        model["roles"]["Acme::Platform::Web"], "facade",
+        "gate evidence opens composition only with wiring; without it the\n        using-only root keeps the sanctioned conduit reading (ADR-017):\n{model}"
     );
 }
 
@@ -1549,9 +2105,12 @@ fn verify_scenario_21_forbid_external_crates_fires_on_namespace_less_file() {
 
 /// Module keys are global while the attribution map is per-unit, and distinct
 /// units can produce the SAME key: unit `A.B`'s namespace `A.B` and unit
-/// `A.B.C`'s namespace-less composition root (root module = first two segments
-/// of the unit name) both resolve to `A::B`. The cross-unit flatten must UNION
-/// the package sets — last-write-wins silently drops one unit's fact.
+/// `A.B.C`'s namespace-less composition root resolve to `A::B` because the
+/// latter's csproj states `RootNamespace` `A.B` — the identity rung of the
+/// root ladder (under the retired first-two-segments rule the collision was
+/// implicit; S1 requires the units to state the shared identity). The
+/// cross-unit flatten must UNION the package sets — last-write-wins silently
+/// drops one unit's fact.
 #[test]
 fn scan_scenario_22_shared_module_key_unions_packages_across_units() {
     let fixture = common::Fixture::new();
@@ -1565,7 +2124,7 @@ fn scan_scenario_22_shared_module_key_unions_packages_across_units() {
     );
     fixture.write(
         "A.B.C/A.B.C.csproj",
-        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include=\"Serilog\" />\n  </ItemGroup>\n</Project>\n",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n    <RootNamespace>A.B</RootNamespace>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include=\"Serilog\" />\n  </ItemGroup>\n</Project>\n",
     );
     fixture.write(
         "A.B.C/Program.cs",

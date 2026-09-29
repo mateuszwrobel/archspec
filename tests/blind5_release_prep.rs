@@ -70,7 +70,7 @@ const RELEASE_ASSETS: &[(&str, &str)] = &[
 
 /// The collapsed version line, pinned byte-exact: one line, the tag-number
 /// value, one short release-marker comment.
-const VERSION_LINE: &str = "version = \"0.5.0\"  # released — entry lives in CHANGELOG.md under [0.5.0]; do not bump past the tag until the release commit; the 0.5.0 retag carries the aarch64-musl release-build fix; this tree adds the Apache-2.0 license file and the generated credits listing at an unchanged version";
+const VERSION_LINE: &str = "version = \"0.5.2\"  # released — entry lives in CHANGELOG.md under [0.5.0]; do not bump past the tag until the release commit; the 0.5.0 retag carries the aarch64-musl release-build fix; this tree adds the Apache-2.0 license file and the generated credits listing at an unchanged version; the self-dogfood spec hardening — the depgraph engine attribution, the public_api_allowlist, forbid_external_crates and manifest_integrity constraints and the honest attribution comments — lands on this same version line; the diagnostics-help catalog relocation into the foundations layer lands on this same version line; the library-import source guard and the honest self-dogfood README land on this same version line; the cargo-test self-verify leg lands on this same version line; the csharp public-api surface facts land on this same version line; the csharp public-api allowlist enforcement lands on this same version line; the csharp engagement-honesty vocabulary and the public-api-surface capability fact land on this same version line; the csharp public-api manual, acceptance rows and ADR land on this same version line; the csharp corporate public-api corpus pin lands on this same version line; the csharp root identity ladder lands on this same version line; the csharp per-unit role merge lands on this same version line; the csharp composition gate and registration family land on this same version line; the csharp facade evidence shapes land on this same version line; the unit-header marker identity and the stated depgraph fold land on this same version line; the corporate roles-matrix corpus and the composition-predicate acceptance reword land on this same version line; the csharp conflicting-fold corporate naming corpus pin lands on this same version line; the csharp public-api unit-root comment reword lands on this same version line; the release-prep changelog rollup for 0.5.2 lands on this same version line";
 
 /// The rollup's opening line inside the `## [0.5.0]` section.
 const ROLLUP_MARKER: &str = "Version 0.5.0 — released from this entry.";
@@ -199,8 +199,8 @@ fn version_line_is_one_release_marker_line() {
 
     let lock = load("Cargo.lock");
     assert!(
-        lock.contains("name = \"rust-arch-test-kit\"\nversion = \"0.5.0\""),
-        "Cargo.lock pairs the same 0.5.0 the manifest carries"
+        lock.contains("name = \"rust-arch-test-kit\"\nversion = \"0.5.2\""),
+        "Cargo.lock pairs the same 0.5.2 the manifest carries"
     );
 }
 

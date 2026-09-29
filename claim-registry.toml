@@ -140,6 +140,19 @@ const_name = "NOTE_LINE"
 relation = "equals-canonical"
 
 [[claim]]
+id = "depgraph-fold-note"
+owner = "the note line the `depgraph modules` and `depgraph submodules` renderers append when a fold silences a rendered node because DIFFERENT roles landed there — the count states how many role facts the fold could not place"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "note: <path> role facts folded onto one node with different roles, so the node states nothing — explained in 'archspec help roles'"
+template = true
+signatures = ["role facts folded onto one node", "so the node states nothing"]
+dedicated_guard = "tests/depgraph.rs"
+[[claim.guard_pin]]
+file = "tests/depgraph.rs"
+relation = "named-in-file"
+
+[[claim]]
 id = "rust-unit-naming"
 owner = "the rust section of `archspec help languages`"
 owner_surfaces = ["help languages"]

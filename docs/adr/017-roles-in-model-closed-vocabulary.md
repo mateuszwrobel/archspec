@@ -55,7 +55,7 @@ reads.**
   | driver | `facade` derived from | `composition` derived from |
   |---|---|---|
   | rust | a unit root file that defines no items — only `mod` declarations and re-exports | the bin unit whose `main` root wires modules |
-  | csharp | a root module whose only facts are `using` directives (a using-only umbrella) | an entrypoint project whose files run DI-registration-family calls on foreign types |
+  | csharp | re-export evidence at the resolved root — a using-only root file (plain or `global` usings, sentinel or under the root namespace) or an `[assembly: TypeForwardedTo]` forwarding file, either alone or together; a root file that declares a type is not a facade BY DESIGN (rust parity) | a unit whose entrypoint gate is open — a Program/Startup file, a host `Sdk` (`.Web`/`.Worker`) or `OutputType=Exe` — whose production files call the DI-registration-family members (lifetime, hosted, EF and caching vocabulary) anywhere, not only in the entrypoint file |
   | go | not derivable — **not emitted** (alias umbrella, public-package and root delegation patterns investigated 2026-09, see §Go facade investigation); the capability row states `role-facade not-emitted` and `verify` prints one role-scoped inert note per run citing this record | the `package main` unit root |
 
 - **The capability table grows two role facts** (`role-facade`,
@@ -158,3 +158,54 @@ wording:
    internal import's surface, whatever the declarations are") would make an
    edge-shaped predicate a definition rather than a false positive — a
    narrower re-argument no probe of current facts can settle alone.
+
+## C# root identity ladder (2026-09 amendment)
+
+Role and external attribution on C# key the unit's *root module*, and until
+now that root was derived as the first two dotted segments of the unit name
+when the unit declared no matching namespace. On realistic corporate trees
+(three-segment naming like `Acme.Whatever.Service`) that rule invented a root
+module no source file lives in: composition-root usings and sentinel roles
+keyed to a phantom `Acme::Whatever`, and a sibling `Acme.Whatever` unit
+silently swallowed the attribution. The rule is replaced by an identity
+ladder, evaluated per unit:
+
+1. the csproj's `RootNamespace` property, when stated (MSBuild's own root);
+2. the csproj's `AssemblyName` property, when stated and `RootNamespace`
+   is not;
+3. the longest common dotted prefix of the namespaces the unit declares,
+   truncated to the unit name's segment count (so a unit named
+   `Acme.Whatever` whose files all declare `Acme.Whatever.*` roots at
+   `Acme.Whatever`, not deeper);
+4. the full unit name (a unit declaring no namespaces roots at its own
+   name; its namespace-less composition files attribute there).
+
+Two-segment and one-segment units resolve through the ladder to exactly the
+keys the old rule produced, so their models are byte-stable; the ladder only
+changes trees where the old rule truncated. Shared-root-key unions across
+units (scenario 22's flattened package sets) now require the units to *state*
+the shared identity (`RootNamespace`) — an implicit collision of truncations
+was never a real identity claim. The decision surface is the `scan_reality_*`
+guards in the C# test suite.
+
+The same amendment scope-gates the merge. Composition beating facade is an
+exclusivity WITHIN one unit: a unit claims at most one role, at its own
+resolved root. Across units the merge states a role claimed by every
+claimant once, and a key two units claim with different roles states
+nothing — the ambiguity guard, the same honesty the driver applies where
+one module would satisfy conflicting rules. One unit's composition claim
+therefore never swallows, silences or outvotes a sibling unit's facade
+claim; where the old global sets overwrote across units, both roots now
+state their own role (or, on a genuinely shared root, neither does).
+
+The facade evidence at those roots was next widened to the shapes real C#
+re-exports actually take: a using-only root file (plain or `global` usings —
+today's case), an `[assembly: TypeForwardedTo]` forwarding file (evidence on
+its own — an assembly that forwards declares nothing and re-exports
+everything), or both together. Wrapper-type roots stay unmarked BY DESIGN:
+a root that declares a type is a wrapper, not a shell — the rust parity
+rule, stated not accidental. The entrypoint gate opens no facade exception:
+a Program-shaped root that wires nothing keeps the conduit reading, because
+the laundering check's sanctioned shape (a using-only root passing
+references through without owning them) is exactly that file — dropping
+composition from it re-exposes the conduit rather than excusing it.

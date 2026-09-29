@@ -1,0 +1,6 @@
+# Per-test timeouts: a hung test is named and killed, never silent.
+# cargo-nextest 0.9.x applies slow-timeout via period + terminate-after
+# (warn/crit form is ignored): warning per crossed period, TIMEOUT kill at
+# period * terminate-after.
+[profile.default]
+slow-timeout = { period = "80s", terminate-after = 3 }

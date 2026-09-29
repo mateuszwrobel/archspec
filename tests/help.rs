@@ -44,7 +44,7 @@ const TOPICS: &[&str] = &[
 ];
 
 // Every finding category the `diagnostics` catalog must name. Maintained
-// alongside `DIAGNOSTICS_HELP` in src/archspec/commands/help.rs: adding a
+// alongside `DIAGNOSTICS_HELP` in src/archspec/helptext.rs: adding a
 // finding category to verify/compare.rs requires a new entry here and a new
 // block in the catalog (mirrors how help_constraints lists its seven types).
 // The set below is the full emitted-category contract of both renderers —

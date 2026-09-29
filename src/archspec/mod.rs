@@ -4,6 +4,7 @@ pub mod commands;
 pub mod config;
 pub mod depgraph;
 pub mod diagram;
+pub mod helptext;
 pub mod language;
 pub mod model;
 pub mod parse;

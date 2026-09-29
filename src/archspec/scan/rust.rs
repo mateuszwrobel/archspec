@@ -191,6 +191,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         root_public_exports,
         root_glob_exports,
         root_empty_glob_exports,
+        module_public_types: Default::default(),
         module_external,
         root_module_declarations,
         unit_manifests,

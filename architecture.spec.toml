@@ -15,16 +15,21 @@ matches = { modules = [
 depend_on = ["engines", "foundations"]
 
 # Analysis engines: each engine lives in its own module subtree, claimed by
-# prefix so nested submodules fold into the same boundary. The binary unit
-# itself is attributed here because every cross-crate `use` of the library
-# (the `archspec -> rust-arch-test-kit` unit edge) comes from engine modules
-# (diagram/inspect/scan/verify) rendering through the library's shared
-# primitives; commands never import the library directly.
+# prefix so nested submodules fold into the same boundary — the depgraph
+# projection module included, since `commands depgraph` consumes it exactly
+# like the other commands consume their engines. The binary unit itself is
+# attributed here because a cross-crate `use` of the library surfaces in the
+# model as the unit-tier `archspec -> rust-arch-test-kit` edge only — it
+# carries no module endpoints, so attribution follows this pattern list, not
+# the code. Which files actually import the library is a source-level fact
+# owned by `tests/lib_imports_guard.rs` with an explicit allowlist: the graph
+# engines (depgraph, diagram), the inspect renderers and the rust scan driver.
 [[module]]
 name = "engines"
 matches = { units = ["archspec"], modules = [
   "archspec::archspec::scan*",
   "archspec::archspec::verify*",
+  "archspec::archspec::depgraph*",
   "archspec::archspec::diagram*",
   "archspec::archspec::report*",
   "archspec::archspec::update*",
@@ -47,6 +52,7 @@ matches = { modules = [
   "archspec::archspec::config*",
   "archspec::archspec::language*",
   "archspec::archspec::capability*",
+  "archspec::archspec::helptext*",
 ] }
 
 # Library crate boundary (the engine the binary links). The crate-root module
@@ -59,9 +65,9 @@ name = "rust-arch-test-kit"
 matches = { units = ["rust-arch-test-kit"] }
 
 # Library internals: prefix groups over one unit so `no_cycles` sees inside the
-# lib. The lib is only the shared parsing/rendering engine the CLI links —
-# collector and render are independent primitives, and the `engines` modules are
-# the ones that actually import them.
+# lib. These groups exist for that cycle visibility only — the lib is one
+# shared parsing/rendering engine, and it is the `engines` modules that import
+# it; nothing beyond acyclicity is policed between collector and render.
 [[module]]
 name = "lib-collector"
 matches = { modules = ["rust-arch-test-kit::collector*"] }
@@ -70,6 +76,19 @@ matches = { modules = ["rust-arch-test-kit::collector*"] }
 name = "lib-render"
 matches = { modules = ["rust-arch-test-kit::render*"] }
 
+# --- The crate's own constraint surface --------------------------------------
+# Four of the seven constraint types are declared on this crate: `no_cycles`
+# over the boundary groups, `public_api_allowlist` over the library root,
+# `forbid_external_crates` over the foundations layer, and
+# `manifest_integrity` over the publishable manifests. The other three model
+# surfaces this crate has none of: feature-gated modules (`feature_boundary`),
+# an external-free leaf layer (`external_free` — even foundations imports
+# serde) and parentage among submodules (`forbid_submodule_dependency`).
+# Test-gated modules (`#[cfg(test)]` trees) and whatever only they import are
+# excluded from `depend_on` comparison — the same rule the `depgraph --help`
+# statement records — and this crate keeps even those imports pointed
+# down-layer rather than leaning on the exemption.
+
 [[constraint]]
 type = "no_cycles"
 modules = ["commands", "engines", "foundations", "rust-arch-test-kit"]
@@ -77,3 +96,36 @@ modules = ["commands", "engines", "foundations", "rust-arch-test-kit"]
 [[constraint]]
 type = "no_cycles"
 modules = ["engines", "rust-arch-test-kit", "lib-collector", "lib-render"]
+
+# The library root re-exports exactly the collector and the render primitives —
+# nothing else, named or glob-resolved.
+[[constraint]]
+type = "public_api_allowlist"
+allowed = ["collector", "render"]
+
+# Grammar machinery is the parse engine's job, not layer zero's: the modules
+# that model, spec-schema, CLI-parsing, config, capability, language detection
+# and the diagnostics-help catalog live in must not import tree-sitter (or its
+# grammars) or syn. walkdir deliberately stays off this list — foundations'
+# language detection legitimately walks directories with it.
+[[constraint]]
+type = "forbid_external_crates"
+from = [
+  "archspec::archspec::model",
+  "archspec::archspec::spec",
+  "archspec::archspec::cli",
+  "archspec::archspec::config",
+  "archspec::archspec::language",
+  "archspec::archspec::capability",
+  "archspec::archspec::helptext",
+]
+forbid = ["tree_sitter", "tree_sitter_c_sharp", "tree_sitter_go", "syn"]
+
+# Both units ship from one publishable manifest: `publish = ["gitea"]`
+# flattens to publishable, and the per-unit manifests deduplicate to a single
+# Cargo.toml target. The model's manifest view carries regular dependencies
+# only — dev-dependencies never reach it, so this constraint pins nothing
+# about them.
+[[constraint]]
+type = "manifest_integrity"
+require_publish = true

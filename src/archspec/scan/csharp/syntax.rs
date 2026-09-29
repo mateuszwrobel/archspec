@@ -157,6 +157,12 @@ pub(crate) struct TypeFacts {
     pub(crate) qualified: BTreeMap<String, BTreeSet<String>>,
     pub(crate) candidates: BTreeMap<String, BTreeSet<(String, String)>>,
     pub(crate) declared_types: BTreeMap<String, BTreeSet<String>>,
+    /// Public-API facts (US 01): namespace -> type names whose declaration
+    /// carries an explicit `public` modifier (partials deduped, nested types
+    /// named `Outer.Nested`). The public surface of the file set scanned so
+    /// far; the scan layer attributes it to modules and drops test-tier
+    /// projects before serializing.
+    pub(crate) public_types: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl TypeFacts {
@@ -169,6 +175,9 @@ impl TypeFacts {
         }
         for (ns, types) in other.declared_types {
             self.declared_types.entry(ns).or_default().extend(types);
+        }
+        for (ns, types) in other.public_types {
+            self.public_types.entry(ns).or_default().extend(types);
         }
     }
 }
@@ -187,7 +196,12 @@ struct FileFacts {
     qualified: BTreeMap<String, BTreeSet<String>>,
     bare: BTreeMap<String, BTreeSet<String>>,
     declared_types: BTreeMap<String, BTreeSet<String>>,
+    public_types: BTreeMap<String, BTreeSet<String>>,
     ns_stack: Vec<String>,
+    /// Enclosing public-type name chain (`Outer` while walking Outer's body):
+    /// names nested type declarations through their parents. Type
+    /// declarations push/pop around their own descent.
+    type_stack: Vec<String>,
     pending_root_usings: Vec<String>,
     pending_qualified: Vec<String>,
     pending_bare: Vec<String>,
@@ -256,10 +270,32 @@ impl FileFacts {
                 // rule), so `record_declaration` is listed defensively.
                 if let Some(name_node) = node.child_by_field_name("name") {
                     let ns = self.ns_stack.last().cloned().unwrap_or_default();
+                    let name = node_text(&name_node, source).to_string();
                     self.declared_types
-                        .entry(ns)
+                        .entry(ns.clone())
                         .or_default()
-                        .insert(node_text(&name_node, source).to_string());
+                        .insert(name.clone());
+                    // Public-API fact (US 01 of the csharp public-api plan):
+                    // an explicit `public` modifier on ANY declaration of the
+                    // type (partial parts merge modifiers in C#) makes it
+                    // surface API. Nested types are named through their
+                    // parent chain (`Outer.Nested`) under the same namespace
+                    // context as their top-level owner.
+                    if declares_public(node, source) {
+                        let qualified = if self.type_stack.is_empty() {
+                            name.clone()
+                        } else {
+                            format!("{}.{}", self.type_stack.join("."), name)
+                        };
+                        self.public_types.entry(ns).or_default().insert(qualified);
+                    }
+                    // Descend with the type context pushed so nested type
+                    // declarations name their parent; the namespace stack
+                    // belongs to the enclosing namespace context already.
+                    self.type_stack.push(name);
+                    self.walk_children(node, source, &[]);
+                    self.type_stack.pop();
+                    return;
                 }
             }
             _ => {
@@ -496,6 +532,11 @@ impl FileFacts {
         type_facts.qualified = self.qualified;
         type_facts.candidates = candidates;
         type_facts.declared_types = self.declared_types;
+        // Public-API facts pass through un-folded: a declaration lives in the
+        // namespace it is written in (the `""` key is the global namespace,
+        // which the scan layer attributes to the unit root) — unlike pending
+        // references, a type is never "visible from" later namespaces.
+        type_facts.public_types = self.public_types;
     }
 
     /// The dotted namespaces a bare identifier at position `ns` can resolve
@@ -547,6 +588,31 @@ fn has_global_token(directive: &Node<'_>) -> bool {
         .children(&mut cursor)
         .any(|child| child.kind() == "global");
     global
+}
+
+/// True when a type declaration node states the `public` modifier explicitly:
+/// as a direct keyword child or inside a `modifiers` node (the grammar shapes
+/// differ across versions; both spellings count). Every other spelling — no
+/// modifier, `internal`, `private`, `protected`, `file` — exposes nothing:
+/// C# defaults a type to `internal` at namespace level and to `private`
+/// nested, so visibility is ONLY what the declaration states (no inherited
+/// visibility is invented — a member's modifier never promotes its type).
+fn declares_public(node: &Node<'_>, source: &str) -> bool {
+    let mut cursor = node.walk();
+    let stated = node
+        .children(&mut cursor)
+        .any(|child| node_text(&child, source) == "public");
+    if stated {
+        return true;
+    }
+    let mut cursor = node.walk();
+    let grouped = node.children(&mut cursor).any(|child| {
+        child.kind() == "modifiers"
+            && node_text(&child, source)
+                .split_whitespace()
+                .any(|word| word == "public")
+    });
+    grouped
 }
 
 /// Node text to a dotted name: `@verbatim` markers stripped and `::`

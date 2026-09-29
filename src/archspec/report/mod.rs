@@ -457,7 +457,7 @@ fn plural(count: usize, singular: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::archspec::commands::help::DIAGNOSTICS_HELP;
+    use crate::archspec::helptext::DIAGNOSTICS_HELP;
 
     /// A diff with exactly one entry in every finding field, warnings rendered
     /// the way the producers pre-render them. The renderers iterate this shape,

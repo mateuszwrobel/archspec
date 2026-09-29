@@ -51,6 +51,12 @@ pub struct ModuleGraph {
     pub nodes: BTreeSet<String>,
     pub edges: BTreeSet<(String, String)>,
     pub markers: BTreeMap<String, Role>,
+    /// Role facts that folded onto one node with a DIFFERENT role and so
+    /// state no marker (roles reality US 05): the renderers state this count
+    /// in one note line instead of hiding the drop in silence. Claims that
+    /// fold outside the rendered vocabulary are a placement fact of the
+    /// view, not a drop, and never count here.
+    pub unplaced_claims: usize,
 }
 
 impl ModuleGraph {
@@ -154,11 +160,13 @@ fn top_full_name(dotted: &str) -> Option<String> {
 pub fn modules_graph(model: &Model) -> ModuleGraph {
     let node = projection_node(model);
     let mut graph = project(model, node);
-    let markers = fold_markers(model, |path| Some(node(path)));
+    let markers = fold_markers(model, |path| Some(node(path)), &graph.nodes);
     graph.markers = markers
+        .0
         .into_iter()
         .filter(|(name, _)| graph.nodes.contains(name))
         .collect();
+    graph.unplaced_claims = markers.1;
     graph
 }
 
@@ -195,7 +203,19 @@ fn projection_node(model: &Model) -> fn(&str) -> String {
 /// projection — the same separator tolerance `parent_matches` applies to
 /// identity lookups, kept in this one place so no second lookup diverges.
 /// Pure lookup of serialized model facts, no derivation, no language branch.
-fn fold_markers(model: &Model, node: impl Fn(&str) -> Option<String>) -> BTreeMap<String, Role> {
+///
+/// The second return value states the fold's DROP (roles reality US 05): how
+/// many role claims landed on a RENDERED node whose markers were silenced by
+/// disagreement between different roles. Silence about such a drop would
+/// present a lost fact as an absent one, so the renderers turn this count
+/// into a conditional note; claims without roles, agreeing folds, and folds
+/// onto nodes the view never draws are no drop and never count — the zero
+/// keeps the view's bytes exact.
+fn fold_markers(
+    model: &Model,
+    node: impl Fn(&str) -> Option<String>,
+    rendered: &BTreeSet<String>,
+) -> (BTreeMap<String, Role>, usize) {
     let mut claimed: BTreeMap<String, Option<Role>> = BTreeMap::new();
     for (key, role) in &model.roles {
         let Some(name) = node(&key.replace('/', "::")) else {
@@ -210,10 +230,32 @@ fn fold_markers(model: &Model, node: impl Fn(&str) -> Option<String>) -> BTreeMa
         };
         claimed.insert(name, next);
     }
-    claimed
-        .into_iter()
-        .filter_map(|(name, role)| role.map(|role| (name, role)))
-        .collect()
+    // The conflict count the renderers state: every claim that landed on a
+    // node silenced by disagreement is a fact this fold could not place
+    // (roles reality US 05) — silence about the DROP is what the note ends.
+    let mut landed: BTreeMap<String, Vec<Role>> = BTreeMap::new();
+    for (key, role) in &model.roles {
+        if let Some(name) = node(&key.replace('/', "::")) {
+            landed.entry(name).or_default().push(*role);
+        }
+    }
+    let unplaced = landed
+        .iter()
+        .filter(|(name, roles)| {
+            let distinct: BTreeSet<&'static str> = roles.iter().map(|role| role.as_str()).collect();
+            rendered.contains(*name)
+                && distinct.len() > 1
+                && claimed.get(*name).is_none_or(|slot| slot.is_none())
+        })
+        .map(|(_, roles)| roles.len())
+        .sum();
+    (
+        claimed
+            .into_iter()
+            .filter_map(|(name, role)| role.map(|role| (name, role)))
+            .collect(),
+        unplaced,
+    )
 }
 
 /// Project the model through one node function: soft paths contribute nodes,
@@ -307,11 +349,13 @@ pub fn submodules_graph(model: &Model, parent: &str) -> Result<ModuleGraph, Stri
     if !found {
         return Err(parent_not_found(model, parent));
     }
-    let markers = fold_markers(model, |path| child_node(path, parent));
+    let markers = fold_markers(model, |path| child_node(path, parent), &graph.nodes);
     graph.markers = markers
+        .0
         .into_iter()
         .filter(|(name, _)| graph.nodes.contains(name))
         .collect();
+    graph.unplaced_claims = markers.1;
     Ok(graph)
 }
 
@@ -470,6 +514,16 @@ pub const MODULE_TIER_FOLD_PLACEMENT_REASON: &str =
 /// sentence itself, byte-intact, as the emitted line's prefix.
 pub const ROLE_LESS_NOTE: &str = "note: this view shows no roles by decision (a role is not a usage fact) — explained in 'archspec help roles'";
 
+/// The stated-fold note (roles reality US 05): when a fold silences a node
+/// because DIFFERENT roles landed on it, the graph states how many role
+/// facts it could not place instead of dropping them in silence. Conditional
+/// by design — a fold that places every claim emits nothing extra and keeps
+/// its exact bytes (the zero-theater goldens prove it). The sentence shares
+/// the `note: ` prefix and the `help roles` pointer of [`ROLE_LESS_NOTE`].
+pub fn fold_note(count: usize) -> String {
+    format!("note: {count} role facts folded onto one node with different roles, so the node states nothing — explained in 'archspec help roles'")
+}
+
 /// The api-usage body for a model: the grouped table, or the empty statement
 /// with the driver's reason appended when the emptiness is a fact of where
 /// usage is recorded rather than an absence of usage. Both forms end with the
@@ -558,6 +612,7 @@ mod tests {
             root_public_exports: Default::default(),
             root_glob_exports: Default::default(),
             root_empty_glob_exports: Default::default(),
+            module_public_types: Default::default(),
             module_external: Default::default(),
             root_module_declarations: Default::default(),
             unit_manifests: Default::default(),
@@ -1077,6 +1132,7 @@ mod tests {
         assert!(out.contains("core[\"core [facade]\"]"), "{out}");
         assert!(out.contains("  ui\n"), "unmarked node keeps bare bytes: {out}");
         assert!(out.contains("core --> ui"), "edges unchanged: {out}");
+        assert_eq!(graph.unplaced_claims, 0, "a placed fold states no note");
     }
 
     /// The go spelling: the key is an import path (`/` separators), the
@@ -1144,6 +1200,11 @@ mod tests {
             "distinct folded roles must silence the node: {:?}",
             graph.markers
         );
+        assert_eq!(
+            graph.unplaced_claims, 2,
+            "the silenced node's two role facts are the stated drop: {:?}",
+            graph.markers
+        );
         // Contrast: the same two paths agreeing on one role mark their node.
         let model = Model {
             roles: BTreeMap::from([
@@ -1163,6 +1224,10 @@ mod tests {
             1,
             "one node, one marker"
         );
+        assert_eq!(
+            graph.unplaced_claims, 0,
+            "an agreeing fold places every claim and states no note"
+        );
     }
 
     /// A key whose projection names a node the view does not render (a
@@ -1179,6 +1244,11 @@ mod tests {
         let graph = modules_graph(&model);
         assert!(!graph.nodes.contains(ROOT_NODE), "no node invented: {:?}", graph.nodes);
         assert!(graph.markers.is_empty(), "{:?}", graph.markers);
+        assert_eq!(
+            graph.unplaced_claims, 0,
+            "a key folded to an unrendered node states nothing — the view's \
+             bytes stay exact (rust/go zero-theater criterion)"
+        );
     }
 
     /// The same key does mark `root` when the tier addresses the unit root
@@ -1293,5 +1363,9 @@ mod tests {
         let graph = submodules_graph(&model, "orchestration").expect("parent present");
         assert!(graph.nodes.contains("a"), "{:?}", graph.nodes);
         assert!(graph.markers.is_empty(), "{:?}", graph.markers);
+        assert_eq!(
+            graph.unplaced_claims, 2,
+            "the submodules view counts the same stated drop as modules"
+        );
     }
 }

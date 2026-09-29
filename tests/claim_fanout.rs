@@ -516,7 +516,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 24] = [
+    let required: [&str; 25] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -524,6 +524,7 @@ fn registry_owns_claim_identity() {
         "depgraph-refusal",
         "inspect-refusal",
         "api-usage-role-less-note",
+        "depgraph-fold-note",
         "rust-unit-naming",
         "go-naming-legality",
         "report-diagram-granularity",
@@ -685,6 +686,47 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                 if out.status.code() != Some(0) || !stdout(&out).contains(canonical.as_str()) {
                     errors.push(format!(
                         "claim `{}` drifted: `depgraph api-usage` does not emit the registered note line verbatim: {}",
+                        claim.id,
+                        stdout(&out)
+                    ));
+                }
+            }
+            "depgraph-fold-note" => {
+                let canonical = claim.canonical.clone().expect("canonical");
+                let (head, tail) = canonical
+                    .split_once("<path>")
+                    .expect("the fold note is a templated canonical");
+                let fx = Fixture::new();
+                let csproj = |reference: &str| {
+                    format!(
+                        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n{}{}</Project>\n",
+                        if reference.is_empty() { "" } else { "  <ItemGroup>\n" },
+                        if reference.is_empty() {
+                            String::new()
+                        } else {
+                            format!("    <ProjectReference Include=\"{reference}\" />\n  </ItemGroup>\n")
+                        }
+                    )
+                };
+                fx.write("X.Api/X.Api.csproj", &csproj("../Y.Shared/Y.Shared.csproj"));
+                fx.write("X.Api/Wiring.cs", "using Y.Shared;\nnamespace X.Api;\n");
+                fx.write("Y.Api/Y.Api.csproj", &csproj("../Y.Shared/Y.Shared.csproj"));
+                fx.write(
+                    "Y.Api/Program.cs",
+                    "using Microsoft.Extensions.DependencyInjection;\nusing Y.Shared;\nnamespace Y.Api;\npublic static class Program\n{\n    public static void Main()\n    {\n        var services = new ServiceCollection();\n        services.AddScoped<ICache, Cache>();\n    }\n}\n",
+                );
+                fx.write("Y.Shared/Y.Shared.csproj", &csproj(""));
+                fx.write(
+                    "Y.Shared/Shared.cs",
+                    "namespace Y.Shared;\npublic interface ICache { }\npublic class Cache : ICache { }\n",
+                );
+                let out = fx.run(&["depgraph", "modules"]);
+                // The conflicting fold (facade + composition onto one `Api`
+                // node) must emit the note with its claim count — two.
+                let expected = format!("{head}2{tail}");
+                if out.status.code() != Some(0) || !stdout(&out).contains(expected.as_str()) {
+                    errors.push(format!(
+                        "claim `{}` drifted: a conflicting fold does not append the registered note with its claim count verbatim: {}",
                         claim.id,
                         stdout(&out)
                     ));
@@ -1365,6 +1407,7 @@ fn wave_families_cannot_drift_silently() {
         ("facade-inert-note", "note: facade dependency rule inert for go: facade roles are not derivable there\n"),
         ("roles-in-views", "a rust bin's `<unit>::main` entry marks in `inspect tree` alone\n"),
         ("api-usage-role-less-note", "the view prints note: this view shows no roles by decision, though the matrix still marks roles\n"),
+        ("depgraph-fold-note", "the modules view ends with a note that 3 role facts folded onto one node with different roles, so the node states nothing\n"),
         ("rust-unit-naming", "a crate with lib.rs and main.rs yields `<pkg>` plus `<pkg>-bin` without any section\n"),
         ("go-naming-legality", "a short package name does not resolve when `matches.units` targets a go unit\n"),
         ("report-diagram-granularity", "the diagram embedded in a markdown report stays file-granular; the module-granular graph is a separate command\n"),

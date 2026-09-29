@@ -4,6 +4,135 @@ All notable changes to archspec are documented here. The format follows
 Keep a Changelog; versions are release tags. Entries describe the tool
 only.
 
+## [Unreleased]
+
+## [0.5.2] - 2026-09-29
+
+### Changed
+
+- the c# public-api suite's unit-root comment now reads through the root
+  identity ladder (csproj RootNamespace/AssemblyName, common namespace prefix
+  truncated to the unit-name segment count, full unit name) instead of the
+  retired first-two-segments era - comment wording only, no behavior change
+- the roles matrix now derives its C# conflicting-fold honesty at realistic
+  naming: the `csharp-conflicting-fold` fixture materializes as a corporate
+  three-segment pair (`Acorp.Platform.Api` wiring registrations,
+  `Bcorp.Platform.Api` a using-only root), the corporate roles equality pins
+  state the full `Acorp::Platform::Api` / `Bcorp::Platform::Api` keys, the
+  row's modules-graph cell gained a weld that fails if the recorded render
+  loses its stated fold note, and a modules-graph scenario added at the same
+  corporate naming pins the folded node, the untouched edge and the note
+  bytes — the honest `none` cell and its stated drop cannot silently re-pin
+  onto two-segment toys
+- the roles matrix now carries its C# evidence at realistic naming: three
+  corporate 3-segment fixtures — the DI-extension tree (registrations in an
+  Extensions file), the sibling-claim tree (composition and facade units
+  side by side) and the conflicting-fold pair (two unit names folding to one
+  node with different roles, the stated-note cell) — joined the computed
+  views × markers matrix, every cell re-pinned from recorded output, and
+  equality pins on the corporate roles keys make a silent shallowing back to
+  two-segment toys impossible; the composition predicate's docs (ADR-017
+  derivation table, scan acceptance row 60) now state it as implemented —
+  entrypoint gate AND registration-family calls anywhere in the unit
+- view markers resolve the way the model states them: `inspect tree` and
+  `scanner` unit headers — in both output formats — find their role through
+  the `::`↔`.` identity the diagram already used, so a corporate dotted unit
+  whose roles entry is spelled `ACorp::Api` is no longer the one declaration
+  left unmarked; and the depgraph fold no longer silently drops what it
+  cannot place: a fold that silences a node because different roles landed
+  there appends one conditional note line stating how many role facts it
+  could not place (views whose fold places every claim keep their exact
+  bytes — rust and go goldens unchanged)
+- C# facade evidence widened to the shapes real re-exports take: using-only
+  root files (plain or `global` usings, sentinel or under the root
+  namespace) and `[assembly: TypeForwardedTo]` forwarding files — the
+  attribute is evidence on its own; wrapper-type roots stay unmarked BY
+  DESIGN and an unwired entrypoint root keeps the sanctioned conduit reading
+  (ADR-017 laundering semantics, pinned)
+- C# composition reads .NET's own vocabulary instead of a filename: the unit's
+  entrypoint gate — a Program/Startup file, a host `Sdk` (`.Web`/`.Worker`) or
+  `OutputType=Exe` — AND a registration-family call anywhere in its production
+  files, the family widened with `AddDbContext` and `AddMemoryCache`; a gate
+  without wiring or wiring without a gate states nothing (ADR-017)
+- C# role claims now merge per unit: composition beats facade only within one
+  unit's own root, the same role claimed by several units states once, and a
+  root key two units claim with different roles states nothing (the ambiguity
+  guard) — a sibling unit's composition claim no longer swallows or silences
+  another unit's role
+- the C# root module is now derived through an identity ladder — the csproj
+  `RootNamespace`, else `AssemblyName`, else the common prefix of the unit's
+  declared namespaces truncated to the unit name's segment count, else the
+  full unit name — replacing the first-two-segments rule that invented a
+  phantom root on three-segment corporate trees (`Acme.Whatever.Service`
+  attributed composition-root facts to `Acme::Whatever`, where no file
+  lives); two-segment and smaller units resolve to byte-identical keys,
+  ADR-017 carries the ladder, and the `scan_reality_*` guards pin it
+- the shared scenario corpus gained `csharp_public_api_leak_pin`: a hand-built
+  3-segment corporate tree (`Acmecorp.Inventory.*`) whose unallowlisted
+  `Core.Internal` type leaks attributed to its module and whose scan is
+  byte-deterministic — the public-API behavior is now pinned at realistic
+  naming in every matrix run, not only on two-segment fixtures; the
+  regenerated `feature-matrix.{json,md}` carry the row
+- the manual now states the C# public-API facts: the constraint table and the
+  glob re-export rule name both fact sources of `public_api_allowlist`
+  (rust crate-root exports, C# module-attributed public types with no
+  ancestor territory), `scan` output documents `module_public_types`, the
+  `verify` finding vocabulary gained rows 96–99 and 100, and ADR-019 records
+  the per-driver decision
+- the unit runner pins its nextest config via --config-file (hook context
+  runs from the repo root, where .config discovery finds nothing — without
+  the pin the hooks ran with no per-test timeouts at all); the same pin
+  landed across every migrated runner in the parent repo's lanes
+
+### Added
+
+- the capability matrix states a `public-api-surface` fact: rust enumerates
+  it from crate-root exports, C# from module-attributed public types, and go
+  emits none (its allowlist stays a fact-emptiness vacuity); a C# tree with
+  no public-API facts now says `no public API facts to check` instead of the
+  rust crate-root sentence
+- `public_api_allowlist` now enforces C# trees: `allowed` patterns glob-match
+  the modules carrying public-API facts (an entry claims no ancestor
+  territory), every public type of an unlisted module is a `public api leak`
+  naming module and type, and an `allowed` pattern addressing no fact-carrying
+  module is stated as vacuous instead of passing silently; rust trees keep
+  their crate-root semantics byte-unchanged
+- the C# scanner records public-API surface facts: every explicitly `public`
+  type (class, interface, struct, enum, record — partials deduped, nested
+  types named through their parent) is attributed to its namespace-derived
+  module in the model's `module_public_types`, production tier only; rust and
+  go scans serialize no such key
+
+## [0.5.1] - 2026-09-27
+
+### Changed
+
+- the self-dogfood spec now claims the depgraph engine module in its engines
+  group, and declares three further constraint types on the crate — a
+  `public_api_allowlist` over the library root, a `forbid_external_crates`
+  rule keeping the grammar machinery (tree-sitter, its grammars and syn) out
+  of the foundations layer, and a `manifest_integrity` publish requirement on
+  top of the existing `no_cycles` checks; the spec comments now state the
+  unit-tier truth about cross-crate imports and enumerate the constraint
+  surface and the test-gating exemption the crate lives by.
+- the diagnostics-help catalog constant now lives in a foundations-layer
+  module (`src/archspec/helptext.rs`), so the engine-side consumers of the
+  text — the report renderers' welds — reach it down-layer instead of
+  importing the commands layer from `cfg(test)` code; the `help diagnostics`
+  bytes are unchanged and the crate no longer leans on the test-gating
+  exemption for any live import.
+- a source guard (`tests/lib_imports_guard.rs`) now owns the file-level fact
+  of which modules import the library crate — cross-crate imports carry no
+  module endpoints in the model, so the boundary rules could never name them;
+  the README self-dogfood section states the full group list, the four
+  constraint types the crate declares on itself, and the test-gating
+  exemption it deliberately does not lean on.
+- a `cargo test`–reachable self-verify leg (`tests/spec_self_verify.rs`): the
+  crate now checks itself against its own spec strictly from the test suite —
+  zero violations, zero vacuous warnings, the checked-constraint count welded
+  to the declarations in `architecture.spec.toml` — not only from the
+  `run-unit-tests.sh` gate behind the git hook, and the leg writes no files.
+
 ## [0.5.0] - 2026-09-22
 
 Version 0.5.0 — released from this entry. The era that landed under this one

@@ -43,6 +43,18 @@ pub struct Model {
     /// from the scan it runs, so nothing else sees this field.
     #[serde(skip)]
     pub root_empty_glob_exports: BTreeMap<String, Vec<String>>,
+    /// Dotted module path -> public type names (class/interface/struct/enum/
+    /// record carrying an explicit `public` modifier, partial declarations
+    /// deduped, nested types named `Outer.Nested`) declared by that module's
+    /// production-tier sources. The C# public API surface:
+    /// `public_api_allowlist` matches its `allowed` patterns against these
+    /// module paths on drivers whose public API is module-attributed rather
+    /// than crate-root (the rust root-export family above feeds the same
+    /// constraint there, unchanged). Absent from JSON when empty — absence
+    /// states "no such facts", never "no public API" (the `roles`
+    /// convention) — so rust and go scan bytes stay untouched.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub module_public_types: BTreeMap<String, Vec<String>>,
     /// Dotted module path -> external crate names that module (or a `use`
     /// inside it) references. Feeds `forbid_external_crates`.
     #[serde(default)]
@@ -259,6 +271,7 @@ mod tests {
             root_public_exports: Default::default(),
             root_glob_exports: Default::default(),
             root_empty_glob_exports: Default::default(),
+            module_public_types: Default::default(),
             module_external: Default::default(),
             root_module_declarations: Default::default(),
             unit_manifests: Default::default(),
