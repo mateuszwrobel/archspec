@@ -56,7 +56,7 @@ fn depgraph_has_no_unit_grouping_flag() {
 
     // Rejected exactly: unknown-flag error, exit 1, no diagram.
     let output = fixture.run(&["depgraph", "modules", "--show-units"]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(64));
     assert_eq!(
         stderr(&output),
         "error: unknown flag: --show-units\n",

@@ -18,7 +18,7 @@ A JSON object (pretty-printed, newline-terminated) with:
 | `properties` | `project`, `module`, `constraint`, `stereotype` |
 
 - `project`: object with `language` **required**, enumerated as `["rust", "csharp", "go"]`.
-- `module`: array of objects — `name` **required**; `matches` accepts `units` and `modules` (arrays of strings); `contract` accepts the enforced `forbid`, while `expose` is reserved and rejected on presence (`"not": { "required": ["expose"] }` — an empty list is rejected too); `allowed` accepts `depend_on`/`forbidden`; `submodules` recurses to the same module shape.
+- `module`: array of objects — `name` **required**; `matches` accepts `units` and `modules` (arrays of strings); `contract` accepts the enforced `forbid`, while `expose` is reserved and rejected on presence (`"not": { "required": ["expose"] }` — an empty list is rejected too); `allowed` accepts `depend_on`/`forbidden`; `submodules` recurses to the same module shape — with `matches.units` declarable only on top-level modules: a submodule declares the module tier only, so `matches.units` on a submodule is rejected at parse.
 - `constraint`: array of objects — `type` enumerated over all 7 types; per-type `required` arrays match the shared required-field table exactly (see `../../spec.md`); `severity` is optional and enumerated as `["error", "warning"]`; `modules` is an optional array of strings.
 - `stereotype`: array of objects with a string `name`.
 
@@ -44,6 +44,9 @@ forbidden = ["infrastructure"]
 [module.submodules]                                 # recurses: same shape as [[module]]
 name = "domain::entities"
 matches = { modules = ["Billing::domain::entities"] }
+# a submodule with [module.allowed] owns its territory's dependency checks
+# (most-specific claim wins at any depth); without it the nearest declaring
+# ancestor's policy applies; matches.units on a submodule is a parse error
 
 [[constraint]]
 type = "no_cycles"                                # one of 7 types

@@ -136,7 +136,7 @@ fn vec_or_default(value: &toml::Value) -> Vec<String> {
 
 /// Every text surface an agent can read from the binary: the topic index, each
 /// manual topic, each command through both `help <cmd>` and `<cmd> --help`,
-/// the capability matrix, and the skill document.
+/// the capability matrix, and the skill documents (audit and analysis).
 fn rendered_surfaces() -> Vec<(String, String)> {
     let fixture = Fixture::new();
     let mut surfaces = vec![("help".to_string(), surface(&fixture, &["help"]))];
@@ -174,6 +174,10 @@ fn rendered_surfaces() -> Vec<(String, String)> {
         ));
     }
     surfaces.push(("skill".to_string(), surface(&fixture, &["skill"])));
+    surfaces.push((
+        "skill analysis".to_string(),
+        surface(&fixture, &["skill", "analysis"]),
+    ));
     surfaces.push((
         "capability matrix".to_string(),
         surface(&fixture, &["capability", "matrix"]),
@@ -597,14 +601,13 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                 ));
             }
         }
-        if let Some(canonical) = &claim.canonical {
-            if !claim.template && !text.contains(&flatten(canonical).to_lowercase()) {
+        if let Some(canonical) = &claim.canonical
+            && !claim.template && !text.contains(&flatten(canonical).to_lowercase()) {
                 errors.push(format!(
                     "claim `{}` drifted: `archspec {key}` does not render the registered canonical text",
                     claim.id
                 ));
             }
-        }
     };
     for claim in claims {
         match claim.id.as_str() {
@@ -848,6 +851,33 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                         "claim `{}` drifted: an exploratory `--source scan` render without `--output` must open stdout with the destination-not-written note, carry the body, and leave the destination byte-identical — first line {first:?}, exit {:?}",
                         claim.id,
                         exploratory.status.code()
+                    ));
+                }
+                // the exploratory rule holds under the tier flag too (workplan
+                // workplan_archspec_scan_diagram_module_tier, D8: destination and
+                // check semantics are unchanged in either flag state).
+                let flagged = fx.run(&[
+                    "diagram",
+                    "--source",
+                    "scan",
+                    "model.json",
+                    "--tiers",
+                    "units,modules",
+                ]);
+                let flagged_first = stdout(&flagged)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                if flagged.status.code() != Some(0)
+                    || flagged_first != "note: destination diagram.mmd not written"
+                    || !stdout(&flagged).contains("graph")
+                    || fx.read("diagram.mmd") != "COMMITTED SPEC-MODE DIAGRAM\n"
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: an exploratory render with `--tiers` must keep the same note, body and untouched destination — first line {flagged_first:?}, exit {:?}",
+                        claim.id,
+                        flagged.status.code()
                     ));
                 }
             }

@@ -204,7 +204,7 @@ forbidden = []
 
 [[module.submodules]]
 name = "Shop.Api.Models"
-matches = { units = ["Shop.Api.Models*"] }
+matches = { modules = ["Shop.Api.Models*"] }
 
 [[module]]
 name = "Shop.Domain"

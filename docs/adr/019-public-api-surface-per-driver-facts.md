@@ -33,6 +33,16 @@ module-tier fact source alongside the rust root family:
   nested types qualified through their parent; a namespace-less file
   attributes to the unit's root module key; a nested block namespace records
   under its own innermost name, the spelling the soft tier already uses).
+  Body shape is honest per family (GitHub issue #2 investigation): the
+  record family is complete in EVERY shape the grammar parses — positional
+  `record X(...);`, braced, bodiless `record X;`, `record struct`,
+  `record class`, partial, generic — because the grammar gives
+  `record_declaration` a `declaration_list | ';'` body; the other four kinds
+  require a braced body in this pinned grammar, so `;`-bodied
+  `class X;`/`class X(int A);`/`interface I;`/`enum E;`/`struct X(int A);`
+  spellings parse to ERROR fragments (no declaration node exists) and
+  contribute no fact — facts are never invented from error recovery. The
+  boundary is a welded test, not a silent gap.
   The test tier contributes nothing, matching the other project-tier facts.
 - Enforcement attributes every public type to its module. A module counts as
   allowlisted when an `allowed` pattern glob-matches its module path. An

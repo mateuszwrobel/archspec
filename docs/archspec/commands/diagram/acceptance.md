@@ -4,7 +4,7 @@ CLI-level, behavioral only. Each scenario runs the real command against a fixtur
 
 ## Done when
 
-Running `diagram` on a fixture project renders a byte-stable diagram (Mermaid by default, PlantUML via `--format plantuml`) whose nodes are the model's components (spec mode) or units (scan mode), whose edges are the model's dependencies, which marks forbidden/violating edges dashed/red and clusters external crates as specified — and each error condition produces a clear message and a non-zero exit.
+Running `diagram` on a fixture project renders a byte-stable diagram (Mermaid by default, PlantUML via `--format plantuml`) whose nodes are the model's components (spec mode) or units (scan mode), whose edges are the model's dependencies, which marks forbidden/violating edges dashed/red and clusters external crates as specified — the scan snapshot renders its unit tier by default and its module tier only under `--tiers modules`, additively — and each error condition produces a clear message and a non-zero exit.
 
 ## Happy path — declared spec
 
@@ -58,6 +58,25 @@ Running `diagram` on a fixture project renders a byte-stable diagram (Mermaid by
 | 26 | no file at the `--output` destination | run `diagram --output <f> --check` | non-zero exit; message says it is missing; no file created |
 | 27 | no `[output] diagram` configured and no `--output` | run `diagram --check` | non-zero exit; message says `--check` requires an output destination |
 
+## Tier selection (`--source scan --tiers`)
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 31 | scan artefact carrying `module_edges`, flag absent | run `diagram --source scan <artefact>` | exit 0; bytes byte-identical to the pre-`--tiers` render; no `modules` cluster appears |
+| 32 | same artefact | run `diagram --source scan <artefact> --tiers modules` | exit 0; a `modules` cluster is appended with one node per resolved endpoint and one arrow per distinct pair; every line outside the cluster keeps its exact bytes (`--tiers modules` equals `--tiers units,modules`) |
+| 33 | governing spec whose claims own the module endpoints | run with `--tiers modules` | exit 0; owned nodes render under the owning claim name with the dual label (`api-billing["api-billing (Sample::Api::Billing)"]`); unowned endpoints keep path labels; a specless artefact renders path-named and marks nothing |
+| 34 | module edge whose pair `verify` reports | run with `--tiers modules` | exit 0; the edge is dashed `violates spec`; an allowed pair renders solid; a declared rule with no extracted edge draws nothing |
+| 35 | unit edge `verify` reports as `disallowed cross-component dependency`, flag absent | run `diagram --source scan <artefact>` | exit 0; the edge is dashed `violates spec` — the mark set equals verify's verdict classes without any flag |
+| 36 | spec whose claim name equals a rendered unit name | run with `--tiers modules` | exit 0; the two tiers render two distinct nodes (ids cannot collapse); labels stay grep-able |
+| 37 | `--check` with `--tiers modules`, destination holds the flagged render | run `diagram --source scan <artefact> --tiers modules --output <f> --check` | exit 0; the compared bytes are the flagged render's |
+
+## Errors — tier selection
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 38 | `--tiers` value outside `units`/`modules`, a duplicate entry, or an empty list | run `diagram --source scan <artefact> --tiers <bad>` | exit `64`; message names the offending value and the supported tiers |
+| 39 | `--tiers` with `--source spec` | run `diagram --tiers modules` | exit `64`; message says the flag requires `--source scan` |
+
 ## Role marks (`--source scan`)
 
 | # | Given | When | Then |
@@ -76,4 +95,14 @@ and `…::diagram_scan_role_marks_are_order_independent_and_deterministic`
 `…::diagram_scan_empty_roles_map_is_byte_identical_to_pre_plan_bytes` and
 `…::diagram_spec_mode_is_byte_identical_to_pre_plan_bytes`. The bidirectional
 cross-driver leg (marks exactly where the map addresses, on every driver) is
-the shared scenario `diagram / scan_mode_marks_role_carriers`.
+the shared scenario `diagram / scan_mode_marks_role_carriers`. Tier-plan pins
+(workplan_archspec_scan_diagram_module_tier, rows 31–39): row 31 —
+`…::default_scan_render_carries_no_module_bytes`; row 32 —
+`…::tiers_modules_adds_path_named_cluster_specless`; row 33 —
+`…::tiers_modules_names_owned_nodes_by_claim_with_dual_label`; row 34 —
+`…::tiers_modules_pair_law_matches_verify_real_tree` and
+`…::tiers_module_marks_parity_across_formats`; row 35 —
+`…::unit_tier_ceiling_gap_edge_marks_without_flag`; row 36 —
+`…::tiers_modules_claim_name_equal_unit_name_does_not_collapse`; row 37 —
+`…::tiers_check_gates_flagged_bytes`; rows 38–39 —
+`…::tiers_invalid_values_exit_64`.

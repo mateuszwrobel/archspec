@@ -2160,3 +2160,104 @@ fn report_roles_section_is_byte_stable_across_runs() {
         "roles section must render byte-identically across runs"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Constraint-tier findings render (silent-red bug class): the exit gate counts
+// every Diff field, so every field that can drive the non-zero exit must also
+// appear in the text/markdown diff and the JSON `findings` array. The fixture
+// below diverges ONLY through `public_api_leaks` — the field the renderers once
+// skipped while `Diff::fails` counted it, so the run exited 1 while claiming
+// "no violations found" / "Result: clean" with `"findings": []`.
+// ---------------------------------------------------------------------------
+
+/// A single `app` crate exposing `Leak` and `Wanted`; the spec's
+/// `public_api_allowlist` names only `Wanted`. The only divergence is one
+/// constraint-tier public-api leak — no component, edge, or cycle noise.
+fn public_api_leak_fixture() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "pub struct Leak;\npub struct Wanted;\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"app\"\nmatches = { units = [\"app\"] }\n\n[[constraint]]\ntype = \"public_api_allowlist\"\nallowed = [\"Wanted\"]\n",
+    );
+    fixture
+}
+
+#[test]
+fn report_public_api_leak_is_listed_and_counted() {
+    let fixture = public_api_leak_fixture();
+    let output = fixture.run(&["report"]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "constraint-tier violation demands a non-zero exit (stderr: {})",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("public api leak: app exposes Leak (not allowlisted)"),
+        "the exit cause must be named in the diff section:\n{out}"
+    );
+    assert!(
+        !out.contains("no violations found"),
+        "a non-zero exit never coexists with the clean diff claim:\n{out}"
+    );
+    assert!(
+        !out.contains("Result: clean"),
+        "a non-zero exit never coexists with the clean summary claim:\n{out}"
+    );
+    assert_eq!(category_value(&out, "contracts"), "1");
+    assert!(
+        out.contains("Result: 1 violation (0 edges, 0 cycles)"),
+        "summary:\n{out}"
+    );
+    assert!(stderr(&output).is_empty(), "no stderr on violation run");
+
+    let md = fixture.run(&["report", "--format", "markdown"]);
+    assert_eq!(md.status.code(), Some(1), "stderr: {}", stderr(&md));
+    assert!(
+        stdout(&md).contains("- public api leak: `app exposes Leak (not allowlisted)`"),
+        "markdown diff list must render the constraint-tier finding:\n{}",
+        stdout(&md)
+    );
+}
+
+#[test]
+fn report_public_api_leak_json_findings_name_the_exit_cause() {
+    let fixture = public_api_leak_fixture();
+    let output = fixture.run(&["report", "--format", "json"]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "constraint-tier violation demands a non-zero exit (stderr: {})",
+        stderr(&output)
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("json report parses");
+    assert_eq!(
+        json_findings(&value),
+        vec![(
+            "public api leak".to_string(),
+            "app exposes Leak (not allowlisted)".to_string()
+        )],
+        "findings is the contract: the counted cause must be listed\n{}",
+        stdout(&output)
+    );
+    assert_eq!(
+        value["findings"][0]["severity"].as_str(),
+        Some("error"),
+        "constraint-tier findings are error-severity"
+    );
+    assert_eq!(
+        value["metrics"]["violations_contracts"].as_u64(),
+        Some(1),
+        "the counted violation reaches the metrics block too:\n{}",
+        stdout(&output)
+    );
+}

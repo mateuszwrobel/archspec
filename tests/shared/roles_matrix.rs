@@ -491,8 +491,8 @@ pub fn has_role_marker(text: &str) -> bool {
 /// registry here and the emitting module named in the line's owning view).
 pub fn derive(view: &View, code: i32, text: &str) -> Cell {
     assert_eq!(code, 0, "view {} exited {code}", view.name);
-    if let Some(statement) = view.self_statement {
-        if !text.contains(statement) {
+    if let Some(statement) = view.self_statement
+        && !text.contains(statement) {
             panic!(
                 "the matrix cell for {} reads none by decision, but the view's \
                  recorded output omits the self-stating line {statement:?} — the \
@@ -502,7 +502,6 @@ pub fn derive(view: &View, code: i32, text: &str) -> Cell {
                 view.name
             );
         }
-    }
     if view.decision.is_some() {
         return Cell::NoneByDecision;
     }

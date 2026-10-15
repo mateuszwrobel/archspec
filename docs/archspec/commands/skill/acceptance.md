@@ -16,3 +16,8 @@ Pinned by `tests/skill.rs`:
 7. **the skill is self-discoverable** — top-level `--help` lists `skill`,
    `skill --help` prints the usage contract, `help workflow` points at
    `archspec skill install` outside the numbered recipe sequence.
+8. **selection is byte-exact and fail-loud** — `skill analysis` equals
+   `docs/archspec/skill-analysis.md` byte-for-byte and writes nothing;
+   `skill audit` equals the default emit; an unknown name exits 1 naming the
+   supported names and emits no bytes — never a silent fallback to the
+   audit skill.

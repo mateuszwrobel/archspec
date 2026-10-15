@@ -76,13 +76,12 @@ fn schema_module_shape() {
         "contract must accept the enforced forbid"
     );
     assert!(
-        contract["properties"].get("expose").is_none(),
-        "contract must not advertise the unenforced expose key"
+        contract["properties"].get("expose").is_some(),
+        "contract must advertise the enforced expose key"
     );
-    assert_eq!(
-        contract["not"],
-        serde_json::json!({ "required": ["expose"] }),
-        "schema must reject presence of expose (empty list included)"
+    assert!(
+        contract.get("not").is_none(),
+        "schema must accept contract.expose at every depth (chain law)"
     );
     for key in ["depend_on", "forbidden"] {
         assert!(
@@ -201,7 +200,7 @@ fn unknown_flag_errors_naming_it() {
     let fixture = Fixture::new();
     let output = fixture.run(&["spec", "--bogus"]);
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(64));
     assert!(
         stderr(&output).contains("unknown flag: --bogus"),
         "must name the unknown flag:\n{}",

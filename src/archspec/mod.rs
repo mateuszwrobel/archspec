@@ -17,6 +17,7 @@ pub mod verify;
 pub mod init;
 pub mod inspect;
 
+use cli::EX_USAGE;
 use commands::*;
 
 pub struct CommandInfo {
@@ -108,7 +109,7 @@ fn print_tool_help() {
 pub fn dispatch(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         print_tool_help();
-        return 0;
+        return EX_USAGE;
     };
     if cmd == "--help" {
         print_tool_help();
@@ -122,12 +123,11 @@ pub fn dispatch(args: &[String]) -> i32 {
         return 0;
     }
     let rest = &args[1..];
-    if rest.iter().any(|a| a == "--help") {
-        if let Some(info) = COMMANDS.iter().find(|c| c.name == cmd) {
+    if rest.iter().any(|a| a == "--help")
+        && let Some(info) = COMMANDS.iter().find(|c| c.name == cmd) {
             print!("{}", info.help);
             return 0;
         }
-    }
     let result = match cmd.as_str() {
         "inspect" => inspect::run(rest),
         "depgraph" => commands::depgraph::run(rest),
@@ -145,7 +145,7 @@ pub fn dispatch(args: &[String]) -> i32 {
         other => {
             eprintln!("error: unknown command: {other}");
             eprintln!("run 'archspec --help' for the command list");
-            return 1;
+            return EX_USAGE;
         }
     };
     match result {
@@ -154,9 +154,30 @@ pub fn dispatch(args: &[String]) -> i32 {
             if msg == commands::verify::RULE_VIOLATION_REPORTED {
                 // The report was already printed to stdout; do not echo it to
                 // stderr as an error message.
+                if cmd == "verify" {
+                    eprintln!("note: archspec {}", env!("CARGO_PKG_VERSION"));
+                }
                 return 1;
             }
+            // The exit-taxonomy classes travel on the message as sentinel
+            // tags (cli::usage_error / cli::operational_error): dispatch
+            // strips the tag and prints the bare message exactly as untagged
+            // errors print it, so error text stays byte-identical while the
+            // code states the class.
+            if let Some((code, msg)) = cli::classify(&msg) {
+                eprintln!("error: {msg}");
+                // The footer states the binary behind a verdict-class exit;
+                // usage errors (64) are CLI misuse with byte-frozen refusal
+                // text, so they stay footer-free (exit-taxonomy bytes law).
+                if cmd == "verify" && code != EX_USAGE {
+                    eprintln!("note: archspec {}", env!("CARGO_PKG_VERSION"));
+                }
+                return code;
+            }
             eprintln!("error: {msg}");
+            if cmd == "verify" {
+                eprintln!("note: archspec {}", env!("CARGO_PKG_VERSION"));
+            }
             1
         }
     }

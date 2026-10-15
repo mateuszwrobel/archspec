@@ -2,14 +2,15 @@
 
 Renders the architecture model as a diagram artefact. Part of the archspec design (see `../../../archspec-design.md`).
 
-The diagram is a **pure function of the model** — the code ↔ diagram relation is deterministic (design §2, ADR-007). `diagram` takes a model — either the declared spec (the governed architecture) or a scan snapshot (the extracted current-state model) — and renders it as a Mermaid or PlantUML diagram. Its purpose is **communication**: make the architecture visible and reviewable as an artefact derived from the model, never hand-maintained (ADR-008).
+The diagram is a **pure function of the model** — the code ↔ diagram relation is deterministic (design §2, ADR-007). `diagram` takes a model — either the declared spec (the governed architecture) or a scan snapshot (the extracted current-state model) — and renders it as a Mermaid or PlantUML diagram; the scan snapshot renders its unit tier by default and its module tier only when `--tiers` asks for it. Its purpose is **communication**: make the architecture visible and reviewable as an artefact derived from the model, never hand-maintained (ADR-008).
 
 ## Scope
 
 - Two model sources: declared spec (`--source spec`, default) and scan snapshot artefact (`--source scan <path>`).
+- Tiered scan render: the unit tier always renders; the module tier (the snapshot's `module_edges`) renders only under `--tiers modules`, in a `modules` cluster, additive to unchanged unit bytes (`output.md`).
 - Model only — `diagram` never reads the source tree; rendering is a pure function of the model.
 - Output formats: **Mermaid + PlantUML only** (ADR-013), deterministic text, byte-stable canonical ordering.
-- Violating/forbidden edges visibly marked (dashed/red); external crates in a separate cluster.
+- Violating/forbidden edges visibly marked (dashed/red) — in scan mode exactly the edges `verify` reports, no diagram-side re-derivation; external crates in a separate cluster.
 - Role marks in scan mode only: a node the model's `roles` map addresses carries that role's marker (`output.md`, *Diagram structure* item 5); spec mode reads no roles map, and a role keyed below the unit tier (a rust bin's `<unit>::main`) marks in `inspect tree`, not here.
 - Single-shot: load model, render, exit. No daemon, no persistent state.
 
@@ -24,6 +25,9 @@ archspec diagram ./crates/auth
 
 # render a scan snapshot (extracted current-state model)
 archspec diagram --source scan ./artifacts/model.json
+
+# render a scan snapshot with its module tier on top (opt-in)
+archspec diagram --source scan ./artifacts/model.json --tiers modules
 
 # write the diagram to a file instead of stdout
 archspec diagram --output docs/architecture.mmd

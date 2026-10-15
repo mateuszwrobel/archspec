@@ -6,6 +6,296 @@ only.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-15
+
+### Added
+
+- `contract.expose` is accepted at every spec depth (the reserved-key refusal
+  retires): a module-tier claim's expose list is a complete public-surface
+  allowlist for the symbols the scan shows in its territory, adjudicated by
+  the deepest-claim chain law — one uncovered public symbol is the red
+  finding `public api leak: <claim> exposes <symbol> (not exposed)`, and an
+  entry that names nothing across its territory is the warning
+  `stale contract export`; an entry naming both a declared stereotype and
+  live symbols is the warning `ambiguous expose entry`. A claim whose expose
+  arm has no facts to check (a Rust module tier carries no module-tier
+  public-API facts) prints the vacuity carrier naming the claim instead of
+  a green `ok:`.
+- `archspec diagram --module <claim>` renders one claim's territory as a
+  module graph, and `--modules-dir <dir>` writes one stable-named file per
+  claim (dotted filenames through an injective escape, `%3a` for `::`).
+  Public-API marks render through the same adjudication `verify` runs: an
+  arrow is dashed exactly where a `verify` run reds the source's crossing.
+  `--check` reports `out of date diagram` and `orphan diagram` findings
+  against the batch directory and never deletes or names foreign files; a
+  blocked write fails its own file, lands every other file complete, and
+  exits operational (70).
+
+### Changed
+
+- Every failing `archspec verify` exit ends stderr with the footer
+  `note: archspec <version>`; usage errors (exit 64) stay footer-free and
+  byte-frozen.
+- A `contract.expose` over a Go module tier with no public-API facts states
+  its vacuity per claim instead of the silent pass; C# root-territory files
+  contribute module rows to the expose adjudication.
+
+### Breaking
+
+- **Breaking: `archspec diagram --source scan` marks more edges dashed**
+  (green→red-adjacent, D12). The marking law moved to the same adjudication
+  the verdict engine uses: an edge that violates a `depend_on` ceiling —
+  source outside the governed set, target not listed — is now dashed
+  (it is the one Breaking class a scan diagram can show). Edges carried by
+  a `depend_on` never gain a dash, so a fully governed crate's diagram is
+  unchanged; a crate with a ceiling gap sees new dashes — the dashed set
+  becomes a subset of the `archspec verify` failure set (the two can still
+  differ: a diagram reports no violations, `verify` reports verdicts).
+  The fix: list the real target in `depend_on` — or accept the dash as
+  the documented gap. Module tiers (`--tiers`) render module nodes under
+  their governing claim's name with the same marking law (added surface,
+  no existing bytes change); the default scan bytes are byte-identical.
+
+- **Breaking: a nested `allowed` table now adjudicates** (green→red).
+  A `[[module.submodules]]` claim carrying `[module.allowed]` gates the
+  dependency edges of the files it claims with the same jurisdiction a
+  top-level table has — most-specific-claim ownership at every depth,
+  verdicts identical to the equivalent flat spec. A spec whose nested
+  table forbids an edge the source really takes verified green before
+  this release and verifies red now. The fix: complete the nested policy
+  — list the real targets in `depend_on` — or delete the table; a nested
+  claim without one inherits the nearest ancestor's policy, so deleting
+  an unintended table changes no verdict.
+- **Breaking: a cross-depth tie is ambiguous now** (green→red). An
+  equal-specificity conflict over one territory between a nested claim
+  and a flat claim — the finding `ambiguous module match` — was resolved
+  silently by declaration order before this release and fails now. The
+  fix: list the ambiguous pair once — the finding names both claims; let
+  one claim carry the territory so ownership resolves by specificity.
+- **Breaking: the new depth findings bite under `--strict`** (green→red
+  for strict runs). The engagement warnings introduced on this line —
+  `unmatched claim:`, `shadowed claim:`, and the `dead reference` and
+  missing-edge findings now emitted at submodule depth — exit 0 without
+  `--strict` and exit 1 with it; non-strict runs keep passing. The fix:
+  add the claimed path to the parent claim or fix the pattern, and
+  delete or re-point the claims the warnings name.
+- **Breaking: containment edges are never adjudicated now** (red→green).
+  A dependency edge between a claim and a claim inside its own subtree
+  (parent files reaching own-submodule files, either direction) is
+  composition — never a violation, and never an allowance's proof — so a
+  spec that failed only on such parent↔own-submodule edges verifies
+  green now. Contract-only nesting is unchanged: a nested claim without
+  an `allowed` table keeps the verdicts it produced before, through the
+  nearest ancestor's policy.
+- **Breaking: a dead module-tier claim warns instead of erroring**
+  (red→green). A top-level claim declaring only `matches.modules` that
+  matches no model element reported the `missing component:` error
+  (exit 1) before this release; it now reports the `unmatched claim:`
+  warning — exit 0, red under `--strict`. Unit-backed claims keep the
+  `missing component:` error. The fix: re-point the dead module-tier
+  claim at paths that exist, or delete it.
+
+### Added
+
+- Nested `[[module.submodules]]` claims now carry dependency jurisdiction.
+  A submodule with an `[module.allowed]` table adjudicates dependencies
+  inside its territory; a submodule without one inherits the nearest
+  ancestor's policy. Most-specific-claim ownership decides every edge at
+  every depth, with verdicts identical to the equivalent flat spec.
+  Ancestors' `contract.forbid` binds descendants downward. Direct
+  ancestor-descendant containment edges are never adjudicated. New
+  `unmatched claim:` and `shadowed claim:` warnings (`--strict` red);
+  `missing component:` now checks claim subtrees; the ok line counts all
+  claims. A `matches.units` key on a submodule is rejected at parse.
+  `diagram --source spec` renders submodule claims and allowance arrows
+  at depth.
+
+### Changed
+
+- **Refactor: edge adjudication now runs through one seam** (no behavior
+  change). The pair-verdict rule and the module-edge placement rule each
+  live in one place in the verify comparison now, consumed by verify's
+  findings. Finding texts and exit verdicts are byte-identical.
+
+### Changed
+
+- A top-level claim that declares only `matches.modules` and matches
+  nothing now warns (`unmatched claim:`) instead of erroring (red→green —
+  see the `Breaking:` section); unit-backed claims keep the
+  `missing component:` error.
+- Claim-name uniqueness now addresses nested claims by their full dotted
+  path, so a nested name colliding with a top-level name is refused.
+
+### Added
+
+- Agent relation-analysis playbook as its own skill on the binary's skill
+  surface: `archspec skill analysis` emits the procedure byte-for-byte
+  (`docs/archspec/skill-analysis.md`, embedded) — the dump commands
+  (`archspec scan --output`, `archspec depgraph modules|submodules
+  --parent|api-usage`, the file-level `inspect` map, the module-tier
+  refusal path), five heuristics over the dumps — cycles beyond the
+  `no_cycles` guard, fan-in/fan-out outliers as ratios over the graph
+  mean, orphan modules, layering direction versus declared boundaries,
+  god-crate candidates — and a recommendation-not-a-verdict output
+  contract with dated-report naming and file:line citation rules. Every
+  falsifiable statement in it cites its binary owner surface; verdicts
+  stay in exit codes. `skill` gains name selection (`audit` is the
+  default emit, byte-unchanged; an unknown name fails loud — no silent
+  fallback); `skill install` and the printed default are untouched.
+- The published tree ships `.github/FUNDING.yml` — GitHub's sponsorship
+  configuration file — so the GitHub repository page can offer a sponsor
+  link. Sponsorship metadata only; no binary surface reads it.
+
+### Changed
+
+- The relation-analysis playbook no longer ships as a payload markdown
+  doc (`docs/archspec/analysis.md`, added earlier on this unreleased
+  line): its content moved into the emitted analysis skill, so the
+  payload shrinks per the fan-out law; the crate README, the agent
+  guide, the docs index and the audit skill now point at
+  `archspec skill analysis`. Documentation and procedure only — no
+  verdict verb, no behavior change to the audit surface.
+
+### Fixed
+
+- `report` no longer exits non-zero while listing no findings (the silent-red
+  class). The constraint-tier categories — `public api leak`, `unverifiable
+  glob export`, `empty glob export`, `forbidden external crate`, `not external
+  free`, `manifest integrity`, `feature boundary`, `forbidden submodule
+  dependency` — were counted by the exit gate but skipped by the report
+  renderers, so a run failing on one of them printed `no violations found` /
+  `Result: clean` and `"findings": []` while still exiting 1. The exit gate
+  and the report renderers now read one shared field list
+  (`Diff::error_fields`): every category that can drive the non-zero exit is
+  printed in text and markdown and serialized in the JSON `findings` array,
+  counted in the `contracts` metrics bucket and the summary line. A guard
+  test fails if a gated field ever lacks a render path again.
+- The `feature_matrix` test regenerates `feature-matrix.{json,md}` under the
+  target directory instead of rewriting them in the source tree, and asserts
+  the committed copies equal the regenerated reports byte for byte, naming
+  the regenerated files on drift. The freshness guarantee is not weakened: a
+  committed report the current code disagrees with still fails the suite.
+  The test now passes on a read-only checkout, which the containerized gate
+  legs mount.
+- The self-dogfood gate resolves the binary it just built under
+  `$CARGO_TARGET_DIR/debug/archspec` when the caller presets a target dir
+  externally (containerized legs run with one); the manifest-relative
+  fallback is unchanged. The leg failed closed naming the stale path before
+  this fix.
+
+### Docs
+
+- ADR-020 records the module-claim jurisdiction model for nested
+  `[[module.submodules]]` claims: the most-specific claim carrying an
+  `allowed` table owns dependency adjudication at any depth; a nested claim
+  without one inherits the nearest ancestor's policy; ancestor↔descendant
+  edges inside one claim subtree are composition, not adjudicated
+  dependencies; ancestor prohibitions bind descendants cumulatively; claim
+  names address rules at any depth. Design record only — no behavior ships
+  with this entry; the submodule and target-addressing doc strings move with
+  the implementation per the fan-out law.
+
+### Added
+
+- **`contract.expose` is schema and enforced — the expose chain law.**
+  Specs that failed to parse on the reserved `contract.expose` key now parse
+  and adjudicate at every depth. A declaring claim states the exact public
+  surface of its territory: a crossing symbol it does not permit is a leak
+  (`public api leak: <owner> exposes <export> (not exposed)`), attributed
+  once to the deepest declaring claim, and an ancestor's declared set binds
+  every descendant export — nesting may narrow the surface, never widen it,
+  so splitting a module grants nothing. An entry that globs zero across the
+  declaring claim's whole territory reports a `stale contract export`
+  warning; an entry naming a declared stereotype and matching symbols
+  adjudicates the stereotype arm and warns `ambiguous expose entry`; the
+  shipped `dead reference` classification now covers expose entries. The
+  `vacuous constraint` category gains the named-subject carrier
+  `[contract.expose of <claim>]` for symbol-arm vacuity on drivers without
+  module-tier public-API facts.
+- **`archspec diagram --module <claim>`** renders one claim's module
+  subgraph with public-API marks read through the same adjudication
+  `verify` runs; an unknown claim exits 64 naming it. **`--modules-dir <dir>`**
+  writes one file per claim (injective, traversal-proof names; a failed
+  run leaves previous-or-complete bytes only), and `--check` flags stale
+  files and orphans.
+- **Every non-zero `archspec verify` exit ends stderr with the footer
+  line `note: archspec <version>`** (issue #3 provenance answer). This
+  is the committed-artifact class for consumers that parse empty stderr on
+  red runs: red-run stderr is no longer empty. Stdout and every committed
+  report byte stay version-free — report artifacts stay byte-identical
+  across tool upgrades; the go arm of the `public_api_allowlist` vacuity
+  sentence moves to the language-neutral wording, so committed artifacts
+  carrying the old rust-vocabulary sentence need regeneration. A spec
+  without expose declarations verifies byte-identically — the law is
+  verdict-neutral where nothing declares.
+
+### Changed
+
+- **Breaking: the exit surface now names the failure class.** A usage
+  mistake — no command, an unknown command, an unknown flag, or a `help`
+  typo — exits 64; a verb this tool does not declare is an unknown
+  command and exits 64; a missing `architecture.spec.toml` where a verb
+  needs one (`verify`, `diagram`, `report`) exits 70, the
+  operational-precondition class — never a verdict code. Verdict codes
+  are unchanged: a rule violation stays exit 1, a clean run stays exit 0.
+  Error messages are byte-identical on every changed path; only the
+  codes moved. The `help diagnostics` legend states the full contract.
+  Released binaries at 0.5.x and older predate this taxonomy: they age
+  out through this deprecation note and carry no compatibility shim —
+  the 0.6.0 binary answers with the new codes, and nothing translates
+  them back.
+- `Cargo.toml` declares the repo-wide lint policy (`[lints.clippy] all =
+  "deny"`, `[lints.rust] unused_imports = "deny"`); clippy findings are now
+  denied by the manifest, so a plain `cargo clippy` run matches the gate.
+
+## [0.5.3] - 2026-10-05
+
+### Added
+
+- Misuse deflection on the vacuous `public_api_allowlist` line: an `allowed`
+  entry without `::` that case-sensitively equals the last segment of a
+  module path carrying public types, or names a declared module addressing
+  such a path, now welds one prescriptive instruction onto the vacuity —
+  `; allowed entries are module paths — did you mean "Sample::Contracts"?`
+  — naming up to three sorted candidates, the rest counted as
+  `...and N more module path(s)`; without an exact structural candidate the
+  sentence stays byte-identical, and rust trees (whose driver emits no
+  module-tier public-type facts) keep their sentence byte-unchanged. The
+  agent guide gains a `Reporting a gap` section: probe the release binary
+  you cite, quote `archspec --version`, the command and the output
+  verbatim, check the known-boundaries table for the honest silences, and
+  the which-command-proves-which-claim table (`scan`, `verify --strict`,
+  `inspect tree`, `capability matrix`, each run green in the suite).
+- GitHub issue #2 regression coverage (semicolon-bodied record
+  declarations): the investigation against the released 0.5.2 binary showed
+  the reported gap does NOT reproduce — positional `record X(...);`
+  declarations already emit `module_public_types` facts and `verify --strict`
+  reports them as leaks (`module exposes Type (not allowlisted)`, exit 1) —
+  and the requested regression is welded so it can never regress: scan facts
+  for every record body shape (positional with and without the trailing
+  semicolon, braced, `record struct`, `record class`, partial across both
+  shapes, generic, `where`-claused, attributed, nested), the allowlist leak
+  line for the semicolon record, and the corporate corpus pin now carrying a
+  brace-bodied record (allowlisted, silent) beside a semicolon-bodied one
+  (leaked).
+- The honest grammar boundary that investigation found: `;`-bodied
+  `class X;`/`class X(int A);`/`struct X(int A);`/`interface I;`/`enum E;`
+  spellings parse to ERROR fragments in the pinned grammar (no declaration
+  node exists) and emit no facts — welded as a bounded-gap test with its
+  rationale, extending the bodiless-class gap to the full non-record family
+  (ADR-019, the scan output contract and the spec wording updated to match).
+
+### Changed
+
+- the crate now builds under Rust edition 2024; one extern declaration moved
+  into an `unsafe extern` block, as that edition requires.
+- the macOS arm64 release build moved from the `macos-14` runner label to
+  `macos-15` — the macOS 14 images retire on 2026-11-02 (brownouts starting
+  2026-10-05); the x86_64 macOS job stays on `macos-15-intel`, unchanged.
+- the release workflow pins the Rust toolchain to `1.99.0` instead of the
+  rolling `stable` channel, so release builds use the same toolchain as the
+  repository's pinned builds.
+
 ## [0.5.2] - 2026-09-29
 
 ### Changed

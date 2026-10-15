@@ -27,7 +27,7 @@ Running `archspec spec --schema` prints valid JSON (a draft-07 schema for `archi
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 8 | a terminal | run `archspec spec --bogus` | exit 1; stderr names the unknown flag |
+| 8 | a terminal | run `archspec spec --bogus` | exit 64 (usage class); stderr names the unknown flag |
 
 ## Help
 

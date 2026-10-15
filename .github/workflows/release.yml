@@ -13,8 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.99.0"
           targets: x86_64-unknown-linux-musl
       - run: sudo apt-get update && sudo apt-get install -y musl-tools dpkg-dev libarchive-tools zstd
       - run: cargo build --release --target x86_64-unknown-linux-musl
@@ -82,8 +83,9 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.99.0"
           targets: aarch64-unknown-linux-gnu, aarch64-unknown-linux-musl
       - run: sudo apt-get update && sudo apt-get install -y dpkg-dev libarchive-tools zstd musl-tools
       - run: cargo build --release --target aarch64-unknown-linux-gnu
@@ -160,8 +162,9 @@ jobs:
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.99.0"
           targets: x86_64-apple-darwin
       - run: cargo build --release --target x86_64-apple-darwin
       - name: Package
@@ -177,11 +180,12 @@ jobs:
           path: archspec-*
 
   build-macos-aarch64:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.99.0"
           targets: aarch64-apple-darwin
       - run: cargo build --release --target aarch64-apple-darwin
       - name: Package
@@ -200,7 +204,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
       - run: cargo build --release
       - name: Package
         shell: pwsh

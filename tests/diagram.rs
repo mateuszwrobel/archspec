@@ -99,11 +99,11 @@ forbidden = []
 
 [[module.submodules]]
 name = "Billing.Domain"
-matches = { units = ["Billing.Domain*"] }
+matches = { modules = ["Billing.Domain*"] }
 
 [[module.submodules]]
 name = "Billing.Api"
-matches = { units = ["Billing.Api*"] }
+matches = { modules = ["Billing.Api*"] }
 
 [[module]]
 name = "Shared"
@@ -458,7 +458,7 @@ matches = { units = ["portal"] }
     assert!(stderr(&output).is_empty(), "stderr should be empty");
     assert_eq!(
         stdout(&output),
-        "graph TD\n  subgraph project\n    auth\n    core\n    portal\n    auth --> core\n    auth -.->|violates spec| portal\n  end\n",
+        "graph TD\n  subgraph project\n    auth\n    core\n    portal\n    auth -.->|violates spec| core\n    auth -.->|violates spec| portal\n  end\n",
         "scan diagram must have a node per unit and mark the violating edge dashed"
     );
 }
@@ -700,7 +700,7 @@ forbidden = []
 
 [[module.submodules]]
 name = "my-child"
-matches = { units = ["my-child*"] }
+matches = { modules = ["my-child*"] }
 
 [[module]]
 name = "Shared"
@@ -1073,5 +1073,563 @@ fn diagram_scan_escapes_hyphenated_unit_names() {
     assert!(
         !out.contains("my-unit -->"),
         "raw hyphenated unit id must not be used:\n{out}"
+    );
+}
+// ---------- workplan_archspec_scan_diagram_module_tier battery ----------
+// Appended to tests/diagram.rs. Real-tree fixtures carry the verify-parity
+// scenarios; hand-written artefacts carry render-shape scenarios, since
+// `verify` re-scans and never reads the artefact.
+
+// ---------- artefact fixtures (render-shape scenarios) ----------
+
+fn module_artefact_json() -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "language": "rust",
+        "units": [
+            {"name": "Sample::Api", "kind": "lib", "path": "src/api"},
+            {"name": "Sample::Application", "kind": "lib", "path": "src/application"},
+            {"name": "Sample::Data", "kind": "lib", "path": "src/data"}
+        ],
+        "edges": [
+            {"from": "Sample::Api", "to": "Sample::Application"},
+            {"from": "Sample::Application", "to": "Sample::Data"}
+        ],
+        "module_edges": [
+            {"unit": "Sample::Api", "from": "Sample::Api::Billing",
+             "to": "Sample::Application::Storage", "symbols": ["Store"]},
+            {"unit": "Sample::Application", "from": "Sample::Application::Storage",
+             "to": "Sample::Api::Billing", "symbols": []},
+            {"unit": "Sample::Api", "from": "Sample::Api::Billing",
+             "to": "Sample::Util::Clock", "symbols": []}
+        ]
+    })
+}
+
+fn module_artefact_fixture(spec: Option<&str>) -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write("model.json", &module_artefact_json().to_string());
+    if let Some(body) = spec {
+        fixture.write("architecture.spec.toml", body);
+    }
+    fixture
+}
+
+/// Claims own the module endpoints: `api-billing` allows
+/// `application-storage`; `application-storage` forbids `api-billing` (the
+/// module-tier forbidden pair). Unit ceilings cover the two unit edges.
+const MODULE_ARTEFACT_SPEC: &str = r#"[project]
+language = "rust"
+
+[[module]]
+name = "api-billing"
+matches = { modules = ["Sample::Api::Billing"], units = ["Sample::Api"] }
+
+[module.allowed]
+depend_on = ["application-storage"]
+forbidden = []
+
+[[module]]
+name = "application-storage"
+matches = { modules = ["Sample::Application::Storage"], units = ["Sample::Application"] }
+
+[module.allowed]
+depend_on = ["data-db"]
+forbidden = ["api-billing"]
+
+[[module]]
+name = "data-db"
+matches = { modules = ["Sample::Data::Db"], units = ["Sample::Data"] }
+
+[module.allowed]
+depend_on = []
+forbidden = []
+"#;
+
+fn run_modules(fixture: &common::Fixture, format: &str) -> std::process::Output {
+    fixture.run(&[
+        "diagram",
+        "--format",
+        format,
+        "--source",
+        "scan",
+        "model.json",
+        "--tiers",
+        "modules",
+    ])
+}
+
+// Scenario "default scan render is byte-identical to today (flag absent)".
+#[test]
+fn default_scan_render_carries_no_module_bytes() {
+    let fixture = module_artefact_fixture(None);
+    let output = fixture.run(&["diagram", "--source", "scan", "model.json"]);
+    assert_eq!(output.status.code(), Some(0));
+    let out = stdout(&output);
+    assert!(
+        !out.contains("modules"),
+        "no modules cluster in the default render:\n{out}"
+    );
+    assert!(
+        !out.contains("Billing") && !out.contains("Storage") && !out.contains("Clock"),
+        "module_edges contribute nothing to the default render:\n{out}"
+    );
+}
+
+// Scenario "`--tiers modules` adds the module cluster and touches no unit
+// byte" + scenario "specless module nodes keep path names (flag on, no spec)".
+#[test]
+fn tiers_modules_adds_path_named_cluster_specless() {
+    let fixture = module_artefact_fixture(None);
+    let baseline = fixture.run(&["diagram", "--source", "scan", "model.json"]);
+    assert_eq!(baseline.status.code(), Some(0));
+    let baseline_out = stdout(&baseline);
+
+    let flagged = run_modules(&fixture, "mermaid");
+    assert_eq!(flagged.status.code(), Some(0), "{}", stderr(&flagged));
+    let out = stdout(&flagged);
+    assert!(
+        out.contains("subgraph modules"),
+        "flagged render carries the modules wrapper cluster:\n{out}"
+    );
+    // specless: nodes are path-named with the raw path as label.
+    assert!(
+        out.contains(r#"["Sample::Api::Billing"]"#),
+        "specless module nodes carry raw path labels:\n{out}"
+    );
+    // no governing spec, no dashes anywhere.
+    assert!(
+        !out.contains("-.->"),
+        "specless renders never dash:\n{out}"
+    );
+    // additive, never a re-render: dropping the modules cluster lines and
+    // the module arrows leaves the baseline bytes untouched.
+    let mut outside_cluster = String::new();
+    let mut in_modules = false;
+    for line in out.lines() {
+        if line.trim() == "subgraph modules" {
+            in_modules = true;
+            continue;
+        }
+        if in_modules && line.trim() == "end" {
+            in_modules = false;
+            continue;
+        }
+        if !in_modules {
+            outside_cluster.push_str(line);
+            outside_cluster.push('\n');
+        }
+    }
+    assert_eq!(
+        outside_cluster, baseline_out,
+        "every line outside the modules cluster keeps its exact pre-change bytes"
+    );
+}
+
+// Scenario "a governing spec names module nodes by owning claim (flag on)".
+#[test]
+fn tiers_modules_names_owned_nodes_by_claim_with_dual_label() {
+    let fixture = module_artefact_fixture(Some(MODULE_ARTEFACT_SPEC));
+    let output = run_modules(&fixture, "mermaid");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.contains(r#""api-billing (Sample::Api::Billing)""#),
+        "owned node label carries identity and path:\n{out}"
+    );
+    assert!(
+        out.contains(r#""application-storage (Sample::Application::Storage)""#),
+        "second owned node carries the same construction:\n{out}"
+    );
+    // unowned endpoint renders path-named exactly as the specless scenario.
+    assert!(
+        out.contains(r#"["Sample::Util::Clock"]"#),
+        "unowned endpoints keep path labels:\n{out}"
+    );
+    // grep-ability: some edge line references the claim-named node id.
+    assert!(
+        out.lines()
+            .any(|l| (l.contains("-->") || l.contains("-.->")) && l.contains("api_billing")),
+        "module edge lines reference the api-billing node:\n{out}"
+    );
+}
+
+// Scenario "same edge, same verdict — module tier (pair law, flag on)" with
+// a real tree: `verify` re-scans, so the fixture carries real sources.
+#[test]
+fn tiers_modules_pair_law_matches_verify_real_tree() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"app\"]\nresolver = \"2\"\n",
+    );
+    fixture.write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("app/src/lib.rs", "pub mod billing;\npub mod storage;\n");
+    fixture.write(
+        "app/src/billing/mod.rs",
+        "pub fn charge() -> crate::storage::Token {\n    crate::storage::token()\n}\n",
+    );
+    fixture.write(
+        "app/src/storage/mod.rs",
+        "pub struct Token;\n\npub fn peek() {\n    let _ = crate::billing::charge();\n}\n\npub fn token() -> Token {\n    Token\n}\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        r#"[project]
+language = "rust"
+
+[[module]]
+name = "billing-claim"
+matches = { modules = ["app::billing"] }
+
+[module.allowed]
+depend_on = ["storage-claim"]
+forbidden = []
+
+[[module]]
+name = "storage-claim"
+matches = { modules = ["app::storage"] }
+
+[module.allowed]
+depend_on = []
+forbidden = ["billing-claim"]
+"#,
+    );
+    let scan = fixture.run(&["scan", "--output", "model.json"]);
+    assert_eq!(scan.status.code(), Some(0), "{}", stderr(&scan));
+
+    let output = run_modules(&fixture, "mermaid");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    let dashed: Vec<&str> = out.lines().filter(|l| l.contains("-.->")).collect();
+    assert_eq!(
+        dashed.len(),
+        1,
+        "exactly the forbidden pair is dashed:\n{out}"
+    );
+    assert!(
+        dashed[0].contains("violates spec"),
+        "the dash carries the mark vocabulary:\n{dashed:?}"
+    );
+    assert!(
+        out.contains("-->") && out.contains("billing_claim"),
+        "the permitted pair renders solid:\n{out}"
+    );
+    assert!(
+        out.contains(r#""billing-claim (app::billing)""#),
+        "owned nodes carry the claim identity:\n{out}"
+    );
+
+    let verify = fixture.run(&["verify"]);
+    assert_eq!(verify.status.code(), Some(1), "verify must red the pair");
+    let verify_out = stdout(&verify) + &stderr(&verify);
+    assert!(
+        verify_out.contains("forbidden edge: storage-claim -> billing-claim"),
+        "same edge, same verdict, same names:\n{verify_out}"
+    );
+}
+
+// Scenario "unit-tier ceiling edges mark — always-on fix, flag absent" with
+// a real tree.
+#[test]
+fn unit_tier_ceiling_gap_edge_marks_without_flag() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"app\", \"core\", \"legacy\"]\nresolver = \"2\"\n",
+    );
+    for name in ["app", "core", "legacy"] {
+        let deps = if name == "app" {
+            "[dependencies]\ncore_lib = { path = \"../core\" }\nlegacy_lib = { path = \"../legacy\" }\n"
+        } else if name == "core" {
+            "[dependencies]\nlegacy_lib = { path = \"../legacy\" }\n"
+        } else {
+            ""
+        };
+        fixture.write(
+            &format!("{name}/Cargo.toml"),
+            &format!(
+                "[package]\nname = \"{name}_lib\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n{deps}"
+            ),
+        );
+        fixture.write(&format!("{name}/src/lib.rs"), "pub fn f() {}\n");
+    }
+    fixture.write(
+        "architecture.spec.toml",
+        r#"[project]
+language = "rust"
+
+[[module]]
+name = "app-claim"
+matches = { units = ["app_lib"] }
+
+[module.allowed]
+depend_on = ["core-claim"]
+forbidden = []
+
+[[module]]
+name = "core-claim"
+matches = { units = ["core_lib"] }
+
+[module.allowed]
+depend_on = []
+forbidden = []
+
+[[module]]
+name = "legacy-claim"
+matches = { units = ["legacy_lib"] }
+
+[module.allowed]
+depend_on = []
+forbidden = []
+"#,
+    );
+    let scan = fixture.run(&["scan", "--output", "model.json"]);
+    assert_eq!(scan.status.code(), Some(0), "{}", stderr(&scan));
+
+    let output = fixture.run(&["diagram", "--source", "scan", "model.json"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.contains("-.->|violates spec|") && out.contains("legacy"),
+        "the ceiling-gap unit edge is marked, not solid:\n{out}"
+    );
+    assert!(
+        out.contains("-->") ,
+        "the ceiling-allowed edge stays solid:\n{out}"
+    );
+
+    let verify = fixture.run(&["verify"]);
+    assert_eq!(verify.status.code(), Some(1));
+    let verify_out = stdout(&verify) + &stderr(&verify);
+    assert!(
+        verify_out.contains("disallowed cross-component dependency: app-claim -> legacy-claim"),
+        "same edge, same verdict:\n{verify_out}"
+    );
+}
+
+// Scenario "both formats, one decision (parity, either flag state)" — the
+// artefact pair-law tree renders identically marked in both grammars.
+#[test]
+fn tiers_module_marks_parity_across_formats() {
+    let fixture = module_artefact_fixture(Some(MODULE_ARTEFACT_SPEC));
+    let mm = run_modules(&fixture, "mermaid");
+    assert_eq!(mm.status.code(), Some(0), "{}", stderr(&mm));
+    let pu = run_modules(&fixture, "plantuml");
+    assert_eq!(pu.status.code(), Some(0), "{}", stderr(&pu));
+    let mm_out = stdout(&mm);
+    let pu_out = stdout(&pu);
+    assert!(mm_out.contains("violates spec"), "mermaid marks:\n{mm_out}");
+    assert!(
+        pu_out.contains("violates spec"),
+        "plantuml marks the same pair:\n{pu_out}"
+    );
+    assert!(
+        pu_out.contains(r#""api-billing (Sample::Api::Billing)""#),
+        "plantuml carries the same identity and label:\n{pu_out}"
+    );
+    assert!(
+        pu_out.contains("package modules"),
+        "plantuml wraps the module tier per its grammar:\n{pu_out}"
+    );
+}
+
+// Scenario "role marks stay unit-tier (both flag states)".
+#[test]
+fn tiers_modules_keeps_role_marks_unit_tier_only() {
+    let mut value = module_artefact_json();
+    value["roles"] = serde_json::json!({"Sample.Api": "composition"});
+    let fixture = common::Fixture::new();
+    fixture.write("model.json", &value.to_string());
+    fixture.write("architecture.spec.toml", MODULE_ARTEFACT_SPEC);
+    let output = run_modules(&fixture, "mermaid");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.contains("[composition]"),
+        "the unit role mark survives under the flag:\n{out}"
+    );
+    for line in out.lines().filter(|l| l.contains("(Sample::")) {
+        assert!(
+            !line.contains("[composition]") && !line.contains("[dependency]"),
+            "module nodes carry no role mark:\n{line}"
+        );
+    }
+}
+
+// Scenario "invalid tier values are usage errors".
+#[test]
+fn tiers_invalid_values_exit_64() {
+    let fixture = module_artefact_fixture(None);
+    let bad = fixture.run(&[
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--tiers",
+        "namespaces",
+    ]);
+    assert_eq!(bad.status.code(), Some(64));
+    let err = stderr(&bad);
+    assert!(err.contains("namespaces"), "names the value: {err}");
+    assert!(
+        err.contains("units") && err.contains("modules"),
+        "names the supported tiers: {err}"
+    );
+
+    let dup = fixture.run(&[
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--tiers",
+        "units,units",
+    ]);
+    assert_eq!(dup.status.code(), Some(64));
+    assert!(stderr(&dup).contains("units"), "names the rule: {}", stderr(&dup));
+
+    let empty = fixture.run(&["diagram", "--source", "scan", "model.json", "--tiers", ""]);
+    assert_eq!(empty.status.code(), Some(64));
+    assert!(
+        stderr(&empty).contains("units") && stderr(&empty).contains("modules"),
+        "names the rule: {}",
+        stderr(&empty)
+    );
+
+    let spec_fixture = spec_fixture(BASIC_SPEC);
+    let on_spec = spec_fixture.run(&["diagram", "--tiers", "units"]);
+    assert_eq!(on_spec.status.code(), Some(64));
+    let err = stderr(&on_spec);
+    assert!(err.contains("scan"), "names the spec-source rule: {err}");
+    assert!(
+        err.contains("units") && err.contains("modules"),
+        "names supported tiers: {err}"
+    );
+}
+
+// Scenario "`--check` gates the flagged render's bytes".
+#[test]
+fn tiers_check_gates_flagged_bytes() {
+    let fixture = module_artefact_fixture(Some(MODULE_ARTEFACT_SPEC));
+    let write = fixture.run(&[
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--output",
+        "diagram.mmd",
+    ]);
+    assert_eq!(write.status.code(), Some(0), "{}", stderr(&write));
+
+    let default_check = fixture.run(&[
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--output",
+        "diagram.mmd",
+        "--check",
+    ]);
+    assert_eq!(
+        default_check.status.code(),
+        Some(0),
+        "the default bytes did not move: {}",
+        stderr(&default_check)
+    );
+
+    let flagged_check = fixture.run(&[
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--tiers",
+        "modules",
+        "--output",
+        "diagram.mmd",
+        "--check",
+    ]);
+    assert_ne!(
+        flagged_check.status.code(),
+        Some(0),
+        "--check compares the flagged render's bytes"
+    );
+
+    let write_flagged = fixture.run(&[
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--tiers",
+        "modules",
+        "--output",
+        "diagram.mmd",
+    ]);
+    assert_eq!(write_flagged.status.code(), Some(0));
+    let flagged_check2 = fixture.run(&[
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--tiers",
+        "modules",
+        "--output",
+        "diagram.mmd",
+        "--check",
+    ]);
+    assert_eq!(
+        flagged_check2.status.code(),
+        Some(0),
+        "after writing the flagged bytes the check goes green"
+    );
+}
+
+// Risk scenario "a claim name can equal a unit name" — nodes never collapse.
+#[test]
+fn tiers_modules_claim_name_equal_unit_name_does_not_collapse() {
+    let fixture = module_artefact_fixture(Some(
+        r#"[project]
+language = "rust"
+
+[[module]]
+name = "Sample::Api"
+matches = { modules = ["Sample::Api::Billing"] }
+
+[module.allowed]
+depend_on = ["application-storage"]
+forbidden = []
+
+[[module]]
+name = "application-storage"
+matches = { modules = ["Sample::Application::Storage"] }
+
+[module.allowed]
+depend_on = ["data-db"]
+forbidden = []
+
+[[module]]
+name = "data-db"
+matches = { modules = ["Sample::Data::Db"] }
+
+[module.allowed]
+depend_on = []
+forbidden = []
+"#,
+    ));
+    let output = run_modules(&fixture, "mermaid");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    // The unit node Sample::Api and the module node with identity
+    // `Sample::Api` coexist: the module label carries the parenthesis, and
+    // both nodes keep their own id.
+    assert!(
+        out.contains(r#"["Sample::Api (Sample::Api::Billing)"]"#),
+        "module node keeps its dual label:\n{out}"
+    );
+    assert!(
+        out.contains(r#"["Sample::Api"]"#),
+        "the unit node stays present — no collapse:\n{out}"
     );
 }

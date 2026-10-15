@@ -16,7 +16,7 @@ A parse failure **aborts the run** — no diff is produced for a partially extra
 | no `architecture.spec.toml` found | the expected file name and where it was expected | non-zero |
 | spec is not valid TOML | the file and the TOML parse error | non-zero |
 | spec violates the schema | the file, the offending field/section, and why | non-zero |
-| module declares `contract.expose` (reserved key, enforced by no check) | the file, the module name, and that the key is reserved and unenforced | non-zero |
+| module declares an empty `contract.expose` entry | the file, the module name, and the empty entry position | non-zero |
 | constraint references an undeclared module | the file, the 1-indexed constraint number, and the undeclared module name | non-zero |
 | no supported-language sources found (recursively) | that no sources were found, and where | non-zero |
 | a source file fails to parse | the name of the failing file | non-zero |
@@ -47,9 +47,9 @@ error: invalid spec: ./architecture.spec.toml: expected `=` after key at line 3
 $ archspec verify ./bad-schema
 error: invalid spec: architecture.spec.toml: unknown constraint type "no_loops" in [constraint] #2
 
-# message names the module and why the reserved key is rejected
-$ archspec verify ./reserved-contract
-error: invalid spec: architecture.spec.toml: module "auth" declares contract.expose, which is reserved and enforced by no check; remove it (contract.forbid is enforced)
+# message names the module and the empty expose entry
+$ archspec verify ./empty-expose
+error: invalid spec: architecture.spec.toml: module "auth" has contract.expose entry #1: empty entries are not allowed
 
 # message names the constraint number and the undeclared module
 $ archspec verify ./undeclared-ref

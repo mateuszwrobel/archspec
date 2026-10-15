@@ -33,6 +33,7 @@ archspec diagram ./crates/auth
 - The scan artefact path is given as the argument to `--source scan`.
 - The artefact must exist and must be a valid model snapshot produced by `archspec scan` (the snapshot format is defined by the `scan` command's contract).
 - When a governing spec (`architecture.spec.toml`) is present in the project directory, extracted edges are checked against its constraints and violations are marked in the diagram (see `output.md`). When no spec is present, nothing is forbidden and no edges are marked.
+- The snapshot carries tiered structure: unit-tier edges always render; module-tier edges (`module_edges` in the snapshot) render only when `--tiers` lists `modules`. The selector is a render choice, not model state — it never changes what the snapshot contains or how `verify` reads it.
 
 ```bash
 # the project directory defaults to the current directory
@@ -54,6 +55,8 @@ archspec diagram ./crates/auth --source scan ./artifacts/model.json
 | model with no components/units to render | nothing to draw |
 | more than one positional argument | ambiguous target |
 | `--source scan` without an artefact path | the snapshot is not named |
+| `--tiers` with a value outside `units`, `modules`, a duplicate entry, or an empty list | the tier selector is closed: it names supported tiers or fails |
+| `--tiers` with `--source spec` | the spec source renders declared components at full depth; it has no tier vocabulary |
 
 Each rejection produces a clear message naming the cause and a non-zero exit (see `errors.md`).
 

@@ -179,7 +179,7 @@ fn help_roles_agrees_with_the_matrix() {
     let index = common::stdout(&run(&["help"]));
     assert!(index.contains("roles"), "help index:\n{index}");
     let error = run(&["help", "nope"]);
-    assert_eq!(error.status.code(), Some(1));
+    assert_eq!(error.status.code(), Some(64));
     assert!(
         common::stderr(&error).contains("roles"),
         "unknown-topic error:\n{}",
@@ -245,28 +245,32 @@ fn help_roles_agrees_with_the_matrix() {
 /// Scenario: skill text stops outranking the matrix
 #[test]
 fn skill_text_stops_outranking_the_matrix() {
-    let output = run(&["skill"]);
-    assert_eq!(output.status.code(), Some(0));
-    let skill = common::stdout(&output);
+    for args in [vec!["skill"], vec!["skill", "analysis"]] {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(0));
+        let skill = common::stdout(&output);
 
-    // The falsified enumeration is gone from the binary's own surface.
-    for falsified in [
-        "marks in `inspect tree` alone",
-        "api-usage stays silent on roles",
-    ] {
+        // The falsified enumeration is gone from the binary's own surface.
+        for falsified in [
+            "marks in `inspect tree` alone",
+            "api-usage stays silent on roles",
+        ] {
+            assert!(
+                !skill.contains(falsified),
+                "the `{}` text keeps no per-view marking enumeration beyond \
+                 the pointer; found {falsified:?}",
+                args.join(" ")
+            );
+        }
+
+        // The pointer sentence names the roles topic as the source.
         assert!(
-            !skill.contains(falsified),
-            "the skill text keeps no per-view marking enumeration beyond the \
-             pointer; found {falsified:?}"
+            skill.contains("help roles"),
+            "the `{}` text carries the registry pointer sentence naming \
+             `archspec help roles` as the source of roles-in-views facts:\n{skill}",
+            args.join(" ")
         );
     }
-
-    // The pointer sentence names the roles topic as the source.
-    assert!(
-        skill.contains("help roles"),
-        "the skill text carries the registry pointer sentence naming \
-         `archspec help roles` as the source of roles-in-views facts:\n{skill}"
-    );
 }
 
 

@@ -117,7 +117,7 @@ pub const LANGUAGE_NOTES: &[(&str, &str)] = &[
     ),
     (
         "go",
-        "  `matches.units` targets must be full import paths — a short package\n  name does not resolve there (verify then reports `unexpected component` /\n  `missing component`); module `name` values and `allowed.depend_on`\n  references may be short — references resolve to declared module names.\n  The module tier is derived from the tree's own packages, so a single\n  `go.mod` tree whose packages reference each other has one; `archspec\n  capability matrix` reports the fact.\n",
+        "  `matches.units` targets must be full import paths — a short package\n  name does not resolve there (verify then reports `unexpected component` /\n  `missing component`); module `name` values and `allowed.depend_on`\n  references may be short — references resolve to declared claim names at\n  any depth. The module tier is derived from the tree's own packages, so a\n  single `go.mod` tree whose packages reference each other has one;\n  `archspec capability matrix` reports the fact.\n",
     ),
 ];
 
@@ -327,10 +327,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             {
                 print!("{}", info.help);
             } else {
-                return Err(format!(
+                return Err(crate::archspec::cli::usage_error(format!(
                     "unknown help topic: {topic}\nvalid topics: {}\nrun 'archspec help'",
                     TOPICS.join(", ")
-                ));
+                )));
             }
         }
     }

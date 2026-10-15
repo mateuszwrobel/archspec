@@ -121,11 +121,10 @@ pub fn extract(root: &Path) -> Result<Model, String> {
             let normalized_ref = reference.replace('\\', "/");
             let reference_path = Path::new(&normalized_ref);
             let resolved = normalize(&project_dir.join(reference_path));
-            if let Some(name) = unit_by_csproj.get(&resolved) {
-                if from_key != resolved {
+            if let Some(name) = unit_by_csproj.get(&resolved)
+                && from_key != resolved {
                     edge_set.insert((from.clone(), name.clone()));
                 }
-            }
         }
     }
     let edges: Vec<Edge> = edge_set
@@ -241,11 +240,10 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         // Record namespace ownership for cross-project resolution. A namespace
         // second-declared by a different unit joins the ambiguity set.
         for ns in &namespaces {
-            if let Some(previous) = namespace_unit.get(ns) {
-                if previous != &unit.name {
+            if let Some(previous) = namespace_unit.get(ns)
+                && previous != &unit.name {
                     ambiguous_namespaces.insert(ns.clone());
                 }
-            }
             namespace_unit.insert(ns.clone(), unit.name.clone());
         }
         module_external.insert(unit.name.clone(), BTreeMap::new());
@@ -424,26 +422,29 @@ pub fn extract(root: &Path) -> Result<Model, String> {
                                     .extend(symbols);
                             }
                         }
-                        Some((prefix, owner)) => {
-                            // The same honesty guards as the using path: an
-                            // ambiguously declared prefix or an unreachable
-                            // owner could not compile — no source fact.
+                        // The same honesty guards as the using path: an
+                        // ambiguously declared prefix or an unreachable
+                        // owner could not compile — no source fact.
+                        Some((prefix, owner))
                             if !ambiguous_namespaces.contains(prefix)
                                 && reference_reach
                                     .get(unit.name.as_str())
-                                    .is_some_and(|reachable| reachable.contains(&owner))
-                            {
-                                let (to, symbols) = edge_target(prefix, reference);
-                                if from != to {
-                                    module_edge_map
-                                        .entry(unit.name.clone())
-                                        .or_default()
-                                        .entry((from.clone(), to))
-                                        .or_default()
-                                        .extend(symbols);
-                                }
+                                    .is_some_and(|reachable| reachable.contains(&owner)) =>
+                        {
+                            let (to, symbols) = edge_target(prefix, reference);
+                            if from != to {
+                                module_edge_map
+                                    .entry(unit.name.clone())
+                                    .or_default()
+                                    .entry((from.clone(), to))
+                                    .or_default()
+                                    .extend(symbols);
                             }
                         }
+                        // A guard below refused (ambiguously declared prefix
+                        // or an owner not reaching the symbol): no source
+                        // fact — the inner condition was the arm's body.
+                        Some(_) => {}
                         // Ownership miss (BCL/NuGet type used without a
                         // using): no edge and NO external attribution — by
                         // decision the external tier stays the using path's.
@@ -1043,11 +1044,10 @@ fn reference_reachability(edges: &[Edge]) -> BTreeMap<&str, BTreeSet<&str>> {
         let mut seen = BTreeSet::new();
         let mut queue: Vec<&str> = first_hops.clone();
         while let Some(current) = queue.pop() {
-            if seen.insert(current) {
-                if let Some(next) = adjacency.get(current) {
+            if seen.insert(current)
+                && let Some(next) = adjacency.get(current) {
                     queue.extend(next.iter().copied());
                 }
-            }
         }
         reachable.insert(*start, seen);
     }

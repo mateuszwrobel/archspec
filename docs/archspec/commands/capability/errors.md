@@ -1,10 +1,12 @@
 # `capability` — Failure Contract (Errors)
 
-Every failure prints `error: <message>` on stderr, nothing on stdout, and
-exits `1` (distinct failure codes are not part of the contract). One entry in
-the list is not a fault but a query answer: `not-granular` from the
-`granular` subcommand means the table row states something other than full
-granularity — exit `1` is the "no" answer, and guards treat it as such.
+Every failure prints `error: <message>` on stderr and nothing on stdout.
+Command-level failures exit `1` (distinct failure codes inside the command
+are not part of the contract); the universal usage class is the exception:
+an unknown flag exits `64`. One entry in the list is not a fault but a
+query answer: `not-granular` from the `granular` subcommand means the table
+row states something other than full granularity — exit `1` is the "no"
+answer, and guards treat it as such.
 
 ## Error conditions
 
@@ -17,7 +19,7 @@ granularity — exit `1` is the "no" answer, and guards treat it as such.
 | language not one of `rust`, `csharp`, `go` | `unknown language: <name>` | 1 |
 | fact not stated for that language in the table | `unknown fact for <language>: <fact>` | 1 |
 | row exists but is not full granularity | `not-granular` (query answer, not a fault) | 1 |
-| unknown flag | `unknown flag: --<name>` | 1 |
+| unknown flag | `unknown flag: --<name>` | 64 (usage class) |
 
 ## Examples
 

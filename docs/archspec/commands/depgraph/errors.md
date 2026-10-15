@@ -1,6 +1,6 @@
 # `depgraph` — Failure Contract (Errors)
 
-Every failure produces a clear human message naming the cause and exit code `1`. Messages go to stderr; stdout carries nothing and no partial body is written.
+Every failure produces a clear human message naming the cause. Messages go to stderr; stdout carries nothing and no partial body is written. View-level failures exit `1`; the universal usage class is the exception — an unknown flag exits `64` (usage).
 
 ## Error conditions
 

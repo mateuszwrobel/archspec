@@ -523,26 +523,26 @@
   - go: pass
 
 ## verify.submodule_contracts
-**Capability:** rust=implemented, csharp=implemented, go=not-implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented
 
 **Behaviors:**
 
 - **submodule_contract_leak_reported_under_submodule_path** — a contract.forbid stereotype surfacing under a submodule boundary leaks under the submodule's path
   - rust: pass
   - csharp: pass
-  - go: skipped (verify.submodule_contracts not implemented)
+  - go: pass
 - **go_submodule_contract_stereotype_needs_full_path_glob** — a submodule contract over go packages fires for a stereotype globbing the full import path under a parent that claims its units, and reads inert for a bare-name stereotype that matches no go unit
   - rust: skipped (project shape not applicable)
   - csharp: skipped (project shape not applicable)
-  - go: skipped (verify.submodule_contracts not implemented)
+  - go: pass
 - **forbidden_submodule_dependency_across_sibling_children** — an edge between sibling submodules banned by the parent constraint is reported with the submodule-dependency label
   - rust: pass
   - csharp: pass
-  - go: skipped (verify.submodule_contracts not implemented)
+  - go: pass
 - **forbidden_submodule_dependency_full_path_engages** — the same sibling-submodule ban expressed with full module-path from/forbid engages identically on every module-tier driver and is never reported vacuous
   - rust: pass
   - csharp: pass
-  - go: skipped (verify.submodule_contracts not implemented)
+  - go: pass
 
 ## cli.artefact_freshness
 **Capability:** rust=implemented, csharp=implemented, go=implemented

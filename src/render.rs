@@ -175,6 +175,59 @@ pub fn plantuml_violation_edge(from: &str, to: &str, label: &str) -> String {
     format!("{from} -[#red]-> {to} : {label}")
 }
 
+/// Mermaid-safe id for a module-tier node: the same sanitization as
+/// `mermaid_id`, but the hash input is salted with the tier, so a module
+/// node whose identity equals a unit's raw name can never share an id with
+/// the unit node — the two tiers cannot collapse into one node (scan-diagram
+/// module-tier plan, risk mitigation: id disambiguation is an id-construction
+/// detail; identity and label grep-ability are unaffected).
+pub fn mermaid_module_id(name: &str) -> String {
+    let sanitized = mermaid_escape(name);
+    let hex = format!("{:016x}", fnv1a64(&format!("modules:{name}")));
+    format!("{sanitized}_{}", &hex[..8])
+}
+
+/// Render a module-tier mermaid node line: id from `mermaid_module_id`, the
+/// visible label carrying identity and path
+/// (`api-billing (Sample::Api::Billing)`) for claim-owned endpoints or the
+/// raw path for unowned ones.
+pub fn mermaid_module_node(identity: &str, label: &str) -> String {
+    format!(
+        "{}[\"{}\"]",
+        mermaid_module_id(identity),
+        quoted_escape(label)
+    )
+}
+
+/// Render a module-tier mermaid edge referencing module ids only.
+pub fn mermaid_module_edge(from: &str, to: &str) -> String {
+    format!(
+        "{} --> {}",
+        mermaid_module_id(from),
+        mermaid_module_id(to)
+    )
+}
+
+/// Render a module-tier mermaid violation edge with an inline label.
+pub fn mermaid_module_labeled_edge(from: &str, to: &str, label: &str) -> String {
+    format!(
+        "{} -.->|{label}| {}",
+        mermaid_module_id(from),
+        mermaid_module_id(to)
+    )
+}
+
+/// Render a plantuml violation edge between quoted, escaped names (the
+/// module tier declares its components quoted, so the violation grammar
+/// needs the same quoting to bind to the declared component).
+pub fn plantuml_quoted_violation_edge(from: &str, to: &str, label: &str) -> String {
+    format!(
+        "\"{}\" -[#red]-> \"{}\" : {label}",
+        quoted_escape(from),
+        quoted_escape(to)
+    )
+}
+
 /// Render a plantuml component declaration carrying a stereotype marker on a
 /// BARE identifier (the role a roles map states for this model path, in the
 /// views that declare components bare — `diagram --source scan`). The edges

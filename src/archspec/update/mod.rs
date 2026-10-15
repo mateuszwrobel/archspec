@@ -226,8 +226,8 @@ pub fn seed_spec(model: &Model) -> String {
             "matches = {{ modules = [\"{}\"] }}\n",
             toml_escape(path)
         ));
-        if let Some(targets) = module_targets.get(path.as_str()) {
-            if !targets.is_empty() {
+        if let Some(targets) = module_targets.get(path.as_str())
+            && !targets.is_empty() {
                 let rendered = targets
                     .iter()
                     .map(|target| format!("\"{}\"", toml_escape(target)))
@@ -235,7 +235,6 @@ pub fn seed_spec(model: &Model) -> String {
                     .join(", ");
                 out.push_str(&format!("allowed = {{ depend_on = [{rendered}] }}\n"));
             }
-        }
     }
 
     // `feature_boundary` constraints (acceptance #19): a top-level module
@@ -348,8 +347,8 @@ fn seed_go_members(model: &Model) -> String {
             .collect::<Vec<_>>()
             .join(", ");
         out.push_str(&format!("matches = {{ units = [{units}] }}\n"));
-        if let Some(targets) = member_dependencies.get(member) {
-            if !targets.is_empty() {
+        if let Some(targets) = member_dependencies.get(member)
+            && !targets.is_empty() {
                 let rendered = targets
                     .iter()
                     .map(|target| format!("\"{}\"", toml_escape(target)))
@@ -357,7 +356,6 @@ fn seed_go_members(model: &Model) -> String {
                     .join(", ");
                 out.push_str(&format!("allowed = {{ depend_on = [{rendered}] }}\n"));
             }
-        }
     }
 
     // Same global cycle guard as the general seed.
@@ -422,8 +420,8 @@ fn seed_go_packages(model: &Model) -> String {
         out.push_str("[[module]]\n");
         out.push_str(&format!("name = \"{}\"\n", toml_escape(unit)));
         out.push_str(&format!("matches = {{ units = [\"{}\"] }}\n", toml_escape(unit)));
-        if let Some(targets) = dependencies.get(*unit) {
-            if !targets.is_empty() {
+        if let Some(targets) = dependencies.get(*unit)
+            && !targets.is_empty() {
                 let rendered = targets
                     .iter()
                     .map(|target| format!("\"{}\"", toml_escape(target)))
@@ -431,7 +429,6 @@ fn seed_go_packages(model: &Model) -> String {
                     .join(", ");
                 out.push_str(&format!("allowed = {{ depend_on = [{rendered}] }}\n"));
             }
-        }
     }
 
     // Same global cycle guard as the general seed.

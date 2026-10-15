@@ -97,8 +97,9 @@ fn skip_row(language: &str, fact: &str) -> String {
 }
 
 /// The feature-matrix entry point: runs every shared scenario against every
-/// language driver, asserts the gate (no "fail" on an implemented feature), and
-/// writes the report files.
+/// language driver, asserts the gate (no "fail" on an implemented feature),
+/// regenerates the report files into the target directory, and asserts that
+/// the committed report files match the regenerated ones byte for byte.
 #[test]
 fn feature_matrix() {
     let (report, failures) = matrix_run();
@@ -155,12 +156,39 @@ fn merge_behavior(feature: &mut shared::report::FeatureReport, behavior: Behavio
     }
 }
 
+/// Regenerate the report files into a writable location and keep the
+/// committed payload artifacts honest. A containerized gate leg mounts the
+/// checkout read-only, so the test writes the rendered reports under the
+/// target directory (`CARGO_TARGET_DIR` when set, else `<manifest>/target`)
+/// and then compares each rendered report against the committed artifact in
+/// the source tree — reading a read-only source is legal, writing into it is
+/// not. A stale committed artifact fails here and names the regenerated copy
+/// to carry over it.
 fn write_reports(report: &shared::report::MatrixReport) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let json = shared::report::report_to_json(report);
-    std::fs::write(root.join("feature-matrix.json"), &json).expect("write feature-matrix.json");
-    let markdown = shared::report::report_to_markdown(report);
-    std::fs::write(root.join("feature-matrix.md"), &markdown).expect("write feature-matrix.md");
+    let target = match std::env::var("CARGO_TARGET_DIR") {
+        Ok(dir) if !dir.is_empty() => std::path::PathBuf::from(dir),
+        _ => root.join("target"),
+    };
+    let out = target.join("feature-matrix");
+    std::fs::create_dir_all(&out).expect("create the feature-matrix output directory");
+    for (name, rendered) in [
+        ("feature-matrix.json", shared::report::report_to_json(report)),
+        ("feature-matrix.md", shared::report::report_to_markdown(report)),
+    ] {
+        let regenerated = out.join(name);
+        std::fs::write(&regenerated, &rendered)
+            .unwrap_or_else(|e| panic!("write {}: {e}", regenerated.display()));
+        let committed = root.join(name);
+        let stored = std::fs::read_to_string(&committed)
+            .unwrap_or_else(|e| panic!("read committed {}: {e}", committed.display()));
+        assert_eq!(
+            stored, rendered,
+            "committed {name} is stale: copy {} over {} and commit it",
+            regenerated.display(),
+            committed.display(),
+        );
+    }
 }
 /// Every diagnostic category `archspec verify` can render. The labels mirror
 /// the finding strings emitted by `src/archspec/verify/compare.rs`

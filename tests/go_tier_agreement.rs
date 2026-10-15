@@ -49,6 +49,7 @@ fn other_surfaces() -> Vec<(String, String)> {
         surfaces.push((format!("help {command}"), help_surface(&["help", command])));
     }
     surfaces.push(("skill".to_string(), help_surface(&["skill"])));
+    surfaces.push(("skill analysis".to_string(), help_surface(&["skill", "analysis"])));
     surfaces.retain(|(name, _)| name != "help languages");
     surfaces.push(("depgraph --help".to_string(), help_surface(&["depgraph", "--help"])));
     surfaces

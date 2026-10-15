@@ -756,31 +756,48 @@ fn verify_no_cycles_without_severity_defaults_to_error() {
     assert!(stderr(&output).is_empty(), "no stderr on rule violation");
 }
 
-/// `contract.expose` is parsed but enforced by no check; declaring it would
-/// give false comfort, so the loader rejects its presence until an
-/// enforcement exists. `contract.forbid` is enforced and stays accepted.
+/// `contract.expose` is accepted and enforced: declaring it is a schema
+/// error no more, and on the C#-class fact source a module that declares
+/// its exact exported surface verifies clean. On rust the symbol arm has no
+/// module-tier public-API facts yet (named follow-up plan), so the run stays
+/// green but states that vacuity instead of a bare `ok:` (D7/D13).
+/// `contract.forbid` stays enforced alongside it.
 #[test]
-fn verify_contract_expose_is_a_schema_error() {
-    let fixture = auth_crate_fixture();
+fn verify_contract_expose_is_accepted_and_enforced() {
+    let fixture = common::Fixture::new();
+    fixture.write("Cargo.toml", "[workspace]\nmembers = [\"crates/auth\"]\n");
+    fixture.write(
+        "crates/auth/Cargo.toml",
+        "[package]\nname = \"auth\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "crates/auth/src/lib.rs",
+        "pub struct Report;\npub struct Secret;\n",
+    );
     fixture.write(
         "architecture.spec.toml",
-        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"auth\"] }\ncontract = { expose = [\"domain\"] }\n",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"auth\"] }\ncontract = { expose = [\"Report\", \"Secret\"] }\n",
     );
     let output = fixture.run(&["verify"]);
 
-    assert_ne!(output.status.code(), Some(0));
-    let err = stderr(&output);
-    assert!(
-        err.contains("invalid spec:") && err.contains("contract.expose"),
-        "must reject the unenforced field:\n{err}"
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a complete expose contract must verify green (stderr: {})",
+        stderr(&output)
     );
-    assert!(stdout(&output).is_empty(), "no report on operational error");
+    let out = stdout(&output);
+    assert!(
+        out.contains("[contract.expose of auth]: no module-tier public-API facts"),
+        "the rust symbol arm states its vacuity, green (D7):\n{out}"
+    );
+    assert!(stderr(&output).is_empty(), "no stderr on pass");
 }
 
-/// Presence — not emptiness — signals an unenforced contract, so an empty
-/// `expose` list is rejected exactly like a populated one.
+/// An empty `expose` list declares the empty surface: accepted like a
+/// populated one (the set is exact, and the empty set is a set).
 #[test]
-fn verify_contract_expose_empty_list_is_a_schema_error() {
+fn verify_contract_expose_empty_list_is_accepted() {
     let fixture = auth_crate_fixture();
     fixture.write(
         "architecture.spec.toml",
@@ -788,18 +805,17 @@ fn verify_contract_expose_empty_list_is_a_schema_error() {
     );
     let output = fixture.run(&["verify"]);
 
-    assert_ne!(output.status.code(), Some(0));
     let err = stderr(&output);
     assert!(
-        err.contains("invalid spec:") && err.contains("contract.expose"),
-        "presence of expose must be rejected even when empty:\n{err}"
+        !err.contains("invalid spec:") && !err.contains("contract.expose"),
+        "an empty expose list must load cleanly (surface findings live in the report):\n{err}"
     );
 }
 
-/// The rejection recurses: a submodule cannot launder `expose` past the
-/// top-level check.
+/// Acceptance recurses: a submodule cannot launder past the top level,
+/// and the top level no longer rejects — nested expose is enforced too.
 #[test]
-fn verify_submodule_contract_expose_is_a_schema_error() {
+fn verify_submodule_contract_expose_is_accepted() {
     let fixture = auth_crate_fixture();
     fixture.write(
         "architecture.spec.toml",
@@ -807,18 +823,16 @@ fn verify_submodule_contract_expose_is_a_schema_error() {
     );
     let output = fixture.run(&["verify"]);
 
-    assert_ne!(output.status.code(), Some(0));
     let err = stderr(&output);
     assert!(
-        err.contains("invalid spec:") && err.contains("contract.expose"),
-        "nested expose must be rejected:\n{err}"
+        !err.contains("invalid spec:") && !err.contains("contract.expose"),
+        "nested expose must load cleanly:\n{err}"
     );
 }
 
-/// Presence triggers at the submodule level too: an empty nested list is a
-/// schema error like its populated sibling.
+/// An empty nested list is accepted like its populated sibling.
 #[test]
-fn verify_submodule_contract_expose_empty_list_is_a_schema_error() {
+fn verify_submodule_contract_expose_empty_list_is_accepted() {
     let fixture = auth_crate_fixture();
     fixture.write(
         "architecture.spec.toml",
@@ -826,11 +840,10 @@ fn verify_submodule_contract_expose_empty_list_is_a_schema_error() {
     );
     let output = fixture.run(&["verify"]);
 
-    assert_ne!(output.status.code(), Some(0));
     let err = stderr(&output);
     assert!(
-        err.contains("invalid spec:") && err.contains("contract.expose"),
-        "nested empty expose must be rejected:\n{err}"
+        !err.contains("invalid spec:") && !err.contains("contract.expose"),
+        "nested empty expose must load cleanly:\n{err}"
     );
 }
 
@@ -1998,10 +2011,14 @@ fn verify_go_declared_grouping_enforces_submodule_contract() {
     write_go_package(&fixture, "auth", "auth", &["example.com/demo/auth/entity"]);
     write_go_package(&fixture, "auth/entity", "entity", &[]);
     let base = "[project]\nlanguage = \"go\"\n\n[[stereotype]]\nname = \"entity\"\nmatch = { paths = [\"example.com/demo/auth/entity\"] }\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"example.com/demo/auth\", \"example.com/demo/auth/entity\"] }\n";
+    // Submodules claim the module tier only, so the enforceable boundary
+    // vocabulary on a single-module go tree is the boundary's package path:
+    // the contract surface is the parent's claimed territory seen through
+    // that boundary.
     fixture.write(
         "architecture.spec.toml",
         &format!(
-            "{base}\n[[module.submodules]]\nname = \"auth::entity\"\nmatches = {{ units = [\"example.com/demo/auth/entity\"] }}\n\n[module.submodules.contract]\nforbid = [\"entity\"]\n"
+            "{base}\n[[module.submodules]]\nname = \"auth::entity\"\nmatches = {{ modules = [\"example.com/demo/auth/entity\"] }}\n\n[module.submodules.contract]\nforbid = [\"entity\"]\n"
         ),
     );
     assert_divergent(
@@ -2009,28 +2026,30 @@ fn verify_go_declared_grouping_enforces_submodule_contract() {
         &["contract leak: auth::entity exposes entity (forbidden)"],
     );
 
-    // Contrast leg: the same contract with the boundary declared through
-    // `matches.modules` naming the package path. The native single-module tier
-    // has no soft paths, so the boundary matches nothing, no constraint runs,
-    // and the run is clean — the enforcement above must come from the unit
-    // claim, not from this vocabulary.
+    // Contrast leg: a contract on a name-only submodule addresses no
+    // boundary, so it enforces nothing — and the run never passes silently:
+    // the claim-engagement warning names it.
     fixture.write(
         "architecture.spec.toml",
         &format!(
-            "{base}\n[[module.submodules]]\nname = \"auth::entity\"\nmatches = {{ modules = [\"example.com/demo/auth/entity\"] }}\n\n[module.submodules.contract]\nforbid = [\"entity\"]\n"
+            "{base}\n[[module.submodules]]\nname = \"auth::entity\"\n\n[module.submodules.contract]\nforbid = [\"entity\"]\n"
         ),
     );
     let inert = fixture.run(&["verify"]);
     assert_eq!(
         inert.status.code(),
         Some(0),
-        "module-path boundary must stay inert on a single-module go tree (stderr: {})",
+        "a name-only submodule contract must stay inert on a single-module go tree (stderr: {})",
         stderr(&inert)
     );
+    let out = stdout(&inert);
     assert!(
-        !stdout(&inert).contains("contract leak"),
-        "the inert vocabulary must not report a leak:\n{}",
-        stdout(&inert)
+        !out.contains("contract leak"),
+        "the inert vocabulary must not report a leak:\n{out}"
+    );
+    assert!(
+        out.contains("unmatched claim: auth::entity"),
+        "the inert claim must surface as unmatched:\n{out}"
     );
 }
 

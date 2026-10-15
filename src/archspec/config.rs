@@ -86,12 +86,11 @@ pub fn route(flag: Option<&str>, configured: Option<&str>, root: &Path, human: b
 /// Write `content` to `path`, creating parent directories when the destination
 /// is a nested path (e.g. a configured `docs/archspec/report.md` default).
 pub fn write(path: &Path, content: &str, kind: &str) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)
                 .map_err(|err| format!("failed to write {kind} to {}: {err}", path.display()))?;
         }
-    }
     std::fs::write(path, content)
         .map_err(|err| format!("failed to write {kind} to {}: {err}", path.display()))
 }
@@ -167,11 +166,10 @@ fn status(configured: &Option<PathBuf>, written: Option<&Path>, human: bool) -> 
     if let Some(path) = written {
         return Some(format!("wrote {}", spell(path)));
     }
-    if human {
-        if let Some(path) = configured.as_deref() {
+    if human
+        && let Some(path) = configured.as_deref() {
             return Some(format!("note: destination {} not written", spell(path)));
         }
-    }
     None
 }
 

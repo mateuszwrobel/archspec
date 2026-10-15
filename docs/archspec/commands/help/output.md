@@ -90,8 +90,10 @@ supporting `doctor`, `init`, `update` commands mentioned.
 The catalog of every `verify`/`report` finding category. It opens with the
 origin legend (`code` → code-fix, `spec` → spec-fix, `intent` →
 architecture-rework) and the severity + exit-code contract (`error` → exit 1,
-`warning` → exit 0 unless `--strict` promotes it), then the required REPORT
-FORMAT (finding / evidence / resolution / follow-up). Each category block names
+`warning` → exit 0 unless `--strict` promotes it; the universal classes ride
+along: `exit 64` for usage mistakes, `exit 70` for a missing spec), then the
+required REPORT FORMAT (finding / evidence / resolution / follow-up). Each
+category block names
 the verbatim message pattern emitted by `verify/compare.rs` (`render_report`,
 its `format!` bodies, and the `report::diff_items` labels), its meaning, origin,
 severity + `--strict` behaviour, the first follow-up command (`scan` /

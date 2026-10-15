@@ -30,7 +30,10 @@ the sole path for all non-rust drivers; the rust driver is untouched.
 
 - **The flag disappears rather than deprecating**: `--backend` is removed from
   every command; passing any value produces the standard
-  `unknown flag: --backend` error, exit 1. A flag accepting one value is
+  `unknown flag: --backend` error, exit 1 at the time of this decision
+  (amended 2026-10-09: the universal usage class moved the standard
+  unknown-flag error to exit 64; the removal decision itself stands
+  unchanged). A flag accepting one value is
   documentation noise, and erroring helpfully on old values is migration
   theater for consumers that do not exist.
 - **The breaking change collapses into unreleased 0.5.0**: model shapes change

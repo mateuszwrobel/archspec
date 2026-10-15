@@ -62,7 +62,21 @@
 //! - `class_declaration` / `interface_declaration` / `struct_declaration` /
 //!   `enum_declaration` / `record_declaration` — field `name:` collected as
 //!   the namespace's DECLARED TYPE symbols (the precision anchor for bare
-//!   resolution).
+//!   resolution). BODY-SHAPE table (verified against parse dumps AND against
+//!   the released 0.5.2 binary during the GitHub issue #2 investigation):
+//!   the grammar gives the `;` body alternative to `record_declaration`
+//!   ONLY — positional `record X(...);`, braced, bodiless `record X;`,
+//!   `record struct`, `record class`, partial/generic/`where`/base/attribute
+//!   spellings all dump to `record_declaration` and are collected in every
+//!   body shape. The other four kinds REQUIRE a braced body
+//!   (`declaration_list`, `enum_member_declaration_list`), so the legal
+//!   current-C# spellings `class X;`, `class X(int A);`, `struct X(int A);`,
+//!   `interface I;`, `enum E;` dump to NO declaration node: an `ERROR`
+//!   fragment (`modifier`* + bare `identifier`, optionally `parameter_list`;
+//!   the `;` reparses as a sibling `empty_statement`). Facts are never
+//!   invented from ERROR fragments — a stray `public Foo;` garbage dumps to
+//!   the same shape — so those spellings contribute nothing, the bounded gap
+//!   welded in the public-api suite (workplan csharp_declaration_bodies).
 //!
 //! Exclusions: `type_parameter_constraints_clause` (`where T : X`) subtrees
 //! contribute nothing (by decision, explicit where-constraints are not type
@@ -324,11 +338,10 @@ impl FileFacts {
                 Some(child) => child,
                 None => continue,
             };
-            if let Some(field) = node.field_name_for_child(index as u32) {
-                if skip.contains(&field) {
+            if let Some(field) = node.field_name_for_child(index as u32)
+                && skip.contains(&field) {
                     continue;
                 }
-            }
             if matches!(child.kind(), "qualified_name" | "alias_qualified_name")
                 && matches!(
                     child.parent().map(|parent| parent.kind()),
@@ -418,8 +431,8 @@ impl FileFacts {
         if let Some(reference) = dotted_chain(node, source) {
             self.record_qualified(reference);
         }
-        if let Some(expression) = node.child_by_field_name("expression") {
-            if matches!(
+        if let Some(expression) = node.child_by_field_name("expression")
+            && matches!(
                 expression.kind(),
                 "identifier" | "member_access_expression"
             ) {
@@ -431,7 +444,6 @@ impl FileFacts {
                     self.record_bare(node_text(&root, source));
                 }
             }
-        }
         self.walk_children(node, source, &[]);
     }
 
@@ -584,10 +596,10 @@ fn using_target(directive: &Node<'_>, source: &str) -> Option<String> {
 /// consult another file's directives, documented approximation).
 fn has_global_token(directive: &Node<'_>) -> bool {
     let mut cursor = directive.walk();
-    let global = directive
+    
+    directive
         .children(&mut cursor)
-        .any(|child| child.kind() == "global");
-    global
+        .any(|child| child.kind() == "global")
 }
 
 /// True when a type declaration node states the `public` modifier explicitly:
@@ -606,13 +618,13 @@ fn declares_public(node: &Node<'_>, source: &str) -> bool {
         return true;
     }
     let mut cursor = node.walk();
-    let grouped = node.children(&mut cursor).any(|child| {
+    
+    node.children(&mut cursor).any(|child| {
         child.kind() == "modifiers"
             && node_text(&child, source)
                 .split_whitespace()
                 .any(|word| word == "public")
-    });
-    grouped
+    })
 }
 
 /// Node text to a dotted name: `@verbatim` markers stripped and `::`

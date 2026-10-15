@@ -1,7 +1,7 @@
 mod archspec;
 
 #[cfg(unix)]
-extern "C" {
+unsafe extern "C" {
     fn signal(signum: i32, handler: usize) -> usize;
 }
 

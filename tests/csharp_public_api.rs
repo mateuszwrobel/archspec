@@ -27,7 +27,11 @@ fn xunit_csproj() -> &'static str {
 /// contract namespace from a leaked implementation namespace. The class
 /// bodies use `{ }`: the grammar produces no type declaration node for a
 /// bodiless `class X;` spelling (same pre-existing shape as the
-/// declared-type anchor), so the canonical body form is welded here.
+/// declared-type anchor), so the canonical body form is welded here. Records
+/// are NOT bound by that shape: `record_declaration` carries a
+/// `declaration_list | ';'` body, so record declarations land in every body
+/// shape (GitHub issue #2 investigation — see
+/// `record_declarations_emit_facts_in_every_body_shape`).
 fn issue_repro_tree() -> common::Fixture {
     let fixture = common::Fixture::new();
     fixture.write("Sample/Sample.csproj", &csproj("net8.0"));
@@ -139,10 +143,14 @@ fn kinds_partials_and_nested_types_are_the_public_surface() {
         "Lib/Nested.cs",
         "namespace Lib.Api;\npublic class Outer { public class Inner { } internal class HiddenInner { } }\n",
     );
-    // Grammar note (plan US 01): a bodiless `public sealed class Trailing;`
-    // is NOT a type declaration node in this grammar version (the
-    // pre-existing declared-type anchor misses it too), so that spelling
-    // emits no fact; this test welds the forms the grammar resolves.
+    // Grammar note (plan US 01, refined by the GitHub issue #2 investigation):
+    // a bodiless `public sealed class Trailing;` is NOT a type declaration
+    // node in this grammar version (the pre-existing declared-type anchor
+    // misses it too), so that spelling emits no fact; the same bound covers
+    // `;`-bodied `interface`/`struct`/`enum` spellings (workplan
+    // csharp_declaration_bodies). Record declarations carry a
+    // `declaration_list | ';'` body in the grammar and land in EVERY shape —
+    // welded by `record_declarations_emit_facts_in_every_body_shape`.
     let facts = public_type_facts(&fixture);
     assert_eq!(
         facts["Lib::Api"],
@@ -167,6 +175,110 @@ fn kinds_partials_and_nested_types_are_the_public_surface() {
                 .any(|v| v.as_str().is_some_and(|s| s.contains("NotApi"))))
             .unwrap_or(false),
         "modifier-less and internal types are not API: {facts}"
+    );
+}
+
+/// GitHub issue #2 verbatim scan repro: the brace-bodied record control in
+/// the contracts namespace and the SEMICOLON-BODIED positional record in the
+/// implementation namespace. The report claimed the second emits no fact;
+/// the pinned grammar gives the record family its own `record_declaration`
+/// node whose body is `declaration_list | ';'`, so both shapes emit facts
+/// (the enforcement half of the repro lives in
+/// `csharp_public_api_allowlist::issue_two_semicolon_bodied_record...`).
+#[test]
+fn issue_two_record_body_shapes_both_emit_facts() {
+    let fixture = common::Fixture::new();
+    fixture.write("Sample/Sample.csproj", &csproj("net8.0"));
+    fixture.write(
+        "Sample/Contracts.cs",
+        "namespace Sample.Contracts;\npublic sealed record BraceBodiedContract(string Id) { }\n",
+    );
+    fixture.write(
+        "Sample/Implementation.cs",
+        "namespace Sample.Implementation;\npublic sealed record SemicolonBodiedLeak(string Id);\n",
+    );
+    let facts = public_type_facts(&fixture);
+    assert_eq!(
+        facts,
+        serde_json::json!({
+            "Sample::Contracts": ["BraceBodiedContract"],
+            "Sample::Implementation": ["SemicolonBodiedLeak"],
+        }),
+        "both record body shapes emit public-API facts — body shape never \
+         decides detection: {facts}"
+    );
+}
+
+/// The record-family matrix (GitHub issue #2 asks the regression to cover
+/// every declaration shape): positional with and without trailing semicolon,
+/// braced, bodiless `record X;`, positional `record struct`, positional
+/// `record class`, a partial split across a semicolon and a braced part,
+/// generic positional, `where`-claused, attributed, and one nested in a
+/// public class. Every shape dumps to `record_declaration` in the pinned
+/// grammar, so every shape emits its fact; the partial dedupes and the
+/// nested type qualifies through its parent like every other kind.
+#[test]
+fn record_declarations_emit_facts_in_every_body_shape() {
+    let fixture = common::Fixture::new();
+    fixture.write("Lib/Lib.csproj", &csproj("net8.0"));
+    fixture.write(
+        "Lib/Records.cs",
+        "namespace Lib.Records;\npublic sealed record PositionalSemi(string Id);\npublic record PositionalBraced(int X) { }\npublic record Braced { }\npublic record BodilessRecord;\npublic record struct PositionalStruct(int X, int Y);\npublic record class PositionalClass(int X);\npublic partial record SplitPart(int X);\npublic partial record SplitPart { }\npublic record Generic<T>(T V);\npublic record WhereClaused<T>(T V) where T : class;\n[Obsolete]\npublic record Attributed(int X);\npublic class Outer { public sealed record Nested(int X); }\n",
+    );
+    let facts = public_type_facts(&fixture);
+    assert_eq!(
+        facts["Lib::Records"],
+        serde_json::json!([
+            "Attributed",
+            "BodilessRecord",
+            "Braced",
+            "Generic",
+            "Outer",
+            "Outer.Nested",
+            "PositionalBraced",
+            "PositionalClass",
+            "PositionalSemi",
+            "PositionalStruct",
+            "SplitPart",
+            "WhereClaused",
+        ]),
+        "every public record spelling lands regardless of body shape, the \
+         partial parts dedupe and the nested record qualifies through its \
+         parent: {facts}"
+    );
+}
+
+/// The real boundary the GitHub issue #2 investigation found. The grammar
+/// offers the `;` body alternative to RECORDS only: `class_declaration`,
+/// `struct_declaration` and `interface_declaration` REQUIRE a braced
+/// `declaration_list` body and `enum_declaration` a braced
+/// `enum_member_declaration_list`, so `class X;`, `class X(int A);`,
+/// `struct X(int A);`, `interface I;` and `enum E;` produce NO declaration
+/// node — they parse to ERROR fragments (children: `modifier`* plus a bare
+/// `identifier` name, optionally a `parameter_list`; the `;` reparses as a
+/// sibling `empty_statement`). Facts are never invented from error recovery:
+/// garbage like a stray `public Foo;` dumps to the same fragment shape, so
+/// declaring types from ERROR children would attribute public API to
+/// unparsable code. The weld doubles as the adjacency proof — an ERROR
+/// fragment never swallows a neighbouring record's fact — and as the
+/// grammar-upgrade tripwire: should a future grammar emit declaration nodes
+/// for these spellings, this weld flips first and the bounded-gap notes in
+/// the workplan csharp_declaration_bodies family must be re-verified.
+#[test]
+fn semicolon_bodied_non_record_declarations_are_grammar_bounded() {
+    let fixture = common::Fixture::new();
+    fixture.write("Bound/Bound.csproj", &csproj("net8.0"));
+    fixture.write(
+        "Bound/Bounded.cs",
+        "namespace Bound.Shapes;\npublic sealed class SemicolonClass;\npublic sealed record RecordBetween1(int A);\npublic class CtorLikeClass(int B);\npublic interface IBodiless;\npublic record struct RecordBetween2(int C);\npublic struct CtorLikeStruct(int D);\npublic enum EBodiless;\npublic record RecordBetween3(int E);\n",
+    );
+    let facts = public_type_facts(&fixture);
+    assert_eq!(
+        facts["Bound::Shapes"],
+        serde_json::json!(["RecordBetween1", "RecordBetween2", "RecordBetween3"]),
+        "records land between grammar ERROR fragments; the `;`-bodied \
+         class/interface/struct/enum spellings emit no fact (no declaration \
+         node exists for them): {facts}"
     );
 }
 

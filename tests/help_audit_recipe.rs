@@ -390,6 +390,10 @@ fn rendered_surfaces() -> Vec<(String, String)> {
         ));
     }
     surfaces.push(("skill".to_string(), common::stdout(&fixture.run(&["skill"]))));
+    surfaces.push((
+        "skill analysis".to_string(),
+        common::stdout(&fixture.run(&["skill", "analysis"])),
+    ));
     surfaces
 }
 

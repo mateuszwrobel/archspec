@@ -83,7 +83,11 @@ fn no_args_prints_command_list() {
     let fixture = Fixture::new();
     let output = fixture.run(&[]);
 
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "no arguments is a usage error: exit 64 while the command list prints"
+    );
     let out = stdout(&output);
     for (name, _) in COMMANDS {
         assert!(
@@ -167,7 +171,11 @@ fn unknown_command_errors_with_hint() {
     let fixture = Fixture::new();
     let output = fixture.run(&["bogus"]);
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "unknown command is a usage error: exit 64"
+    );
     let err = stderr(&output);
     assert!(
         err.contains("error: unknown command: bogus"),
@@ -184,7 +192,11 @@ fn unknown_command_with_help_errors() {
     let fixture = Fixture::new();
     let output = fixture.run(&["bogus", "--help"]);
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "unknown command is a usage error: exit 64"
+    );
     assert!(
         stderr(&output).contains("error: unknown command: bogus"),
         "unknown command must still error:\n{}",
@@ -239,7 +251,11 @@ fn version_early_return_leaves_unknown_command_refusal_intact() {
     // the new early return may not swallow the unknown-command path.
     let output = fixture.run(&["--verbose"]);
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "an unknown flag is a usage error: exit 64"
+    );
     assert!(
         stderr(&output).contains("error: unknown command: --verbose"),
         "unknown flags outside --version must still be refused:\n{}",
@@ -871,7 +887,7 @@ fn help_bogus_errors_naming_topic_and_valid_topics() {
     let fixture = Fixture::new();
     let output = fixture.run(&["help", "bogus"]);
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(64));
     let err = stderr(&output);
     assert!(err.contains("bogus"), "must name the unknown topic:\n{err}");
     for topic in TOPICS {
@@ -1066,7 +1082,7 @@ fn help_diagnostics_unknown_topic_still_errors_listing_diagnostics() {
     let fixture = Fixture::new();
     let output = fixture.run(&["help", "bogus"]);
 
-    assert_eq!(output.status.code(), Some(1), "unknown topic must exit 1");
+    assert_eq!(output.status.code(), Some(64), "unknown topic must exit 64");
     let err = stderr(&output);
     assert!(err.contains("bogus"), "must name the unknown topic:\n{err}");
     assert!(

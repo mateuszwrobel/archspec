@@ -92,6 +92,7 @@ fn rendered_surfaces() -> Vec<(String, String)> {
         ));
     }
     surfaces.push(("skill".to_string(), help_surface(&["skill"])));
+    surfaces.push(("skill analysis".to_string(), help_surface(&["skill", "analysis"])));
     surfaces
 }
 

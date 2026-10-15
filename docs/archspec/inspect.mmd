@@ -119,6 +119,7 @@ graph TD
     src_render_rs_8e751ed1 ~~~ src_archspec_capability_rs_d60fec76
   end
   subgraph tests
+    tests_agents_guide_reporting_rs_c2c89bc7["tests/agents_guide_reporting.rs"]
     tests_blind4_check_ok_line_rs_dcb37f3e["tests/blind4_check_ok_line.rs"]
     tests_blind4_fold_pointer_rs_4b371a86["tests/blind4_fold_pointer.rs"]
     tests_blind4_oneliners_rs_b0a3960e["tests/blind4_oneliners.rs"]
@@ -143,8 +144,10 @@ graph TD
     tests_depgraph_rs_70116f64["tests/depgraph.rs"]
     tests_depgraph_reasons_rs_28dac1e5["tests/depgraph_reasons.rs"]
     tests_diagram_rs_b546d08e["tests/diagram.rs"]
+    tests_diagram_modules_rs_2a47643b["tests/diagram_modules.rs"]
     tests_doc_surface_nits_rs_cdb2ac7d["tests/doc_surface_nits.rs"]
     tests_doctor_rs_5bb74127["tests/doctor.rs"]
+    tests_exit_taxonomy_rs_975de231["tests/exit_taxonomy.rs"]
     tests_extraction_freeze_rs_ff26bd53["tests/extraction_freeze.rs"]
     tests_feature_matrix_rs_91dd71b6["tests/feature_matrix.rs"]
     tests_go_syntax_rs_dcc778f7["tests/go_syntax.rs"]
@@ -173,6 +176,9 @@ graph TD
     tests_vacuous_guards_rs_dd44012c["tests/vacuous_guards.rs"]
     tests_verify_rs_ca0c67e6["tests/verify.rs"]
     tests_verify_constraints_rs_885d1ae0["tests/verify_constraints.rs"]
+    tests_verify_expose_rs_869304f2["tests/verify_expose.rs"]
+    tests_verify_submodules_rs_c8522173["tests/verify_submodules.rs"]
+    tests_agents_guide_reporting_rs_c2c89bc7 ~~~ tests_blind4_check_ok_line_rs_dcb37f3e
     tests_blind4_check_ok_line_rs_dcb37f3e ~~~ tests_blind4_fold_pointer_rs_4b371a86
     tests_blind4_fold_pointer_rs_4b371a86 ~~~ tests_blind4_oneliners_rs_b0a3960e
     tests_blind4_oneliners_rs_b0a3960e ~~~ tests_blind4_pretty_rs_2a7a821e
@@ -196,9 +202,11 @@ graph TD
     tests_csharp_typepositions_rs_b5fef5b6 ~~~ tests_depgraph_rs_70116f64
     tests_depgraph_rs_70116f64 ~~~ tests_depgraph_reasons_rs_28dac1e5
     tests_depgraph_reasons_rs_28dac1e5 ~~~ tests_diagram_rs_b546d08e
-    tests_diagram_rs_b546d08e ~~~ tests_doc_surface_nits_rs_cdb2ac7d
+    tests_diagram_rs_b546d08e ~~~ tests_diagram_modules_rs_2a47643b
+    tests_diagram_modules_rs_2a47643b ~~~ tests_doc_surface_nits_rs_cdb2ac7d
     tests_doc_surface_nits_rs_cdb2ac7d ~~~ tests_doctor_rs_5bb74127
-    tests_doctor_rs_5bb74127 ~~~ tests_extraction_freeze_rs_ff26bd53
+    tests_doctor_rs_5bb74127 ~~~ tests_exit_taxonomy_rs_975de231
+    tests_exit_taxonomy_rs_975de231 ~~~ tests_extraction_freeze_rs_ff26bd53
     tests_extraction_freeze_rs_ff26bd53 ~~~ tests_feature_matrix_rs_91dd71b6
     tests_feature_matrix_rs_91dd71b6 ~~~ tests_go_syntax_rs_dcc778f7
     tests_go_syntax_rs_dcc778f7 ~~~ tests_go_tier_agreement_rs_875013bb
@@ -226,6 +234,8 @@ graph TD
     tests_update_rs_d4d62fa8 ~~~ tests_vacuous_guards_rs_dd44012c
     tests_vacuous_guards_rs_dd44012c ~~~ tests_verify_rs_ca0c67e6
     tests_verify_rs_ca0c67e6 ~~~ tests_verify_constraints_rs_885d1ae0
+    tests_verify_constraints_rs_885d1ae0 ~~~ tests_verify_expose_rs_869304f2
+    tests_verify_expose_rs_869304f2 ~~~ tests_verify_submodules_rs_c8522173
     subgraph tests_common_681ad221["tests/common"]
       tests_common_mod_rs_279f1ed6["tests/common/mod.rs"]
     end
@@ -268,10 +278,10 @@ graph TD
       end
       tests_shared_scenario_rs_c788db03 ~~~ tests_shared_scenarios_cli_rs_16043b7b
     end
-    tests_verify_constraints_rs_885d1ae0 ~~~ tests_common_mod_rs_279f1ed6
+    tests_verify_submodules_rs_c8522173 ~~~ tests_common_mod_rs_279f1ed6
     tests_common_mod_rs_279f1ed6 ~~~ tests_shared_capability_rs_19c683be
   end
-  src_archspec_verify_mod_rs_76886026 ~~~ tests_blind4_check_ok_line_rs_dcb37f3e
+  src_archspec_verify_mod_rs_76886026 ~~~ tests_agents_guide_reporting_rs_c2c89bc7
   src_archspec_capability_rs_d60fec76 --> src_archspec_language_rs_232ea882
   src_archspec_commands_capability_rs_64476979 --> src_archspec_capability_rs_d60fec76
   src_archspec_commands_capability_rs_64476979 --> src_archspec_cli_rs_a6998732
@@ -284,7 +294,9 @@ graph TD
   src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_cli_rs_a6998732
   src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_config_rs_dfd15f62
   src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_diagram_rs_5eacff0a
+  src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_language_rs_232ea882
   src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_model_rs_b8d77281
+  src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_scan_mod_rs_9cb8843b
   src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_spec_rs_a8194740
   src_archspec_commands_doctor_rs_d02235c7 --> src_archspec_cli_rs_a6998732
   src_archspec_commands_doctor_rs_d02235c7 --> src_archspec_language_rs_232ea882
@@ -335,6 +347,7 @@ graph TD
   src_archspec_depgraph_rs_8874051e --> src_render_rs_8e751ed1
   src_archspec_diagram_rs_5eacff0a --> src_archspec_model_rs_b8d77281
   src_archspec_diagram_rs_5eacff0a --> src_archspec_spec_rs_a8194740
+  src_archspec_diagram_rs_5eacff0a --> src_archspec_verify_compare_rs_7a4898a8
   src_archspec_diagram_rs_5eacff0a --> src_render_rs_8e751ed1
   src_archspec_init_detect_rs_b8b98ac4 --> src_archspec_language_rs_232ea882
   src_archspec_init_mod_rs_e4f655ce --> src_archspec_cli_rs_a6998732
@@ -406,6 +419,7 @@ graph TD
   src_archspec_scan_mod_rs_9cb8843b --> src_archspec_scan_rust_rs_ba8a9ddd
   src_archspec_scan_rust_rs_ba8a9ddd --> src_archspec_model_rs_b8d77281
   src_archspec_scan_rust_rs_ba8a9ddd --> src_collector_rs_7d5e8ae6
+  src_archspec_spec_rs_a8194740 --> src_archspec_cli_rs_a6998732
   src_archspec_update_mod_rs_e0173b9b --> src_archspec_model_rs_b8d77281
   src_archspec_verify_compare_rs_7a4898a8 --> src_archspec_capability_rs_d60fec76
   src_archspec_verify_compare_rs_7a4898a8 --> src_archspec_language_rs_232ea882

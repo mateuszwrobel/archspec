@@ -13,6 +13,12 @@ before sequencing audit commands by hand.
 
 Supporting commands: `archspec init` scaffolds a minimal base spec; `archspec update` snapshots the current model as a seed spec; `archspec doctor` diagnoses which language drivers/toolchains are present. The recipe's CI form is `archspec verify --strict` (all warnings promoted to errors).
 
+Once the recipe's `verify` is settled, the relation-shape heuristics over the
+same dumps — cycles beyond the `no_cycles` guard, fan-in/fan-out outliers,
+orphan modules, layering direction, god-crate shape — are the procedure of
+the analysis skill: `archspec skill analysis`; everything they produce is a
+recommendation, never a verdict.
+
 ## Getting the binary
 
 Two sources for the same version number — a CI freshness gate pins one and
@@ -86,6 +92,34 @@ until `--strict` promotes them to errors (the CI gate). Every finding you report
 back must follow the REPORT FORMAT in `archspec help diagnostics`: `finding`,
 `evidence` (command + output excerpt), `resolution`
 (`code-fix | spec-fix | architecture-rework`), and `follow-up`.
+
+## Reporting a gap
+
+Before filing any claim that archspec misses, misreports or stays silent on
+something, probe first: run the claim against the RELEASE binary you cite —
+the release asset for the tag you name, or an explicit build from that tag,
+never a guess — and attach three verbatim quotes to the report: the output
+of `archspec --version`, the verbatim command you ran, and the verbatim
+output it produced; then check the known-boundaries table below
+before calling silence a defect. A report without those bytes is not
+reproducible by anyone — including the tool's own maintainers.
+
+| Silence you may see | Why it is not a defect | Where the boundary is stated |
+|---|---|---|
+| a public type in the file emits no fact | the spelling is grammar-bounded: semicolon-bodied `class`/`interface`/`struct`/`enum` declarations produce no declaration node to read a fact from (records cover every body shape) | the driver grammar note and ADR-019 |
+| a fact family reads `not-emitted` for a driver | the driver never emits that family — a declared capability, not a regression | `archspec capability matrix` rows |
+| a depgraph view's roles column stays empty | emptiness by decision, not oversight: a role is not a usage fact | the view's own note line and `archspec help roles` |
+
+Which command proves which claim — run the proving command before deciding
+the claim's direction, and if its bytes disagree with the claim, fix the
+input, not the tool:
+
+| Claim | Proving command |
+|---|---|
+| "the model has (has no) fact X" | `archspec scan` |
+| "the spec enforces (does not enforce) X" | `archspec verify --strict` |
+| "module M carries role R" | `archspec inspect tree` |
+| "driver D covers fact family F" | `archspec capability matrix` |
 
 ## Reference outputs (real, from the binary)
 

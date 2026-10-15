@@ -1281,7 +1281,7 @@
       "name": "verify.submodule_contracts",
       "language_capability": {
         "csharp": "implemented",
-        "go": "not-implemented",
+        "go": "implemented",
         "rust": "implemented"
       },
       "behaviors": [
@@ -1290,11 +1290,8 @@
           "description": "a contract.forbid stereotype surfacing under a submodule boundary leaks under the submodule's path",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "verify.submodule_contracts not implemented"
           }
         },
         {
@@ -1302,12 +1299,11 @@
           "description": "a submodule contract over go packages fires for a stereotype globbing the full import path under a parent that claims its units, and reads inert for a bare-name stereotype that matches no go unit",
           "status": {
             "csharp": "skipped",
-            "go": "skipped",
+            "go": "pass",
             "rust": "skipped"
           },
           "skip_reasons": {
             "csharp": "project shape not applicable",
-            "go": "verify.submodule_contracts not implemented",
             "rust": "project shape not applicable"
           }
         },
@@ -1316,11 +1312,8 @@
           "description": "an edge between sibling submodules banned by the parent constraint is reported with the submodule-dependency label",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "verify.submodule_contracts not implemented"
           }
         },
         {
@@ -1328,11 +1321,8 @@
           "description": "the same sibling-submodule ban expressed with full module-path from/forbid engages identically on every module-tier driver and is never reported vacuous",
           "status": {
             "csharp": "pass",
-            "go": "skipped",
+            "go": "pass",
             "rust": "pass"
-          },
-          "skip_reasons": {
-            "go": "verify.submodule_contracts not implemented"
           }
         }
       ]

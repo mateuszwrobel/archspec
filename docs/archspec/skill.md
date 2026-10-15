@@ -30,7 +30,11 @@ what a driver emits with `archspec capability matrix`.
 **C# naming.** The dual-spelling sentence is stated once, in the csharp section of `archspec help languages`.
 
 Read the raw model with `archspec scan .` (JSON on stdout) and
-the graphs with `archspec depgraph modules|api-usage .`.
+the graphs with `archspec depgraph modules|api-usage .`. The relation-shape
+heuristics over those dumps — fan-in/fan-out outliers, orphan modules, cycles
+beyond the `no_cycles` guard, layering direction, god-crate candidates — are
+the analysis skill shipped in this binary: emit `archspec skill analysis`;
+their output is recommendations, never verdicts.
 
 The same JSON carries a `roles` map — model path → role, drawn from the
 closed vocabulary {`facade`, `composition`} — when any role is derivable.
@@ -113,3 +117,4 @@ Do not invent categories; read the finding text and look it up there.
 | Driver/toolchain health | `archspec doctor` |
 | Which binary am I holding | `archspec --version` |
 | File-level import mining | `archspec inspect .` |
+| Analyze relation shape (recommendations) | `archspec skill analysis` — the relation-analysis playbook as its own skill |

@@ -21,7 +21,7 @@ use std::fs;
 const RUST_SENTENCE: &str = "a crate with `src/lib.rs` and `src/main.rs` and no explicit `[[bin]]` or `[lib]` section yields units `<pkg>` (kind=crate) and `<pkg>-bin` (kind=bin); `matches` must name those units exactly.";
 
 /// Canonical go naming-legality sentence per the D10 probe transcript.
-const GO_SENTENCE: &str = "`matches.units` targets must be full import paths — a short package name does not resolve there (verify then reports `unexpected component` / `missing component`); module `name` values and `allowed.depend_on` references may be short — references resolve to declared module names.";
+const GO_SENTENCE: &str = "`matches.units` targets must be full import paths — a short package name does not resolve there (verify then reports `unexpected component` / `missing component`); module `name` values and `allowed.depend_on` references may be short — references resolve to declared claim names at any depth.";
 
 /// Canonical report diagram-granularity sentence.
 const REPORT_SENTENCE: &str = "The diagram embedded in a markdown report is file-granular; the module-granular graph is `archspec depgraph modules`.";
@@ -48,7 +48,7 @@ fn help_surface(args: &[&str]) -> String {
 
 /// Every text surface an agent can read from the binary: the tool help, each
 /// manual topic, each command's help (through `archspec help <cmd>` and the
-/// raw `--help`), and the skill document.
+/// raw `--help`), and the skill documents (audit and analysis).
 fn rendered_surfaces() -> Vec<(String, String)> {
     let mut surfaces = vec![("help".to_string(), help_surface(&["help"]))];
     for topic in ["commands", "glob", "spec", "constraints", "languages", "roles", "workflow", "diagnostics"] {
@@ -62,6 +62,7 @@ fn rendered_surfaces() -> Vec<(String, String)> {
         ));
     }
     surfaces.push(("skill".to_string(), help_surface(&["skill"])));
+    surfaces.push(("skill analysis".to_string(), help_surface(&["skill", "analysis"])));
     surfaces
 }
 

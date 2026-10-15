@@ -184,8 +184,12 @@ fn v6_public_api_allowlist_with_no_exports_is_vacuous() {
     let out = stdout(&output);
     assert!(out.contains("vacuous constraint:"), "report:\n{out}");
     assert!(
-        out.contains("no crate-root public exports"),
+        out.contains("no module-tier public-API facts to check for the public-API surface"),
         "report:\n{out}"
+    );
+    assert!(
+        !out.contains("crate"),
+        "the go arm must not print rust vocabulary:\n{out}"
     );
 }
 

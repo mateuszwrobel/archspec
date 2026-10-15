@@ -6,7 +6,7 @@
 use crate::archspec::capability;
 use crate::archspec::language;
 use crate::archspec::model::{ManifestInfo, Model, ModuleEdge, Role, Unit};
-use crate::archspec::spec::{Constraint, Module, Stereotype};
+use crate::archspec::spec::{self, Allowed, Constraint, Contract, MatchSet, Module, Stereotype};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -115,27 +115,46 @@ impl Diff {
             || (strict && (!self.warnings.is_empty() || !self.vacuous_constraints.is_empty()))
     }
 
+    /// Every error-tier field in canonical report order (ADR-010), each paired
+    /// with the stable category label its entries render under (the same label
+    /// `help diagnostics` catalogs and `report/output.md` declares). This is
+    /// the single source of both the exit gate (`has_errors` below) and the
+    /// report's error findings: a field counted by the verdict is a field the
+    /// renderers print, so a non-zero exit can never coexist with a clean
+    /// claim — the silent-red weld. Warning-tier fields (`warnings`,
+    /// `vacuous_constraints`) never gate without `--strict` and are not
+    /// listed here; the renderers consume them separately.
+    pub fn error_fields(&self) -> Vec<(&'static str, &[String])> {
+        vec![
+            ("missing component", &self.missing_components),
+            ("unexpected component", &self.unexpected_components),
+            ("unassigned unit", &self.unassigned_units),
+            ("ambiguous module match", &self.ambiguous_module_matches),
+            ("forbidden edge present", &self.forbidden_edges),
+            ("missing edge", &self.missing_edges),
+            ("disallowed cross-component dependency", &self.disallowed_cross_component),
+            ("facade dependency", &self.facade_dependencies),
+            ("contract leak", &self.contract_leaks),
+            ("cycle detected in", &self.cycles),
+            ("public api leak", &self.public_api_leaks),
+            ("unverifiable glob export", &self.unverifiable_glob_exports),
+            ("empty glob export", &self.empty_glob_exports),
+            ("forbidden external crate", &self.forbidden_external_crates),
+            ("not external free", &self.not_external_free),
+            ("manifest integrity", &self.manifest_integrity),
+            ("feature boundary", &self.feature_boundaries),
+            ("forbidden submodule dependency", &self.forbidden_submodule_dependencies),
+        ]
+    }
+
     /// True if any error-level item is present (severity defaults to error;
-    /// every category except `no_cycles` is error-level by declaration).
+    /// every category except `no_cycles` is error-level by declaration). An
+    /// error-level item is by definition a field of `error_fields` — there is
+    /// no second list of gated fields.
     fn has_errors(&self) -> bool {
-        !self.missing_components.is_empty()
-            || !self.unexpected_components.is_empty()
-            || !self.unassigned_units.is_empty()
-            || !self.ambiguous_module_matches.is_empty()
-            || !self.forbidden_edges.is_empty()
-            || !self.missing_edges.is_empty()
-            || !self.disallowed_cross_component.is_empty()
-            || !self.contract_leaks.is_empty()
-            || !self.cycles.is_empty()
-            || !self.public_api_leaks.is_empty()
-            || !self.unverifiable_glob_exports.is_empty()
-            || !self.empty_glob_exports.is_empty()
-            || !self.forbidden_external_crates.is_empty()
-            || !self.not_external_free.is_empty()
-            || !self.manifest_integrity.is_empty()
-            || !self.feature_boundaries.is_empty()
-            || !self.forbidden_submodule_dependencies.is_empty()
-            || !self.facade_dependencies.is_empty()
+        self.error_fields()
+            .iter()
+            .any(|(_, entries)| !entries.is_empty())
     }
 }
 
@@ -215,11 +234,10 @@ fn nested_under_declared_module(name: &str, modules: &[Module]) -> bool {
 
 fn strip_last_segment(name: &str) -> Option<&str> {
     for separator in ['/', '.'] {
-        if let Some((parent, _)) = name.rsplit_once(separator) {
-            if !parent.is_empty() {
+        if let Some((parent, _)) = name.rsplit_once(separator)
+            && !parent.is_empty() {
                 return Some(parent);
             }
-        }
     }
     None
 }
@@ -276,44 +294,171 @@ struct BoundaryGraph {
     unowned_endpoints: BTreeSet<String>,
 }
 
-/// The declared boundary that owns the given dotted module path (see the
-/// specificity rules on `entry_specificity`), plus whether the winning claim
-/// came from the unit-fallback step (the module was claimed by no
-/// `matches.modules` entry and only rolls up through its unit). Fallback-owned
-/// hops route through territory no boundary deliberately declares — the unit
-/// wiring module or an unclaimed module — unlike a module boundary reached by
-/// an explicit pattern.
-fn module_owner_with_fallback<'a>(
-    module_path: &str,
-    modules: &'a [Module],
-) -> Option<(&'a str, bool)> {
-    let mut best: Option<(usize, &'a str)> = None;
-    for module in modules {
-        if let Some(score) = module
+/// A declared claim at any depth: a top-level `[[module]]` or a nested
+/// `[[module.submodules]]` table, flattened depth-first with a parent link.
+/// The jurisdiction resolver reads claims, never module tiers directly: the
+/// most specific claim owns an edge's adjudication whether it sits flat or
+/// nested (D1), a claim without a declared `allowed` table inherits the
+/// nearest ancestor that has one (D2), ancestor prohibitions bind downward
+/// cumulatively (D5), and ancestor-descendant pairs are composition (D3).
+pub struct Claim<'a> {
+    pub name: &'a str,
+    pub matches: &'a MatchSet,
+    pub allowed: &'a Allowed,
+    pub contract: &'a Contract,
+    pub parent: Option<usize>,
+    pub depth: usize,
+}
+
+/// Minimal (name, allowed, contract) view of a flattened claim, so the
+/// reference-engagement loop reads claims at any depth in one pass.
+struct ModuleRef<'a> {
+    name: &'a str,
+    allowed: &'a Allowed,
+    contract: &'a Contract,
+}
+
+/// Flatten the claim tree depth-first. Parent indices refer to this vector.
+pub fn flatten_claims<'a>(modules: &'a [Module]) -> Vec<Claim<'a>> {
+    fn walk<'m>(mods: &'m [Module], parent: Option<usize>, depth: usize, out: &mut Vec<Claim<'m>>) {
+        for module in mods {
+            let index = out.len();
+            out.push(Claim {
+                name: &module.name,
+                matches: &module.matches,
+                allowed: &module.allowed,
+                contract: &module.contract,
+                parent,
+                depth,
+            });
+            walk(&module.submodules, Some(index), depth + 1, out);
+        }
+    }
+    let mut claims = Vec::new();
+    walk(modules, None, 0, &mut claims);
+    claims
+}
+
+/// Every declared claim at every depth — the count the pass confirmation
+/// prints, so a nested spec counts what it engages (D10).
+pub fn count_claims(modules: &[Module]) -> usize {
+    spec::claim_names(modules).len()
+}
+
+/// The claim owning `module_path` at any depth: highest `matches.modules`
+/// specificity wins; an equal-specificity tie breaks deterministically by
+/// depth (a nested claim addresses its territory more precisely than the
+/// wider pattern that reaches it) and then by name, so declaration order
+/// never changes a verdict (D8). Equal-specificity ties are also reported by
+/// `check_ambiguous_module_matches`, which spans depths.
+fn claim_owner<'a>(path: &str, claims: &[Claim<'a>]) -> Option<usize> {
+    let mut best: Option<(usize, usize, &str, usize)> = None;
+    for (index, claim) in claims.iter().enumerate() {
+        let Some(score) = claim
             .matches
             .modules
             .iter()
-            .filter_map(|pattern| entry_specificity(pattern, module_path))
+            .filter_map(|pattern| entry_specificity(pattern, path))
             .max()
-        {
-            if best.is_none_or(|(b, _)| score > b) {
-                best = Some((score, module.name.as_str()));
-            }
+        else {
+            continue;
+        };
+        match best {
+            Some((b_score, b_depth, b_name, _))
+                if score < b_score
+                    || (score == b_score && claim.depth == b_depth && claim.name >= b_name)
+                    || (score == b_score && claim.depth < b_depth) => {}
+            _ => best = Some((score, claim.depth, claim.name, index)),
         }
     }
-    if let Some((_, owner)) = best {
-        return Some((owner, false));
-    }
-    let unit = module_path.split("::").next().unwrap_or(module_path);
-    modules.iter().find_map(|module| {
-        module
-            .matches
-            .units
-            .iter()
-            .any(|pattern| matches_pattern(unit, pattern))
-            .then_some((module.name.as_str(), true))
+    best.map(|(_, _, _, index)| index)
+}
+
+/// The unit-fallback owner of a module path no `matches.modules` pattern
+/// claims: the FIRST top-level claim whose `matches.units` globs name the
+/// path's unit — first-declared-wins, unchanged (submodules claim the module
+/// tier only, D7).
+fn claim_unit_fallback(path: &str, claims: &[Claim<'_>]) -> Option<usize> {
+    let unit = path.split("::").next().unwrap_or(path);
+    claims.iter().enumerate().find_map(|(index, claim)| {
+        (claim.depth == 0
+            && claim
+                .matches
+                .units
+                .iter()
+                .any(|pattern| matches_pattern(unit, pattern)))
+        .then_some(index)
     })
 }
+
+/// The dependency policy governing a claim: its own declared `allowed` table,
+/// else the nearest ancestor's (D2); the root without any declared table
+/// keeps today's implicit deny-all ceiling.
+fn policy_allowed<'a>(claims: &[Claim<'a>], index: usize) -> &'a Allowed {
+    let mut current = Some(index);
+    while let Some(at) = current {
+        if claims[at].allowed.declared {
+            return claims[at].allowed;
+        }
+        current = claims[at].parent;
+    }
+    claims[index].allowed
+}
+
+/// Cumulative prohibitions for a claim: its own `allowed.forbidden` plus every
+/// ancestor's — a descendant may narrow allowances but can never cancel an
+/// ancestor prohibition (D5, the one-way ratchet).
+fn cumulative_forbidden<'a>(claims: &[Claim<'a>], index: usize) -> BTreeSet<&'a str> {
+    let mut forbidden = BTreeSet::new();
+    let mut current = Some(index);
+    while let Some(at) = current {
+        forbidden.extend(claims[at].allowed.forbidden.iter().map(String::as_str));
+        current = claims[at].parent;
+    }
+    forbidden
+}
+
+/// True when one claim is the other's direct-or-transitive ancestor — the
+/// containment relation whose edges are composition, never dependencies (D3).
+fn related_by_containment(claims: &[Claim<'_>], a: usize, b: usize) -> bool {
+    let mut current = Some(b);
+    while let Some(at) = current {
+        if at == a {
+            return true;
+        }
+        current = claims[at].parent;
+    }
+    let mut current = Some(a);
+    while let Some(at) = current {
+        if at == b {
+            return true;
+        }
+        current = claims[at].parent;
+    }
+    false
+}
+
+/// The claim subtree: the claim itself plus every nested descendant.
+fn subtree_names<'a>(claims: &[Claim<'a>], index: usize) -> BTreeSet<&'a str> {
+    let mut names = BTreeSet::new();
+    for (at, claim) in claims.iter().enumerate() {
+        let mut current = Some(at);
+        while let Some(step) = current {
+            if step == index {
+                names.insert(claim.name);
+                break;
+            }
+            current = claims[step].parent;
+        }
+    }
+    names
+}
+
+fn claim_by_name<'a>(claims: &[Claim<'a>], name: &str) -> Option<usize> {
+    claims.iter().position(|claim| claim.name == name)
+}
+
+
 
 /// Composition-role PATHS of the roles map. The laundering exemption is
 /// stated at HOP level on these paths: a hop is sanctioned wiring exactly
@@ -409,7 +554,7 @@ fn pinned_prefix(pattern: &str, target: &str) -> Option<usize> {
 /// `**::start` can claim the same module), so the conflict is reported against
 /// the model rather than resolved by luck; the message names the module path
 /// and both claiming entries.
-fn check_ambiguous_module_matches(model: &Model, modules: &[Module]) -> Vec<String> {
+fn check_ambiguous_module_matches(model: &Model, claims: &[Claim<'_>]) -> Vec<String> {
     let mut paths: BTreeSet<&str> = BTreeSet::new();
     for module_paths in model.soft_structure.values() {
         paths.extend(module_paths.iter().map(String::as_str));
@@ -420,10 +565,10 @@ fn check_ambiguous_module_matches(model: &Model, modules: &[Module]) -> Vec<Stri
     }
     let mut found = BTreeSet::new();
     for path in paths {
-        let claims: Vec<(usize, &str, &str)> = modules
+        let claims: Vec<(usize, &str, &str)> = claims
             .iter()
-            .filter_map(|module| {
-                module
+            .filter_map(|claim| {
+                claim
                     .matches
                     .modules
                     .iter()
@@ -431,7 +576,7 @@ fn check_ambiguous_module_matches(model: &Model, modules: &[Module]) -> Vec<Stri
                         entry_specificity(pattern, path).map(|score| (score, pattern.as_str()))
                     })
                     .max_by_key(|(score, _)| *score)
-                    .map(|(score, entry)| (score, module.name.as_str(), entry))
+                    .map(|(score, entry)| (score, claim.name, entry))
             })
             .collect();
         let Some(top) = claims.iter().map(|(score, _, _)| *score).max() else {
@@ -572,23 +717,24 @@ pub fn augment_with_modules(mapping: &Mapping, model: &Model, modules: &[Module]
     let mut unassigned_units = Vec::new();
     let mut module_matched: BTreeSet<String> = BTreeSet::new();
 
-    // A go unit IS an addressable module-tier path (its import path), so a
-    // `matches.modules` pattern claims it directly — in a single-module tree
-    // (no scan tier to look paths up in) and in a go.work tree alike, where
-    // the unit names carry the same import paths the tier projects.
+    // Attribution reads claims at every depth (D1): on go a unit IS an
+    // addressable module-tier path (its import path), so a `matches.modules`
+    // pattern claims it directly — in a single-module tree (no scan tier to
+    // look paths up in) and in a go.work tree alike, whether the pattern sits
+    // on a top-level module or a nested submodule.
     let go_unit_paths = model.language == "go";
-    let go_unit_claims = |module: &Module, unit: &str| {
+    let go_unit_claims = |matches: &MatchSet, unit: &str| {
         go_unit_paths
-            && module
-                .matches
+            && matches
                 .modules
                 .iter()
                 .any(|pattern| module_path_matches(pattern, unit))
     };
+    let claims = flatten_claims(modules);
 
-    for module in modules {
+    for claim in &claims {
         let matched = model.soft_structure.values().flatten().any(|path| {
-            module
+            claim
                 .matches
                 .modules
                 .iter()
@@ -596,9 +742,9 @@ pub fn augment_with_modules(mapping: &Mapping, model: &Model, modules: &[Module]
         }) || model
             .units
             .iter()
-            .any(|unit| go_unit_claims(module, &unit.name));
+            .any(|unit| go_unit_claims(claim.matches, &unit.name));
         if matched {
-            module_matched.insert(module.name.clone());
+            module_matched.insert(claim.name.to_string());
         }
     }
 
@@ -613,21 +759,21 @@ pub fn augment_with_modules(mapping: &Mapping, model: &Model, modules: &[Module]
             .into_iter()
             .flatten()
             .collect();
-        let owner = modules.iter().find(|module| {
-            module
+        let owner = claims.iter().find(|claim| {
+            claim
                 .matches
                 .modules
                 .iter()
                 .any(|pattern| paths.iter().any(|path| module_path_matches(pattern, path)))
-                || go_unit_claims(module, unit)
+                || go_unit_claims(claim.matches, unit)
         });
         match owner {
             Some(owner) => {
                 assignments
-                    .entry(owner.name.clone())
+                    .entry(owner.name.to_string())
                     .or_default()
                     .insert(unit.clone());
-                unit_module.insert(unit.clone(), owner.name.clone());
+                unit_module.insert(unit.clone(), owner.name.to_string());
             }
             None => {
                 if mapping.unassigned_units.contains(unit) {
@@ -729,6 +875,42 @@ pub fn effective_module_tier<'a>(model: &'a Model, mapping: &Mapping) -> Cow<'a,
     Cow::Owned(derived)
 }
 
+/// Claim-named dependency edges for `forbid_submodule_dependency`. Trees with
+/// a native module tier already carry real module edges. A single go.mod tree
+/// whose claims partition its packages has the derived tier: unit edges become
+/// owner edges named by the claims, so `common_ancestor` yields the declared
+/// parent and the check reads the same shape as on a rust tree. Edges inside
+/// one group drop out, matching the native derivation.
+fn submodule_dependency_edges(model: &Model, mapping: &Mapping) -> Vec<ModuleEdge> {
+    if model.language != "go" {
+        return model.module_edges.clone();
+    }
+    let owner = |endpoint: &str| -> String {
+        mapping
+            .unit_module
+            .get(endpoint)
+            .cloned()
+            .unwrap_or_else(|| endpoint.to_string())
+    };
+    let mut projected: BTreeSet<(String, String)> = BTreeSet::new();
+    for edge in &model.module_edges {
+        let from = owner(&edge.from);
+        let to = owner(&edge.to);
+        if from != to {
+            projected.insert((from, to));
+        }
+    }
+    projected
+        .into_iter()
+        .map(|(from, to)| ModuleEdge {
+            unit: from.clone(),
+            from,
+            to,
+            symbols: Vec::new(),
+        })
+        .collect()
+}
+
 /// Structural compare (ADR-010): extracted vs declared component sets, plus
 /// edge, contract, and cycle checks. Order-insensitive; every category is
 /// accumulated, never fail-fast.
@@ -747,14 +929,25 @@ pub fn compare(
     let resolved = resolved_components(&mapping);
     let extracted: BTreeSet<&str> = resolved.iter().map(String::as_str).collect();
 
+    let claims = flatten_claims(modules);
+    // A top-level claim that declares only module paths and matched nothing is
+    // engagement surface, not a missing component: it never named a unit-tier
+    // component to begin with. It reports as the `unmatched claim` warning
+    // below, at either depth, so nested and flat equivalents agree.
+    let unit_backed: BTreeSet<&str> = modules
+        .iter()
+        .filter(|module| !module.matches.units.is_empty() || module.matches.modules.is_empty())
+        .map(|module| module.name.as_str())
+        .collect();
     let mut diff = Diff {
         missing_components: declared
             .difference(&extracted)
+            .filter(|name| unit_backed.contains(*name))
             .map(|name| name.to_string())
             .collect(),
         unexpected_components: mapping.unexpected_components.clone(),
         unassigned_units: mapping.unassigned_units.clone(),
-        ambiguous_module_matches: check_ambiguous_module_matches(model, modules),
+        ambiguous_module_matches: check_ambiguous_module_matches(model, &claims),
         ..Default::default()
     };
 
@@ -765,14 +958,16 @@ pub fn compare(
         }
     }
     let composition_sources = composition_sources(model);
-    let graph = resolve_module_edges(model, &mapping, modules, &composition_sources);
+    let graph = resolve_module_edges(model, &mapping, modules, &claims, &composition_sources);
     for path in &graph.unowned_endpoints {
         diff.warnings
             .push(format!("unowned module edge endpoint: {path}"));
     }
     check_facade_roots(model, &mut diff);
-    check_allowed_edges(&graph.pairs, model, modules, &mut diff);
-    check_missing_edges(&graph.pairs, modules, &mut diff);
+    check_allowed_edges(&graph.pairs, model, modules, &claims, &mut diff);
+    check_missing_edges(&graph.pairs, &claims, &mut diff);
+    let missing_components: BTreeSet<String> = diff.missing_components.iter().cloned().collect();
+    check_claim_engagement(model, &claims, &missing_components, &mut diff.warnings);
     check_forbidden_laundering(
         &graph.pairs,
         &graph.fallback_pairs,
@@ -791,6 +986,18 @@ pub fn compare(
     diff.empty_glob_exports = empty_globs;
     diff.warnings.append(&mut warning_leaks);
 
+    // The expose chain law (workplan
+    // rust-arch-test-kit/worklog/workplan_archspec_module_public_api_diagrams.md):
+    // leaks join the shipped `public api leak` category, staleness/ambiguity/
+    // dead-reference lines join `warnings`, and the per-claim fact-source
+    // vacuity rides the `vacuous constraint` channel below (D7). Verdict-
+    // neutral when no claim declares a set (D2) — every vector stays empty.
+    let expose = adjudicate_expose(&mapping, model, modules, stereotypes);
+    diff.public_api_leaks.extend(expose.leaks);
+    diff.public_api_leaks.sort();
+    diff.warnings.extend(expose.warnings);
+    let mut expose_vacuous = expose.vacuous;
+
     let (external, mut warning_external) = check_forbid_external(model, constraints);
     diff.forbidden_external_crates = external;
     diff.warnings.append(&mut warning_external);
@@ -807,7 +1014,8 @@ pub fn compare(
     diff.feature_boundaries = boundaries;
     diff.warnings.append(&mut warning_boundaries);
 
-    let (submodules, mut warning_submodules) = check_forbid_submodule(model, constraints);
+    let submodule_edges = submodule_dependency_edges(model, &mapping);
+    let (submodules, mut warning_submodules) = check_forbid_submodule(&submodule_edges, constraints);
     diff.forbidden_submodule_dependencies = submodules;
     diff.warnings.append(&mut warning_submodules);
 
@@ -818,7 +1026,10 @@ pub fn compare(
         soft_verifiable,
     ));
 
-    diff.vacuous_constraints = check_vacuous_constraints(model, modules, constraints, &graph.pairs);
+    diff.vacuous_constraints =
+        check_vacuous_constraints(model, modules, constraints, &graph.pairs, &submodule_edges);
+    diff.vacuous_constraints.append(&mut expose_vacuous);
+    diff.vacuous_constraints.sort();
 
     diff.warnings.sort();
     diff.forbidden_edges.sort();
@@ -848,6 +1059,7 @@ fn resolve_module_edges(
     model: &Model,
     mapping: &Mapping,
     modules: &[Module],
+    claims: &[Claim<'_>],
     composition_sources: &BTreeSet<String>,
 ) -> BoundaryGraph {
     let mut pairs = BTreeSet::new();
@@ -865,53 +1077,24 @@ fn resolve_module_edges(
         }
     }
     for edge in &model.module_edges {
-        if is_test_module(model, &edge.from) || is_test_module(model, &edge.to) {
-            continue;
-        }
-        let from_module = module_owner_with_fallback(&edge.from, modules);
-        let to_module = module_owner_with_fallback(&edge.to, modules);
-        match (from_module, to_module) {
-            (Some((from_module, from_fallback)), Some((to_module, to_fallback))) => {
-                if composition_sources.contains(&edge.from)
-                    && from_fallback
-                    && !modules.iter().any(|module| {
-                        module.name == from_module
-                            && module
-                                .matches
-                                .units
-                                .iter()
-                                .any(|pattern| matches_pattern(&edge.unit, pattern))
-                    })
-                {
-                    // Misattributed sanctioned hop: the composition path was
-                    // projected onto a boundary whose `units` do not cover the
-                    // unit the wiring edge actually lives in (rollup splits
-                    // multi-segment unit roots at the first `::`, so a
-                    // solution root `Company::App` lands on the neighbour
-                    // claiming `Company`). That pair is an artefact of
-                    // attribution, not an observed dependency — it neither
-                    // adjudicates nor launders (roles US 05b).
-                    continue;
-                }
-                if from_module != to_module {
-                    let pair = (from_module.to_string(), to_module.to_string());
-                    if (from_fallback || to_fallback)
-                        && !composition_sources.contains(&edge.from)
-                    {
+        match place_module_edge(edge, model, claims, modules, composition_sources) {
+            EdgePlacement::Pair {
+                from,
+                to,
+                fallback,
+                source_is_composition,
+            } => {
+                if from != to {
+                    let pair = (from.to_string(), to.to_string());
+                    if fallback && !source_is_composition {
                         fallback_pairs.insert(pair.clone());
                     }
                     pairs.insert(pair);
                 }
             }
-            (None, None) => {
-                unowned_endpoints.insert(edge.from.clone());
-                unowned_endpoints.insert(edge.to.clone());
-            }
-            (None, Some(_)) => {
-                unowned_endpoints.insert(edge.from.clone());
-            }
-            (Some(_), None) => {
-                unowned_endpoints.insert(edge.to.clone());
+            EdgePlacement::Composition => {}
+            EdgePlacement::Unowned { paths } => {
+                unowned_endpoints.extend(paths);
             }
         }
     }
@@ -938,30 +1121,407 @@ fn check_allowed_edges(
     pairs: &BTreeSet<(String, String)>,
     model: &Model,
     modules: &[Module],
+    claims: &[Claim<'_>],
     diff: &mut Diff,
 ) {
     for (from_module, to_module) in pairs {
-        let Some(from_spec) = modules.iter().find(|module| &module.name == from_module) else {
-            continue;
-        };
-        if from_spec
-            .allowed
-            .forbidden
-            .iter()
-            .any(|target| target == to_module)
-        {
-            diff.forbidden_edges
-                .push(format!("{from_module} -> {to_module}"));
-        } else if !from_spec
-            .allowed
-            .depend_on
-            .iter()
-            .any(|target| target == to_module)
-            && !unit_tier_identity_allows(from_module, to_module, model, modules)
-        {
-            diff.disallowed_cross_component
-                .push(format!("{from_module} -> {to_module}"));
+        match pair_verdict(from_module, to_module, model, modules, claims) {
+            Some(Verdict::Forbidden) => diff
+                .forbidden_edges
+                .push(format!("{from_module} -> {to_module}")),
+            Some(Verdict::Disallowed) => diff
+                .disallowed_cross_component
+                .push(format!("{from_module} -> {to_module}")),
+            None => {}
         }
+    }
+}
+
+/// The verdict class a boundary pair earns, or `None` when no rule reds it.
+/// This is the one adjudication `verify`'s edge findings and the diagram's
+/// mark decision read — the seam the scan-diagram module-tier plan pins
+/// (ADR-018 identity ownership + ADR-020 jurisdiction): the diagram marks
+/// exactly what `verify` would report, never a re-derivation. A pair whose
+/// source names no claim is adjudicated by nothing and stays `None`. An
+/// explicitly forbidden pair is never also disallowed (finding #5 wins).
+pub enum Verdict {
+    /// Banned by the source's cumulative `allowed.forbidden` (finding #5).
+    Forbidden,
+    /// Outside the policy ceiling — the class verify renders as
+    /// `disallowed cross-component dependency` (finding #6).
+    Disallowed,
+}
+
+fn pair_verdict(
+    from_module: &str,
+    to_module: &str,
+    model: &Model,
+    modules: &[Module],
+    claims: &[Claim<'_>],
+) -> Option<Verdict> {
+    let index = claim_by_name(claims, from_module)?;
+    // The ratchet (D5): every ancestor prohibition binds this claim's
+    // edges; the policy ceiling (D2) is the claim's own declared table or
+    // the nearest ancestor's.
+    if cumulative_forbidden(claims, index).contains(to_module) {
+        return Some(Verdict::Forbidden);
+    }
+    if !policy_allowed(claims, index)
+        .depend_on
+        .iter()
+        .any(|target| target == to_module)
+        && !unit_tier_identity_allows(from_module, to_module, model, modules)
+    {
+        return Some(Verdict::Disallowed);
+    }
+    None
+}
+
+
+/// The adjudication seam consumed by `verify`'s findings and the diagram's
+/// scan-source marks and node names (workplan
+/// workplan_archspec_scan_diagram_module_tier, Assumptions + Internal
+/// Architecture): `(model edge, governing spec) → verdict class + owning
+/// claim` over one resolution path — `map_units` → `augment_with_modules` →
+/// `effective_module_tier` → flattened claims — exactly the pipeline `compare`
+/// adjudicates with, so a diagram never states a verdict `verify` does not
+/// reach (ADR-018 + ADR-020). Specless renders pass empty modules: with no
+/// spec there is nothing to adjudicate and every edge lands unowned.
+pub struct Adjudicator<'a> {
+    claims: Vec<Claim<'a>>,
+    mapping: Mapping,
+    modules: &'a [Module],
+    /// Pairs carrying a verdict (forbidden or disallowed) over the boundary
+    /// graph — the mark set the diagram reads.
+    violating: BTreeSet<(String, String)>,
+    composition_sources: BTreeSet<String>,
+    /// The derived model (`effective_module_tier`), exactly the one verify's
+    /// `resolve_module_edges` places edges against.
+    derived: Cow<'a, Model>,
+    /// True when adjudication addresses module paths with `/` separators
+    /// (the go native-tier projection of `effective_module_tier`); artefact
+    /// paths arrive in the drivers' `::` spelling and are projected.
+    slashed_paths: bool,
+    /// The expose chain verdicts for the governing spec — the widened seam
+    /// query (D11): the per-module diagram's public-API marks read this set,
+    /// never a diagram-side re-derivation. A spec declaring no expose anywhere
+    /// yields the neutral verdicts, so the coarse render carries no API marks.
+    expose: ExposeVerdicts,
+}
+
+impl<'a> Adjudicator<'a> {
+    /// Build the seam for one (model, governing spec) pair — the same
+    /// preprocessing `compare` runs, so every verdict matches `verify`'s.
+    pub fn new(model: &'a Model, modules: &'a [Module], stereotypes: &'a [Stereotype]) -> Self {
+        let base = map_units(&model.units, modules);
+        let mapping = augment_with_modules(&base, model, modules);
+        let derived = effective_module_tier(model, &mapping);
+        let claims = flatten_claims(modules);
+        let composition_sources = composition_sources(&derived);
+        let graph =
+            resolve_module_edges(&derived, &mapping, modules, &claims, &composition_sources);
+        let violating = graph
+            .pairs
+            .iter()
+            .filter(|(from, to)| pair_verdict(from, to, &derived, modules, &claims).is_some())
+            .cloned()
+            .collect();
+        let slashed_paths = derived.language == "go" && derived.has_module_tier();
+        let expose = adjudicate_expose(&mapping, &derived, modules, stereotypes);
+        Self {
+            claims,
+            mapping,
+            modules,
+            violating,
+            composition_sources,
+            derived,
+            slashed_paths,
+            expose,
+        }
+    }
+
+    /// Project an artefact module path into the adjudication path space.
+    fn adjudication_path<'b>(&self, path: &'b str) -> Cow<'b, str> {
+        if self.slashed_paths {
+            Cow::Owned(path.replace("::", "/"))
+        } else {
+            Cow::Borrowed(path)
+        }
+    }
+
+    /// True when the unit-tier edge resolves to a boundary pair `verify`
+    /// reds — the same pair its `forbidden edge` / `disallowed cross-component
+    /// dependency` findings name (the pair law, both flag states). Edges that
+    /// resolve inside one boundary, or whose source resolves nowhere, carry no
+    /// verdict and stay solid.
+    pub fn unit_edge_violates(&self, from: &str, to: &str) -> bool {
+        let (Some(from), Some(to)) = (
+            self.mapping.unit_module.get(from),
+            self.mapping.unit_module.get(to),
+        ) else {
+            return false;
+        };
+        from != to && self.violating.contains(&(from.clone(), to.clone()))
+    }
+
+    /// The boundary claim naming a module path's adjudication — the owning
+    /// claim whose `allowed` table judges its edges (the node-identity rule),
+    /// or `None` when no claim owns the endpoint.
+    pub fn claim_naming(&self, path: &str) -> Option<&'a str> {
+        let path = self.adjudication_path(path);
+        claim_owner(&path, &self.claims)
+            .or_else(|| claim_unit_fallback(&path, &self.claims))
+            .map(|index| self.claims[index].name)
+    }
+
+    /// True when the governing spec's expose law leaks any public symbol of
+    /// the module at this path — the seam answer the per-module diagram's
+    /// public-API mark reads (D11): dashed exactly when `verify` reds a
+    /// crossing of this source. False everywhere the spec declares no expose
+    /// (the coarse render carries no API marks; `declares_expose` states that
+    /// the view is not an API-declaring authority).
+    pub fn api_leak_mark(&self, from_path: &str) -> bool {
+        if self.expose.leaked_by_claim.is_empty() {
+            return false;
+        }
+        let path = self.adjudication_path(from_path);
+        // The adjudication rows (D2): the source module's public tier minus
+        // unit-root keys, which the unit tier owns. The mark fires when the
+        // claim governing this path leaks a symbol this row holds — the same
+        // symbol `verify` names in its `public api leak` finding. The verdict
+        // is the source module's surface law, so the mark rides the source
+        // row, not the edge's target-side symbol names.
+        let is_unit_root = self
+            .derived
+            .units
+            .iter()
+            .any(|unit| unit.name == from_path);
+        let row = if is_unit_root {
+            None
+        } else {
+            self.derived.module_public_types.get(from_path)
+        };
+        self.expose.leaked_by_claim.iter().any(|(claim, leaked)| {
+            !leaked.is_empty()
+                && self
+                    .claims
+                    .iter()
+                    .any(|c| c.name == claim.as_str() && claim_covers_path(c, &path, &self.derived))
+                && row.is_some_and(|names| names.iter().any(|name| leaked.contains(name)))
+        })
+    }
+
+    /// The module paths of one named claim's territory — own unit roots
+    /// excluded (D10), every path the model shows that the claim covers by
+    /// `matches` or by name nesting. The per-module render's node set (D11);
+    /// an unknown claim name yields nothing (the command validates first).
+    pub fn territory_paths(&self, claim: &str) -> BTreeSet<String> {
+        let Some(owner) = self.claims.iter().find(|c| c.name == claim) else {
+            return BTreeSet::new();
+        };
+        let mut paths: BTreeSet<String> = BTreeSet::new();
+        for edge in &self.derived.module_edges {
+            for path in [&edge.from, &edge.to] {
+                let projected = self.adjudication_path(path);
+                if claim_covers_path(owner, &projected, &self.derived) {
+                    paths.insert(path.clone());
+                }
+            }
+        }
+        for path in self.derived.module_public_types.keys() {
+            let projected = self.adjudication_path(path);
+            if claim_covers_path(owner, &projected, &self.derived) {
+                paths.insert(path.clone());
+            }
+        }
+        for (unit, structure) in &self.derived.soft_structure {
+            for path in structure {
+                if path == unit {
+                    continue; // the unit root row is the allowlist's territory (D10)
+                }
+                let projected = self.adjudication_path(path);
+                if claim_covers_path(owner, &projected, &self.derived) {
+                    paths.insert(path.clone());
+                }
+            }
+        }
+        paths
+    }
+
+    /// The claims beneath one named claim (name-prefixed submodules), for the
+    /// per-module render's nested nodes.
+    pub fn subclaims_of(&self, claim: &str) -> Vec<&'a str> {
+        let prefix = format!("{claim}::");
+        self.claims
+            .iter()
+            .filter(|c| c.name != claim && c.name.starts_with(&prefix))
+            .map(|c| c.name)
+            .collect()
+    }
+
+    /// Where an artefact module edge lands, adjudicated through the placement
+    /// law `verify`'s boundary graph is built from. Claim-named endpoints
+    /// arrive by their owner's name — the name `verify`'s findings use — and
+    /// unowned ones path-named; `violates` reads the same pair set `verify`
+    /// reports. Placement never re-derives: test-gated, containment and
+    /// same-claim pairs are composition exactly as `verify` sees them.
+    pub fn module_edge_placement(&self, edge: &'a ModuleEdge) -> ModuleRender<'a> {
+        let projected_from = self.adjudication_path(&edge.from);
+        let projected_to = self.adjudication_path(&edge.to);
+        let projected = ModuleEdge {
+            unit: self.adjudication_path(&edge.unit).into_owned(),
+            from: projected_from.into_owned(),
+            to: projected_to.into_owned(),
+            symbols: edge.symbols.clone(),
+        };
+        match place_module_edge(
+            &projected,
+            &self.derived,
+            &self.claims,
+            self.modules,
+            &self.composition_sources,
+        ) {
+            EdgePlacement::Pair { from, to, .. } => ModuleRender::Arrow {
+                from,
+                from_path: &edge.from,
+                to,
+                to_path: &edge.to,
+                violates: self.violating.contains(&(from.to_string(), to.to_string())),
+                api_mark: self.api_leak_mark(&edge.from),
+            },
+            EdgePlacement::Composition => ModuleRender::Nesting {
+                from: self.claim_naming(&edge.from).unwrap_or(edge.from.as_str()),
+                from_path: &edge.from,
+                to: self.claim_naming(&edge.to).unwrap_or(edge.to.as_str()),
+                to_path: &edge.to,
+            },
+            EdgePlacement::Unowned { .. } => ModuleRender::Arrow {
+                from: self.claim_naming(&edge.from).unwrap_or(edge.from.as_str()),
+                from_path: &edge.from,
+                to: self.claim_naming(&edge.to).unwrap_or(edge.to.as_str()),
+                to_path: &edge.to,
+                violates: false,
+                api_mark: self.api_leak_mark(&edge.from),
+            },
+        }
+    }
+}
+
+/// The diagram-facing shape of the placement law: where the arrow goes,
+/// under which node identities, carrying each endpoint's raw module path for
+/// the dual label, and whether the pair carries a verdict (workplan
+/// workplan_archspec_scan_diagram_module_tier, node-identity, one-arrow and
+/// one-mark-vocabulary decisions).
+pub enum ModuleRender<'a> {
+    /// An arrow between the two named nodes — solid when `violates` is false,
+    /// dashed `violates spec` when true.
+    Arrow {
+        from: &'a str,
+        from_path: &'a str,
+        to: &'a str,
+        to_path: &'a str,
+        violates: bool,
+        /// Public-API mark from the seam (see `api_leak_mark`): the source
+        /// module holds a public symbol the expose law leaked. Dashed
+        /// rendering with `violates`.
+        api_mark: bool,
+    },
+    /// Composition or attribution artefact: the diagram draws no arrow; the
+    /// endpoints are still nodes of the module tier.
+    Nesting {
+        from: &'a str,
+        from_path: &'a str,
+        to: &'a str,
+        to_path: &'a str,
+    },
+}
+/// Where one extracted module edge lands on the boundary graph — the single
+/// placement law `resolve_module_edges` (verify's findings) and the diagram's
+/// module-tier render both consult, so a drawn arrow and an adjudicated pair
+/// can never disagree (same edge, same verdict). The arms mirror the
+/// original `resolve_module_edges` loop: containment pairs, same-claim pairs
+/// and misattributed sanctioned hops are composition, not dependencies;
+/// unowned endpoints adjudicate nothing and surface in `unowned_endpoints`.
+pub enum EdgePlacement<'a> {
+    /// A cross-boundary pair on the boundary graph, named by claim.
+    Pair {
+        from: &'a str,
+        to: &'a str,
+        /// At least one endpoint was attributed through the unit fallback.
+        fallback: bool,
+        /// The `from` path carries the composition role.
+        source_is_composition: bool,
+    },
+    /// One claim owns both endpoints, or the pair is containment-related, or
+    /// it is the composition-attribution artefact, or a test-gated endpoint:
+    /// never an edge, never a verdict.
+    Composition,
+    /// An endpoint no claim owns: path-named, adjudicated nothing.
+    Unowned { paths: Vec<String> },
+}
+
+fn place_module_edge<'a>(
+    edge: &ModuleEdge,
+    model: &Model,
+    claims: &[Claim<'a>],
+    modules: &[Module],
+    composition_sources: &BTreeSet<String>,
+) -> EdgePlacement<'a> {
+    if is_test_module(model, &edge.from) || is_test_module(model, &edge.to) {
+        return EdgePlacement::Composition;
+    }
+    let from_owner = claim_owner(&edge.from, claims)
+        .map(|index| (index, false))
+        .or_else(|| claim_unit_fallback(&edge.from, claims).map(|index| (index, true)));
+    let to_owner = claim_owner(&edge.to, claims)
+        .map(|index| (index, false))
+        .or_else(|| claim_unit_fallback(&edge.to, claims).map(|index| (index, true)));
+    let mut unowned: Vec<String> = Vec::new();
+    if from_owner.is_none() {
+        unowned.push(edge.from.clone());
+    }
+    if to_owner.is_none() {
+        unowned.push(edge.to.clone());
+    }
+    let (Some(from_owner), Some(to_owner)) = (from_owner, to_owner) else {
+        return EdgePlacement::Unowned { paths: unowned };
+    };
+    // Containment (D3): both endpoints resolve inside one claim subtree along
+    // an ancestor-descendant pair — a parent reaching its own parts, either
+    // direction, is composition. The edge neither adjudicates nor launders:
+    // it is not an edge at all on the boundary graph.
+    if related_by_containment(claims, from_owner.0, to_owner.0) {
+        return EdgePlacement::Composition;
+    }
+    if claims[from_owner.0].name == claims[to_owner.0].name {
+        return EdgePlacement::Composition;
+    }
+    let source_is_composition = composition_sources.contains(&edge.from);
+    if source_is_composition
+        && from_owner.1
+        && !modules.iter().any(|module| {
+            module.name == claims[from_owner.0].name
+                && module
+                    .matches
+                    .units
+                    .iter()
+                    .any(|pattern| matches_pattern(&edge.unit, pattern))
+        })
+    {
+        // Misattributed sanctioned hop: the composition path was projected
+        // onto a boundary whose `units` do not cover the unit the wiring edge
+        // actually lives in (rollup splits multi-segment unit roots at the
+        // first `::`, so a solution root `Company::App` lands on the
+        // neighbour claiming `Company`). That pair is an artefact of
+        // attribution, not an observed dependency — it neither adjudicates
+        // nor launders (roles US 05b).
+        return EdgePlacement::Composition;
+    }
+    EdgePlacement::Pair {
+        from: claims[from_owner.0].name,
+        to: claims[to_owner.0].name,
+        fallback: from_owner.1 || to_owner.1,
+        source_is_composition,
     }
 }
 
@@ -1016,14 +1576,26 @@ fn unit_tier_identity_allows(
 }
 
 /// Missing edge (#11): a declared `allowed.depend_on` target is a declared
-/// module, but no extracted edge connects the source module to it.
-fn check_missing_edges(pairs: &BTreeSet<(String, String)>, modules: &[Module], diff: &mut Diff) {
-    for module in modules {
-        for target in &module.allowed.depend_on {
-            let target_declared = modules.iter().any(|candidate| &candidate.name == target);
-            if target_declared && !pairs.contains(&(module.name.clone(), target.clone())) {
+/// claim, but no extracted edge connects the declaring claim's territory —
+/// its whole subtree, so an edge owned by a policy-inheriting descendant
+/// satisfies the ancestor's obligation exactly once — to that claim. A
+/// policy-free nested claim adds no obligation of its own (D2): its
+/// inherited rule fires at the declaring ancestor, so nested and flat
+/// equivalents list the same pair with the same text.
+fn check_missing_edges(pairs: &BTreeSet<(String, String)>, claims: &[Claim<'_>], diff: &mut Diff) {
+    for (index, claim) in claims.iter().enumerate() {
+        if !claim.allowed.declared {
+            continue;
+        }
+        let territory = subtree_names(claims, index);
+        for target in &claim.allowed.depend_on {
+            let target_declared = claim_by_name(claims, target).is_some();
+            let exercised = pairs
+                .iter()
+                .any(|(from, to)| to == target && territory.contains(from.as_str()));
+            if target_declared && !exercised {
                 diff.missing_edges
-                    .push(format!("{} -> {target}", module.name));
+                    .push(format!("{} -> {target}", claim.name));
             }
         }
     }
@@ -1169,9 +1741,12 @@ fn reachable_path(
 /// symbol-level checks arrive with phase 2. Submodules are enforced by
 /// recursion: a contract on a submodule applies to the surface crossing that
 /// submodule's boundary path — module paths under the boundary (attributed by
-/// the same `module_path_matches` rule as module ownership) and units claimed
-/// by the submodule's `matches.units` globs — matching stereotype patterns
-/// against those path strings by the full-path/bare-name rule.
+/// the same `module_path_matches` rule as module ownership) and the units the
+/// enclosing claim has assigned, filtered to those the submodule's boundary
+/// path matches (submodules claim the module tier only, so the unit surface
+/// is always the ancestor's claimed territory seen through the boundary) —
+/// matching stereotype patterns against those strings by the
+/// full-path/bare-name rule.
 fn check_contract_leaks(
     mapping: &Mapping,
     model: &Model,
@@ -1195,16 +1770,32 @@ fn check_contract_leaks(
                 }
             }
         }
-        collect_submodule_contract_leaks(model, &module.submodules, stereotypes, &mut leaks);
+        let inherited: BTreeSet<&str> = module.contract.forbid.iter().map(String::as_str).collect();
+        let empty_units = BTreeSet::new();
+        let ancestor_units: &BTreeSet<String> =
+            mapping.assignments.get(&module.name).unwrap_or(&empty_units);
+        collect_submodule_contract_leaks(
+            model,
+            &module.submodules,
+            &inherited,
+            ancestor_units,
+            stereotypes,
+            &mut leaks,
+        );
     }
     leaks.into_iter().collect()
 }
 
 /// Recurse the contract-leak check into submodules (one level per nesting,
-/// boundary = the submodule's declared path patterns).
-fn collect_submodule_contract_leaks(
+/// boundary = the submodule's declared path patterns). Ancestors'
+/// `contract.forbid` lists bind every descendant's surface cumulatively —
+/// the prohibition half of the one-way ratchet (D5); the leak is attributed
+/// to the claim whose files expose the forbidden stereotype.
+fn collect_submodule_contract_leaks<'a>(
     model: &Model,
-    submodules: &[Module],
+    submodules: &'a [Module],
+    inherited: &BTreeSet<&'a str>,
+    ancestor_units: &BTreeSet<String>,
     stereotypes: &[Stereotype],
     leaks: &mut BTreeSet<String>,
 ) {
@@ -1214,10 +1805,12 @@ fn collect_submodule_contract_leaks(
         } else {
             submodule.matches.modules.clone()
         };
-        for forbidden in &submodule.contract.forbid {
+        let mut forbids: BTreeSet<&str> = inherited.clone();
+        forbids.extend(submodule.contract.forbid.iter().map(String::as_str));
+        for forbidden in &forbids {
             let exposed = stereotypes.iter().any(|stereotype| {
                 &stereotype.name == forbidden
-                    && submodule_surface_matches(stereotype, submodule, model, &boundary)
+                    && submodule_surface_matches(stereotype, &boundary, ancestor_units, model)
             });
             if exposed {
                 leaks.insert(format!(
@@ -1226,23 +1819,394 @@ fn collect_submodule_contract_leaks(
                 ));
             }
         }
-        collect_submodule_contract_leaks(model, &submodule.submodules, stereotypes, leaks);
+        collect_submodule_contract_leaks(
+            model,
+            &submodule.submodules,
+            &forbids,
+            ancestor_units,
+            stereotypes,
+            leaks,
+        );
     }
 }
 
-/// True if a stereotype's match-set hits the submodule's surface: a unit
-/// claimed by its `matches.units` globs (top-level semantics), or a module
-/// path inside the boundary matched by the full-path/bare-name rule.
+/// The expose chain law's verdict set (workplan
+/// rust-arch-test-kit/worklog/workplan_archspec_module_public_api_diagrams.md):
+/// leaks are `<owner> exposes <name> (not exposed)` payloads for the shipped
+/// `public api leak` category; staleness, ambiguity, and dead-reference lines
+/// are warning payloads; `vacuous` entries are pre-rendered carriers for the
+/// `vacuous constraint` channel; `leaked_by_claim` is the widened seam query
+/// the per-module diagram reads (D11) — the diagram never re-derives.
+pub struct ExposeVerdicts {
+    pub leaks: Vec<String>,
+    pub warnings: Vec<String>,
+    pub vacuous: Vec<String>,
+    pub leaked_by_claim: BTreeMap<String, BTreeSet<String>>,
+}
+
+/// True when `claim`'s territory contains module path `path`: a declared
+/// `matches.modules` pattern addresses it, or a claimed unit owns it — the
+/// unit itself (its root module, excluded from the fact read by D10 before
+/// this call) or any `unit::…` path beneath it.
+fn claim_covers_path(claim: &Claim<'_>, path: &str, model: &Model) -> bool {
+    claim
+        .matches
+        .modules
+        .iter()
+        .any(|pattern| module_path_matches(pattern, path))
+        || model.units.iter().any(|unit| {
+            claim
+                .matches
+                .units
+                .iter()
+                .any(|pattern| matches_pattern(&unit.name, pattern))
+                && (path == unit.name || path.starts_with(&format!("{}::", unit.name)))
+        })
+}
+
+/// The public type names a claim's territory exports — the module public-API
+/// fact rows it covers, unit-root rows already excluded (D10).
+fn territory_symbols(claim: &Claim<'_>, rows: &[(String, Vec<String>)], model: &Model) -> Vec<String> {
+    rows.iter()
+        .filter(|(path, _)| claim_covers_path(claim, path, model))
+        .flat_map(|(_, names)| names.iter().cloned())
+        .collect()
+}
+
+/// True when a stereotype classifies any of the claim's own surface: the
+/// claimed units through the shipped unit-level rule, or the module paths
+/// beneath the claim's boundary through the shipped submodule-surface rule
+/// (the same machinery `contract.forbid` reads — assumption A5).
+fn stereotype_engages_claim(
+    claim: &Claim<'_>,
+    claims: &[Claim<'_>],
+    stereotype: &Stereotype,
+    mapping: &Mapping,
+    model: &Model,
+) -> bool {
+    let own_units: BTreeSet<String> = if let Some(units) = mapping.assignments.get(claim.name) {
+        units.clone()
+    } else if let Some(parent) = claim.parent {
+        mapping
+            .assignments
+            .get(claims[parent].name)
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        BTreeSet::new()
+    };
+    if own_units
+        .iter()
+        .any(|unit| stereotype_matches_unit(unit, stereotype))
+    {
+        return true;
+    }
+    let boundary: Vec<String> = if claim.matches.modules.is_empty() {
+        vec![claim.name.to_string()]
+    } else {
+        claim.matches.modules.clone()
+    };
+    submodule_surface_matches(stereotype, &boundary, &own_units, model)
+}
+
+/// The expose chain law over one (model, claims) pair. A claim that declares
+/// no `contract.expose` set makes no claim (verdict-neutral, D2); a declaring
+/// ancestor binds every descendant export (the set at a boundary is the
+/// intersection over the declaring chain); a symbol fires once, attributed to
+/// the deepest declaring claim whose territory holds it (D3). The fact read is
+/// the module public-API rows minus the unit-root keys (D10: those rows are
+/// the allowlist's sole territory); a driver that carries no such rows leaves
+/// the symbol arm vacuous per claim (D7) while the stereotype arm still
+/// adjudicates through the shipped surface machinery.
+pub fn adjudicate_expose(
+    mapping: &Mapping,
+    model: &Model,
+    modules: &[Module],
+    stereotypes: &[Stereotype],
+) -> ExposeVerdicts {
+    let claims = flatten_claims(modules);
+    let declaring: Vec<&Claim<'_>> = claims
+        .iter()
+        .filter(|claim| claim.contract.expose.is_some())
+        .collect();
+    if declaring.is_empty() {
+        return ExposeVerdicts {
+            leaks: Vec::new(),
+            warnings: Vec::new(),
+            vacuous: Vec::new(),
+            leaked_by_claim: BTreeMap::new(),
+        };
+    }
+    let unit_names: BTreeSet<&str> = model.units.iter().map(|unit| unit.name.as_str()).collect();
+    let rows: Vec<(String, Vec<String>)> = model
+        .module_public_types
+        .iter()
+        .filter(|(key, _)| !unit_names.contains(key.as_str()))
+        .map(|(key, names)| (key.clone(), names.clone()))
+        .collect();
+    let facts_present = !rows.is_empty();
+    let declared_stereotypes: BTreeSet<&str> =
+        stereotypes.iter().map(|s| s.name.as_str()).collect();
+
+    let mut leaks: BTreeSet<String> = BTreeSet::new();
+    let mut warnings: BTreeSet<String> = BTreeSet::new();
+    let mut vacuous: BTreeSet<String> = BTreeSet::new();
+    let mut leaked_by_claim: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+    // Chain adjudication, one pass per symbol row (D2/D3).
+    for (path, names) in &rows {
+        let chain: Vec<&Claim<'_>> = declaring
+            .iter()
+            .copied()
+            .filter(|claim| claim_covers_path(claim, path, model))
+            .collect();
+        if chain.is_empty() {
+            continue;
+        }
+        let owner = chain
+            .iter()
+            .copied()
+            .max_by_key(|claim| (claim.depth, std::cmp::Reverse(claim.name)))
+            .expect("chain non-empty");
+        for name in names {
+            let uncovered = chain.iter().any(|claim| !expose_covers(claim, name, stereotypes));
+            if uncovered {
+                leaks.insert(format!("{} exposes {name} (not exposed)", owner.name));
+                leaked_by_claim
+                    .entry(owner.name.to_string())
+                    .or_default()
+                    .insert(name.clone());
+            }
+        }
+    }
+
+    // Per-entry classification over each declaring claim (D4/D5): an entry
+    // naming a declared stereotype adjudicates the stereotype arm; a glob is
+    // a symbol pattern over facts; a bare name is a symbol reference whose
+    // non-existence anywhere is a shipped dead reference (forbid parity —
+    // globs name no thing, so they take only the staleness ladder).
+    let all_symbols: Vec<&String> = rows.iter().flat_map(|(_, names)| names.iter()).collect();
+    for claim in &declaring {
+        let entries = claim.contract.expose.as_ref().expect("filter declares");
+        let territory = territory_symbols(claim, &rows, model);
+        let mut symbol_arm_entries = false;
+        for entry in entries {
+            match declared_stereotypes
+                .get(entry.as_str())
+                .and_then(|name| stereotypes.iter().find(|s| &s.name == name))
+            {
+                Some(stereotype) => {
+                    let engages =
+                        stereotype_engages_claim(claim, &claims, stereotype, mapping, model);
+                    if !engages {
+                        warnings.insert(format!(
+                            "stale contract export: {} declares {entry} (never exported across its territory)",
+                            claim.name
+                        ));
+                    }
+                    let ambiguous = territory.iter().any(|symbol| {
+                        stereotype
+                            .match_set
+                            .names
+                            .iter()
+                            .chain(stereotype.match_set.paths.iter())
+                            .chain(stereotype.match_set.units.iter())
+                            .any(|pattern| matches_pattern(symbol, pattern))
+                    });
+                    if ambiguous {
+                        warnings.insert(format!(
+                            "ambiguous expose entry: {} entry {entry} names stereotype {} and matches symbols",
+                            claim.name, stereotype.name
+                        ));
+                    }
+                }
+                None => {
+                    symbol_arm_entries = true;
+                    if !facts_present {
+                        continue; // the arm states its own vacuity below (D7)
+                    }
+                    let engaged = territory
+                        .iter()
+                        .any(|symbol| matches_pattern(symbol, entry));
+                    if engaged {
+                        continue;
+                    }
+                    if entry.contains('*')
+                        || all_symbols.iter().any(|symbol| matches_pattern(symbol, entry))
+                    {
+                        warnings.insert(format!(
+                            "stale contract export: {} declares {entry} (never exported across its territory)",
+                            claim.name
+                        ));
+                    } else {
+                        warnings.insert(format!(
+                            "dead reference: module '{}' contract.expose target \"{entry}\" names no \
+                             stereotype — declare a stereotype named \"{entry}\" or fix the reference{}",
+                            claim.name,
+                            did_you_mean(entry, &declared_stereotypes)
+                        ));
+                    }
+                }
+            }
+        }
+        if !facts_present && symbol_arm_entries {
+            vacuous.insert(format!(
+                "[contract.expose of {}]: no module-tier public-API facts to check for the \
+                 public-API surface (see archspec help capabilities)",
+                claim.name
+            ));
+        }
+    }
+
+    ExposeVerdicts {
+        leaks: leaks.into_iter().collect(),
+        warnings: warnings.into_iter().collect(),
+        vacuous: vacuous.into_iter().collect(),
+        leaked_by_claim,
+    }
+}
+
+/// True when the claim's declared set covers symbol `name`: a symbol-level
+/// entry matching through the shipped glob (D6), or a stereotype entry whose
+/// class the symbol falls under (the entry's arm decided classification, not
+/// polarity — both arms permit).
+fn expose_covers(claim: &Claim<'_>, name: &str, stereotypes: &[Stereotype]) -> bool {
+    let entries = match claim.contract.expose.as_ref() {
+        Some(entries) => entries,
+        None => return false,
+    };
+    entries.iter().any(|entry| {
+        if let Some(stereotype) = stereotypes.iter().find(|s| s.name == *entry) {
+            return stereotype
+                .match_set
+                .names
+                .iter()
+                .chain(stereotype.match_set.paths.iter())
+                .chain(stereotype.match_set.units.iter())
+                .any(|pattern| matches_pattern(name, pattern));
+        }
+        matches_pattern(name, entry)
+    })
+}
+
+/// Engagement diagnostics over the claim set at any depth (D9a/D9b), run
+/// model-side so languages without module-tier facts are covered too:
+/// (a) a claim whose `matches` resolve to no model element is an
+///     `unmatched claim` — except where the missing-component error already
+///     names it, so a claim is never reported twice;
+/// (b) a claim whose every claimed model path an equal-or-more-specific
+///     other claim also covers is a `shadowed claim` — its rules can never
+///     fire differently than the shadow's, exactly the silence this whole
+///     change exists to close.
+fn check_claim_engagement(
+    model: &Model,
+    claims: &[Claim<'_>],
+    missing_components: &BTreeSet<String>,
+    warnings: &mut Vec<String>,
+) {
+    let mut paths: BTreeSet<&str> = BTreeSet::new();
+    for module_paths in model.soft_structure.values() {
+        paths.extend(module_paths.iter().map(String::as_str));
+    }
+    for edge in &model.module_edges {
+        paths.insert(edge.from.as_str());
+        paths.insert(edge.to.as_str());
+    }
+    let claims_a_path = |pattern: &str, path: &str| module_path_matches(pattern, path);
+    for claim in claims {
+        let matched = paths.iter().any(|path| {
+            claim
+                .matches
+                .modules
+                .iter()
+                .any(|pattern| claims_a_path(pattern, path))
+        }) || model.units.iter().any(|unit| {
+            claim
+                .matches
+                .units
+                .iter()
+                .any(|pattern| matches_pattern(&unit.name, pattern))
+                || (model.language == "go"
+                    && claim
+                        .matches
+                        .modules
+                        .iter()
+                        .any(|pattern| module_path_matches(pattern, &unit.name)))
+        });
+        if !matched && !missing_components.contains(claim.name) {
+            warnings.push(format!("unmatched claim: {}", claim.name));
+        }
+    }
+    for first in claims {
+        let claimed: Vec<&str> = paths
+            .iter()
+            .copied()
+            .filter(|path| {
+                first
+                    .matches
+                    .modules
+                    .iter()
+                    .any(|pattern| claims_a_path(pattern, path))
+            })
+            .collect();
+        if claimed.is_empty() {
+            continue;
+        }
+        for other in claims {
+            if other.name == first.name {
+                continue;
+            }
+            let covers = claimed.iter().all(|path| {
+                let mine = first
+                    .matches
+                    .modules
+                    .iter()
+                    .filter_map(|pattern| entry_specificity(pattern, path))
+                    .max();
+                let theirs = other
+                    .matches
+                    .modules
+                    .iter()
+                    .filter_map(|pattern| entry_specificity(pattern, path))
+                    .max();
+                match (mine, theirs) {
+                    (Some(mine), Some(theirs)) => {
+                        theirs > mine
+                            || (theirs == mine
+                                && (other.depth > first.depth
+                                    || (other.depth == first.depth
+                                        && other.name < first.name)))
+                    }
+                    (Some(_), None) => false,
+                    (None, _) => true,
+                }
+            });
+            if covers {
+                warnings.push(format!(
+                    "shadowed claim: {} is fully claimed by {}",
+                    first.name, other.name
+                ));
+            }
+        }
+    }
+}
+
+/// True if a stereotype's match-set hits the submodule's surface: units the
+/// enclosing claim has assigned whose name the submodule's boundary path
+/// matches (submodules claim the module tier only, so the unit surface is the
+/// ancestor's claimed territory seen through the boundary), or a module path
+/// inside the boundary matched by the full-path/bare-name rule.
 fn submodule_surface_matches(
     stereotype: &Stereotype,
-    submodule: &Module,
-    model: &Model,
     boundary: &[String],
+    ancestor_units: &BTreeSet<String>,
+    model: &Model,
 ) -> bool {
-    let units_claimed = submodule.matches.units.iter().any(|pattern| {
-        model.units.iter().any(|unit| {
-            matches_pattern(&unit.name, pattern) && stereotype_matches_unit(&unit.name, stereotype)
-        })
+    let units_claimed = ancestor_units.iter().any(|unit| {
+        boundary
+            .iter()
+            .any(|pattern| module_path_matches(pattern, unit))
+            && stereotype_matches_unit(unit, stereotype)
     });
     units_claimed
         || model.soft_structure.values().flatten().any(|path| {
@@ -2046,14 +3010,14 @@ fn allowed_from_subtree(module_path: &str, allowed_from: &[String]) -> bool {
 
 /// `forbid_submodule_dependency` (#30-#32): within a `parent` module, a listed
 /// `from` submodule must not depend on a forbidden sibling submodule.
-fn check_forbid_submodule(model: &Model, constraints: &[Constraint]) -> (Vec<String>, Vec<String>) {
+fn check_forbid_submodule(edges: &[ModuleEdge], constraints: &[Constraint]) -> (Vec<String>, Vec<String>) {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     for constraint in constraints
         .iter()
         .filter(|constraint| constraint.kind == "forbid_submodule_dependency")
     {
-        for edge in &model.module_edges {
+        for edge in edges {
             let Some(ancestor) = common_ancestor(&edge.from, &edge.to) else {
                 continue;
             };
@@ -2110,6 +3074,7 @@ fn check_vacuous_constraints(
     modules: &[Module],
     constraints: &[Constraint],
     module_edges: &BTreeSet<(String, String)>,
+    submodule_edges: &[ModuleEdge],
 ) -> Vec<String> {
     let all_modules: BTreeSet<String> = modules.iter().map(|module| module.name.clone()).collect();
     let mut out: Vec<String> = Vec::new();
@@ -2233,13 +3198,35 @@ fn check_vacuous_constraints(
                             .iter()
                             .map(|pattern| format!("\"{pattern}\""))
                             .collect();
+                        // Misuse deflection (misuse-diagnostics US 01): an
+                        // entry written as a bare module NAME where a module
+                        // PATH was meant gets one concrete corrected path
+                        // named on this line — the single context statement
+                        // of an allowlist gating nothing (leak lines stay
+                        // byte-unchanged). Exact structural equality only;
+                        // no candidate means the sentence byte-unchanged.
+                        // Rust trees cannot reach this arm: the module-tier
+                        // fact map is empty wherever root exports are the
+                        // fact source, so the rust sentence below is never
+                        // near this machinery.
+                        let nudge = allowlist_path_nudge(&constraint.allowed, model, modules);
                         Some(format!(
-                            "'allowed' pattern {} matches no module with public types in the model",
+                            "'allowed' pattern {} matches no module with public types in the model{nudge}",
                             patterns.join(", ")
                         ))
                     }
                 } else if language::from_name(&model.language) == Some(language::Language::Csharp) {
                     Some("no public API facts to check".to_string())
+                } else if language::from_name(&model.language) == Some(language::Language::Go) {
+                    // D9 (workplan archspec_module_public_api_diagrams): go has
+                    // no crate, so the rust sentence was wrong vocabulary on a
+                    // go tree. The neutral arm names capability, tier, and the
+                    // remedy pointer — no driver-specific token.
+                    Some(
+                        "no module-tier public-API facts to check for the public-API surface \
+                         (see archspec help capabilities)"
+                            .to_string(),
+                    )
                 } else {
                     Some("no crate-root public exports to check".to_string())
                 }
@@ -2247,7 +3234,7 @@ fn check_vacuous_constraints(
             // Engaged iff any module edge has a common ancestor matching `parent`
             // and a source submodule matching a `from` pattern.
             "forbid_submodule_dependency" => {
-                let engaged = model.module_edges.iter().any(|edge| {
+                let engaged = submodule_edges.iter().any(|edge| {
                     let Some(ancestor) = common_ancestor(&edge.from, &edge.to) else {
                         return false;
                     };
@@ -2339,13 +3326,21 @@ fn check_reference_engagement(
     stereotypes: &[Stereotype],
     soft_verifiable: bool,
 ) -> Vec<String> {
-    let declared: BTreeSet<&str> = modules.iter().map(|module| module.name.as_str()).collect();
+    let declared: BTreeSet<String> = spec::claim_names(modules).into_iter().collect();
+    let declared: BTreeSet<&str> = declared.iter().map(String::as_str).collect();
     let declared_stereotypes: BTreeSet<&str> = stereotypes
         .iter()
         .map(|stereotype| stereotype.name.as_str())
         .collect();
     let mut found: BTreeSet<String> = BTreeSet::new();
-    for module in modules {
+    for module in flatten_claims(modules)
+        .iter()
+        .map(|claim| ModuleRef {
+            name: claim.name,
+            allowed: claim.allowed,
+            contract: claim.contract,
+        })
+    {
         for (field, target) in module
             .allowed
             .depend_on
@@ -2365,7 +3360,7 @@ fn check_reference_engagement(
             if source_reference_exists(target, model) {
                 found.insert(format!(
                     "dead reference: module '{}' {field} target \"{target}\" exists in source \
-                     but undeclared — references resolve to declared top-level module names only",
+                     but undeclared — references resolve to declared claim names at any depth",
                     module.name
                 ));
             } else if soft_verifiable {
@@ -2396,35 +3391,11 @@ fn check_reference_engagement(
                 did_you_mean(forbidden, &declared_stereotypes)
             ));
         }
-        collect_submodule_dead_references(&module.submodules, &declared_stereotypes, &mut found);
     }
     found.into_iter().collect()
 }
 
-/// Submodule `contract.forbid` targets get the same dead-reference treatment
-/// as top-level ones (#93): submodule contracts are enforced, so a target
-/// naming no declared stereotype can never engage and is reported under the
-/// submodule's full boundary path.
-fn collect_submodule_dead_references(
-    submodules: &[Module],
-    declared_stereotypes: &BTreeSet<&str>,
-    found: &mut BTreeSet<String>,
-) {
-    for submodule in submodules {
-        for forbidden in &submodule.contract.forbid {
-            if declared_stereotypes.contains(forbidden.as_str()) {
-                continue;
-            }
-            found.insert(format!(
-                "dead reference: module '{}' contract.forbid target \"{forbidden}\" names no \
-                 stereotype — declare a stereotype named \"{forbidden}\" or fix the reference{}",
-                submodule.name,
-                did_you_mean(forbidden, declared_stereotypes)
-            ));
-        }
-        collect_submodule_dead_references(&submodule.submodules, declared_stereotypes, found);
-    }
-}
+
 
 /// True if a reference target addresses something present in the source model:
 /// a declared unit name, or a module path in either tier (soft structure or
@@ -2467,6 +3438,63 @@ fn did_you_mean(target: &str, candidates: &BTreeSet<&str>) -> String {
         Some((_, name)) => format!(" (did you mean \"{name}\"?)"),
         None => String::new(),
     }
+}
+
+/// The did-you-mean suffix for a vacuous `public_api_allowlist` on a
+/// module-path-tier tree (misuse-diagnostics US 01). An `allowed` entry
+/// without `::` may be a bare module NAME where a module PATH was meant.
+/// A candidate is a module path carrying public-type facts whose last
+/// `::`-separated segment equals the entry case-sensitively, or a
+/// fact-carrying path addressed by a module DECLARED under exactly that
+/// name (the reported misread: `allowed = ["contracts"]` beside a module
+/// `contracts` owning `Sample::Contracts`). Exact equality only — no edit
+/// distance, no case folding, no invented spellings. Candidates are
+/// deduplicated and sorted; the suffix names up to three, then counts the
+/// rest. No candidate: empty string, the vacuity sentence byte-unchanged.
+/// Rust trees never reach this helper — the fact map it reads is empty on
+/// rust by driver construction.
+fn allowlist_path_nudge(allowed: &[String], model: &Model, modules: &[Module]) -> String {
+    let mut candidates: BTreeSet<&String> = BTreeSet::new();
+    for entry in allowed.iter().filter(|entry| !entry.contains("::")) {
+        for path in model.module_public_types.keys() {
+            let tail = path.rsplit("::").next().unwrap_or(path);
+            let addressed_by_name = modules.iter().any(|module| {
+                module.name == *entry
+                    && module
+                        .matches
+                        .modules
+                        .iter()
+                        .any(|pattern| module_path_matches(pattern, path))
+            });
+            if tail == entry.as_str() || addressed_by_name {
+                candidates.insert(path);
+            }
+        }
+    }
+    let total = candidates.len();
+    if total == 0 {
+        return String::new();
+    }
+    let named: Vec<String> = candidates
+        .iter()
+        .take(3)
+        .map(|path| format!("\"{path}\""))
+        .collect();
+    let list = if total > 3 {
+        format!(
+            "{}...and {} more module path{}",
+            named.join(", "),
+            total - 3,
+            if total - 3 == 1 { "" } else { "s" }
+        )
+    } else if named.len() == 1 {
+        named[0].clone()
+    } else if named.len() == 2 {
+        format!("{} or {}", named[0], named[1])
+    } else {
+        format!("{}, {} or {}", named[0], named[1], named[2])
+    };
+    format!("; allowed entries are module paths — did you mean {list}?")
 }
 
 fn levenshtein(left: &str, right: &str) -> usize {
@@ -2526,7 +3554,7 @@ fn glob_match(value: &[u8], pattern: &[u8]) -> bool {
 pub fn pass_confirmation(modules: &[Module], constraints_checked: usize) -> String {
     format!(
         "ok: architecture.spec.toml matches source model ({} modules, {} constraints checked)\n",
-        modules.len(),
+        count_claims(modules),
         constraints_checked
     )
 }

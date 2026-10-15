@@ -8,7 +8,9 @@ library (`src/lib.rs` re-exports only the shared parse/render primitives for
 the binary itself).
 
 Guides live in [docs/archspec/](docs/archspec/); the living design is
-[docs/archspec-design.md](docs/archspec-design.md).
+[docs/archspec-design.md](docs/archspec-design.md). The agent-facing relation
+analysis playbook — how to read a codebase's relations for non-optimal
+structure — ships as its own skill: `archspec skill analysis`.
 
 ---
 

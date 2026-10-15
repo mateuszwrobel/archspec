@@ -62,7 +62,7 @@ fn printed_manual() -> String {
     let fixture = common::Fixture::new();
     let mut out = String::new();
     for args in [
-        &[] as &[&str],
+        &["help"] as &[&str],
         &["help", "constraints"],
         &["help", "spec"],
         &["help", "diagnostics"],

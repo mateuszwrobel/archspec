@@ -25,10 +25,12 @@ cargo clippy --manifest-path "$SCRIPT_DIR/Cargo.toml" --all-targets -- -D warnin
 # architecture artefacts it generates for this crate.
 #
 # Binary resolution: honor $ARCHSPEC if set, else the debug binary produced by
-# the build below (target/debug/archspec).
+# the build below — $CARGO_TARGET_DIR/debug/archspec when the caller preset a
+# target dir externally (containerized legs run with one), else the manifest
+# -relative target/debug/archspec.
 echo "Building archspec binary for the self-dogfood gate..."
 cargo build --manifest-path "$SCRIPT_DIR/Cargo.toml" --bin archspec
-ARCHSPEC_BIN="${ARCHSPEC:-$SCRIPT_DIR/target/debug/archspec}"
+ARCHSPEC_BIN="${ARCHSPEC:-${CARGO_TARGET_DIR:-$SCRIPT_DIR/target}/debug/archspec}"
 if [[ ! -x "$ARCHSPEC_BIN" ]]; then
   echo "archspec binary not found/executable at: $ARCHSPEC_BIN" >&2
   echo "set ARCHSPEC=/path/to/archspec to override" >&2
@@ -48,8 +50,10 @@ echo "Self verify: archspec verify --strict"
 #    Hand-authored and test-regenerated artefacts are intentionally NOT checked:
 #      * docs/**\/*.md prose (README, cli/errors/acceptance/..., docs/archspec/*.md)
 #        are written by hand, not emitted by archspec.
-#      * feature-matrix.{json,md} are rewritten by the `feature_matrix` cargo test
-#        on every run (not an `archspec` output command), so they are excluded here.
+#      * feature-matrix.{json,md} are regenerated into the target dir and
+#        byte-compared against the committed copies by the `feature_matrix`
+#        cargo test (not an `archspec` output command), so they are excluded
+#        here.
 #      * depgraph has no committed generated artefact and no [output] default.
 echo "Self freshness: archspec artefact --check"
 for cmd in scan diagram inspect report; do

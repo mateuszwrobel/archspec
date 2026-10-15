@@ -1,8 +1,9 @@
 // Reference engagement diagnostics
 // (behaviors R1-R6): a module reference in `allowed.depend_on`,
 // `allowed.forbidden`, or `contract.forbid` that can never engage a declared
-// boundary (verify resolves references against declared top-level module names
-// and stereotype names only) is reported as a warning-severity `dead reference`
+// boundary (verify resolves references against declared claim names at any
+// depth — top-level and submodule claims — and stereotype names only) is
+// reported as a warning-severity `dead reference`
 // instead of passing silently. Classification: declared -> no finding; exists
 // in source but undeclared -> "exists in source but undeclared"; absent ->
 // "does not exist" plus a did-you-mean candidate where feasible. Warnings pass

@@ -1,11 +1,14 @@
-//! `archspec skill` — the agent-facing audit skill as a deliverable.
+//! `archspec skill` — the agent-facing skills as a deliverable.
 //!
-//! The skill document lives in the payload docs (`docs/archspec/skill.md`) and
-//! is embedded at compile time, so a single source of truth serves both the
-//! printed and installed forms; a test pins the emitted bytes against the
-//! document to stop drift. `install` writes it to the loading convention of
-//! this repository family (`.agent/skills/archspec.md` under the project path)
-//! and treats a locally modified file as user work: it refuses without
+//! The skill documents live in the payload docs (`docs/archspec/skill.md` for
+//! the audit skill, `docs/archspec/skill-analysis.md` for the analysis skill)
+//! and are embedded at compile time, so a single source of truth serves both
+//! the printed and installed forms; tests pin the emitted bytes against the
+//! documents to stop drift. Each skill is addressable by name on stdout
+//! (`audit` is the default; `analysis` emits the relation-analysis
+//! playbook). `install` writes the audit skill to the loading convention of
+//! this repository family (`.agent/skills/archspec.md` under the project
+//! path) and treats a locally modified file as user work: it refuses without
 //! `--force`, mirroring the care `update` takes with spec files.
 
 use std::io::ErrorKind;
@@ -15,11 +18,16 @@ use crate::archspec::cli;
 
 pub const SKILL: &str = include_str!("../../../docs/archspec/skill.md");
 
+/// The relation-analysis playbook as its own skill, emitted by name and not
+/// silently merged into the audit skill (the analysis procedure carries no
+/// registered claim signatures; verdicts stay in exit codes).
+pub const SKILL_ANALYSIS: &str = include_str!("../../../docs/archspec/skill-analysis.md");
+
 /// Where the skill lands under a project root, in the agent harness's loading
 /// convention.
 pub const SKILL_DEST: &str = ".agent/skills/archspec.md";
 
-pub const HELP: &str = "usage: archspec skill\n       archspec skill install [path] [--force]\n\nprint    the agent-facing audit skill on stdout (default)\ninstall  write the skill to <path>/.agent/skills/archspec.md (default path: the\n         current directory), creating missing parent directories\n  --force  overwrite an installed skill whose content differs from the shipped\n           one; an unchanged file is never rewritten\n\nthe embedded skill matches the shipped document byte-for-byte; reinstall with\n--force after upgrading archspec\n";
+pub const HELP: &str = "usage: archspec skill [name]\n       archspec skill install [path] [--force]\n\nname     emit one shipped skill on stdout by name (default: audit)\n  audit    the agent-facing audit skill\n  analysis the relation-analysis playbook (recommendations, never verdicts)\nprint    the agent-facing audit skill on stdout (same as `skill audit`)\ninstall  write the skill to <path>/.agent/skills/archspec.md (default path: the\n         current directory), creating missing parent directories\n  --force  overwrite an installed skill whose content differs from the shipped\n           one; an unchanged file is never rewritten\n\nthe embedded skills match the shipped documents byte-for-byte; reinstall with\n--force after upgrading archspec\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -47,8 +55,28 @@ pub fn run(args: &[String]) -> Result<(), String> {
             };
             install(root, parsed.switches.contains("force"))
         }
+        Some(name @ ("audit" | "analysis")) => {
+            if positionals.next().is_some() {
+                return Err(format!("skill {name} takes no path arguments"));
+            }
+            print!("{}", skill_document(name)?);
+            Ok(())
+        }
         Some(other) => Err(format!(
-            "unknown skill subcommand: {other} (expected: print, install)"
+            "unknown skill: {other} (expected: print, install, audit, analysis)"
+        )),
+    }
+}
+
+/// The embedded bytes of one named skill — the closed name set is
+/// {audit, analysis}; anything else fails loud, never falling back to the
+/// audit skill.
+fn skill_document(name: &str) -> Result<&'static str, String> {
+    match name {
+        "audit" => Ok(SKILL),
+        "analysis" => Ok(SKILL_ANALYSIS),
+        other => Err(format!(
+            "unknown skill: {other} (expected: print, install, audit, analysis)"
         )),
     }
 }

@@ -70,21 +70,34 @@ pub fn compute_metrics(model: &Model, mapping: &Mapping, modules: &[Module], dif
             .iter()
             .filter(|warning| warning.starts_with("cycle: "))
             .count();
+    // Bucket the gated fields (the same `error_fields` list the exit gate and
+    // the renderers consume) so no counted violation can miss the metrics.
+    // An unknown category lands in `contracts` — fail closed, never invisible.
+    let mut components_violations = 0usize;
+    let mut edges_violations = 0usize;
+    let mut contracts_violations = 0usize;
+    for (category, entries) in diff.error_fields() {
+        match category {
+            "missing component" | "unexpected component" | "unassigned unit" | "ambiguous module match" => {
+                components_violations += entries.len();
+            }
+            "forbidden edge present" | "missing edge" | "disallowed cross-component dependency"
+            | "facade dependency" => {
+                edges_violations += entries.len();
+            }
+            "cycle detected in" => {}
+            _ => contracts_violations += entries.len(),
+        }
+    }
     Metrics {
         components,
         units: model.units.len(),
         edges_internal: internal,
         edges_external: external,
         cycles,
-        violations_components: diff.missing_components.len()
-            + diff.unexpected_components.len()
-            + diff.unassigned_units.len()
-            + diff.ambiguous_module_matches.len(),
-        violations_edges: diff.forbidden_edges.len()
-            + diff.missing_edges.len()
-            + diff.disallowed_cross_component.len()
-            + diff.facade_dependencies.len(),
-        violations_contracts: diff.contract_leaks.len(),
+        violations_components: components_violations,
+        violations_edges: edges_violations,
+        violations_contracts: contracts_violations,
         violations_cycles: cycles,
     }
 }
@@ -103,10 +116,13 @@ pub struct Finding {
 }
 
 /// The full diff as findings in canonical report order (ADR-010): components
-/// first, then edges, then contracts, then cycles, then warnings, then vacuous
-/// guards. Warning entries carry their own pre-rendered category label; warning
-/// cycles render exactly like error-level ones. `report` is informational and
-/// has no `--strict` gate. All three renderers consume this single source.
+/// first, then edges, then contracts, then cycles, then the constraint-tier
+/// categories, then warnings, then vacuous guards. Warning entries carry their
+/// own pre-rendered category label; warning cycles render exactly like
+/// error-level ones. `report` is informational and has no `--strict` gate. All
+/// three renderers consume this single source. Every field `Diff::fails` counts
+/// is rendered here: an exit-verdict cause is never silent (the silent-red
+/// twin of this crate's outlawed silent-green class).
 pub fn findings(diff: &Diff) -> Vec<Finding> {
     let mut items: Vec<Finding> = Vec::new();
     {
@@ -117,35 +133,14 @@ pub fn findings(diff: &Diff) -> Vec<Finding> {
                 message,
             })
         };
-        for name in &diff.missing_components {
-            push("missing component", name.clone());
-        }
-        for name in &diff.unexpected_components {
-            push("unexpected component", name.clone());
-        }
-        for name in &diff.unassigned_units {
-            push("unassigned unit", name.clone());
-        }
-        for entry in &diff.ambiguous_module_matches {
-            push("ambiguous module match", entry.clone());
-        }
-        for edge in &diff.forbidden_edges {
-            push("forbidden edge present", edge.clone());
-        }
-        for edge in &diff.missing_edges {
-            push("missing edge", edge.clone());
-        }
-        for edge in &diff.disallowed_cross_component {
-            push("disallowed cross-component dependency", edge.clone());
-        }
-        for edge in &diff.facade_dependencies {
-            push("facade dependency", edge.clone());
-        }
-        for leak in &diff.contract_leaks {
-            push("contract leak", leak.clone());
-        }
-        for cycle in &diff.cycles {
-            push("cycle detected in", cycle.clone());
+        // `Diff::error_fields` is the exit gate's own field list: exactly what
+        // `Diff::fails` counts is rendered here, in canonical report order, by
+        // this loop alone. A gated field can never lack a render path (the
+        // silent-red twin of this crate's outlawed silent-green class).
+        for (category, entries) in diff.error_fields() {
+            for entry in entries {
+                push(category, entry.clone());
+            }
         }
     }
     // Warning entries are pre-rendered as `<category>: <detail>`. A warning
@@ -533,6 +528,110 @@ mod tests {
             assert!(
                 DIAGNOSTICS_HELP.contains(label.as_str()),
                 "emitted category \"{label}\" is missing from `help diagnostics`:\n{DIAGNOSTICS_HELP}"
+            );
+        }
+    }
+
+    /// The exit gate and every renderer read ONE field list. Every error-level
+    /// `Diff` field is enumerated in `Diff::error_fields`; `has_errors` counts
+    /// only that list; the verify renderer prints it; `report::findings` (the
+    /// single source of all three report renderers) renders it. A future
+    /// gated field can therefore never lack a render path — the silent-red
+    /// class this guard outlaws. `warnings` and `vacuous_constraints` are the
+    /// two named warning-level fields the gate never counts.
+    #[test]
+    fn the_exit_gate_and_the_renderers_share_one_field_list() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let compare_src = std::fs::read_to_string(format!(
+            "{manifest}/src/archspec/verify/compare.rs"
+        ))
+        .expect("compare source");
+        let struct_src = compare_src
+            .split("pub struct Diff {")
+            .nth(1)
+            .expect("Diff struct")
+            .split("\n}")
+            .next()
+            .expect("Diff struct body");
+        let mut gated_fields: Vec<String> = Vec::new();
+        for line in struct_src.lines() {
+            let Some(rest) = line.trim().strip_prefix("pub ") else {
+                continue;
+            };
+            let Some((name, ty)) = rest.split_once(':') else {
+                continue;
+            };
+            let name = name.trim();
+            if matches!(name, "warnings" | "vacuous_constraints") {
+                continue;
+            }
+            assert!(
+                ty.contains("Vec<String>"),
+                "Diff field `{name}` must be Vec<String> for this guard to cover it"
+            );
+            gated_fields.push(name.to_string());
+        }
+        assert!(
+            gated_fields.len() > 15,
+            "expected the full gated-field set, found {gated_fields:?}"
+        );
+
+        let gate_src = compare_src
+            .split("pub fn error_fields")
+            .nth(1)
+            .expect("error_fields")
+            .split("fn has_errors")
+            .next()
+            .expect("error_fields body");
+        for name in &gated_fields {
+            assert!(
+                gate_src.contains(&format!("&self.{name}")),
+                "Diff field `{name}` is missing from `Diff::error_fields` (gate/renderer drift)"
+            );
+        }
+
+        let has_errors_src = compare_src
+            .split("fn has_errors")
+            .nth(1)
+            .expect("has_errors")
+            .split("\n    }")
+            .next()
+            .expect("has_errors body");
+        assert!(
+            has_errors_src.contains("self.error_fields()"),
+            "has_errors must count `error_fields` only — no second gate list"
+        );
+        for name in &gated_fields {
+            assert!(
+                !has_errors_src.contains(&format!("self.{name}")),
+                "has_errors must not reference `{name}` directly; list it in error_fields"
+            );
+        }
+
+        let render_src = compare_src
+            .split("pub fn render_report")
+            .nth(1)
+            .expect("render_report")
+            .split("\n}")
+            .next()
+            .expect("render_report body");
+        for name in &gated_fields {
+            assert!(
+                render_src.contains(&format!("&diff.{name}")),
+                "verify renderer is missing Diff field `{name}`"
+            );
+        }
+
+        let rendered = report_emitted_labels();
+        let diff = populated_diff();
+        for (category, entries) in diff.error_fields() {
+            assert!(
+                !entries.is_empty(),
+                "populated_diff must populate the gated field for `{category}`"
+            );
+            assert!(
+                rendered.iter().any(|label| label == category),
+                "gated category `{category}` is counted by the exit gate but not rendered by report::findings"
             );
         }
     }

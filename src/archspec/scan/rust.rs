@@ -363,14 +363,13 @@ fn analyze_unit_modules(
                 let first = segments[0].as_str();
                 if is_reserved_segment(first) {
                     let full = resolve_module_path(&segments, current, &crate_name);
-                    if let Some((target, symbols)) = target_module(&full, &state.known) {
-                        if target != source_dotted {
+                    if let Some((target, symbols)) = target_module(&full, &state.known)
+                        && target != source_dotted {
                             edge_map
                                 .entry((source_dotted.clone(), target))
                                 .or_default()
                                 .extend(symbols);
                         }
-                    }
                 } else {
                     let normalized = normalize_crate_name(first);
                     if is_stdlib(&normalized) {
@@ -391,14 +390,13 @@ fn analyze_unit_modules(
                     {
                         // A bare reference to the crate's own module.
                         let full = resolve_bare_module(&segments, &own_path);
-                        if let Some((target, symbols)) = target_module(&full, &state.known) {
-                            if target != source_dotted {
+                        if let Some((target, symbols)) = target_module(&full, &state.known)
+                            && target != source_dotted {
                                 edge_map
                                     .entry((source_dotted.clone(), target))
                                     .or_default()
                                     .extend(symbols);
                             }
-                        }
                     } else {
                         external.insert(normalized.clone());
                         module_external
@@ -421,13 +419,12 @@ fn analyze_unit_modules(
             let first = path[0].as_str();
             if is_reserved_segment(first) {
                 let full = resolve_module_path(path, current, &crate_name);
-                if let Some((target, _)) = target_module(&full, &state.known) {
-                    if target != source_dotted {
+                if let Some((target, _)) = target_module(&full, &state.known)
+                    && target != source_dotted {
                         edge_map
                             .entry((source_dotted.clone(), target))
                             .or_default();
                     }
-                }
             } else {
                 let normalized = normalize_crate_name(first);
                 if is_stdlib(&normalized) {
@@ -1110,11 +1107,10 @@ enum AttributeTarget {
 /// The file(s) the attributes of a `mod` declaration attribute to it.
 fn path_attribute(attrs: &[syn::Attribute]) -> Option<AttributeTarget> {
     for attr in attrs {
-        if attr.path().is_ident("path") {
-            if let Some(target) = path_literal(&attr.meta) {
+        if attr.path().is_ident("path")
+            && let Some(target) = path_literal(&attr.meta) {
                 return Some(AttributeTarget::Fixed(target));
             }
-        }
     }
     let mut candidates = Vec::new();
     for attr in attrs {

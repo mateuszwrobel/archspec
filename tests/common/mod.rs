@@ -57,8 +57,16 @@ pub fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+/// stderr with the trailing verify version footer stripped (the footer law:
+/// every verdict-class failing `verify` exit ends stderr with `note: archspec
+/// <version>`). Tests that pin the *diagnostic* stderr — "a rule violation is
+/// never echoed to stderr", byte-frozen error lines — assert through this so
+/// the footer law cannot masquerade as a stderr regression; the footer's own
+/// presence is asserted directly in `tests/verify_expose.rs`.
 pub fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
+    let text = String::from_utf8_lossy(&output.stderr).into_owned();
+    let footer = format!("note: archspec {}\n", env!("CARGO_PKG_VERSION"));
+    text.strip_suffix(&footer).map(String::from).unwrap_or(text)
 }
 
 /// Declaration-order property for mermaid model renders (audit defect D3):

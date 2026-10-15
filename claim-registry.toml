@@ -170,8 +170,8 @@ id = "go-naming-legality"
 owner = "the go section of `archspec help languages`"
 owner_surfaces = ["help languages"]
 relations = ["cite"]
-canonical = "`matches.units` targets must be full import paths — a short package name does not resolve there (verify then reports `unexpected component` / `missing component`); module `name` values and `allowed.depend_on` references may be short — references resolve to declared module names."
-signatures = ["short package name does not resolve", "references resolve to declared module names"]
+canonical = "`matches.units` targets must be full import paths — a short package name does not resolve there (verify then reports `unexpected component` / `missing component`); module `name` values and `allowed.depend_on` references may be short — references resolve to declared claim names at any depth."
+signatures = ["short package name does not resolve", "references may be short"]
 dedicated_guard = "tests/doc_surface_nits.rs"
 [[claim.guard_pin]]
 file = "tests/doc_surface_nits.rs"

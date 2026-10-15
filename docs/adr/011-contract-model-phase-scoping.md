@@ -7,6 +7,8 @@ Accepted
 
 **Revised August 2026:** declared stereotypes (user-defined vocabulary), internal architecture dissolved into declared nested sub-components (ADR-009), composition root declared in spec, `no_cycles` severity, phase 2 shrunk to symbol-level contract checks.
 
+**Revised October 2026:** phase 2 delivered — `contract.expose` declares the symbol-level exposed surface under the chain law; the symbol arm adjudicates on the module public-API fact source (C# now, rust with the per-module facts follow-up); composition-root wiring checks remain unshipped.
+
 ## Context
 The phrase "nothing bleeds out of its boundaries" is the heart of the tool (docs/archspec-design.md §3, §9). A component must expose only what its contract declares, and depend only on declared neighbors. But contract checks need symbol-level analysis, which is expensive and only sensible after the module-level graph is solid. The scope must be split into phases so phase 1 delivers real value without symbol resolution, and phase 2 closes the leak-detection gap over API symbols.
 

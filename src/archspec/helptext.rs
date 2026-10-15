@@ -30,6 +30,11 @@ Legend — severity and exit-code contract:
              'warning: ' prefix is dropped) and the run exits 1.
   exit 0     clean pass, or warnings-only without --strict.
   exit 1     any error-level finding, or any warning under --strict.
+  exit 64    usage class, universal across the tool: no command, unknown
+             command, unknown flag, or a `help` typo — the arguments are
+             wrong; no verdict was computed.
+  exit 70    operational precondition: the spec file a verb needs is
+             missing. A missing precondition is never answered as a verdict.
   The verify/report text goes to stdout; a rule violation exits 1 WITHOUT
   echoing the report to stderr (stderr carries operational errors only).
 
@@ -115,13 +120,16 @@ cycle / no_cycles violation
 
 public api leak
   pattern:    public api leak: <owner> exposes <export> (not allowlisted)
+              public api leak: <owner> exposes <export> (not exposed)
   meaning:    a crate-root public export is not in the public_api_allowlist
-              allowed set.
+              allowed set; or — the `(not exposed)` shape — a public symbol
+              crosses a contract.expose boundary whose deepest claiming
+              module does not list it (the expose chain law, spec.md).
   origin:     code (grew surface) or spec (the surface is intended)
   severity:   error (exit 1)
   follow-up:  archspec scan      (root_public_exports lists the real surface)
-  decision:   code-fix to hide the export, or spec-fix to allowlist an intended
-              public API.
+  decision:   code-fix to hide the export, or spec-fix to allowlist or expose
+              an intended public API.
 
 unverifiable glob export
   pattern:    unverifiable glob export: <owner> exposes <glob>
@@ -261,7 +269,7 @@ laundered forbidden edge
 dead reference (boundary / stereotype reference)
   pattern:    dead reference: module '<name>' <field> target "<target>"
               exists in source but undeclared — references resolve to declared
-              top-level module names only
+              claim names at any depth
   pattern:    dead reference: module '<name>' <field> target "<target>"
               does not exist — create it or fix the reference (did you mean: ...)
   pattern:    dead reference: module '<name>' <field> target "<target>"
@@ -282,21 +290,57 @@ dead contract target
   pattern:    dead reference: module '<name>' contract.forbid target "<target>"
               names no stereotype — declare a stereotype named "<target>" or fix
               the reference (did you mean: ...)
+  pattern:    dead reference: module '<name>' contract.expose target "<target>"
+              names no stereotype — declare a stereotype named "<target>" or fix
+              the reference (did you mean: ...)
   meaning:    a contract.forbid names a stereotype that does not exist (top-level
-              or submodule), so the contract can never fire.
+              or submodule), so the contract can never fire; or a contract.expose
+              entry names no stereotype and globs no symbol anywhere, so the entry
+              engages nothing (the forbid-parity classification).
   origin:     spec
   severity:   warning (exit 0; exit 1 under --strict)
   follow-up:  archspec scan (stereotypes)
   decision:   spec-fix — declare the stereotype, or fix the contract target.
 
+stale contract export
+  pattern:    stale contract export: <claim> declares <entry> (never exported
+              across its territory)
+  meaning:    a contract.expose entry globs zero across the declaring claim's
+              whole territory — own files union descendant exports — judged per
+              entry, so a live entry never masks a stale one. An expose entry is
+              a permission, not a requirement: staleness is warning-class.
+  origin:     spec (entry deleted, renamed, or misspelled against the facts —
+              the entry is spelled in the fact vocabulary, see spec.md)
+  severity:   warning (exit 0; exit 1 under --strict)
+  follow-up:  archspec scan   (the module public-API facts list the real surface)
+  decision:   spec-fix — drop or fix the entry; code-fix when the export was
+              meant to exist.
+
+ambiguous expose entry
+  pattern:    ambiguous expose entry: <claim> entry <entry> names stereotype
+              <name> and matches symbols
+  meaning:    a contract.expose entry both names a declared stereotype and
+              matches real symbols by spelling; the stereotype arm adjudicates
+              and the entry is flagged — never a silent symbol pass.
+  origin:     spec (an entry that means two things at once)
+  severity:   warning (exit 0; exit 1 under --strict)
+  follow-up:  archspec help spec (the expose chain law's classification order)
+  decision:   spec-fix — rename the entry or the stereotype so the entry means
+              exactly one thing.
+
 vacuous constraint
   pattern:    vacuous constraint: [constraint #N] <type>: <detail>
+              vacuous constraint: [contract.expose of <claim>]: <detail>
               (rendered 'warning: vacuous constraint: ...')
   meaning:    a constraint matches no module, edge, manifest or export — it
-              checks nothing while appearing to pass.
+              checks nothing while appearing to pass; or a claim's
+              contract.expose symbol arm runs on a driver with no module-tier
+              public-API facts, which the carrier states instead of a bare
+              vacuity (the named-subject carrier beside the indexed one).
   origin:     spec
   severity:   warning (exit 0; exit 1 under --strict)
-  follow-up:  archspec scan  (ground the constraint in a real module/edge)
+  follow-up:  archspec scan  (ground the constraint in a real module/edge);
+              archspec help capabilities for the fact source a driver states
   decision:   spec-fix — fix the 'from'/'modules'/targets so it engages, or
               delete the constraint.
 

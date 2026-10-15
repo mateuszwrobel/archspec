@@ -37,9 +37,12 @@ pub const FACT_ROOT_MODULE_DECLARATIONS: &str = "root-module-declarations";
 pub const FACT_TEST_TIER: &str = "test-tier";
 /// External packages attributed to modules and the project.
 pub const FACT_EXTERNAL_PACKAGES: &str = "external-packages";
-/// Public API surface facts consumed by `public_api_allowlist`: rust states
-/// them as crate-root exports (the `root_public_exports` family), the C#
-/// driver as module-attributed public types (`module_public_types`); a
+/// Public API surface facts consumed by `public_api_allowlist` and by the
+/// `contract.expose` symbol arm: rust enumerates crate-root exports (the
+/// `root_public_exports` family — the allowlist's source; the expose symbol
+/// arm has no module-tier source yet and states its vacuity per the named
+/// follow-up plan), the C# driver as module-attributed public types
+/// (`module_public_types`, with root-key rows reserved to the allowlist); a
 /// driver with neither source states `not-emitted` and can never engage the
 /// constraint for real.
 pub const FACT_PUBLIC_API_SURFACE: &str = "public-api-surface";

@@ -16,6 +16,13 @@ Every failure produces a clear human message naming the cause and a **non-zero e
 | unsupported `--format` value | the value and the supported formats | non-zero |
 | unsupported `--source` value | the value and the supported sources | non-zero |
 | `--source scan` without an artefact path | that an artefact path is required | non-zero |
+| `--tiers` value outside `units`, `modules` — invalid name, duplicate entry, or empty list | the offending value and the supported tiers: `invalid value "namespaces" for --tiers — supported tiers: units, modules` | `64` |
+| `--tiers` with `--source spec` | that the flag requires `--source scan` (the spec source has no tier vocabulary) | `64` |
+| `--module <claim>` names no claim of the spec | the rejected name and that no claim of the spec carries it: `unknown module: no claim of the spec carries that name: <claim>` | `64` |
+| `--module` or `--modules-dir` with `--source scan` | that the flags require the spec source (a scan artefact carries no expose verdicts) | `64` |
+| `--module` together with `--modules-dir` | that the flags are mutually exclusive (one claim or the batch) | `64` |
+| `--modules-dir --check` and a claim's file is stale or missing | the file and the regeneration command | non-zero |
+| `--modules-dir --check` and an orphan render file is present | the file and the claim name its decoded stem yields, that no claim declares | non-zero |
 | more than one positional argument | that only one path is accepted | non-zero |
 | `--check` and the destination differs from the generated diagram | that it is stale, the file, and how to regenerate | non-zero |
 | `--check` and the destination is missing | that it is missing, the file, and how to generate it | non-zero |

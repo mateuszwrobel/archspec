@@ -14,7 +14,10 @@
 //!   house texts;
 //! - discovery: the top-level command list names `skill`, `skill --help`
 //!   prints the usage contract, and the workflow manual topic points at the
-//!   install command outside the numbered recipe sequence.
+//!   install command outside the numbered recipe sequence;
+//! - selection: `skill analysis` emits the analysis skill byte-for-byte
+//!   against its payload document, `skill audit` repeats the default emit,
+//!   and an unknown name fails loud with no fallback to the main skill.
 
 mod common;
 
@@ -24,6 +27,11 @@ use std::fs;
 fn skill_document() -> String {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/docs/archspec/skill.md");
     fs::read_to_string(path).expect("read payload skill document")
+}
+
+fn analysis_document() -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/docs/archspec/skill-analysis.md");
+    fs::read_to_string(path).expect("read payload analysis skill document")
 }
 
 #[test]
@@ -37,6 +45,39 @@ fn print_emits_the_shipped_document_and_writes_nothing() {
         fs::read_dir(fixture.root.join(".agent")).is_err(),
         "printing must not create files"
     );
+}
+
+/// Freshness weld for the skill surface: every emitted skill must match its
+/// committed golden byte-for-byte, in addition to the asset drift guards
+/// above. The golden is the corruption witness — a drift of the embedded
+/// bytes that moves the payload document and the emit together still lands
+/// red here, because the golden is a third, independent source of truth.
+#[test]
+fn emitted_skills_match_their_goldens_byte_for_byte() {
+    let fixture = Fixture::new();
+    for (args, golden) in [
+        (vec!["skill"], "audit.md"),
+        (vec!["skill", "print"], "audit.md"),
+        (vec!["skill", "audit"], "audit.md"),
+        (vec!["skill", "analysis"], "analysis.md"),
+    ] {
+        let output = fixture.run(&args);
+        assert!(
+            output.status.success(),
+            "`archspec {}` must exit 0: {}",
+            args.join(" "),
+            stderr(&output)
+        );
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/goldens/skill/");
+        let golden = fs::read_to_string(format!("{path}{golden}"))
+            .unwrap_or_else(|e| panic!("read golden {golden}: {e}"));
+        assert_eq!(
+            stdout(&output),
+            golden,
+            "`archspec {}` must emit the golden bytes",
+            args.join(" ")
+        );
+    }
 }
 
 #[test]
@@ -116,7 +157,7 @@ fn bad_invocations_are_usage_errors() {
     assert_eq!(unknown.status.code(), Some(1));
     assert_eq!(
         stderr(&unknown),
-        "error: unknown skill subcommand: remove (expected: print, install)\n"
+        "error: unknown skill: remove (expected: print, install, audit, analysis)\n"
     );
 
     let too_many = fixture.run(&["skill", "install", "a", "b"]);
@@ -134,8 +175,72 @@ fn bad_invocations_are_usage_errors() {
     );
 
     let unknown_flag = fixture.run(&["skill", "install", "--yes"]);
-    assert_eq!(unknown_flag.status.code(), Some(1));
+    assert_eq!(unknown_flag.status.code(), Some(64));
     assert!(stderr(&unknown_flag).contains("unknown flag: --yes"));
+}
+
+/// Selection scenarios (analysis skill landing): the analysis skill is
+/// addressable separately and byte-exact; an unknown selection fails loud
+/// with the verb's established exit-1 refusal and emits nothing — there is
+/// no silent fallback to the main skill.
+#[test]
+fn analysis_selection_emits_the_shipped_analysis_skill_and_writes_nothing() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["skill", "analysis"]);
+    assert!(
+        output.status.success(),
+        "skill analysis must exit 0: {}",
+        stderr(&output)
+    );
+    assert_eq!(stdout(&output), analysis_document());
+    assert_eq!(stderr(&output), "");
+    assert!(
+        fs::read_dir(fixture.root.join(".agent")).is_err(),
+        "selecting a skill must not create files"
+    );
+}
+
+#[test]
+fn the_audit_name_repeats_the_default_emit_byte_for_byte() {
+    let fixture = Fixture::new();
+    let named = fixture.run(&["skill", "audit"]);
+    assert!(
+        named.status.success(),
+        "skill audit must exit 0: {}",
+        stderr(&named)
+    );
+    assert_eq!(stdout(&named), skill_document());
+    let default = fixture.run(&["skill"]);
+    assert_eq!(stdout(&named), stdout(&default));
+}
+
+#[test]
+fn an_unknown_selection_fails_loud_and_emits_nothing() {
+    let fixture = Fixture::new();
+    for name in ["audits", "analy", "playbook"] {
+        let output = fixture.run(&["skill", name]);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "unknown selection {name} must exit 1"
+        );
+        assert_eq!(
+            stderr(&output),
+            format!("error: unknown skill: {name} (expected: print, install, audit, analysis)\n")
+        );
+        assert_eq!(
+            stdout(&output),
+            "",
+            "an unknown selection must not fall back to the audit skill"
+        );
+    }
+    let stray_path = fixture.run(&["skill", "analysis", "."]);
+    assert_eq!(stray_path.status.code(), Some(1));
+    assert_eq!(
+        stderr(&stray_path),
+        "error: skill analysis takes no path arguments\n"
+    );
+    assert_eq!(stdout(&stray_path), "");
 }
 
 #[test]

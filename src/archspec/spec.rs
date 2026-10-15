@@ -57,22 +57,51 @@ pub struct Module {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Contract {
-    /// `Option` distinguishes an absent key from an empty list: presence —
-    /// not emptiness — signals a contract the loader cannot enforce, so the
-    /// schema validator rejects the key whenever it is `Some` (see
-    /// `validate_contract_expose`).
+    /// `Option` distinguishes an absent key from a declared set: `None` means
+    /// the claim makes no expose claim at all (verdict-neutral — never an
+    /// allow-all and never a deny-all gate), `Some(set)` binds the surface
+    /// crossing this claim's boundary under the chain law (every declaring
+    /// ancestor binds; nesting may narrow, never widen). Empty `Some([])` is
+    /// a declared deny-all ceiling for the declaring claim's surface.
     #[serde(default)]
     pub expose: Option<Vec<String>>,
     #[serde(default)]
     pub forbid: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct Allowed {
-    #[serde(default)]
+    /// True when the spec carried the `[module.allowed]` table itself. The
+    /// jurisdiction resolver reads this marker: a nested claim WITHOUT a
+    /// declared table inherits the nearest ancestor that has one (D2 of the
+    /// submodule-dependency-engagement design), while a declared-but-empty
+    /// table is a deliberate deny-all ceiling.
+    pub declared: bool,
     pub depend_on: Vec<String>,
-    #[serde(default)]
     pub forbidden: Vec<String>,
+}
+
+/// Deserialize with the `declared` marker: a present table is declared even
+/// when both lists are empty; an absent key is not.
+impl<'de> serde::Deserialize<'de> for Allowed {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct Fields {
+            #[serde(default)]
+            depend_on: Vec<String>,
+            #[serde(default)]
+            forbidden: Vec<String>,
+        }
+        let fields = Fields::deserialize(deserializer)?;
+        Ok(Self {
+            declared: true,
+            depend_on: fields.depend_on,
+            forbidden: fields.forbidden,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -110,15 +139,34 @@ pub struct Constraint {
     pub parent: String,
 }
 
+/// Every declared claim name at every depth, depth-first. Claim names are
+/// globally unique (the schema validator enforces it), so this list is also
+/// the set of valid `allowed.depend_on`/`allowed.forbidden` targets (D6).
+pub fn claim_names(modules: &[Module]) -> Vec<String> {
+    let mut names = Vec::new();
+    for module in modules {
+        names.push(module.name.clone());
+        names.extend(claim_names(&module.submodules));
+    }
+    names
+}
+
 pub fn load(dir: &Path) -> Result<Spec, String> {
     let spec_path = dir.join(SPEC_FILE);
     if !spec_path.exists() {
-        return Err(format!("no spec found under: {}", dir.display()));
+        return Err(crate::archspec::cli::operational_error(format!(
+            "no spec found under: {}",
+            dir.display()
+        )));
     }
     let content = std::fs::read_to_string(&spec_path)
         .map_err(|err| format!("failed to read spec: {}: {err}", spec_path.display()))?;
-    toml::from_str(&content)
-        .map_err(|err| format!("failed to parse spec: {}: {err}", spec_path.display()))
+    let spec: Spec = toml::from_str(&content)
+        .map_err(|err| format!("failed to parse spec: {}: {err}", spec_path.display()))?;
+    for module in &spec.modules {
+        validate_submodule_units(&spec_path, module)?;
+    }
+    Ok(spec)
 }
 
 /// Verify's spec loader: same file and parsing, but verify's contract words
@@ -129,10 +177,10 @@ pub fn load(dir: &Path) -> Result<Spec, String> {
 pub fn load_verify(dir: &Path) -> Result<Spec, String> {
     let spec_path = dir.join(SPEC_FILE);
     if !spec_path.exists() {
-        return Err(format!(
+        return Err(crate::archspec::cli::operational_error(format!(
             "no architecture.spec.toml found in: {}",
             dir.display()
-        ));
+        )));
     }
     let content = std::fs::read_to_string(&spec_path)
         .map_err(|err| format!("invalid spec: {}: {err}", spec_path.display()))?;
@@ -149,7 +197,10 @@ pub fn load_verify(dir: &Path) -> Result<Spec, String> {
 pub fn load_report(dir: &Path) -> Result<Spec, String> {
     let spec_path = dir.join(SPEC_FILE);
     if !spec_path.exists() {
-        return Err(format!("spec file not found: {}", spec_path.display()));
+        return Err(crate::archspec::cli::operational_error(format!(
+            "spec file not found: {}",
+            spec_path.display()
+        )));
     }
     let content = std::fs::read_to_string(&spec_path)
         .map_err(|err| format!("invalid spec: {}: {err}", spec_path.display()))?;
@@ -239,21 +290,67 @@ fn validate_constraint(
     Ok(())
 }
 
-/// `contract.expose` names no check that reads it, so a spec declaring it
-/// would promise enforcement that does not exist. Presence of the key —
-/// including an empty list — signals an unenforced contract, so the loader
-/// rejects it whenever the key is present, at the top level and in any
-/// submodule. `contract.forbid` is enforced and stays accepted.
+/// `contract.expose` is schema at every depth (phase 2, ADR-011): entries are
+/// non-empty strings and the parser never consults the tree — an entry's arm
+/// (stereotype versus symbol) is decided against model facts at verify, not
+/// against spec text (workplan workplan_archspec_module_public_api_diagrams,
+/// D1). An empty entry is a mechanical authoring error and is rejected here;
+/// semantic validation happens at verify. `contract.forbid` is enforced and
+/// stays accepted.
 fn validate_contract_expose(spec_path: &std::path::Path, module: &Module) -> Result<(), String> {
-    if module.contract.expose.is_some() {
+    if let Some(entries) = &module.contract.expose
+        && let Some(index) = entries.iter().position(|entry| entry.trim().is_empty())
+    {
         return Err(format!(
-            "invalid spec: {}: module \"{}\" declares contract.expose, which is reserved and enforced by no check; remove it (contract.forbid is enforced)",
+            "invalid spec: {}: module \"{}\" declares an empty contract.expose entry #{}; entries are non-empty globs or stereotype names",
             spec_path.display(),
-            module.name
+            module.name,
+            index + 1
         ));
     }
     for submodule in &module.submodules {
         validate_contract_expose(spec_path, submodule)?;
+    }
+    Ok(())
+}
+
+/// Claim names are globally unique across all depths (D6): every name also
+/// addresses its territory as a `depend_on`/`forbidden` target, so a collision
+/// would make a target ambiguous. Rejects at parse, naming both declarations.
+fn validate_claim_uniqueness<'a>(
+    spec_path: &std::path::Path,
+    modules: &'a [Module],
+    seen: &mut std::collections::BTreeMap<&'a str, ()>,
+) -> Result<(), String> {
+    for module in modules {
+        if seen.contains_key(module.name.as_str()) {
+            return Err(format!(
+                "invalid spec: {}: claim name \"{}\" is declared twice; claim names are unique \
+                 across all depths, give one of them a distinct name",
+                spec_path.display(),
+                module.name
+            ));
+        }
+        seen.insert(module.name.as_str(), ());
+        validate_claim_uniqueness(spec_path, &module.submodules, seen)?;
+    }
+    Ok(())
+}
+
+/// `matches.units` on a submodule is rejected at parse (D7): the unit tier
+/// stays first-declared-wins at the top level, so a nested unit claim would
+/// smuggle a second, order-dependent ownership semantics into it.
+fn validate_submodule_units(spec_path: &std::path::Path, module: &Module) -> Result<(), String> {
+    for submodule in &module.submodules {
+        if !submodule.matches.units.is_empty() {
+            return Err(format!(
+                "invalid spec: {}: submodule \"{}\" declares matches.units; submodules claim \
+                 the module tier only",
+                spec_path.display(),
+                submodule.name
+            ));
+        }
+        validate_submodule_units(spec_path, submodule)?;
     }
     Ok(())
 }
@@ -274,7 +371,10 @@ fn validate_schema(spec_path: &std::path::Path, spec: &Spec) -> Result<(), Strin
             ));
         }
         validate_contract_expose(spec_path, module)?;
+        validate_submodule_units(spec_path, module)?;
     }
+    let mut seen: std::collections::BTreeMap<&str, ()> = std::collections::BTreeMap::new();
+    validate_claim_uniqueness(spec_path, &spec.modules, &mut seen)?;
     let declared: BTreeSet<&str> = spec
         .modules
         .iter()

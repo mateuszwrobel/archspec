@@ -1,7 +1,7 @@
 use crate::common;
 use crate::shared::driver::{
     materialize_go_declared_grouping, materialize_go_declared_submodule, Driver, Language,
-    LogicalTree,
+    LogicalTree, GO_MODULE,
 };
 use crate::shared::feature::Feature;
 use crate::shared::scenario::Scenario;
@@ -1888,6 +1888,46 @@ fn external_free_engages_the_serialized_module_tier(
     Ok(())
 }
 
+fn submodule_dependency_go_claims(driver: &Driver) -> String {
+    if !go_driver(driver) {
+        return String::new();
+    }
+    // The go dialect (decision-check): a single-module go tree carries no
+    // native module tier, so the parent and sibling packages become submodule
+    // boundaries claiming their import paths — the declared derivation the
+    // matrix's `module-tier` row states for go. The claims carry the tier, so
+    // the constraint addresses them in the same `::` name space the claims
+    // declare (import paths live in `matches.modules`, not in the addressing).
+    format!(
+        "[[module.submodules]]\nname = \"app::parent\"\nmatches = {{ modules = [\"{GO_MODULE}/app/parent\"] }}\n\n\
+         [[module.submodules]]\nname = \"app::parent::x\"\nmatches = {{ modules = [\"{GO_MODULE}/app/parent/x\"] }}\n\n\
+         [[module.submodules]]\nname = \"app::parent::y\"\nmatches = {{ modules = [\"{GO_MODULE}/app/parent/y\"] }}\n\n"
+    )
+}
+
+/// The parent path a `forbid_submodule_dependency` constraint addresses on
+/// this driver: the rust/c# dialect names the module path; go names the
+/// declared submodule claim (the tier the spec itself declares).
+fn submodule_parent_path(driver: &Driver, app: &str, parent: &str) -> String {
+    if go_driver(driver) {
+        let _ = (app, parent);
+        "app::parent".to_string()
+    } else {
+        driver.module_path(app, parent)
+    }
+}
+
+/// The full submodule path for `from`/`forbid` entries: the rust/c# dialect
+/// uses the concrete module path; go uses the claim name it declared.
+fn submodule_full_path(driver: &Driver, app: &str, submodule: &str) -> String {
+    if go_driver(driver) {
+        let _ = app;
+        format!("app::parent::{submodule}")
+    } else {
+        driver.module_path(app, &format!("parent.{submodule}"))
+    }
+}
+
 fn forbidden_submodule_dependency_across_sibling_children(
     driver: &Driver,
     fx: &common::Fixture,
@@ -1902,14 +1942,16 @@ fn forbidden_submodule_dependency_across_sibling_children(
         .push(("app".into(), "parent.x".into(), "parent.y".into()));
     driver.materialize(fx, &tree);
     let app = driver.unit_name("app");
-    let parent = driver.module_path("app", "parent");
+    let parent = submodule_parent_path(driver, "app", "parent");
     fx.write(
         "architecture.spec.toml",
         &format!(
             "[project]\nlanguage = \"{}\"\n\n\
              [[module]]\nname = \"app\"\nmatches = {{ units = [\"{app}\"] }}\n\n\
+             {}\
              [[constraint]]\ntype = \"forbid_submodule_dependency\"\nparent = \"{parent}\"\nfrom = [\"x\"]\nforbid = [\"y\"]\n",
-            driver.language.as_str()
+            driver.language.as_str(),
+            submodule_dependency_go_claims(driver),
         ),
     );
     let output = driver.run(fx, &["verify"]);
@@ -1939,16 +1981,18 @@ fn forbidden_submodule_dependency_full_path_engages(
         .push(("app".into(), "parent.x".into(), "parent.y".into()));
     driver.materialize(fx, &tree);
     let app = driver.unit_name("app");
-    let parent = driver.module_path("app", "parent");
-    let from = driver.module_path("app", "parent.x");
-    let forbid = driver.module_path("app", "parent.y");
+    let parent = submodule_parent_path(driver, "app", "parent");
+    let from = submodule_full_path(driver, "app", "x");
+    let forbid = submodule_full_path(driver, "app", "y");
     fx.write(
         "architecture.spec.toml",
         &format!(
             "[project]\nlanguage = \"{}\"\n\n\
              [[module]]\nname = \"app\"\nmatches = {{ units = [\"{app}\"] }}\n\n\
+             {}\
              [[constraint]]\ntype = \"forbid_submodule_dependency\"\nparent = \"{parent}\"\nfrom = [\"{from}\"]\nforbid = [\"{forbid}\"]\n",
-            driver.language.as_str()
+            driver.language.as_str(),
+            submodule_dependency_go_claims(driver),
         ),
     );
     let output = driver.run(fx, &["verify"]);
@@ -2024,7 +2068,11 @@ fn rust_unverifiable_glob_export_pin(driver: &Driver, fx: &common::Fixture) -> R
 /// corporate naming (`Acmecorp.Inventory.*`): the corpus lesson from the
 /// roles cells says the behavior must be proven on a tree shaped like real
 /// solutions, not on two-segment toys. Hand-written C# sources (the shape is
-/// csharp-only by registration), leak named, scan byte-deterministic.
+/// csharp-only by registration), leak named, scan byte-deterministic. Since
+/// GitHub issue #2 the corpus also carries BOTH record body shapes: a
+/// braced record in an allowlisted module (silent) and a semicolon-bodied
+/// record under the unaddressed Internal namespace (leaked) — the corporate
+/// scan cannot drift back to a class-only public surface.
 fn csharp_public_api_leak_pin(driver: &Driver, fx: &common::Fixture) -> Result<(), String> {
     let csproj = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n";
     fx.write("Acmecorp.Inventory.Api/Acmecorp.Inventory.Api.csproj", csproj);
@@ -2036,10 +2084,18 @@ fn csharp_public_api_leak_pin(driver: &Driver, fx: &common::Fixture) -> Result<(
         "Acmecorp.Inventory.Api/IContract.cs",
         "namespace Acmecorp.Inventory.Api;\npublic interface IContract { }\n",
     );
+    fx.write(
+        "Acmecorp.Inventory.Api/ContractRecord.cs",
+        "namespace Acmecorp.Inventory.Api;\npublic sealed record ContractRecord(string Id) { }\n",
+    );
     fx.write("Acmecorp.Inventory.Core/Acmecorp.Inventory.Core.csproj", csproj);
     fx.write(
         "Acmecorp.Inventory.Core/Stock.cs",
         "namespace Acmecorp.Inventory.Core;\npublic sealed class Stock { }\nnamespace Acmecorp.Inventory.Core.Internal;\npublic sealed class BackDoor { }\n",
+    );
+    fx.write(
+        "Acmecorp.Inventory.Core/InternalRecord.cs",
+        "namespace Acmecorp.Inventory.Core.Internal;\npublic sealed record BackDoorRecord(string Id);\n",
     );
     fx.write(
         "architecture.spec.toml",
@@ -2057,6 +2113,18 @@ fn csharp_public_api_leak_pin(driver: &Driver, fx: &common::Fixture) -> Result<(
         "public api leak: Acmecorp::Inventory::Core::Internal exposes BackDoor (not allowlisted)",
     ) {
         return Err(format!("report must name the corporate leak:\n{stdout}"));
+    }
+    if !stdout.contains(
+        "public api leak: Acmecorp::Inventory::Core::Internal exposes BackDoorRecord (not allowlisted)",
+    ) {
+        return Err(format!(
+            "report must name the semicolon-bodied record leak beside the class leak:\n{stdout}"
+        ));
+    }
+    if stdout.contains("Acmecorp::Inventory::Api exposes ContractRecord") {
+        return Err(format!(
+            "the brace-bodied record of an allowlisted module must stay silent:\n{stdout}"
+        ));
     }
     let first = driver.run(fx, &["scan"]);
     let second = driver.run(fx, &["scan"]);

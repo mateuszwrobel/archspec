@@ -24,7 +24,7 @@ Running `archspec help` prints the topic index (usage line, all 7 topics, every 
 | 7 | a terminal | run `archspec help constraints` | exit 0; names all 7 constraint types with their keys and documents default severity `error`, `warning`, and `--strict` promotion |
 | 8 | a terminal | run `archspec help languages` | exit 0; one block per language (rust, csharp, go) listing which model tiers each scanner populates, matching real scan output; stderr empty |
 | 9 | a terminal | run `archspec help workflow` | exit 0; states the numbered audit recipe (steps `1.`–`6.`, the ordering this topic owns) with each step's purpose; mentions `--strict` as the CI gate; mentions `doctor`, `init`, `update` |
-| 17 | a terminal | run `archspec help diagnostics` | exit 0; catalog is non-empty and names every finding category, quotes the verbatim verify/report message fragments, states the exit-code contract (`exit 0` / `exit 1`) with `--strict` promoting warnings, names the resolution classes `code-fix` / `spec-fix` / `architecture-rework`, and specifies the required report format; stderr empty |
+| 17 | a terminal | run `archspec help diagnostics` | exit 0; catalog is non-empty and names every finding category, quotes the verbatim verify/report message fragments, states the exit-code contract (`exit 0` / `exit 1` / `exit 64` / `exit 70`) with `--strict` promoting warnings, names the resolution classes `code-fix` / `spec-fix` / `architecture-rework`, and specifies the required report format; stderr empty |
 
 ## Per-command help
 
@@ -37,7 +37,7 @@ Running `archspec help` prints the topic index (usage line, all 7 topics, every 
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 12 | a terminal | run `archspec help bogus` | exit 1; stderr names the unknown topic `bogus`, lists the valid topics, hints `run 'archspec help'` |
+| 12 | a terminal | run `archspec help bogus` | exit 64 (usage class); stderr names the unknown topic `bogus`, lists the valid topics, hints `run 'archspec help'` |
 
 ## Consistency
 

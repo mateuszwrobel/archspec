@@ -17,7 +17,7 @@ Multi-language architecture test & diagram tool. The living design (model, IR, A
 | `inspect` | Zero-config file-level import map (discovery) |
 | `depgraph` | Model-faithful dependency views: [commands/depgraph/README.md](commands/depgraph/README.md) |
 | `help` | Print the built-in manual: topics (commands, glob, spec, constraints, languages, workflow, diagnostics) and per-command help |
-| `skill` | Print or install the agent-facing audit skill: [commands/skill/index.md](commands/skill/index.md) |
+| `skill` | Print or install the agent-facing skills (audit; analysis via `skill analysis`): [commands/skill/index.md](commands/skill/index.md) |
 
 Each `commands/<command>/` folder holds that command's contracts (invocation, input, output, errors, flows, acceptance). `inspect` is the first command with fully planned behaviors. Per-language capability and skip reasons: [feature-matrix.md](../../feature-matrix.md).
 
@@ -34,6 +34,7 @@ Each `commands/<command>/` folder holds that command's contracts (invocation, in
 | `config.md` | `archspec.toml` output destinations — `inspect`, `diagram`, `report`, `scan` defaults |
 | `help.md` | Tool-wide help: no-args listing, `--help`, per-command `--help` |
 | `agents.md` | Guide for LLM agents / model-driven users: recipe order, built-in manual, worked prompts, real output shapes |
+| `skill-analysis.md` | Source of the analysis skill emitted by `archspec skill analysis` — relation-analysis playbook for agents: the dumps to generate, five heuristics over them (cycles, fan-in/fan-out outliers, orphans, layering direction, god-crate shape), the recommendation output contract |
 
 ## Roadmap
 

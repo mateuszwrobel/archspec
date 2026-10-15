@@ -66,15 +66,14 @@ pub fn scan(root: &Path) -> Result<FileGraph, String> {
             // rule of the scan driver, so the two cannot drift.
             let resolved_ns = cs_scan::namespace_prefixes(target)
                 .find(|candidate| ns_files.contains_key(*candidate));
-            if let Some(resolved_ns) = resolved_ns {
-                if let Some(owners) = ns_files.get(resolved_ns) {
+            if let Some(resolved_ns) = resolved_ns
+                && let Some(owners) = ns_files.get(resolved_ns) {
                     for to in owners {
                         if to != from {
                             edges.insert((from.clone(), to.clone()));
                         }
                     }
                 }
-            }
         }
     }
 

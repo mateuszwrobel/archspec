@@ -83,8 +83,16 @@ A render command whose consumer exits first is silence, not panic: the next writ
 
 ## Errors
 
+- No command (bare `archspec`): the tool help below prints on stdout and the
+  run exits `64` (usage class). `archspec --help` is a request, not a
+  mistake, and exits `0`.
 - Unknown command: `error: unknown command: <name>` followed by
-  `run 'archspec --help' for the command list` on stderr, exit `1`. This applies
-  even when `--help` follows the unknown name.
+  `run 'archspec --help' for the command list` on stderr, exit `64` (usage
+  class, universal — an unknown verb is a usage mistake, never a verdict).
+  This applies even when `--help` follows the unknown name.
+- Unknown flag and `help` typo: also the usage class, exit `64`; the message
+  names the flag or the topic. A missing `architecture.spec.toml` where a
+  verb needs one is the operational class, exit `70` — never a verdict code.
+  The full contract: `archspec help diagnostics`.
 - `--help` is never a valid positional or flag value for any command; it is
   always intercepted before command parsing.

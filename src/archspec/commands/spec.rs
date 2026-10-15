@@ -23,7 +23,7 @@ matches = { units = [\"core\"], modules = [\"Billing::domain\"] }
 # a named module claims its WHOLE subtree: \"Billing::domain\" already folds every
 # submodule under one boundary, no '*' needed; \"Billing::domain::*\" states that
 # same claim as a pinned path prefix; overlaps resolve by specificity, ties fail
-contract = { forbid = [\"entity\"] }                 # expose is reserved: declaring it is a schema error
+contract = { forbid = [\"entity\"], expose = [\"Report\"] }  # forbid bans stereotypes; expose declares the surface that may cross (chain law, any depth)
 [module.allowed]
 depend_on = [\"domain\", \"ports\"]                   # DECLARED module names — exact, not globs
 forbidden = [\"infrastructure\"]                    # same: declared names, never globs
@@ -31,6 +31,9 @@ forbidden = [\"infrastructure\"]                    # same: declared names, neve
 [module.submodules]                                 # recurses: same shape as [[module]]
 name = \"domain::entities\"
 matches = { modules = [\"Billing::domain::entities\"] }
+# a submodule with [module.allowed] owns its territory's dependency checks
+# (most-specific claim wins at any depth); without it the nearest declaring
+# ancestor's policy applies; matches.units on a submodule is a parse error
 
 [[constraint]]
 type = \"no_cycles\"                                # one of 7 types
@@ -163,17 +166,21 @@ fn module_schema(depth: usize) -> serde_json::Value {
         "matches": {
             "type": "object",
             "properties": {
-                "units": { "type": "array", "items": { "type": "string" } },
+                "units": { "type": "array", "items": { "type": "string" }, "description": "unit names; declarable only on top-level modules — a submodule declares the module tier only, matches.units on a submodule is rejected at parse" },
                 "modules": { "type": "array", "items": { "type": "string" }, "description": "dotted module-path patterns; a trailing '*' claims a path prefix (grouping many submodules under one boundary); ownership resolves by specificity and equal-specificity conflicts are reported as ambiguous module matches" }
             }
         },
         "contract": {
             "type": "object",
             "properties": {
-                "forbid": { "type": "array", "items": { "type": "string" } }
+                "forbid": { "type": "array", "items": { "type": "string" } },
+                "expose": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 },
+                    "description": "the surface that may cross this claim's boundary, declared at any depth: entries are stereotype names or symbol globs over the fact vocabulary (nested types dotted, generics dropped); every declaring ancestor binds (chain law — nesting narrows, never widens); an absent key makes no claim, an empty list is a declared deny-all ceiling"
+                }
             },
-            "not": { "required": ["expose"] },
-            "description": "forbid is enforced (contract leaks); expose is reserved and enforced by no check, so declaring it is rejected"
+            "description": "forbid is enforced (contract leaks); expose is enforced by the contract expose chain law at every depth"
         },
         "allowed": {
             "type": "object",
@@ -233,33 +240,43 @@ mod tests {
     }
 
     #[test]
-    fn schema_rejects_reserved_expose_key() {
+    fn schema_accepts_expose_at_every_depth() {
         let schema: serde_json::Value = serde_json::from_str(&schema_json()).unwrap();
         let contract = &schema["properties"]["module"]["items"]["properties"]["contract"];
         assert!(
-            contract["properties"].get("expose").is_none(),
-            "schema must not advertise the unenforced expose key"
+            contract["properties"].get("expose").is_some(),
+            "schema must advertise the enforced expose key"
         );
         assert!(
             contract["properties"].get("forbid").is_some(),
             "enforced forbid must stay accepted"
         );
+        assert!(
+            contract.get("not").is_none(),
+            "schema must carry no reserved-key rejection"
+        );
+        let nested = &schema["properties"]["module"]["items"]["properties"]["submodules"]["items"]
+            ["properties"]["contract"]["properties"]["expose"];
+        assert!(
+            nested.get("items").is_some(),
+            "the nested contract table must accept expose like the top level"
+        );
         assert_eq!(
-            contract["not"],
-            serde_json::json!({ "required": ["expose"] }),
-            "schema must reject presence of expose"
+            nested["items"]["minLength"].as_u64(),
+            Some(1),
+            "expose entries are non-empty strings"
         );
     }
 
     #[test]
-    fn reference_does_not_bless_expose() {
+    fn reference_blesses_expose() {
         assert!(
-            !HELP.contains("expose = ["),
-            "reference must not present expose as an accepted key:\n{HELP}"
+            HELP.contains("expose = ["),
+            "reference must present expose as an accepted key:\n{HELP}"
         );
         assert!(
-            HELP.contains("expose is reserved"),
-            "reference must flag expose as reserved:\n{HELP}"
+            !HELP.contains("expose is reserved"),
+            "reference must not flag expose as reserved:\n{HELP}"
         );
     }
 }

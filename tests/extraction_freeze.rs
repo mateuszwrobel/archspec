@@ -181,7 +181,7 @@ fn golden_freeze_go_workspace() {
 }
 
 /// The removed back-end flag is an unknown flag everywhere: any value, any
-/// extraction command, the standard usage error with exit 1.
+/// extraction command, the standard usage error with exit 64.
 #[test]
 fn backend_flag_is_unknown_on_every_extraction_command() {
     let fixture = probe_fixture(Language::Rust);
@@ -201,8 +201,8 @@ fn backend_flag_is_unknown_on_every_extraction_command() {
             let run = fixture.run(&args);
             assert_eq!(
                 run.status.code(),
-                Some(1),
-                "`{}` with a back-end flag must fail (stderr: {})",
+                Some(64),
+                "`{}` with a back-end flag must fail as a usage error (stderr: {})",
                 command.join(" "),
                 stderr(&run)
             );
@@ -217,7 +217,7 @@ fn backend_flag_is_unknown_on_every_extraction_command() {
         let mut args = command.clone();
         args.push("--backend");
         let run = fixture.run(&args);
-        assert_eq!(run.status.code(), Some(1));
+        assert_eq!(run.status.code(), Some(64));
         assert!(stderr(&run).contains("unknown flag: --backend"));
     }
 }
@@ -263,6 +263,7 @@ fn skill_never_mentions_the_backend_flag() {
     for args in [
         vec!["skill"],
         vec!["skill", "print"],
+        vec!["skill", "analysis"],
         vec!["skill", "--help"],
     ] {
         let run = fixture.run(&args);

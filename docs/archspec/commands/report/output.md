@@ -119,7 +119,7 @@ Row order is the closed vocabulary (`facades`, then `composition roots`); model 
 
 ### Diff
 
-The diff reports everything that differs, not the first hit (ADR-010). Each finding is a `<category>: <detail>` line, emitted in canonical order — components, then edges, then contracts, then cycles, then warnings, then vacuous guards. The categories, labelled as the report prints them:
+The diff reports everything that differs, not the first hit (ADR-010). Each finding is a `<category>: <detail>` line, emitted in canonical order — components, then edges, then contracts, then cycles, then the constraint-tier categories, then warnings, then vacuous guards. Every finding that can drive the non-zero exit is printed here: the exit gate and the renderers read the same single field list. The categories, labelled as the report prints them:
 
 - `missing component` — declared in the spec, absent from the extracted model
 - `unexpected component` — extracted but not declared
@@ -131,6 +131,14 @@ The diff reports everything that differs, not the first hit (ADR-010). Each find
 - `facade dependency` — an internal module depends on a module carrying the `facade` role in the model's roles map (structural; no constraint declares it; emitted by the rust and csharp drivers — each derives facade roles from its own facts; the go driver derives no facade role, so the rule never fires there)
 - `contract leak` — exposed surface bleeds outside the declared contract; the submodule form needs the module tier (rust, csharp, and go — the go driver derives one from the tree's package references, takes it natively from go.work members, or takes it from spec modules claiming its packages on a tree recording none)
 - `cycle detected in` — a `no_cycles` violation; the cycle path is joined with ` -> ` and repeats the closing node (e.g. `Billing -> Portal -> Billing`)
+- `public api leak` — a public export not allowlisted by `public_api_allowlist` (a named export, or a name enumerated from a resolvable root glob)
+- `unverifiable glob export` — a root glob re-export whose exported set cannot be resolved from source, so it fails closed instead of being silently skipped
+- `empty glob export` — a glob re-export that resolves to a module with zero public items; an empty derived set would silently drop a checked surface, so it fails closed
+- `forbidden external crate` — a module listed by `forbid_external_crates` imports a banned crate
+- `not external free` — a module or unit matched by `external_free` is attributed external packages
+- `manifest integrity` — a manifest diverges from the requirements `manifest_integrity` declares
+- `feature boundary` — an unallowed dependency on a gated module, a gated module missing its cfg, or an unknown gated-module pattern (`feature_boundary`)
+- `forbidden submodule dependency` — a listed submodule depends on a forbidden sibling inside its parent (`forbid_submodule_dependency`)
 - `vacuous constraint` — a constraint whose effective domain is empty (nothing to check)
 
 Warning-severity findings are report content too and are listed verbatim under their own category label — `dead reference`, `laundered forbidden edge`, `unresolved module file`, and `unowned module edge endpoint`. A warning-severity cycle renders exactly like an error-level `cycle detected in` line. `report` is informational and has no `--strict` gate, so warnings never escalate. Language coverage of the warnings: `laundered forbidden edge` and `unowned module edge endpoint` need the module tier and are emitted by rust, csharp, and go once the tree has one (go.work members, the tree's own package references, or spec modules on a tree recording none); `unresolved module file` is a rust-driver finding; a tier-less go tree produces none of them. `dead reference` entries are emitted by every driver; the verdict follows the driver's visibility capability, not its name — on a tree whose module-tier fact the driver does not emit granularly the entry reads `not verifiable from source — driver emits no module-tier fact for this tree` instead of claiming the target `does not exist`.
