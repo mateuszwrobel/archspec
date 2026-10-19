@@ -1,0 +1,282 @@
+name: Build archspec binaries (reusable matrix)
+
+# Reusable build matrix (the exact jobs release.yml ran inline before the
+# 2026-10-19 rehearsal refactor): the publish-gate plus the five platform
+# builds. Called on every release tag by release.yml, and callable on any
+# ref by maintainers (workflow_dispatch) to rehearse a matrix without
+# publishing anything — this workflow has NO release job, NO npm job and
+# writes nothing outside its own run artifacts.
+
+on:
+  workflow_call:
+    inputs:
+      ref_name:
+        description: Tag-shaped version ref to build and name assets with (e.g. v1.2.3)
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      ref_name:
+        description: Tag-shaped version ref to build and name assets with (e.g. v1.2.3)
+        type: string
+        required: true
+
+# Least privilege: builds read the tree and upload run artifacts only.
+permissions:
+  contents: read
+
+env:
+  # The tag-shaped ref every job derives the version from. release.yml
+  # passes github.ref_name; a dispatch passes the ref explicitly. The
+  # publish-gate's tag-shape gate runs before any build consumes it.
+  ARCHSPEC_TAG: ${{ inputs.ref_name }}
+
+jobs:
+  publish-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Tag shape gate
+        run: sh npm/scripts/gate-tag.sh "${ARCHSPEC_TAG}"
+      - name: Registry existence gate
+        env:
+          NPM_SCOPE: ${{ vars.NPM_SCOPE }}
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          if [ -z "${NPM_SCOPE:-}" ]; then
+            echo "publish-gate: vars.NPM_SCOPE is unset — the npm channel is not configured, no npm pin exists to break; publish-npm still fails closed below"
+            exit 0
+          fi
+          sh npm/scripts/gate-registry.sh --pkg "@${NPM_SCOPE}/archspec" --version "${ver}"
+
+  build-linux-x86_64:
+    needs: publish-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+          targets: x86_64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools dpkg-dev libarchive-tools zstd
+      - run: cargo build --release --target x86_64-unknown-linux-musl
+      - name: Package tarball
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          bin="target/x86_64-unknown-linux-musl/release/archspec"
+          pkg="archspec-${ver}-x86_64-unknown-linux-musl.tar.gz"
+          tar -C "$(dirname "$bin")" -czf "$pkg" archspec
+          sha256sum "$pkg" > "$pkg.sha256"
+      - name: Package deb
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          stage="deb-archspec"
+          mkdir -p "$stage/DEBIAN" "$stage/usr/bin"
+          cat > "$stage/DEBIAN/control" <<EOF
+          Package: archspec
+          Version: ${ver}
+          Architecture: amd64
+          Maintainer: archspec developers <publisher@archspec.invalid>
+          Description: Architecture conformance toolkit
+           Parses source trees into an architectural model and verifies it
+           against a declarative specification. No toolchain required.
+          EOF
+          install -m 755 target/x86_64-unknown-linux-musl/release/archspec "$stage/usr/bin/archspec"
+          dpkg-deb --build "$stage" "archspec_${ver}_amd64.deb"
+          sha256sum "archspec_${ver}_amd64.deb" > "archspec_${ver}_amd64.deb.sha256"
+      - name: Package Arch
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          PKG_URL="https://github.com/${{ github.repository }}" \
+            sh package-arch.sh target/x86_64-unknown-linux-musl/release/archspec x86_64 "$ver"
+          pkg="archspec-${ver}-1-x86_64.pkg.tar.zst"
+          sha256sum "$pkg" > "$pkg.sha256"
+      - name: Check Arch package contents
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          sh check-arch-package.sh "archspec-${ver}-1-x86_64.pkg.tar.zst" x86_64 \
+            target/x86_64-unknown-linux-musl/release/archspec
+      - name: Install Arch package with pacman
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          pkg="archspec-${ver}-1-x86_64.pkg.tar.zst"
+          # The official image gives a stock pacman with nothing configured; a
+          # local file needs no keyring and no database sync, so this is offline.
+          docker run --rm -e PKG="$pkg" -v "$PWD:/w:ro" -w /w archlinux:latest \
+            sh /w/install-check-arch-package.sh "/w/$pkg"
+      - uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: linux-x86_64
+          path: |
+            archspec-*.tar.gz
+            archspec-*.tar.gz.sha256
+            archspec_*.deb
+            archspec_*.deb.sha256
+            archspec-*.pkg.tar.zst
+            archspec-*.pkg.tar.zst.sha256
+
+  build-linux-aarch64:
+    needs: publish-gate
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+          targets: aarch64-unknown-linux-gnu, aarch64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y dpkg-dev libarchive-tools zstd musl-tools
+      - run: cargo build --release --target aarch64-unknown-linux-gnu
+      # The Arch package carries a static binary: Arch gives no guarantee about
+      # the glibc a package will run against, and there is no dependency list to
+      # record for a glibc build that would hold on both Arch and Arch Linux ARM.
+      # The tree-sitter grammars build C through cc-rs, which treats any target
+      # triple differing from the host triple as cross-compiled — on native arm64
+      # hardware too — and demands aarch64-linux-musl-gcc for it, a binary no
+      # Ubuntu package ships (musl-tools included; cc-rs auto-discovers it for
+      # x86_64-musl only). CC_<target> overrides that lookup and points cc-rs at
+      # musl-gcc, the same compiler the x86_64 job's musl build uses. The linker
+      # stays rustc's default: the musl target ships its own self-contained crt
+      # objects and libc.a, as the green x86_64 musl build already demonstrates.
+      - run: cargo build --release --target aarch64-unknown-linux-musl
+        env:
+          CC_aarch64_unknown_linux_musl: musl-gcc
+      - name: Package tarball
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          bin="target/aarch64-unknown-linux-gnu/release/archspec"
+          pkg="archspec-${ver}-aarch64-unknown-linux-gnu.tar.gz"
+          tar -C "$(dirname "$bin")" -czf "$pkg" archspec
+          sha256sum "$pkg" > "$pkg.sha256"
+      - name: Package deb
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          stage="deb-archspec"
+          mkdir -p "$stage/DEBIAN" "$stage/usr/bin"
+          cat > "$stage/DEBIAN/control" <<EOF
+          Package: archspec
+          Version: ${ver}
+          Architecture: arm64
+          Maintainer: archspec developers <publisher@archspec.invalid>
+          Description: Architecture conformance toolkit
+           Parses source trees into an architectural model and verifies it
+           against a declarative specification. No toolchain required.
+          EOF
+          install -m 755 target/aarch64-unknown-linux-gnu/release/archspec "$stage/usr/bin/archspec"
+          dpkg-deb --build "$stage" "archspec_${ver}_arm64.deb"
+          sha256sum "archspec_${ver}_arm64.deb" > "archspec_${ver}_arm64.deb.sha256"
+      - name: Package Arch
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          PKG_URL="https://github.com/${{ github.repository }}" \
+            sh package-arch.sh target/aarch64-unknown-linux-musl/release/archspec aarch64 "$ver"
+          pkg="archspec-${ver}-1-aarch64.pkg.tar.zst"
+          sha256sum "$pkg" > "$pkg.sha256"
+      # There is no official Arch arm64 image, so no pacman can run here to
+      # install the result. Everything a container check would assert about the
+      # archive itself is asserted instead; the x86_64 job proves the same
+      # packaging code installs, and the runner is arm64 hardware.
+      - name: Check Arch package contents
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          sh check-arch-package.sh "archspec-${ver}-1-aarch64.pkg.tar.zst" aarch64 \
+            target/aarch64-unknown-linux-musl/release/archspec
+      - uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: linux-aarch64
+          path: |
+            archspec-*.tar.gz
+            archspec-*.tar.gz.sha256
+            archspec_*.deb
+            archspec_*.deb.sha256
+            archspec-*.pkg.tar.zst
+            archspec-*.pkg.tar.zst.sha256
+
+  build-macos-x86_64:
+    needs: publish-gate
+    runs-on: macos-26-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+          targets: x86_64-apple-darwin
+      - run: cargo build --release --target x86_64-apple-darwin
+      - name: Package
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          pkg="archspec-${ver}-x86_64-apple-darwin.tar.gz"
+          tar -C target/x86_64-apple-darwin/release -czf "$pkg" archspec
+          shasum -a 256 "$pkg" > "$pkg.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: macos-x86_64
+          path: archspec-*
+
+  build-macos-aarch64:
+    needs: publish-gate
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+          targets: aarch64-apple-darwin
+      - run: cargo build --release --target aarch64-apple-darwin
+      - name: Package
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          pkg="archspec-${ver}-aarch64-apple-darwin.tar.gz"
+          tar -C target/aarch64-apple-darwin/release -czf "$pkg" archspec
+          shasum -a 256 "$pkg" > "$pkg.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: macos-aarch64
+          path: archspec-*
+
+  build-windows-x86_64:
+    needs: publish-gate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+      - run: cargo build --release
+      - name: Package
+        shell: pwsh
+        run: |
+          $ver = $env:ARCHSPEC_TAG.TrimStart('v')
+          $exe = "target/release/archspec.exe"
+          $zip = "archspec-$ver-x86_64-pc-windows-msvc.zip"
+          Compress-Archive -Path $exe -DestinationPath $zip
+          # Portable sidecar shape — hash, two spaces, filename, LF — so the
+          # asset passes `sha256sum -c` like every other platform's sidecar
+          # (Set-Content would write CRLF without the filename: not verifiable).
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          # $PWD must be joined explicitly: .NET's current directory does not
+          # follow PowerShell's provider location.
+          [System.IO.File]::WriteAllText((Join-Path $PWD.Path "$zip.sha256"), "$hash  $zip`n")
+      - uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: windows-x86_64
+          path: archspec-*
