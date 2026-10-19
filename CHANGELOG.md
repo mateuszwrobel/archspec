@@ -6,6 +6,19 @@ only.
 
 ## [Unreleased]
 
+## [0.6.30] - 2026-10-19
+
+### Fixed
+
+- Windows release builds compile again. The Windows job compiles the `cc`
+  build-dependency for a Windows host; the locked `find-msvc-tools` 0.1.13
+  exposed its `windows_sys::FILE_ATTRIBUTE_TEMPORARY` constant as `i32`,
+  and the pinned `cc` passes that constant directly to the standard
+  library's `OpenOptionsExt::custom_flags`, which takes `u32` — a type
+  error that failed the Windows build while every other platform stayed
+  green. The lockfile now resolves `find-msvc-tools` 0.1.15, which exposes
+  the constant as `u32`. No behaviour of the tool itself moved.
+
 ## [0.6.29] - 2026-10-18
 
 ### Added

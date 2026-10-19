@@ -70,7 +70,7 @@ const RELEASE_ASSETS: &[(&str, &str)] = &[
 
 /// The collapsed version line, pinned byte-exact: one line, the tag-number
 /// value, one short release-marker comment.
-const VERSION_LINE: &str = "version = \"0.6.29\"  # released — entry lives in CHANGELOG.md under [0.6.29]; do not bump past the tag until the release commit";
+const VERSION_LINE: &str = "version = \"0.6.30\"  # released — entry lives in CHANGELOG.md under [0.6.30]; do not bump past the tag until the release commit";
 
 /// The rollup's opening line inside the `## [0.5.0]` section.
 const ROLLUP_MARKER: &str = "Version 0.5.0 — released from this entry.";

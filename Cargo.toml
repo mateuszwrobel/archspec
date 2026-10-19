@@ -1,6 +1,6 @@
 [package]
 name = "rust-arch-test-kit"
-version = "0.6.29"  # released — entry lives in CHANGELOG.md under [0.6.29]; do not bump past the tag until the release commit
+version = "0.6.30"  # released — entry lives in CHANGELOG.md under [0.6.30]; do not bump past the tag until the release commit
 edition = "2024"
 
 rust-version = "1.99"
