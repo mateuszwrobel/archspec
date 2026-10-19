@@ -8,7 +8,7 @@ asserts on observable output. The table itself is the contract (see
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 1 | any build | `capability matrix` | exit 0; one `capability <language> <fact> <emission>` row per (language, fact) for the six stated facts and three languages, then `rule <rule> <fact>` rows; parsing the rows equals reading the table (guards read them by value) |
+| 1 | any build | `capability matrix` | exit 0; one `capability <language> <fact> <emission>` row per (language, fact) for the stated facts and four languages, then `rule <rule> <fact>` rows, then one `posture <language> <scope> <severity>` row per language arm; parsing the rows equals reading the table (guards read them by value) |
 | 2 | same run | the fact-row values | keep their current strings verbatim per (language, fact) — the emission constants are matched by value by `verify` and the notes; never reworded |
 
 ## Machine query (`capability granular`)

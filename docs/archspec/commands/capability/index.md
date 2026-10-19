@@ -17,22 +17,27 @@ file, no output destinations, and no promise of format stability.
 ### `archspec capability matrix`
 
 Prints the table verbatim, one row per line, deterministic and ordered by
-fact then language, followed by the rules that consume a fact:
+fact then language, followed by the rules that consume a fact and the
+deep-cycle posture rows (ADR-023):
 
 ```text
 capability <language> <fact> <emission>
 ...
 rule <rule> <fact>
+posture <language> <scope> <severity>
 ```
 
-`<language>` is the driver name (`rust`, `csharp`, `go`), `<fact>` one of the
+`<language>` is the driver name (`rust`, `csharp`, `go`, `ts`), `<fact>` one of the
 stated facts (`role-facade`, `role-composition`, `module-tier`, `symbols`,
 `root-module-declarations`, `test-tier`, `external-packages`,
-`public-api-surface`), and `<emission>`
+`public-api-surface`, `file-grained-dependency-facts`, `orphan-census`), and `<emission>`
 the granularity: `granular`, `not-emitted`, or a conditional string (e.g.
 `file tier only (*_test.go excluded at scan)`). Parsing these
 rows is equivalent to reading the table — this is what the prose-drift guards
-and the shared scenario registry consult.
+and the shared scenario registry consult. Each `posture` row states the
+`(scope, severity)` a `no_cycles` row with no `scope` derives from —
+`claims` or `both` with `error` (red is the posture); the weld test binds
+every `both` row to the granular `file-grained-dependency-facts` row.
 
 ### `archspec capability granular <language> <fact>`
 

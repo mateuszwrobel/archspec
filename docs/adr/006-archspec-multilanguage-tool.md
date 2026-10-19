@@ -5,6 +5,8 @@ Accepted
 
 **Implementation Status:** Implemented as of September 2026 — `archspec` ships as the binary of this repository (`rust-arch-test-kit` crate converted to the archspec tool); the Rust TOML rule engine named in the Context has been removed, so the "existing tools" landscape described here is historical.
 
+**Revised October 2026:** the "TS/JS is out of scope for now; revisit later" clause is decided: the revisit landed as a design in ADR-022 and its design record, and the design has since shipped — the fourth native `Language` arm `ts` is in the binary (detection, extraction, adjudication and the file tier, ADR-023's posture rows included). The no-wrap constraint above stands unchanged: the shipped driver is native, not a wrapper.
+
 ## Context
 Architecture enforcement today is fragmented: `rust-arch-test-kit` covers Rust with a TOML rule engine; NetArchTest / ArchUnitNET cover C# with fluent assertions over compiled assemblies; dependency-cruiser covers JS/TS. Each has its own model, config, and reporting. Modern products span these languages (a .NET modular-monolith back-end plus Rust/Golang services) yet get no shared architectural view. Existing tools force drawing diagrams by hand, which drift.
 

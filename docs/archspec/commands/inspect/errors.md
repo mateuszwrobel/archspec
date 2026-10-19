@@ -11,6 +11,8 @@ A parse failure **aborts the run** — the diagram is not produced for a partial
 | path does not exist | the invalid path | non-zero |
 | path is a regular file | the path, the inspect modes that exist (file-level import maps for rust/csharp/go and structural `tree`/`scanner` model views) and the directory form to pass instead | non-zero |
 | no supported-language sources found (recursively) | that no supported-language sources were found, and where | non-zero |
+| more than one root marker at the scan root with no pin (`ambiguous root markers: <path> (<language>), … — pin [project] language or scan a single-language root`) | that the root is polyglot, every marker file named, and the pin or per-root remedy | non-zero |
+| a pinned language whose root marker is absent while other root markers stand (`language mismatch: <declared> — no root marker <marker> for the declared language, found: <markers>`) | the declared language, the marker it expects, and the markers found | non-zero |
 | `inspect tree` on a model without a module tier (a Go tree whose packages record no reference to each other; the tier is derived from those references, so a single-module go tree with references renders) | that the tree view needs the module tier and this model has none, plus the tier rule — the module tier is derived from the tree's package references — a model-fact refusal, not a language verdict; `scanner` renders such a model | non-zero |
 | detected language whose `scan` driver is unavailable (`tree`/`scanner` modes, or an env-disabled driver) | the detected language and a pointer to run `archspec doctor` | non-zero |
 | a source file fails to parse | the name of the failing file | non-zero |

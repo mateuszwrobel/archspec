@@ -814,7 +814,14 @@ fn update_seed_allows_root_to_gated_module_edge() {
 
 // acceptance #18 (symmetric case): a module edge whose TARGET is the crate root
 // (`app::commands::index -> app`) must be allowed on the source boundary, so
-// `verify` against the seed exits 0.
+// the seed legalizes it at the claim tier. Under rust's `both` posture this
+// tree also adjudicates at file grain, and it reads CLEAN: the ring
+// `lib.rs -> commands.rs -> index.rs -> lib.rs` closes on `use crate`, whose
+// target is the crate root — an ANCESTOR of the using module — so that hop is
+// containment, not dependency, and contributes no file row (the
+// containment-hop law; see the scanner's `contains_module`). The claim-tier
+// legality the acceptance names stays proven by the seed assertion below; the
+// file tier adds no finding on this shape.
 #[test]
 fn update_seed_allows_submodule_to_root_edge() {
     let fixture = common::Fixture::new();
@@ -844,13 +851,17 @@ fn update_seed_allows_submodule_to_root_edge() {
     assert_eq!(
         verify.status.code(),
         Some(0),
-        "seed must verify clean (exit 0): {}",
+        "the ancestor-target containment hop must leave the file tier clean (stdout: {})",
         stdout(&verify)
     );
     let out = stdout(&verify);
     assert!(
-        out.contains("matches source model") && !out.contains("violation"),
-        "seed must match source model, no violations:\n{out}"
+        !out.contains("cycle"),
+        "the containment-hop law must leave no file ring here:\n{out}"
+    );
+    assert!(
+        !out.contains("violation"),
+        "the legalized root edge must not read as a dependency violation:\n{out}"
     );
 }
 

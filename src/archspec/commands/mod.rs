@@ -3,6 +3,7 @@ pub mod depgraph;
 pub mod diagram;
 pub mod doctor;
 pub mod help;
+pub mod registry;
 pub mod report;
 pub mod scan;
 pub mod skill;

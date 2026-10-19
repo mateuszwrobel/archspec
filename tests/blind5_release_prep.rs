@@ -70,7 +70,7 @@ const RELEASE_ASSETS: &[(&str, &str)] = &[
 
 /// The collapsed version line, pinned byte-exact: one line, the tag-number
 /// value, one short release-marker comment.
-const VERSION_LINE: &str = "version = \"0.6.0\"  # released — entry lives in CHANGELOG.md under [0.6.0]; do not bump past the tag until the release commit; the 0.6.0 line carries the exit-taxonomy retrofit — usage errors exit 64, undeclared verbs exit 64, a missing spec answers 70 — a breaking change to the public exit surface; releases at 0.5.x and older age out through the deprecation note in that entry, never through a retro-shim; the relation-analysis playbook emitted as its own analysis skill (`archspec skill analysis`), with its README, agent-guide and skill wiring, and the .github/FUNDING.yml sponsorship file land on this same version line; the feature_matrix read-only-source gate fix (target-dir report regeneration with committed-copy byte check) lands on this same version line; the ADR-020 module-claim jurisdiction design record (plan, ADR and decision-check landed together) lands on this same version line; the nested-submodule dependency engagement implementation (most-specific-claim adjudication at depth, policy inheritance, the containment law, claim-engagement warnings, depth-rendered spec diagrams) lands on this same version line; the submodule dependency engagement audit fixups (Breaking release note, workplan amendment, fan-out restatements, duplicate-name weld) land on this same version line; the report findings render fix (constraint-tier categories printed by every renderer, the exit gate and the renderers sharing one field list, the silent-red guard) lands on this same version line; the scan-diagram module-tier adjudication seam extraction lands on this same version line; the scan diagram module tier (opt-in --tiers, claim-named module identity, shared-adjudication marking with the always-on unit-tier ceiling-mark fix, ADR-021) lands on this same version line; the contract expose chain law (contract.expose un-reserved at every depth — the deepest-claim crossing adjudication, staleness and vacuity carriers, C# root-territory exclusion, the go vacuity rewrite, diagram --module/--modules-dir per the widened adjudication seam, the stderr version footer) lands on this same version line; the release-prep changelog rollup for 0.6.0 lands on this same version line";
+const VERSION_LINE: &str = "version = \"0.6.29\"  # released — entry lives in CHANGELOG.md under [0.6.29]; do not bump past the tag until the release commit";
 
 /// The rollup's opening line inside the `## [0.5.0]` section.
 const ROLLUP_MARKER: &str = "Version 0.5.0 — released from this entry.";
@@ -198,9 +198,90 @@ fn version_line_is_one_release_marker_line() {
     );
 
     let lock = load("Cargo.lock");
+    let version_value = version_lines[0]
+        .split('"')
+        .nth(1)
+        .expect("the version line carries a quoted value");
     assert!(
-        lock.contains("name = \"rust-arch-test-kit\"\nversion = \"0.6.0\""),
-        "Cargo.lock pairs the same 0.6.0 the manifest carries"
+        lock.contains(&format!(
+            "name = \"rust-arch-test-kit\"\nversion = \"{version_value}\""
+        )),
+        "Cargo.lock pairs the same {version_value} the manifest carries"
+    );
+}
+
+/// Parses one dotted `major.minor.patch` version for the numeric comparison
+/// below. A heading body that is not such a version is itself a finding: the
+/// guard fails loud naming the line rather than silently skipping it.
+fn dotted_version(body: &str, line: &str) -> (u64, u64, u64) {
+    let parts: Vec<&str> = body.split('.').collect();
+    let parsed: Vec<u64> = parts
+        .iter()
+        .map(|part| {
+            part.parse::<u64>().unwrap_or_else(|e| {
+                panic!("version part {part:?} is not a number in heading {line:?}: {e}")
+            })
+        })
+        .collect();
+    assert_eq!(
+        parsed.len(),
+        3,
+        "every dated CHANGELOG heading carries a dotted major.minor.patch version, got {line:?}"
+    );
+    (parsed[0], parsed[1], parsed[2])
+}
+
+/// Scenario "no CHANGELOG heading claims a version above the manifest" — the
+/// phantom-heading guard. Every dated `## [x.y.z]` heading in CHANGELOG.md
+/// must compare LESS THAN OR EQUAL TO the crate's Cargo.toml version;
+/// `[Unreleased]` is exempt. Rationale: a heading above the manifest version
+/// claims a release that has not been cut — no tag, no release commit, and
+/// the tag-driven release-notes extractor can never find the section the
+/// heading announces. This is the phantom-heading class: the round-3
+/// decision-check of the ts-driver design record deleted the first one
+/// (R3-2) under a prose law ("deleted on sight"), and the class returned on
+/// 2026-10-16 when the pre-commit version stamp fired mid-landing — prose
+/// law recurred, so the class now has this falsifiable guard (the same
+/// doctrine that moved the warning-severity posture from prose to the
+/// declared baseline guard). The release-prep law this suite already pins —
+/// the version line stays at the tag number until the release commit — makes
+/// the guard green at every REAL release: the release commit rolls
+/// `[Unreleased]` into the new heading AND bumps the version line together,
+/// so heading equals manifest from that commit on.
+#[test]
+fn no_changelog_heading_claims_a_version_above_the_manifest() {
+    let cargo = load("Cargo.toml");
+    let version_line = cargo
+        .lines()
+        .find(|line| line.starts_with("version = "))
+        .expect("the package version line exists");
+    let manifest_body = version_line
+        .split('"')
+        .nth(1)
+        .expect("the version line carries a quoted version");
+    let manifest = dotted_version(manifest_body, version_line);
+
+    let changelog = load("CHANGELOG.md");
+    let mut phantoms: Vec<String> = Vec::new();
+    for line in changelog.lines() {
+        let Some(rest) = line.strip_prefix("## [") else {
+            continue;
+        };
+        let Some(at) = rest.find(']') else {
+            continue;
+        };
+        let body = &rest[..at];
+        if body == "Unreleased" {
+            continue;
+        }
+        let heading = dotted_version(body, line);
+        if heading > manifest {
+            phantoms.push(line.to_string());
+        }
+    }
+    assert!(
+        phantoms.is_empty(),
+        "every dated CHANGELOG heading must be at or below the manifest version {manifest_body:?} — a higher heading claims a release that has not been cut (the phantom-heading class): {phantoms:#?}"
     );
 }
 

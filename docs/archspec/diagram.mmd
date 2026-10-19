@@ -5,7 +5,31 @@ graph TD
   lib_collector_f6e3372d["lib-collector"]
   lib_render_e7a72dae["lib-render"]
   rust_arch_test_kit_35b16f27["rust-arch-test-kit"]
+  scan_core_15ce7974["scan-core"]
+  scan_kotlin_bbaecaa3["scan-kotlin"]
+  scan_leg_9104ed81["scan-leg"]
+  scan_python_3afe26b9["scan-python"]
+  scan_ts_333931d0["scan-ts"]
   commands --> engines
   commands --> foundations
+  commands --> scan_core_15ce7974
   engines --> foundations
   engines --> rust_arch_test_kit_35b16f27
+  engines --> scan_core_15ce7974
+  engines --> scan_kotlin_bbaecaa3
+  engines --> scan_python_3afe26b9
+  engines --> scan_ts_333931d0
+  scan_core_15ce7974 --> engines
+  scan_core_15ce7974 --> foundations
+  scan_core_15ce7974 --> scan_kotlin_bbaecaa3
+  scan_core_15ce7974 --> scan_python_3afe26b9
+  scan_core_15ce7974 --> scan_ts_333931d0
+  scan_kotlin_bbaecaa3 --> engines
+  scan_kotlin_bbaecaa3 --> foundations
+  scan_kotlin_bbaecaa3 --> scan_leg_9104ed81
+  scan_python_3afe26b9 --> engines
+  scan_python_3afe26b9 --> foundations
+  scan_python_3afe26b9 --> scan_leg_9104ed81
+  scan_ts_333931d0 --> engines
+  scan_ts_333931d0 --> foundations
+  scan_ts_333931d0 --> scan_leg_9104ed81

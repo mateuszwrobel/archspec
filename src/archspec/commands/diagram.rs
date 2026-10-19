@@ -1,4 +1,5 @@
 use crate::archspec::cli::{self, FlagSpec};
+use crate::archspec::capability;
 use crate::archspec::config;
 use crate::archspec::diagram as render;
 use crate::archspec::language::{self, Language};
@@ -15,7 +16,7 @@ const SOURCES: &[&str] = &["spec", "scan"];
 /// else is foreign and never an orphan (D12).
 const RENDER_EXTENSIONS: &[&str] = &["mmd", "puml"];
 
-pub const HELP: &str = "usage: archspec diagram [path] [--source <spec|scan> <scan-path>] [--format <mermaid|plantuml>] [--output <path>] [--check]\nrender the model (declared spec or scan artefact) as a diagram\n\n  path                  project directory (default: current directory)\n  --source <spec|scan>  model source; with scan, bind the artefact path next (default: spec)\n  --format <fmt>        mermaid or plantuml (default: mermaid)\n  --output <path>       write the diagram to that file (default: stdout unless archspec.toml [output] sets a destination); `--output -` writes to stdout and creates no file — never a path positional\n  --tiers <list>        scan source only: additive comma-separated tiers to render, from units, modules (default: units); modules adds the module-tier cluster on top of the unchanged unit render\n  --module <claim>      spec source only: render that one module claim's territory (its members, edges and contract marks, adjudicated like verify); an unknown claim is a usage error (exit 64)\n  --modules-dir <dir>   spec source only: write one stable claim-named diagram per module claim into <dir>; the batch writes atomically; --check flags stale, missing, and orphan files without writing\n  --check               compare the diagram to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n\nArtefact form: `archspec diagram --source scan docs/archspec/scan.json` — with `--source scan`, the argument is a scan-JSON artefact file written by `archspec scan`, not a project directory.\n\nThe scan source is exploratory: `archspec diagram --source scan <path>` with no `--output` renders to stdout, states the skip with `note: destination <path> not written`, and never touches the configured destination; pass `--output <path>` to write that render.\n";
+pub const HELP: &str = "usage: archspec diagram [path] [--source <spec|scan> <scan-path>] [--format <mermaid|plantuml>] [--output <path>] [--check]\nrender the model (declared spec or scan artefact) as a diagram\n\n  path                  project directory (default: current directory)\n  --source <spec|scan>  model source; with scan, bind the artefact path next (default: spec)\n  --format <fmt>        mermaid or plantuml (default: mermaid)\n  --output <path>       write the diagram to that file (default: stdout unless archspec.toml [output] sets a destination); `--output -` writes to stdout and creates no file — never a path positional\n  --tiers <list>        additive comma-separated tiers to render, from units, modules (scan source) and files (spec source with --module/--modules-dir) (default: units); modules adds the module-tier cluster and files the file-tier cluster on top of the unchanged render — files with --source scan or without a territory flag is a usage error (exit 64)\n  --module <claim>      spec source only: render that one module claim's territory (its members, edges and contract marks, adjudicated like verify); an unknown claim is a usage error (exit 64)\n  --modules-dir <dir>   spec source only: write one stable claim-named diagram per module claim into <dir>; the batch writes atomically; --check flags stale, missing, and orphan files without writing\n  --check               compare the diagram to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n\nArtefact form: `archspec diagram --source scan docs/archspec/scan.json` — with `--source scan`, the argument is a scan-JSON artefact file written by `archspec scan`, not a project directory.\n\nThe scan source is exploratory: `archspec diagram --source scan <path>` with no `--output` renders to stdout, states the skip with `note: destination <path> not written`, and never touches the configured destination; pass `--output <path>` to write that render.\n";
 
 /// `--source scan` binds the token immediately after `scan` as the artefact
 /// path, so it never lands in the positional list (which stays the project
@@ -101,13 +102,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "unsupported source: {source} (supported: spec, scan)"
         ));
     }
-    // `--tiers` selects rendered tiers on the scan surface only; every
-    // rejected value is a usage error naming what it broke and the
-    // supported tiers (workplan D7).
+    // `--tiers` selects rendered tiers: `units`/`modules` on the scan
+    // surface (the shipped law) and `files` on the spec surface under a
+    // territory flag (design record D8); every rejected value is a usage
+    // error naming what it broke and the supported tiers (workplan D7).
     let tiers = match parsed.values.get("tiers").map(String::as_str) {
         Some(selection) => {
             let tiers = render::TierSelection::parse(selection).map_err(cli::usage_error)?;
-            if source != "scan" {
+            if source == "scan" {
+                if tiers.files {
+                    return Err(cli::usage_error(
+                        "--tiers files requires the spec source — the files tier marks through the adjudication seam, which needs the spec's facts a scan artefact does not carry",
+                    ));
+                }
+            } else if tiers.named.contains("units") || tiers.named.contains("modules") {
                 return Err(cli::usage_error(
                     "--tiers requires --source scan — the spec source renders declared components at full depth (supported tiers: units, modules)",
                 ));
@@ -143,6 +151,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--module and --modules-dir require the spec source — a scan artefact carries no expose verdicts",
         ));
     }
+    // The size law (M13): the files tier renders one claim's territory,
+    // never the whole tree — without a territory flag it is a usage error.
+    if tiers.files && module.is_none() && modules_dir.is_none() {
+        return Err(cli::usage_error(
+            "--tiers files requires --module or --modules-dir — the files tier renders a claim's territory, never the whole tree",
+        ));
+    }
     if let Some(claim) = module {
         let (loaded, model) = load_and_scan(project_root)?;
         if !spec::claim_names(&loaded.modules).iter().any(|name| name == claim) {
@@ -150,9 +165,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 "unknown module: no claim of the spec carries that name: {claim}"
             )));
         }
+        note_files_facts(&model, tiers.files);
         let diagram = match format {
-            "mermaid" => render::render_module_mermaid(&model, &loaded, claim),
-            "plantuml" => render::render_module_plantuml(&model, &loaded, claim),
+            "mermaid" => render::render_module_mermaid(&model, &loaded, claim, &tiers),
+            "plantuml" => render::render_module_plantuml(&model, &loaded, claim, &tiers),
             _ => unreachable!(),
         };
         let regen = format!("diagram --module {claim}");
@@ -173,12 +189,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     if let Some(dir) = modules_dir {
         let (loaded, model) = load_and_scan(project_root)?;
+        note_files_facts(&model, tiers.files);
         return write_modules_dir(
             Path::new(dir),
             &loaded,
             &model,
             format,
             parsed.switches.contains("check"),
+            &tiers,
         );
     }
 
@@ -257,6 +275,9 @@ fn language_display(language: Language) -> &'static str {
         Language::Rust => "Rust",
         Language::Go => "Go",
         Language::Csharp => "C#",
+        Language::Ts => "TypeScript",
+        Language::Python => "Python",
+        Language::Kotlin => "Kotlin",
     }
 }
 
@@ -271,6 +292,7 @@ fn write_modules_dir(
     model: &model::Model,
     format: &str,
     check: bool,
+    tiers: &render::TierSelection,
 ) -> Result<(), String> {
     let extension = if format == "plantuml" { "puml" } else { "mmd" };
     let claims = spec::claim_names(&loaded.modules);
@@ -278,7 +300,7 @@ fn write_modules_dir(
         let mut findings: Vec<String> = Vec::new();
         for claim in &claims {
             let path = dir.join(format!("{}.{extension}", render::claim_filename(claim)));
-            let expected = render_one(model, loaded, format, claim);
+            let expected = render_one(model, loaded, format, claim, tiers);
             match std::fs::read(&path) {
                 Ok(existing) if existing.as_slice() == expected.as_bytes() => {}
                 Ok(_) => findings.push(format!(
@@ -322,7 +344,7 @@ fn write_modules_dir(
     let mut failures: Vec<String> = Vec::new();
     for claim in &claims {
         let path = dir.join(format!("{}.{extension}", render::claim_filename(claim)));
-        let content = render_one(model, loaded, format, claim);
+        let content = render_one(model, loaded, format, claim, tiers);
         match atomic_write(dir, &path, content.as_bytes()) {
             Ok(()) => {
                 println!("wrote {}", path.display());
@@ -340,10 +362,37 @@ fn write_modules_dir(
     Ok(())
 }
 
-fn render_one(model: &model::Model, loaded: &spec::Spec, format: &str, claim: &str) -> String {
+fn render_one(
+    model: &model::Model,
+    loaded: &spec::Spec,
+    format: &str,
+    claim: &str,
+    tiers: &render::TierSelection,
+) -> String {
     match format {
-        "plantuml" => render::render_module_plantuml(model, loaded, claim),
-        _ => render::render_module_mermaid(model, loaded, claim),
+        "plantuml" => render::render_module_plantuml(model, loaded, claim, tiers),
+        _ => render::render_module_mermaid(model, loaded, claim, tiers),
+    }
+}
+
+/// The vacuity law on the files tier (D7): a language whose driver emits
+/// no file-grained facts renders no file vertices — and the run states the
+/// vacuity instead of silence or a fabricated graph, pointing at the
+/// capability table that owns the fact.
+fn note_files_facts(model: &model::Model, files_tier: bool) {
+    if !files_tier {
+        return;
+    }
+    let granular = language::from_name(&model.language).is_some_and(|language| {
+        capability::emission(language, capability::FACT_FILE_GRAINED_DEPENDENCY_FACTS)
+            == Some(capability::GRANULAR)
+    });
+    if !granular {
+        eprintln!(
+            "note: driver emits no {} fact (capability {}): the files tier renders no file vertices — see `archspec help capabilities`",
+            capability::FACT_FILE_GRAINED_DEPENDENCY_FACTS,
+            capability::NOT_EMITTED
+        );
     }
 }
 

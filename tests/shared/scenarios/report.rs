@@ -1,5 +1,5 @@
 use crate::common;
-use crate::shared::driver::{Driver, LogicalTree};
+use crate::shared::driver::{Driver, Language, LogicalTree};
 use crate::shared::feature::Feature;
 use crate::shared::scenario::Scenario;
 use crate::shared::scenarios::{boundary_spec, expect_success, metric_value, scenario};
@@ -68,12 +68,16 @@ fn report_counts_units_and_components(driver: &Driver, fx: &common::Fixture) -> 
         .ok_or_else(|| format!("report must count units:\n{stdout}"))?;
     let components = metric_value(&stdout, "components")
         .ok_or_else(|| format!("report must count components:\n{stdout}"))?;
-    if units != "2" {
-        return Err(format!("expected 2 units, got {units}:\n{stdout}"));
+    // The expectation reads the probe tree, not a constant: a ts tree
+    // carries exactly one package (D1), every other driver's probe tree
+    // carries two units.
+    let expected = tree.units.len().to_string();
+    if units != expected {
+        return Err(format!("expected {expected} units, got {units}:\n{stdout}"));
     }
-    if components != "2" {
+    if components != expected {
         return Err(format!(
-            "expected 2 components, got {components}:\n{stdout}"
+            "expected {expected} components, got {components}:\n{stdout}"
         ));
     }
     Ok(())
@@ -123,6 +127,12 @@ fn report_json_findings_match_text_rendering(
     // carries at least one error-level finding.
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
+    if matches!(driver.language, Language::Ts) {
+        // A ts package without a single source file is not a scannable
+        // tree; one module keeps the package real and stays out of the
+        // finding set (the violation still comes from the ghost claim).
+        tree.modules.insert("app".into(), vec!["core".into()]);
+    }
     driver.materialize(fx, &tree);
     let ghost = driver.unit_name("ghost");
     fx.write(
@@ -186,7 +196,10 @@ fn report_json_clean_project_has_empty_findings(
 /// The report is presentation, not a second decision: whatever the scan
 /// model states in `roles`, the text report renders as closed-vocabulary
 /// rows and the json format restates key for key (roles US 06, consolidated
-/// across the drivers by roles US 07).
+/// across the drivers by roles US 07). Where the model states no roles map
+/// at all — a driver whose role rows read `not-emitted` — the contract is
+/// absence restating absence: no group row, no json field, no fabricated
+/// empty map.
 fn report_restates_model_roles_verbatim(
     driver: &Driver,
     fx: &common::Fixture,
@@ -195,14 +208,13 @@ fn report_restates_model_roles_verbatim(
     driver.materialize(fx, &tree);
     fx.write("architecture.spec.toml", &boundary_spec(driver));
     let model = driver.scan(fx);
-    let stated = model["roles"]
-        .as_object()
-        .ok_or_else(|| "the canonical tree derives roles, so the model must serialize a map".to_string())?;
+    let stated = model.get("roles").and_then(Value::as_object);
 
     let text = common::stdout(&expect_success(driver, fx, &["report"])?);
     for (label, role) in [("facades", "facade"), ("composition roots", "composition")] {
         let paths: Vec<&str> = stated
-            .iter()
+            .into_iter()
+            .flatten()
             .filter(|(_, value)| value.as_str() == Some(role))
             .map(|(path, _)| path.as_str())
             .collect();
@@ -223,12 +235,10 @@ fn report_restates_model_roles_verbatim(
     let json = expect_success(driver, fx, &["report", "--format", "json"])?;
     let value: Value = serde_json::from_str(&common::stdout(&json))
         .map_err(|error| format!("json report must parse: {error}"))?;
-    let restated = value["roles"]
-        .as_object()
-        .ok_or_else(|| "a model with roles makes the json report restate them".to_string())?;
+    let restated = value.get("roles").and_then(Value::as_object);
     if restated != stated {
         return Err(format!(
-            "json roles must equal the scan roles verbatim:\nmodel: {stated:?}\nreport: {restated:?}"
+            "json roles must equal the scan roles verbatim (absent restates absent):\nmodel: {stated:?}\nreport: {restated:?}"
         ));
     }
     Ok(())

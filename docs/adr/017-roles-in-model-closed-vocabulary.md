@@ -57,6 +57,7 @@ reads.**
   | rust | a unit root file that defines no items — only `mod` declarations and re-exports | the bin unit whose `main` root wires modules |
   | csharp | re-export evidence at the resolved root — a using-only root file (plain or `global` usings, sentinel or under the root namespace) or an `[assembly: TypeForwardedTo]` forwarding file, either alone or together; a root file that declares a type is not a facade BY DESIGN (rust parity) | a unit whose entrypoint gate is open — a Program/Startup file, a host `Sdk` (`.Web`/`.Worker`) or `OutputType=Exe` — whose production files call the DI-registration-family members (lifetime, hosted, EF and caching vocabulary) anywhere, not only in the entrypoint file |
   | go | not derivable — **not emitted** (alias umbrella, public-package and root delegation patterns investigated 2026-09, see §Go facade investigation); the capability row states `role-facade not-emitted` and `verify` prints one role-scoped inert note per run citing this record | the `package main` unit root |
+  | ts | the package-root barrel `index.ts` — the file whose only edge rows are export-from rows and whose every export is backed by one of them (pure republication of the package's own modules, derived from the driver's file-grained facts; the ts counterpart of rust's mod-declaration-only root, 2026-10) | not derivable — **not emitted**; the capability row states `role-composition not-emitted` |
 
 - **The capability table grows two role facts** (`role-facade`,
   `role-composition`) per language, and the facade rule re-keys from the old

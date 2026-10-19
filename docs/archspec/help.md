@@ -34,7 +34,7 @@ empty.
 - Three trailing hint lines, in this order: `run 'archspec <command> --help'
   for details on a command`, `run 'archspec --version' for the tool version`,
   and a pointer at the topics: `run 'archspec help' for topics: commands, glob,
-  spec, constraints, languages, roles, workflow, diagnostics`.
+  spec, constraints, languages, roles, workflow, capabilities, diagnostics`.
 
 The command list covers every command the tool dispatches. The ordering and
 purposes match the command table in `README.md`.
@@ -63,10 +63,11 @@ command's `--help` (`archspec help verify` prints exactly what
 | `languages` | the language-tier matrix — which model tiers each scanner populates |
 | `roles` | which views mark roles and which stay silent by decision — the roles-in-views contract |
 | `workflow` | the numbered audit recipe (this topic owns the ordering), `--strict` as the CI gate |
+| `capabilities` | the driver capability table and the per-language deep-cycle posture rows — the fact source a vacuity carrier names (ADR-023) |
 | `diagnostics` | the catalog of every `verify`/`report` finding category — message pattern, meaning, origin, severity + `--strict`, follow-up, decision, and the required agent report format |
 
 `archspec help`, `archspec help topics`, and `archspec help --help` all print
-the same topic index (usage line + all 8 topics + every command). All topic
+the same topic index (usage line + all 9 topics + every command). All topic
 content is embedded in the binary (`src/archspec/commands/help.rs`), so output
 is deterministic and byte-identical across runs.
 

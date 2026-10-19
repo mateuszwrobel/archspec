@@ -106,6 +106,25 @@ signatures = ["facade dependency rule inert for", "no derivable role-facade idio
 dedicated_guard = "tests/shared/scenarios/verify.rs"
 
 [[claim]]
+id = "ts-vacuity-carriers"
+owner = "the named `vacuous constraint` carrier lines the ts driver prints on an EMPTY evidence set for the flipped capability rows (R8 vacuity law) — report-surface lines, never findings, never red without `--strict`"
+owner_surfaces = []
+relations = ["echo"]
+canonical_fragments = [
+  "vacuous constraint: scan.unit_manifests: no package manifest states dependencies",
+  "vacuous constraint: inspect.file_level: no file-level edges resolved",
+  "vacuous constraint: verify.forbidden_laundering: no module edges resolved — the laundering check trivially passes",
+  "vacuous constraint: verify.root_facade: no edge enters a facade root — the facade rule trivially passes",
+]
+signatures = [
+  "scan.unit_manifests: no package manifest states dependencies",
+  "inspect.file_level: no file-level edges resolved",
+  "forbidden_laundering: no module edges resolved",
+  "root_facade: no edge enters a facade root",
+]
+dedicated_guard = "tests/ts_driver.rs"
+
+[[claim]]
 id = "roles-in-views"
 owner = "the `archspec help roles` topic, backed by the computed views × markers matrix"
 owner_surfaces = ["help roles"]
@@ -231,6 +250,31 @@ signatures = ["exploratory"]
 dedicated_guard = "tests/blind4_wrote_echo.rs"
 [[claim.guard_pin]]
 file = "tests/blind4_wrote_echo.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "files-tier-scan-refusal"
+owner = "the error `archspec diagram --source scan <artefact> --tiers files` prints (exit 64) — the files tier marks through the adjudication seam, which needs the spec's facts a scan artefact does not carry"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "--tiers files requires the spec source — the files tier marks through the adjudication seam, which needs the spec's facts a scan artefact does not carry"
+signatures = ["requires the adjudication seam"]
+dedicated_guard = "tests/diagram_files_tier.rs"
+[[claim.guard_pin]]
+file = "tests/diagram_files_tier.rs"
+const_name = "FILES_SCAN_REFUSAL"
+relation = "equals-canonical"
+
+[[claim]]
+id = "files-tier-size-refusal"
+owner = "the error `archspec diagram --tiers files` prints without a territory flag (exit 64 — the size law: the files tier renders one claim's territory, never the whole tree)"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "--tiers files requires --module or --modules-dir — the files tier renders a claim's territory, never the whole tree"
+signatures = ["renders a claim's territory"]
+dedicated_guard = "tests/diagram_files_tier.rs"
+[[claim.guard_pin]]
+file = "tests/diagram_files_tier.rs"
 relation = "named-in-file"
 
 [[claim]]
@@ -398,3 +442,242 @@ dedicated_guard = "tests/blind5_dirt_map.rs"
 file = "tests/blind5_dirt_map.rs"
 const_name = "DIRT_MAP_SENTENCE"
 relation = "equals-canonical"
+
+[[claim]]
+id = "tsconfig-not-found"
+owner = "the `tsconfig not found` catalog entry of `archspec help diagnostics`"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "tsconfig not found: <path>"
+template = true
+canonical_fragments = ["tsconfig not found: <path>"]
+signatures = ["tsconfig not found"]
+dedicated_guard = "tests/help.rs"
+
+[[claim]]
+id = "tsconfig-load-failed"
+owner = "the `tsconfig load failed` catalog entry of `archspec help diagnostics`"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "tsconfig load failed: <path>"
+template = true
+canonical_fragments = ["tsconfig load failed: <path>"]
+signatures = ["tsconfig load failed"]
+dedicated_guard = "tests/help.rs"
+
+[[claim]]
+id = "tsconfig-cycle"
+owner = "the `tsconfig cycle (extends or reference)` catalog entry of `archspec help diagnostics`"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "tsconfig cycle (extends or reference): <path>"
+template = true
+canonical_fragments = [
+  "tsconfig cycle (extends or reference): <a -> b -> a>",
+  "tsconfig cycle (extends or reference): <path> — the project reference path points to this tsconfig",
+]
+signatures = ["tsconfig cycle (extends or reference)"]
+dedicated_guard = "tests/help.rs"
+
+[[claim]]
+id = "package-manifest-invalid"
+owner = "the `package manifest invalid` catalog entry of `archspec help diagnostics`"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "package manifest invalid: <path>"
+template = true
+canonical_fragments = ["package manifest invalid: <path>"]
+signatures = ["package manifest invalid"]
+dedicated_guard = "tests/help.rs"
+
+[[claim]]
+id = "unclassified-resolver-error"
+owner = "the `unclassified resolver error` catalog entry of `archspec help diagnostics`"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "unclassified resolver error: <variant debug form>"
+signatures = ["unclassified resolver error:"]
+dedicated_guard = "tests/help.rs"
+
+[[claim]]
+id = "external-not-installed"
+owner = "the `external not installed` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "external not installed: <package> — declared in <manifest>, absent from disk"
+canonical_fragments = ["external not installed: <package> — declared in <manifest>, absent from disk"]
+signatures = ["external not installed"]
+dedicated_guard = "tests/help.rs"
+
+[[claim]]
+id = "orphan-file"
+owner = "the `orphan file` catalog entry of `archspec help diagnostics`, rendered report-only by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "orphan file: <path>"
+canonical_fragments = ["orphan file: <path>"]
+signatures = ["orphan file:"]
+dedicated_guard = "tests/ts_driver.rs"
+
+[[claim]]
+id = "orphan-file-census"
+owner = "the `orphan file census` summary of the `orphan file` catalog entry of `archspec help diagnostics`, rendered report-only by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "orphan file census: <n> of <m> scanned files — the model lists no fact for any of them"
+canonical_fragments = ["orphan file census: <n> of <m> scanned files — the model lists no fact for any of them"]
+signatures = ["orphan file census"]
+dedicated_guard = "tests/ts_driver.rs"
+
+[[claim]]
+id = "unresolvable-import-misses"
+owner = "the resolution-seen miss suffixes of the `unresolvable import` catalog entry of `archspec help diagnostics`"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "alias target not found: <path>",
+  "imports map miss: <manifest>",
+  "is not exported under",
+  "relative depth beyond package root",
+]
+signatures = [
+  "alias target not found",
+  "imports map miss",
+  "is not exported under",
+  "relative depth beyond package root",
+]
+dedicated_guard = "tests/help.rs"
+
+[[claim]]
+id = "dynamic-import-wildcard"
+owner = "the `dynamic import not modelled` catalog entry of `archspec help diagnostics`, rendered report-only by the python scan"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "dynamic import not modelled: <file>:<line> — importlib"
+signatures = ["dynamic import not modelled"]
+dedicated_guard = "tests/help.rs"
+
+[[claim]]
+id = "workspace-link-missing"
+owner = "the `workspace link missing` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "workspace link missing: <member name> — resolved to <path> instead of the member dir"
+canonical_fragments = [
+  "workspace link missing: <member name> — resolved to <path> instead of the member dir",
+  "workspace link missing: <member name> — absent from disk",
+]
+signatures = ["workspace link missing"]
+dedicated_guard = "tests/ts_workspace.rs"
+
+[[claim]]
+id = "undeclared-member-import"
+owner = "the `undeclared member import` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "undeclared member import: <from> -> <member>"
+canonical_fragments = ["undeclared member import: <from> -> <member>"]
+signatures = ["undeclared member import"]
+dedicated_guard = "tests/ts_workspace.rs"
+
+[[claim]]
+id = "virtual-specifier-not-modelled"
+owner = "the `virtual specifier not modelled` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "virtual specifier not modelled: <verbatim>"
+canonical_fragments = ["virtual specifier not modelled: <verbatim>"]
+signatures = ["virtual specifier not modelled"]
+dedicated_guard = "tests/ts_driver.rs"
+
+[[claim]]
+id = "framework-conventions-not-configured"
+owner = "the `framework conventions not configured` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "specifier not a package name: <verbatim> — framework conventions not configured?"
+canonical_fragments = ["specifier not a package name: <verbatim> — framework conventions not configured?"]
+signatures = ["framework conventions not configured"]
+dedicated_guard = "tests/ts_driver.rs"
+
+[[claim]]
+id = "workspace-target-not-built"
+owner = "the `workspace target not built` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "workspace target not built: <specifier> -> <declared-target>"
+canonical_fragments = ["workspace target not built: <specifier> -> <declared-target>"]
+signatures = ["workspace target not built"]
+dedicated_guard = "tests/ts_workspace.rs"
+
+[[claim]]
+id = "generated-source-not-built"
+owner = "the `generated source not built` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "generated source not built: <verbatim-target> — gitignored <pattern-file>:<line>"
+canonical_fragments = ["generated source not built: <verbatim-target> — gitignored <pattern-file>:<line>"]
+signatures = ["generated source not built"]
+dedicated_guard = "tests/ts_driver.rs"
+
+[[claim]]
+id = "generated-tsconfig-absent"
+owner = "the `generated tsconfig absent` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "generated tsconfig absent: <path>"
+canonical_fragments = ["generated tsconfig absent: <path>"]
+signatures = ["generated tsconfig absent"]
+dedicated_guard = "tests/ts_driver.rs"
+
+[[claim]]
+id = "tsconfig-extends-not-installed"
+owner = "the `tsconfig extends not installed` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "tsconfig extends not installed: <specifier>"
+canonical_fragments = ["tsconfig extends not installed: <specifier>"]
+signatures = ["tsconfig extends not installed"]
+dedicated_guard = "tests/ts_driver.rs"
+
+[[claim]]
+id = "ambiguous-root-markers"
+owner = "the `ambiguous root markers` catalog entry of `archspec help diagnostics`, emitted by every detect()-consuming verb on a polyglot root"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "ambiguous root markers: <path> (<language>), … — pin [project] language or scan a single-language root"
+canonical_fragments = ["ambiguous root markers: <path> (<language>), … — pin [project] language or scan a single-language root"]
+signatures = ["ambiguous root markers"]
+dedicated_guard = "tests/language_agreement.rs"
+
+[[claim]]
+id = "nested-foreign-marker"
+owner = "the `nested foreign marker` catalog entry of `archspec help diagnostics`, rendered by the scan and verify report surfaces on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "nested foreign marker: <path> (<language>) — not modelled"
+canonical_fragments = ["nested foreign marker: <path> (<language>) — not modelled"]
+signatures = ["nested foreign marker"]
+dedicated_guard = "tests/language_agreement.rs"
+
+[[claim]]
+id = "kotlin-model-honesty"
+owner = "the kotlin section of `archspec help languages`"
+owner_surfaces = ["help languages"]
+relations = ["echo", "cite"]
+canonical = "Same-package references need no import in Kotlin. The kotlin driver models edges only from import statements. A vertex can depend on same-package code with no edge in the model."
+signatures = ["Same-package references need no import"]
+dedicated_guard = "tests/kotlin_driver.rs"
+[[claim.guard_pin]]
+file = "src/archspec/scan/kotlin/mod.rs"
+const_name = "MODEL_HONESTY"
+relation = "equals-canonical"
+
+[[claim]]
+id = "npm-channel-install"
+owner = "the npm package install surface — the published package's bin shim and its publish-time pinned assets map"
+owner_surfaces = []
+relations = ["echo"]
+canonical = "The npm channel carries the same bytes: one package per version tag, whose `bin` shim resolves the host platform and architecture against the asset names and hashes pinned at publish time, downloads and verifies the match, caches the binary atomically, and runs it."
+signatures = ["npm channel", "bin shim"]
+dedicated_guard = "tests/npm_channel.rs"

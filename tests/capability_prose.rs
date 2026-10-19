@@ -282,3 +282,57 @@ fn table_languages_match_the_matrix_languages() {
         "matrix languages and the capability table must enumerate the same drivers"
     );
 }
+
+/// The R2-3 agreement weld of the ts-driver design record (D7): the
+/// posture rows `capability matrix` projects, the capability rows they
+/// depend on, and the ADR-023 sentence that cites them must move together.
+/// The expectation is BUILT from the table — a flip that edits only one
+/// surface reddens here, never silently.
+#[test]
+fn posture_rows_weld_the_table_the_capability_rows_and_adr_023() {
+    // Binary side: posture rows read through their machine projection.
+    let mut both = Vec::new();
+    let mut claims = Vec::new();
+    for language in ["rust", "go", "csharp", "ts", "python", "kotlin"] {
+        let (scope, severity) = table()
+            .posture(language)
+            .unwrap_or_else(|| panic!("capability matrix states no posture row for {language}"));
+        assert_eq!(severity, "error", "red is the posture (ADR-023)");
+        match scope {
+            "both" => both.push(language),
+            "claims" => claims.push(language),
+            other => panic!("unknown posture scope {other:?} for {language}"),
+        }
+    }
+    // Weld: every both-language's file-grained row must read granular.
+    for language in &both {
+        assert_eq!(
+            table().emission(language, "file-grained-dependency-facts"),
+            Some("granular"),
+            "a both posture for {language} requires the granular file-facts row"
+        );
+    }
+
+    // Docs side: ADR-023 is the posture's doctrine home and must state the
+    // same rows the table projects. Whitespace-normalized because the ADR
+    // wraps its sentences.
+    let adr = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("docs/adr/023-posture-table-and-deep-cycle-scope.md"),
+    )
+    .expect("ADR-023 is the posture doctrine home");
+    let flat: String = adr.split_whitespace().collect::<Vec<_>>().join(" ");
+    for language in &both {
+        assert!(
+            flat.contains(&format!("{language} → both")),
+            "ADR-023 must state the {language} posture the table projects (both)"
+        );
+    }
+    if !claims.is_empty() {
+        assert!(
+            flat.contains(&format!("{} → claims", claims.join(", "))),
+            "ADR-023 must state the claims posture for {}",
+            claims.join(", ")
+        );
+    }
+}

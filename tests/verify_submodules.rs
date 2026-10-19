@@ -622,11 +622,13 @@ fn nested_claim_fully_shadowed_by_more_specific_claim_warns() {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario: a dead target inside a submodule's allowed list warns like flat
+// Scenario: a dead target inside a submodule's allowed list fails like flat
+// (phase B promotion, D10/R3-11: the `does not exist` class is an error at
+// any claim depth — the nested and flat runs agree byte-for-byte)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn nested_dead_reference_matches_flat_warning() {
+fn nested_dead_reference_matches_flat_error() {
     let nested = Fixture::new();
     app_tree(&nested, &[("billing", &[])]);
     write_spec(
@@ -652,16 +654,21 @@ fn nested_dead_reference_matches_flat_warning() {
 
     let nested_run = nested.run(&["verify"]);
     let flat_run = flat.run(&["verify"]);
-    assert_pass(&nested_run);
-    assert_pass(&flat_run);
     let pattern =
         "dead reference: module 'billing' allowed.depend_on target \"ghost\" does not exist";
+    assert_fail(&nested_run, &["dead reference: module 'billing'"]);
+    assert_fail(&flat_run, &["dead reference: module 'billing'"]);
     assert!(
         stdout(&nested_run).contains(pattern),
         "same dead reference at depth:\n{}",
         stdout(&nested_run)
     );
     assert!(stdout(&flat_run).contains(pattern));
+    assert!(
+        !stdout(&nested_run).contains("warning: dead reference:"),
+        "the promoted class prints without the warning prefix:\n{}",
+        stdout(&nested_run)
+    );
     assert_fail(
         &nested.run(&["verify", "--strict"]),
         &["dead reference: module 'billing'"],

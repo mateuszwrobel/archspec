@@ -55,11 +55,11 @@ fn build_graph(spec: &Spec) -> SpecGraph {
             subs.sort();
             clusters.push((module.name.clone(), subs));
         }
-        for depend_on in &module.allowed.depend_on {
-            allowed_edges.insert((module.name.clone(), depend_on.clone()));
+        for entry in &module.allowed.depend_on {
+            allowed_edges.insert((module.name.clone(), entry.target.clone()));
         }
-        for forbidden in &module.allowed.forbidden {
-            forbidden_edges.insert((module.name.clone(), forbidden.clone()));
+        for entry in &module.allowed.forbidden {
+            forbidden_edges.insert((module.name.clone(), entry.target.clone()));
         }
         descendants.insert(module.name.clone(), subtree.clone());
         subtree.insert(module.name.clone());
@@ -323,8 +323,51 @@ fn module_subgraph(
     (nodes, arrows)
 }
 
+/// The files tier's cluster for one claim (design record D8, M13): the
+/// vertex set is the model's file-grained facts under the findings' own
+/// attribution (`file_claim_of`, D6/D10) — every file the claim owns that
+/// the model shows — and the first-party file edges touching the territory.
+/// An arrow is dashed `violates spec` exactly when the seam's
+/// cycle-membership query marks its pair: the render never re-derives an
+/// SCC or any other verdict (ADR-021 law). Assets arrive as endpoints of
+/// their incoming arrows and mark nothing, because no finding ever names
+/// them in a cycle (R2-6, R3-3 — a graph fact, not a render rule).
+fn files_subgraph(
+    model: &Model,
+    spec: &Spec,
+    claim: &str,
+    adjudicator: &Adjudicator<'_>,
+) -> (BTreeSet<String>, BTreeSet<(String, String, bool)>) {
+    let marks = adjudicator.file_cycle_marks(&spec.constraint);
+    let mut nodes = BTreeSet::new();
+    let mut arrows = BTreeSet::new();
+    for (from, to) in super::verify::compare::file_grained_rows(model) {
+        let touches =
+            adjudicator.file_claim_of(from) == Some(claim)
+                || adjudicator.file_claim_of(to) == Some(claim);
+        if !touches || from == to {
+            continue;
+        }
+        nodes.insert(from.to_string());
+        nodes.insert(to.to_string());
+        arrows.insert((
+            from.to_string(),
+            to.to_string(),
+            marks.contains(&(from.to_string(), to.to_string())),
+        ));
+    }
+    for path in model.module_public_types.keys() {
+        if adjudicator.file_claim_of(path) == Some(claim) {
+            nodes.insert(path.clone());
+        }
+    }
+    (nodes, arrows)
+}
+
 /// Render one claim's module subgraph (mermaid) — the `--module` body.
-pub fn render_module_mermaid(model: &Model, spec: &Spec, claim: &str) -> String {
+/// With the files tier selected the claim subgraph additionally carries a
+/// nested `files` cluster; without it the bytes are the shipped render.
+pub fn render_module_mermaid(model: &Model, spec: &Spec, claim: &str, tiers: &TierSelection) -> String {
     let (nodes, arrows) = module_subgraph(model, spec, claim);
     let mut out = String::from("graph TD\n");
     let _ = writeln!(out, "  {}", mermaid_subgraph(claim));
@@ -342,12 +385,36 @@ pub fn render_module_mermaid(model: &Model, spec: &Spec, claim: &str) -> String 
             let _ = writeln!(out, "    {}", mermaid_module_edge(from, to));
         }
     }
+    if tiers.files {
+        let adjudicator = Adjudicator::new(model, &spec.modules, &spec.stereotype);
+        let (file_nodes, file_arrows) = files_subgraph(model, spec, claim, &adjudicator);
+        if !file_nodes.is_empty() {
+            let _ = writeln!(out, "    subgraph files");
+            for path in &file_nodes {
+                let _ = writeln!(out, "      {}", mermaid_module_node(path, path));
+            }
+            for (from, to, violates) in &file_arrows {
+                if *violates {
+                    let _ = writeln!(
+                        out,
+                        "      {}",
+                        mermaid_module_labeled_edge(from, to, "violates spec")
+                    );
+                } else {
+                    let _ = writeln!(out, "      {}", mermaid_module_edge(from, to));
+                }
+            }
+            let _ = writeln!(out, "    end");
+        }
+    }
     let _ = writeln!(out, "  end");
     out
 }
 
 /// Render one claim's module subgraph (plantuml) — the `--module` body.
-pub fn render_module_plantuml(model: &Model, spec: &Spec, claim: &str) -> String {
+/// With the files tier selected the claim package additionally carries a
+/// nested `files` package; without it the bytes are the shipped render.
+pub fn render_module_plantuml(model: &Model, spec: &Spec, claim: &str, tiers: &TierSelection) -> String {
     let (nodes, arrows) = module_subgraph(model, spec, claim);
     let mut out = String::from("@startuml\n");
     let _ = writeln!(out, "package {claim} {{");
@@ -365,6 +432,28 @@ pub fn render_module_plantuml(model: &Model, spec: &Spec, claim: &str) -> String
             );
         } else {
             let _ = writeln!(out, r#""{from_label}" --> "{to_label}""#);
+        }
+    }
+    if tiers.files {
+        let adjudicator = Adjudicator::new(model, &spec.modules, &spec.stereotype);
+        let (file_nodes, file_arrows) = files_subgraph(model, spec, claim, &adjudicator);
+        if !file_nodes.is_empty() {
+            let _ = writeln!(out, "  package files {{");
+            for path in &file_nodes {
+                let _ = writeln!(out, "    {}", plantuml_quoted_component(path));
+            }
+            for (from, to, violates) in &file_arrows {
+                if *violates {
+                    let _ = writeln!(
+                        out,
+                        "    {}",
+                        plantuml_quoted_violation_edge(from, to, "violates spec")
+                    );
+                } else {
+                    let _ = writeln!(out, r#"    "{from}" --> "{to}""#);
+                }
+            }
+            let _ = writeln!(out, "  }}");
         }
     }
     let _ = writeln!(out, "}}");
@@ -488,6 +577,7 @@ fn edge_violates(constraints: &ScanConstraints, model: &Model, from: &str, to: &
 fn forbidden_units(module: &Module, model: &Model, spec: &Spec) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for entry in &module.allowed.forbidden {
+        let entry = entry.target.as_str();
         let mut resolved_by_module = false;
         for candidate in &spec.modules {
             if glob_match(entry, &candidate.name) {
@@ -606,21 +696,32 @@ fn scan_role_marker(model: &Model, name: &str) -> Option<Role> {
 /// selector only — no spec, model or config field stores it — and the
 /// default (flag absent) is units-only, whose bytes are byte-identical to
 /// the historical scan surface (workplan D1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TierSelection {
     pub units: bool,
     pub modules: bool,
+    /// The file-granular tier (design record D8): renders in SPEC source
+    /// mode only, under `--module`/`--modules-dir` territory scope.
+    pub files: bool,
+    /// The tier names the flag literally listed. The source-law gate reads
+    /// this, because the unit tier renders implicitly and `files` joins the
+    /// vocabulary as a spec-source value beside the scan-source `units`
+    /// and `modules`.
+    pub named: BTreeSet<String>,
 }
 
 impl TierSelection {
-    /// The supported tiers, stated in every `--tiers` usage error (D7).
-    const SUPPORTED: &'static str = "units, modules";
+    /// The supported tiers, stated in every unknown- or duplicate-value
+    /// `--tiers` usage error (D7, D8).
+    const SUPPORTED: &'static str = "units, modules, files";
 
     /// The default selection: the unit render alone.
-    pub const fn units_only() -> Self {
+    pub fn units_only() -> Self {
         Self {
             units: true,
             modules: false,
+            files: false,
+            named: BTreeSet::new(),
         }
     }
 
@@ -630,9 +731,11 @@ impl TierSelection {
     pub fn parse(spec: &str) -> Result<Self, String> {
         let mut units = false;
         let mut modules = false;
+        let mut files = false;
+        let mut named = BTreeSet::new();
         for entry in spec.split(',') {
             match entry {
-                "units" | "modules" => {}
+                "units" | "modules" | "files" => {}
                 other => {
                     return Err(format!(
                         "invalid value {other:?} for --tiers — supported tiers: {}",
@@ -640,17 +743,19 @@ impl TierSelection {
                     ));
                 }
             }
-            if (entry == "units" && units) || (entry == "modules" && modules) {
+            if (entry == "units" && units) || (entry == "modules" && modules) || (entry == "files" && files)
+            {
                 return Err(format!(
                     "duplicate value {entry:?} for --tiers — supported tiers: {}",
                     Self::SUPPORTED
                 ));
             }
-            if entry == "units" {
-                units = true;
-            } else {
-                modules = true;
+            match entry {
+                "units" => units = true,
+                "modules" => modules = true,
+                _ => files = true,
             }
+            named.insert(entry.to_string());
         }
         // `modules` renders on top of the unchanged unit render: the unit
         // tier is never dropped, `--tiers modules` equals `--tiers
@@ -658,6 +763,8 @@ impl TierSelection {
         Ok(Self {
             units: true,
             modules,
+            files,
+            named,
         })
     }
 }

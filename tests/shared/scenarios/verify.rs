@@ -7,7 +7,8 @@ use crate::shared::feature::Feature;
 use crate::shared::scenario::Scenario;
 use crate::shared::scenarios::{
     boundary_spec, csharp_project_files, dot_stems_nest_units, expect_success, external_dep,
-    go_driver, other_dep, scenario, scenario_when, scenario_when_capability, scenario_when_inert,
+    go_driver, not_ts, not_ts_or_py, other_dep, scenario, scenario_when, scenario_when_capability,
+    scenario_when_inert,
 };
 
 pub fn all() -> Vec<Scenario> {
@@ -41,16 +42,18 @@ pub fn all() -> Vec<Scenario> {
             "a declared depend_on edge absent from the model fails non-strict verify with the canonical missing edge label, and the same tree minus the stale declaration verifies clean",
             stale_allowed_dependency_reports_missing_edge,
         ),
-        scenario(
+        scenario_when(
             Feature::VerifyNoCycles,
             "acyclic_tree_passes_no_cycles_constraint",
             "a no_cycles constraint over an acyclic dependency graph verifies clean",
+            not_ts_or_py,
             acyclic_tree_passes_no_cycles_constraint,
         ),
-        scenario(
+        scenario_when(
             Feature::VerifyNoCycles,
             "cyclic_tree_fails_no_cycles_constraint",
             "a no_cycles constraint over a cyclic graph fails and reports the cycle",
+            not_ts_or_py,
             cyclic_tree_fails_no_cycles_constraint,
         ),
         scenario(
@@ -94,16 +97,18 @@ pub fn all() -> Vec<Scenario> {
             csharp_project_files,
             unused_reference_absent_from_module_external_but_in_manifests,
         ),
-        scenario(
+        scenario_when(
             Feature::VerifyManifestIntegrity,
             "forbidden_dependency_in_manifest_is_reported",
             "a manifest declaring a forbidden dependency fails manifest_integrity",
+            not_ts,
             forbidden_dependency_in_manifest_is_reported,
         ),
-        scenario(
+        scenario_when(
             Feature::VerifyManifestIntegrity,
             "manifest_matching_constraint_verifies_clean",
             "a manifest whose dependencies avoid the forbidden list verifies clean",
+            not_ts,
             manifest_matching_constraint_verifies_clean,
         ),
         scenario(
@@ -189,10 +194,11 @@ pub fn all() -> Vec<Scenario> {
             "an extracted edge no boundary declares fails with the cross-component ceiling label, and an explicit ban reroutes it to the forbidden-edge label",
             undeclared_dependency_exceeds_allowed_ceiling,
         ),
-        scenario(
+        scenario_when(
             Feature::VerifyModuleBoundaries,
             "dead_reference_to_source_module_classifies_per_language",
             "an undeclared depend_on target is classified by model visibility: a target addressable as a module path reports exists in source but undeclared, one addressing nothing on an exact-import-path driver reports does not exist",
+            not_ts_or_py,
             dead_reference_to_source_module_classifies_per_language,
         ),
         scenario(
@@ -298,16 +304,18 @@ pub fn all() -> Vec<Scenario> {
             "module-tier",
             external_free_engages_the_serialized_module_tier,
         ),
-        scenario(
+        scenario_when(
             Feature::VerifyNoCycles,
             "warning_severity_cycle_routes_to_warning_bucket",
             "a cycle caught by a warning-severity no_cycles constraint passes verify and renders in the warning bucket, promoted by --strict",
+            not_ts_or_py,
             warning_severity_cycle_routes_to_warning_bucket,
         ),
-        scenario(
+        scenario_when(
             Feature::VerifyNoCycles,
             "vacuous_cycle_constraint_surfaces_edgeless_group",
             "a no_cycles constraint over a module group with no internal edges reports vacuous and stays green",
+            not_ts_or_py,
             vacuous_cycle_constraint_surfaces_edgeless_group,
         ),
         scenario_when(
@@ -341,6 +349,32 @@ fn module_boundary_with_allowed_dependency_verifies_clean(
 ) -> Result<(), String> {
     // Only drivers with a soft module tier run this behavior (see `scenario_when`).
     let mut tree = LogicalTree::new();
+    if driver.language == Language::Kotlin {
+        // The kotlin module tier is unit-identified (kotlin driver record
+        // K-P2): the clean boundary claims two units and the module edge
+        // between them, allowed by the ceiling.
+        tree.units = vec!["app".into(), "shared".into()];
+        tree.hard_edges.push(("app".into(), "shared".into()));
+        driver.materialize(fx, &tree);
+        let app = driver.unit_name("app");
+        let shared = driver.unit_name("shared");
+        fx.write(
+            "architecture.spec.toml",
+            &format!(
+                "[project]\nlanguage = \"{}\"\n\n\
+                 [[module]]\nname = \"{app}\"\nmatches = {{ units = [\"{app}\"] }}\n\
+                 [module.allowed]\ndepend_on = [\"{shared}\"]\n\n\
+                 [[module]]\nname = \"{shared}\"\nmatches = {{ units = [\"{shared}\"] }}\n",
+                driver.language.as_str()
+            ),
+        );
+        let output = expect_success(driver, fx, &["verify"])?;
+        let stdout = common::stdout(&output);
+        if !stdout.contains("matches source model") {
+            return Err(format!("verify must confirm the match:\n{stdout}"));
+        }
+        return Ok(());
+    }
     tree.units = vec!["app".into()];
     tree.modules
         .insert("app".into(), vec!["core".into(), "ui".into()]);
@@ -375,6 +409,13 @@ fn undeclared_component_is_reported_missing(
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // The ts scan leg fails before any verdict on a fileless tree (D10):
+        // the single package carries one source file. The claim set stays
+        // the contract under test — only the ghost claim, nothing claims
+        // the package — so the missing-ghost finding reads unchanged.
+        tree.modules.insert("app".into(), vec!["core".into()]);
+    }
     driver.materialize(fx, &tree);
     let ghost = driver.unit_name("ghost");
     fx.write(
@@ -407,17 +448,38 @@ fn stale_allowed_dependency_reports_missing_edge(
     fx: &common::Fixture,
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
-    tree.units = vec!["a".into(), "b".into()];
+    let mut unit_claim = String::new();
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // Hard unit edges have no ts dialect (D1): the same missing-edge
+        // floor reads over two file modules of the single package. The
+        // module names stay `a` and `b`, so the finding line reads
+        // byte-identically — only the match arms switch to file paths.
+        tree.units = vec!["app".into()];
+        tree.modules.insert("app".into(), vec!["a".into(), "b".into()]);
+        let app = driver.unit_name("app");
+        unit_claim =
+            format!("[[module]]\nname = \"{app}\"\nmatches = {{ units = [\"{app}\"] }}\n\n");
+    } else {
+        tree.units = vec!["a".into(), "b".into()];
+    }
     driver.materialize(fx, &tree);
     let a = driver.unit_name("a");
     let b = driver.unit_name("b");
+    let (a_match, b_match) = if matches!(driver.language, Language::Ts | Language::Python) {
+        (
+            format!("modules = [\"{}\"]", driver.module_path("app", "a")),
+            format!("modules = [\"{}\"]", driver.module_path("app", "b")),
+        )
+    } else {
+        (format!("units = [\"{a}\"]"), format!("units = [\"{b}\"]"))
+    };
     fx.write(
         "architecture.spec.toml",
         &format!(
-            "[project]\nlanguage = \"{}\"\n\n\
-             [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"] }}\n\
+            "[project]\nlanguage = \"{}\"\n\n{unit_claim}\
+             [[module]]\nname = \"a\"\nmatches = {{ {a_match} }}\n\
              [module.allowed]\ndepend_on = [\"b\"]\n\n\
-             [[module]]\nname = \"b\"\nmatches = {{ units = [\"{b}\"] }}\n",
+             [[module]]\nname = \"b\"\nmatches = {{ {b_match} }}\n",
             driver.language.as_str()
         ),
     );
@@ -441,9 +503,9 @@ fn stale_allowed_dependency_reports_missing_edge(
     fx.write(
         "architecture.spec.toml",
         &format!(
-            "[project]\nlanguage = \"{}\"\n\n\
-             [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"] }}\n\n\
-             [[module]]\nname = \"b\"\nmatches = {{ units = [\"{b}\"] }}\n",
+            "[project]\nlanguage = \"{}\"\n\n{unit_claim}\
+             [[module]]\nname = \"a\"\nmatches = {{ {a_match} }}\n\n\
+             [[module]]\nname = \"b\"\nmatches = {{ {b_match} }}\n",
             driver.language.as_str()
         ),
     );
@@ -468,7 +530,16 @@ fn acyclic_tree_passes_no_cycles_constraint(
     write_cycle_spec(driver, fx, false);
     let output = expect_success(driver, fx, &["verify"])?;
     let stdout = common::stdout(&output);
-    if !stdout.contains("matches source model") {
+    // An acyclic tree passes: either the clean verdict, or — when the file
+    // tier contributes no facts (a multi-unit rust tree whose every unit is
+    // a single file has no intra-unit file adjacency, so the file tier says
+    // so per the vacuity law, ADR-023 item 4) — the vacuous-constraints
+    // verdict at exit 0 with no cycle and no violation. The sibling
+    // `cyclic_tree_fails_no_cycles_constraint` keeps the red side falsifiable.
+    if stdout.contains("cycle:") || stdout.contains("violation") {
+        return Err(format!("acyclic tree must verify clean:\n{stdout}"));
+    }
+    if !(stdout.contains("matches source model") || stdout.contains("has vacuous constraints")) {
         return Err(format!("acyclic tree must verify clean:\n{stdout}"));
     }
     Ok(())
@@ -946,8 +1017,8 @@ fn canonical_import_stays_clean_under_active_facade(
 }
 
 /// The inert side of the `role-facade` row: on every driver the table marks
-/// not-emitted (go) verify must SAY the rule is inert instead of silently
-/// passing it. The note is output only: the verdict and the exit
+/// not-emitted verify must SAY the rule is inert instead of silently passing
+/// it. The note is output only: the verdict and the exit
 /// status stay what they were without it. The firing side of the same rule is
 /// `import_of_facade_root_reexport_is_violation` (the drivers emitting the
 /// role fact at full granularity).
@@ -1209,6 +1280,82 @@ fn laundering_traces_only_claimed_conduit_territory(
         }
         return Ok(());
     }
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // ts dialect of the same law (ADR-017 file-grained identity): a
+        // file-selector claim governs its file's edges but never accounts
+        // for the package unit — undeclared_unit_reports_unexpected_component
+        // pins that reading — so the unclaimed half states the package
+        // through a units-level claim. The conduit stays unowned because no
+        // claim carries a file selector beside a unit selector, exactly as
+        // the shared shape keeps it unowned on rust.
+        let mut tree = LogicalTree::new();
+        tree.units = vec!["app".into()];
+        tree.modules.insert(
+            "app".into(),
+            vec!["a".into(), "b".into(), "hidden".into(), "shell".into()],
+        );
+        tree.module_usings
+            .push(("app".into(), "a".into(), "hidden".into()));
+        tree.module_usings
+            .push(("app".into(), "hidden".into(), "b".into()));
+        driver.materialize(fx, &tree);
+        let app = driver.unit_name("app");
+        let a = driver.module_path("app", "a");
+        let b = driver.module_path("app", "b");
+        let shell = driver.module_path("app", "shell");
+        // Claimed conduit: `shell` claims its file and the unit, so the
+        // unclaimed `hidden` rides the unit fallback, its hops land on the
+        // pair graph, and the ban a -> b launders through them.
+        fx.write(
+            "architecture.spec.toml",
+            &format!(
+                "[project]\nlanguage = \"{}\"\n\n\
+                 [[module]]\nname = \"a\"\nmatches = {{ modules = [\"{a}\"] }}\n\
+                 [module.allowed]\ndepend_on = [\"shell\"]\nforbidden = [\"b\"]\n\n\
+                 [[module]]\nname = \"b\"\nmatches = {{ modules = [\"{b}\"] }}\n\n\
+                 [[module]]\nname = \"shell\"\nmatches = {{ modules = [\"{shell}\"], units = [\"{app}\"] }}\n\
+                 [module.allowed]\ndepend_on = [\"b\"]\n",
+                driver.language.as_str()
+            ),
+        );
+        let finding = "laundered forbidden edge: a -> b via shell";
+        let output = expect_success(driver, fx, &["verify"])?;
+        if !common::stdout(&output).contains(finding) {
+            return Err(format!(
+                "a claimed conduit must launder the ban {finding}:\n{}",
+                common::stdout(&output)
+            ));
+        }
+        // Unclaimed conduit: the shell claim is gone, no file-selector claim
+        // reaches the unit, and the intermediates' edges leave the pair
+        // graph — the ban passes with no laundered line, surfaced as
+        // unowned-endpoint warnings. A units-level claim accounts for the
+        // package so the run stays green on the component axis.
+        fx.write(
+            "architecture.spec.toml",
+            &format!(
+                "[project]\nlanguage = \"{}\"\n\n\
+                 [[module]]\nname = \"a\"\nmatches = {{ modules = [\"{a}\"] }}\n\
+                 [module.allowed]\nforbidden = [\"b\"]\n\n\
+                 [[module]]\nname = \"b\"\nmatches = {{ modules = [\"{b}\"] }}\n\n\
+                 [[module]]\nname = \"pkg\"\nmatches = {{ units = [\"{app}\"] }}\n",
+                driver.language.as_str()
+            ),
+        );
+        let output = expect_success(driver, fx, &["verify"])?;
+        let stdout = common::stdout(&output);
+        if stdout.contains("laundered forbidden edge:") {
+            return Err(format!(
+                "an unclaimed conduit must not produce a laundered line:\n{stdout}"
+            ));
+        }
+        if !stdout.contains("unowned module edge endpoint") {
+            return Err(format!(
+                "the conduit's ownerless edges must surface as warnings:\n{stdout}"
+            ));
+        }
+        return Ok(());
+    }
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
     tree.modules.insert(
@@ -1410,17 +1557,40 @@ fn undeclared_dependency_exceeds_allowed_ceiling(
     fx: &common::Fixture,
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
-    tree.units = vec!["a".into(), "b".into()];
-    tree.hard_edges.push(("a".into(), "b".into()));
+    let mut unit_claim = String::new();
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // Hard unit edges have no ts dialect (D1): the same ceiling and ban
+        // adjudication reads over an import edge between two file modules
+        // of the single package. The module names stay `a` and `b` — the
+        // findings render claim names — so every expectation below holds
+        // byte-identically.
+        tree.units = vec!["app".into()];
+        tree.modules.insert("app".into(), vec!["a".into(), "b".into()]);
+        tree.module_usings.push(("app".into(), "a".into(), "b".into()));
+        let app = driver.unit_name("app");
+        unit_claim =
+            format!("[[module]]\nname = \"{app}\"\nmatches = {{ units = [\"{app}\"] }}\n\n");
+    } else {
+        tree.units = vec!["a".into(), "b".into()];
+        tree.hard_edges.push(("a".into(), "b".into()));
+    }
     driver.materialize(fx, &tree);
     let a = driver.unit_name("a");
     let b = driver.unit_name("b");
+    let (a_match, b_match) = if matches!(driver.language, Language::Ts | Language::Python) {
+        (
+            format!("modules = [\"{}\"]", driver.module_path("app", "a")),
+            format!("modules = [\"{}\"]", driver.module_path("app", "b")),
+        )
+    } else {
+        (format!("units = [\"{a}\"]"), format!("units = [\"{b}\"]"))
+    };
     fx.write(
         "architecture.spec.toml",
         &format!(
-            "[project]\nlanguage = \"{}\"\n\n\
-             [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"] }}\n\n\
-             [[module]]\nname = \"b\"\nmatches = {{ units = [\"{b}\"] }}\n",
+            "[project]\nlanguage = \"{}\"\n\n{unit_claim}\
+             [[module]]\nname = \"a\"\nmatches = {{ {a_match} }}\n\n\
+             [[module]]\nname = \"b\"\nmatches = {{ {b_match} }}\n",
             driver.language.as_str()
         ),
     );
@@ -1435,10 +1605,10 @@ fn undeclared_dependency_exceeds_allowed_ceiling(
     fx.write(
         "architecture.spec.toml",
         &format!(
-            "[project]\nlanguage = \"{}\"\n\n\
-             [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"] }}\n\
+            "[project]\nlanguage = \"{}\"\n\n{unit_claim}\
+             [[module]]\nname = \"a\"\nmatches = {{ {a_match} }}\n\
              [module.allowed]\nforbidden = [\"b\"]\n\n\
-             [[module]]\nname = \"b\"\nmatches = {{ units = [\"{b}\"] }}\n",
+             [[module]]\nname = \"b\"\nmatches = {{ {b_match} }}\n",
             driver.language.as_str()
         ),
     );
@@ -1496,23 +1666,51 @@ fn dead_reference_to_source_module_classifies_per_language(
     let variant = match driver.language {
         Language::Go => "does not exist",
         Language::Rust | Language::Csharp => "exists in source but undeclared",
+        // The scenario gates out on ts (`not_ts_or_py`): its tree is
+        // multi-unit, with no dialect on ts (D1) and no second unit on
+        // python (single-distribution dialect, python driver record P1/P3).
+        Language::Ts | Language::Python => "does not exist",
+        // The kotlin module tier is unit-identified (K-P2): a bare module
+        // name names no model element, the go-side class.
+        Language::Kotlin => "does not exist",
     };
     let output = driver.run(fx, &["verify"]);
-    if output.status.code() != Some(0) {
-        return Err(format!(
-            "a warning-level dead reference is tolerated without --strict (stdout: {})",
-            common::stdout(&output)
-        ));
-    }
-    let stdout = common::stdout(&output);
-    if !stdout.contains("warning: dead reference:") || !stdout.contains(variant) {
-        return Err(format!(
-            "report must warn with the {variant} classification:\n{stdout}"
-        ));
+    if variant == "does not exist" {
+        // Phase B promotion (D10/R3-11): the `does not exist` class is
+        // error-severity at every driver — exit 1 without --strict, line
+        // without the warning prefix.
+        if output.status.code() != Some(1) {
+            return Err(format!(
+                "a does-not-exist dead reference must fail without --strict (stdout: {})",
+                common::stdout(&output)
+            ));
+        }
+        let stdout = common::stdout(&output);
+        if stdout.contains("warning: dead reference:") || !stdout.contains("dead reference:") {
+            return Err(format!(
+                "the promoted class must print without the warning prefix:\n{stdout}"
+            ));
+        }
+        if !stdout.contains(variant) {
+            return Err(format!("report must state the {variant} classification:\n{stdout}"));
+        }
+    } else {
+        if output.status.code() != Some(0) {
+            return Err(format!(
+                "a warning-level dead reference is tolerated without --strict (stdout: {})",
+                common::stdout(&output)
+            ));
+        }
+        let stdout = common::stdout(&output);
+        if !stdout.contains("warning: dead reference:") || !stdout.contains(variant) {
+            return Err(format!(
+                "report must warn with the {variant} classification:\n{stdout}"
+            ));
+        }
     }
     let strict = driver.run(fx, &["verify", "--strict"]);
     if strict.status.code() == Some(0) {
-        return Err("--strict must promote the dead reference".into());
+        return Err("--strict must fail the dead-reference run".into());
     }
     let stdout = common::stdout(&strict);
     if !stdout.contains("dead reference:") || stdout.contains("warning: dead reference:") {
@@ -1527,6 +1725,37 @@ fn undeclared_unit_reports_unexpected_component(
     driver: &Driver,
     fx: &common::Fixture,
 ) -> Result<(), String> {
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // A ts tree carries exactly one package (D1), so the undeclared
+        // source unit reads as that package: its files are claimed by path
+        // and the package itself by no one. The finding names the package
+        // — the same contract an undeclared crate states on rust.
+        let mut tree = LogicalTree::new();
+        tree.units = vec!["app".into()];
+        tree.modules.insert("app".into(), vec!["core".into()]);
+        driver.materialize(fx, &tree);
+        let app = driver.unit_name("app");
+        let core = driver.module_path("app", "core");
+        fx.write(
+            "architecture.spec.toml",
+            &format!(
+                "[project]\nlanguage = \"{}\"\n\n\
+                 [[module]]\nname = \"core\"\nmatches = {{ modules = [\"{core}\"] }}\n",
+                driver.language.as_str()
+            ),
+        );
+        let output = driver.run(fx, &["verify"]);
+        if output.status.code() == Some(0) {
+            return Err("verify must fail on an undeclared source unit".into());
+        }
+        let stdout = common::stdout(&output);
+        if !stdout.contains(&format!("unexpected component: {app}")) {
+            return Err(format!(
+                "report must name the unexpected component {app}:\n{stdout}"
+            ));
+        }
+        return Ok(());
+    }
     let mut tree = LogicalTree::new();
     tree.units = vec!["a".into(), "b".into()];
     driver.materialize(fx, &tree);
@@ -1568,6 +1797,15 @@ fn dotted_subunit_of_declared_component_is_unassigned(
     driver.materialize(fx, &tree);
     let a = driver.unit_name("a");
     let tests = driver.unit_name("a.Tests");
+    let label = if driver.language == Language::Kotlin {
+        // A nested gradle project is a TOP-LEVEL unit of its own (kotlin
+        // driver record K-P2): an unclaimed nested unit arrives through the
+        // unexpected-component class, the same reporting contract stated by
+        // the engine's own vocabulary.
+        "unexpected component"
+    } else {
+        "unassigned unit"
+    };
     fx.write(
         "architecture.spec.toml",
         &format!(
@@ -1581,7 +1819,7 @@ fn dotted_subunit_of_declared_component_is_unassigned(
         return Err("verify must fail on an unassigned nested unit".into());
     }
     let stdout = common::stdout(&output);
-    if !stdout.contains(&format!("unassigned unit: {tests}")) {
+    if !stdout.contains(&format!("{label}: {tests}")) {
         return Err(format!(
             "report must name the unassigned unit {tests}:\n{stdout}"
         ));
@@ -1596,6 +1834,48 @@ fn two_boundaries_claim_module_at_equal_specificity(
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
     tree.modules.insert("app".into(), vec!["Core".into()]);
+    if driver.language == Language::Kotlin {
+        // Kotlin identity = the unit (kotlin driver record K-P2): the two-unit
+        // tree with a project dependency states the module path (the edge
+        // endpoint) the two equal-specificity claims race over.
+        tree.units = vec!["app".into(), "shared".into()];
+        tree.modules.insert("app".into(), vec!["core".into()]);
+        tree.modules.insert("shared".into(), vec!["models".into()]);
+        tree.hard_edges.push(("app".into(), "shared".into()));
+        driver.materialize(fx, &tree);
+        let app = driver.unit_name("app");
+        let shared = driver.unit_name("shared");
+        fx.write(
+            "architecture.spec.toml",
+            &format!(
+                "[project]\nlanguage = \"{}\"\n\n\
+                 [[module]]\nname = \"one\"\nmatches = {{ modules = [\"{shared}\"], units = [\"{app}\"] }}\n\n\
+                 [[module]]\nname = \"two\"\nmatches = {{ modules = [\"{shared}\"] }}\n",
+                driver.language.as_str()
+            ),
+        );
+        let output = driver.run(fx, &["verify"]);
+        if output.status.code() == Some(0) {
+            return Err("equal-specificity double claims must fail verify".into());
+        }
+        let stdout = common::stdout(&output);
+        let expected = format!("ambiguous module match: {shared} claimed by both");
+        if !stdout.contains(&expected) {
+            return Err(format!(
+                "report must name the ambiguous claim on {shared}:\n{stdout}"
+            ));
+        }
+        return Ok(());
+    }
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // Ambiguity is adjudicated over model module paths — the union of
+        // the structure list and the module-edge endpoints. ts states no
+        // structure list (D10), so the file needs an edge to become an
+        // addressable path: one second file it imports, claimed by no one.
+        tree.modules.insert("app".into(), vec!["Core".into(), "Support".into()]);
+        tree.module_usings
+            .push(("app".into(), "Core".into(), "Support".into()));
+    }
     driver.materialize(fx, &tree);
     let app = driver.unit_name("app");
     let core = driver.module_path("app", "Core");
@@ -1627,6 +1907,48 @@ fn unclaimed_module_edge_endpoint_is_reported_unowned(
     fx: &common::Fixture,
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
+    if driver.language == Language::Kotlin {
+        // Kotlin identity = the go identity: a module path is a unit (kotlin
+        // driver record K-P2), so the package `hidden` claimed by no
+        // boundary is simultaneously an unowned module-edge endpoint
+        // (warning) and an unclaimed unit (unit-level finding).
+        tree.units = vec!["app".into(), "hidden".into(), "shell".into()];
+        tree.modules.insert("app".into(), vec!["core".into()]);
+        tree.modules.insert("hidden".into(), vec!["models".into()]);
+        tree.modules.insert("shell".into(), vec!["runner".into()]);
+        tree.module_usings
+            .push(("app".into(), "core".into(), "models".into()));
+        driver.materialize(fx, &tree);
+        let app = driver.unit_name("app");
+        let hidden = driver.unit_name("hidden");
+        let shell = driver.unit_name("shell");
+        fx.write(
+            "architecture.spec.toml",
+            &format!(
+                "[project]\nlanguage = \"{}\"\n\n\
+                 [[module]]\nname = \"a\"\nmatches = {{ units = [\"{app}\"] }}\n\n\
+                 [[module]]\nname = \"shell\"\nmatches = {{ units = [\"{shell}\"] }}\n",
+                driver.language.as_str()
+            ),
+        );
+        let finding = format!("unowned module edge endpoint: {hidden}");
+        let output = driver.run(fx, &["verify"]);
+        let stdout = common::stdout(&output);
+        if !stdout.contains(&format!("warning: {finding}")) {
+            return Err(format!("warning must name the unowned endpoint:\n{stdout}"));
+        }
+        let strict = driver.run(fx, &["verify", "--strict"]);
+        if strict.status.code() == Some(0) {
+            return Err("--strict must fail the run carrying the unowned endpoint".into());
+        }
+        let stdout = common::stdout(&strict);
+        if !stdout.contains(&finding) || stdout.contains(&format!("warning: {finding}")) {
+            return Err(format!(
+                "--strict report must keep the finding without the warning prefix:\n{stdout}"
+            ));
+        }
+        return Ok(());
+    }
     tree.units = vec!["app".into()];
     tree.modules.insert(
         "app".into(),
@@ -1638,10 +1960,20 @@ fn unclaimed_module_edge_endpoint_is_reported_unowned(
     let a = driver.module_path("app", "a");
     let hidden = driver.module_path("app", "hidden");
     let shell = driver.module_path("app", "shell");
+    let unit_claim = if matches!(driver.language, Language::Ts | Language::Python) {
+        // ts identity law (D10): file paths carry no package, so a spec
+        // claiming files by path claims no unit — the single package needs
+        // its own claim, or an unrelated unexpected-component error would
+        // accompany the endpoint warning under test.
+        let app = driver.unit_name("app");
+        format!("[[module]]\nname = \"{app}\"\nmatches = {{ units = [\"{app}\"] }}\n\n")
+    } else {
+        String::new()
+    };
     fx.write(
         "architecture.spec.toml",
         &format!(
-            "[project]\nlanguage = \"{}\"\n\n\
+            "[project]\nlanguage = \"{}\"\n\n{unit_claim}\
              [[module]]\nname = \"a\"\nmatches = {{ modules = [\"{a}\"] }}\n\n\
              [[module]]\nname = \"shell\"\nmatches = {{ modules = [\"{shell}\"] }}\n",
             driver.language.as_str()
@@ -1702,6 +2034,13 @@ fn top_level_contract_forbid_stereotype_surfaced_by_unit(
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
     tree.units = vec!["vaultc".into()];
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // The ts scan leg fails before any verdict on a fileless tree
+        // (D10): the package carries one source file, claimed by no one —
+        // files are not components on ts, so only the contract finding
+        // under test reads out.
+        tree.modules.insert("vaultc".into(), vec!["core".into()]);
+    }
     driver.materialize(fx, &tree);
     let vaultc = driver.unit_name("vaultc");
     fx.write(
@@ -1771,6 +2110,11 @@ fn feature_boundary_missing_declarations_fact_surfaces_vacuous(
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // The ts scan leg fails before any verdict on a fileless tree
+        // (D10): one source file under the claimed package.
+        tree.modules.insert("app".into(), vec!["core".into()]);
+    }
     driver.materialize(fx, &tree);
     let app = driver.unit_name("app");
     fx.write(
@@ -1790,7 +2134,19 @@ fn feature_boundary_missing_declarations_fact_surfaces_vacuous(
         ));
     }
     let stdout = common::stdout(&output);
-    let expected = "vacuous constraint: [constraint #1] feature_boundary: driver emits no root-module-declarations fact (capability not-emitted): the constraint cannot engage";
+    // The vacuity reason reads from the driver's own capability row: the
+    // not-emitted drivers state "no fact"; ts emits declarations without
+    // gating facts (the table's conditional row), so its reason names that
+    // shape. Both wordings state one vacuity, never a per-pattern error.
+    let expected = match driver.language {
+        // Both file-identity drivers state declarations without gating
+        // facts (no feature/gate tier): the vacuity reason reads from the
+        // driver's own capability row, same conditional wording.
+        Language::Ts | Language::Python => {
+            "vacuous constraint: [constraint #1] feature_boundary: driver emits declarations without gating facts (capability declarations, no gating facts): the constraint cannot engage"
+        }
+        _ => "vacuous constraint: [constraint #1] feature_boundary: driver emits no root-module-declarations fact (capability not-emitted): the constraint cannot engage",
+    };
     if !stdout.contains(expected) {
         return Err(format!(
             "report must state the capability vacuity once:\n{stdout}"

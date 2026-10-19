@@ -481,6 +481,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
             let mut symbols: Vec<String> = symbols.iter().cloned().collect();
             symbols.sort();
             module_edges.push(ModuleEdge {
+                type_only: false,
                 unit: unit_name.clone(),
                 from: from.clone(),
                 to: to.clone(),
@@ -540,25 +541,17 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         .collect();
 
     Ok(Model {
-        schema_version: 1,
-        language: "csharp".to_string(),
         units,
         edges,
-        usage: Default::default(),
         soft_structure,
         external: external_sorted,
         module_edges,
         manifest,
-        root_public_exports: Default::default(),
-        root_glob_exports: Default::default(),
-        root_empty_glob_exports: Default::default(),
         module_public_types,
         module_external: module_external_model,
-        root_module_declarations: Default::default(),
         unit_manifests,
-        unresolved_module_files: Default::default(),
-        test_gated_modules: Default::default(),
         roles,
+        ..Model::new("csharp")
     })
 }
 fn collect_projects(root: &Path) -> Vec<(String, std::path::PathBuf)> {
@@ -1654,6 +1647,7 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
             let mut symbols: Vec<String> = symbols.into_iter().collect();
             symbols.sort();
             ModuleEdge {
+                type_only: false,
                 unit: name.clone(),
                 from,
                 to,
@@ -1709,24 +1703,12 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
         .collect();
 
     Ok(Model {
-        schema_version: 1,
-        language: "csharp".to_string(),
         units: vec![unit],
-        edges: Vec::new(),
-        usage: Default::default(),
         soft_structure,
-        external: Vec::new(),
         module_edges,
-        manifest: None,
-        root_public_exports: Default::default(),
-        root_glob_exports: Default::default(),
-        root_empty_glob_exports: Default::default(),
         module_public_types,
         module_external: module_external_model,
-        root_module_declarations: Default::default(),
-        unit_manifests: Default::default(),
-        unresolved_module_files: Default::default(),
-        test_gated_modules: Default::default(),
         roles,
+        ..Model::new("csharp")
     })
 }

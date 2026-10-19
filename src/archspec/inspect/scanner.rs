@@ -1,4 +1,4 @@
-use crate::archspec::inspect::FileGraph;
+use crate::archspec::inspect::file_graph::FileGraph;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use syn::visit::{self, Visit};

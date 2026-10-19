@@ -1,6 +1,7 @@
 // Shared spec model for the landed consumers: diagram, verify, update and
-// report each read what they need (see `verify/compare.rs` and `commands/`).
+// report each read what they need (see `verify/compare/` and `commands/`).
 
+use crate::archspec::language;
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -21,6 +22,30 @@ pub struct Spec {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Project {
     pub language: String,
+    /// Declared framework activation (round-8 framework-config doctrine):
+    /// a SINGLE optional name from the selected driver's registry
+    /// (`language::frameworks`) — never auto-discovered, never a list.
+    /// Absent keeps every driver at its framework-less semantics; an
+    /// unknown name fails the load (the `validate_schema` arm).
+    #[serde(default)]
+    pub framework: Option<String>,
+    /// Declared source exclusions (ts-driver record, D14): an exclusion that
+    /// hides language-bearing files must say why, in the report, every run.
+    /// Empty by default — specs that never use the key are unaffected.
+    #[serde(default)]
+    pub excluded_sources: Vec<ExcludedSource>,
+}
+
+/// One `[project] excluded_sources` entry: `path` and `reason` are both
+/// mandatory — serde defaults them to `None` so the schema validator can
+/// name the entry (1-indexed) and the missing key, the same message class
+/// `validate_constraint` prints.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExcludedSource {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,12 +102,99 @@ pub struct Allowed {
     /// submodule-dependency-engagement design), while a declared-but-empty
     /// table is a deliberate deny-all ceiling.
     pub declared: bool,
-    pub depend_on: Vec<String>,
-    pub forbidden: Vec<String>,
+    pub depend_on: Vec<AllowedEntry>,
+    pub forbidden: Vec<AllowedEntry>,
+}
+
+/// One entry of `allowed.depend_on`/`allowed.forbidden`. The shipped shape
+/// is a plain target string, which takes the `count` default; the table
+/// shape `{ target, type_only }` carries the entry-level exemption key
+/// (D3 of the ts-driver design record). The value domain is validated at
+/// spec load and the dependency adjudication reads the declaration: `count`
+/// counts every crossing like any other edge — byte-identical to the
+/// shipped law — while `exempt` admits the pair's type-only crossing and
+/// still reddens the value crossing. On models without the kind fact
+/// (rust, go, csharp) every crossing is a value crossing. The cycle tier
+/// knows no exemption: it counts every edge regardless of kind.
+#[derive(Debug, Clone)]
+pub struct AllowedEntry {
+    pub target: String,
+    /// The per-entry dependency law selector, stored at load so adjudication
+    /// reads what the spec declared instead of re-parsing the file
+    /// (`TYPE_ONLY_VALUES`, D3).
+    pub type_only: &'static str,
+}
+
+/// The value domain of the entry-level `type_only` key.
+pub const TYPE_ONLY_VALUES: [&str; 2] = ["count", "exempt"];
+
+impl AllowedEntry {
+    /// The plain-string shape: the `count` default.
+    fn plain(target: String) -> Self {
+        Self {
+            target,
+            type_only: "count",
+        }
+    }
+}
+
+/// Validate one `depend_on`/`forbidden` array element (1-indexed `ordinal`
+/// in the error message) into an entry. Plain strings take the `count`
+/// default; tables carry a mandatory string `target` and an optional
+/// `type_only` from the named value domain.
+fn parse_allowed_entry(list: &str, ordinal: usize, value: toml::Value) -> Result<AllowedEntry, String> {
+    match value {
+        toml::Value::String(target) => Ok(AllowedEntry::plain(target)),
+        toml::Value::Table(table) => {
+            let mut keys = table.keys().collect::<Vec<_>>();
+            keys.retain(|key| key.as_str() != "target" && key.as_str() != "type_only");
+            if !keys.is_empty() {
+                keys.sort();
+                return Err(format!(
+                    "{list} entry #{ordinal}: unknown key(s) {} — supported keys are \"target\" and \"type_only\"",
+                    keys.iter()
+                        .map(|key| format!("\"{key}\""))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            let Some(target) = table.get("target").and_then(toml::Value::as_str) else {
+                return Err(format!(
+                    "{list} entry #{ordinal}: missing mandatory key \"target\" — a table entry \
+                     states the target and an optional \"type_only\""
+                ));
+            };
+            let type_only = match table.get("type_only") {
+                None => "count",
+                Some(toml::Value::String(value)) if TYPE_ONLY_VALUES.contains(&value.as_str()) => {
+                    if value == "exempt" {
+                        "exempt"
+                    } else {
+                        "count"
+                    }
+                }
+                Some(other) => {
+                    return Err(format!(
+                        "{list} entry #{ordinal}: type_only value {other} is not supported — \
+                         supported values are \"count\" and \"exempt\""
+                    ));
+                }
+            };
+            Ok(AllowedEntry {
+                target: target.to_string(),
+                type_only,
+            })
+        }
+        other => Err(format!(
+            "{list} entry #{ordinal}: expected a target string or a {{ target, type_only }} \
+             table, found {other}"
+        )),
+    }
 }
 
 /// Deserialize with the `declared` marker: a present table is declared even
-/// when both lists are empty; an absent key is not.
+/// when both lists are empty; an absent key is not. Entry elements are
+/// validated per `parse_allowed_entry`.
 impl<'de> serde::Deserialize<'de> for Allowed {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -91,15 +203,23 @@ impl<'de> serde::Deserialize<'de> for Allowed {
         #[derive(serde::Deserialize)]
         struct Fields {
             #[serde(default)]
-            depend_on: Vec<String>,
+            depend_on: Vec<toml::Value>,
             #[serde(default)]
-            forbidden: Vec<String>,
+            forbidden: Vec<toml::Value>,
         }
         let fields = Fields::deserialize(deserializer)?;
+        let mut depend_on = Vec::with_capacity(fields.depend_on.len());
+        for (index, value) in fields.depend_on.into_iter().enumerate() {
+            depend_on.push(parse_allowed_entry("allowed.depend_on", index + 1, value).map_err(serde::de::Error::custom)?);
+        }
+        let mut forbidden = Vec::with_capacity(fields.forbidden.len());
+        for (index, value) in fields.forbidden.into_iter().enumerate() {
+            forbidden.push(parse_allowed_entry("allowed.forbidden", index + 1, value).map_err(serde::de::Error::custom)?);
+        }
         Ok(Self {
             declared: true,
-            depend_on: fields.depend_on,
-            forbidden: fields.forbidden,
+            depend_on,
+            forbidden,
         })
     }
 }
@@ -112,6 +232,12 @@ pub struct Constraint {
     pub modules: Vec<String>,
     #[serde(default)]
     pub severity: String,
+    /// `no_cycles` adjudication scope (ts-driver design record D5):
+    /// `"claims"` | `"both"`. Optional — an absent value derives from the
+    /// per-language posture table. Validation rejects the field on every
+    /// other row kind and rejects any value outside the two above.
+    #[serde(default)]
+    pub scope: Option<String>,
     // `public_api_allowlist`
     #[serde(default)]
     pub allowed: Vec<String>,
@@ -210,6 +336,58 @@ pub fn load_report(dir: &Path) -> Result<Spec, String> {
     Ok(spec)
 }
 
+/// Scan's root-only spec discovery (ts-driver record, D14(4)): the spec file
+/// is read ONLY when it sits at the scanned root — never an upward walk,
+/// never a config indirection. A missing spec is not an error for `scan`
+/// (the verb never requires one); a present spec is validated exactly like
+/// `load_verify` validates, so an invalid spec fails `scan` with the shipped
+/// invalid-spec class — untagged in `cli::classify`, keeping exit 1.
+pub fn load_scan(dir: &Path) -> Result<Option<Spec>, String> {
+    let spec_path = dir.join(SPEC_FILE);
+    if !spec_path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(&spec_path)
+        .map_err(|err| format!("invalid spec: {}: {err}", spec_path.display()))?;
+    let spec: Spec = toml::from_str(&content)
+        .map_err(|err| format!("invalid spec: {}: {err}", spec_path.display()))?;
+    validate_schema(&spec_path, &spec)?;
+    Ok(Some(spec))
+}
+
+/// The `excluded sources` report line (D13 owner: the scan/verify report
+/// surface): every active entry, one line per entry, exact bytes
+/// `excluded sources: <path> — <reason>` — a run with an active exclusion
+/// that prints no line is red-by-test (R3-7). Printed on stderr so the
+/// stdout machine body stays pure (wave-3 D02) and rust stdout verdict
+/// bytes stay byte-identical.
+pub fn excluded_sources_report(spec: &Spec) -> String {
+    let mut out = String::new();
+    for entry in &spec.project.excluded_sources {
+        // The schema validator admits only entries with both keys present
+        // and non-empty; the fallbacks keep this line total for callers
+        // that skipped validation.
+        let path = entry.path.as_deref().unwrap_or_default();
+        let reason = entry.reason.as_deref().unwrap_or_default();
+        out.push_str(&format!("excluded sources: {path} — {reason}\n"));
+    }
+    out
+}
+
+/// The declared exclusion roots as paths, for the counted walks (D14: the
+/// agreement check consumes the entries the report line prints). The schema
+/// validator has admitted only non-empty paths by the time this runs;
+/// entries without a path contribute nothing.
+pub fn exclusion_paths(spec: &Spec) -> Vec<std::path::PathBuf> {
+    spec.project
+        .excluded_sources
+        .iter()
+        .filter_map(|entry| entry.path.as_deref())
+        .map(|path| std::path::PathBuf::from(path.trim()))
+        .filter(|path| !path.as_os_str().is_empty())
+        .collect()
+}
+
 /// Per-constraint-type list of required non-empty fields. Single source of
 /// truth consumed by both the runtime validator (`validate_constraint`) and the
 /// JSON Schema generator (`commands::spec`), so the two cannot drift. The empty
@@ -287,6 +465,29 @@ fn validate_constraint(
             constraint.severity
         ));
     }
+    // The `scope` field of the no_cycles arm (ts-driver design record D5):
+    // accepted only on `no_cycles` rows; the two supported values are named
+    // in the invalid-value message, same shipped invalid-spec class as the
+    // severity check above. The round-1 `files` value is deleted (B1) — it
+    // lands in the same invalid-value class.
+    if let Some(scope) = &constraint.scope {
+        if constraint.kind != "no_cycles" {
+            return Err(format!(
+                "invalid spec: {}: [constraint] #{} declares `scope` on a \"{}\" row; `scope` is supported only on `no_cycles` rows",
+                spec_path.display(),
+                index + 1,
+                constraint.kind
+            ));
+        }
+        if scope != "claims" && scope != "both" {
+            return Err(format!(
+                "invalid spec: {}: constraint #{} has invalid scope \"{}\" (supported: claims, both)",
+                spec_path.display(),
+                index + 1,
+                scope
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -359,6 +560,32 @@ fn validate_submodule_units(spec_path: &std::path::Path, module: &Module) -> Res
 /// types and empty module names are schema violations naming the file, the
 /// offending entry (1-indexed), and why. Extend as later behaviors add checks.
 fn validate_schema(spec_path: &std::path::Path, spec: &Spec) -> Result<(), String> {
+    // The `[project] framework` gate (round-8 P-FW1): validated against the
+    // declared driver's registry through the ONE validator owner. An
+    // unparseable language name skips this arm — the shipped unknown-
+    // language red owns that value at the verb sites.
+    if let Some(name) = spec.project.framework.as_deref()
+        && let Some(driver) = language::from_name(&spec.project.language)
+        && let Some(finding) = language::framework_error(driver, name)
+    {
+        return Err(format!("invalid spec: {}: {finding}", spec_path.display()));
+    }
+    for (index, entry) in spec.project.excluded_sources.iter().enumerate() {
+        let name = |key: &str| {
+            Err(format!(
+                "invalid spec: {}: [project] excluded_sources entry #{} requires a non-empty `{key}` key",
+                spec_path.display(),
+                index + 1,
+            ))
+        };
+        match (&entry.path, &entry.reason) {
+            (None, _) => name("path")?,
+            (Some(path), _) if path.trim().is_empty() => name("path")?,
+            (_, None) => name("reason")?,
+            (_, Some(reason)) if reason.trim().is_empty() => name("reason")?,
+            _ => {}
+        }
+    }
     for (index, constraint) in spec.constraint.iter().enumerate() {
         validate_constraint(spec_path, constraint, index)?;
     }
@@ -404,6 +631,7 @@ mod tests {
             kind: kind.to_string(),
             modules: Vec::new(),
             severity: String::new(),
+            scope: None,
             allowed: Vec::new(),
             from: Vec::new(),
             forbid: Vec::new(),

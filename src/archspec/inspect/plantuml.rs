@@ -1,4 +1,4 @@
-use crate::archspec::inspect::FileGraph;
+use crate::archspec::inspect::file_graph::FileGraph;
 use rust_arch_test_kit::render::{plantuml_entity, plantuml_quoted_edge};
 use crate::archspec::inspect::tree::build_tree;
 use std::fmt::Write;

@@ -5,23 +5,16 @@ use crate::archspec::scan;
 use std::path::Path;
 
 mod csharp;
+mod file_graph;
 mod go;
+mod kotlin;
 mod mermaid;
 mod plantuml;
+mod python;
 mod scanner;
 mod structural;
 mod tree;
-
-/// File-level dependency graph shared by all language file scanners (Rust,
-/// C#, Go). `nodes` are source-file paths relative to the scanned root;
-/// `edges` are resolved file-to-file dependency edges: imports plus, for Rust,
-/// module declarations (declaring file → declared child file, collapsed per
-/// pair). Renderers (mermaid/plantuml) group nodes into folder subgraphs and
-/// draw the edges.
-pub struct FileGraph {
-    pub nodes: std::collections::BTreeSet<String>,
-    pub edges: std::collections::BTreeSet<(String, String)>,
-}
+mod ts;
 
 const FORMATS: &[&str] = &["mermaid", "plantuml"];
 
@@ -110,7 +103,7 @@ fn run_structural(
         return Err(not_a_directory(root));
     }
 
-    let language = language::detect(root_path)
+    let language = language::select(root_path, None)?
         .ok_or_else(|| format!("no supported-language sources found under: {root}"))?;
     if !scan::driver_available(language) {
         return Err(format!(
@@ -167,7 +160,7 @@ fn run_file_level(parsed: &cli::Args, format: &str, check: bool) -> Result<(), S
         return Err(not_a_directory(root));
     }
 
-    let language = language::detect(root_path)
+    let language = language::select(root_path, None)?
         .ok_or_else(|| format!("no supported-language sources found under: {root}"))?;
     if !scan::driver_available(language) {
         return Err(format!(
@@ -181,6 +174,42 @@ fn run_file_level(parsed: &cli::Args, format: &str, check: bool) -> Result<(), S
         language::Language::Csharp => csharp::scan(root_path)?,
         language::Language::Rust => scanner::scan(root_path)?,
         language::Language::Go => go::scan(root_path)?,
+        language::Language::Python => {
+            let graph = python::scan(root_path)?;
+            if graph.edges.is_empty() {
+                // The ts C5 vacuity carrier shape (python driver record
+                // P2 fan-out): the empty-evidence verdict is a named
+                // non-silent line, never a green render of nothing.
+                eprintln!(
+                    "vacuous constraint: inspect.file_level: no file-level edges resolved"
+                );
+            }
+            graph
+        }
+        language::Language::Kotlin => {
+            // The kotlin driver record K-P3 fan-out: file_edges carry the
+            // file identity; the C5 vacuity carrier mirrors the python arm.
+            let graph = kotlin::scan(root_path)?;
+            if graph.edges.is_empty() {
+                eprintln!(
+                    "vacuous constraint: inspect.file_level: no file-level edges resolved"
+                );
+            }
+            graph
+        }
+        language::Language::Ts => {
+            let graph = ts::scan(root_path)?;
+            if graph.edges.is_empty() {
+                // C5 vacuity carrier (R8): the empty-evidence verdict is a
+                // named non-silent line on the report surface — never a
+                // green render that claims a graph it does not have. The
+                // carrier keys on the facts, not on the capability row.
+                eprintln!(
+                    "vacuous constraint: inspect.file_level: no file-level edges resolved"
+                );
+            }
+            graph
+        }
     };
 
     let diagram = match format {
@@ -209,6 +238,17 @@ pub fn render_import_map(
         crate::archspec::language::Language::Csharp => csharp::scan(root)?,
         crate::archspec::language::Language::Rust => scanner::scan(root)?,
         crate::archspec::language::Language::Go => go::scan(root)?,
+        // The python driver record P2 fan-out: the same resolved edges
+        // `archspec scan` states (module_edges file grain), no second
+        // resolver — the ts C5 lineage.
+        crate::archspec::language::Language::Python => python::scan(root)?,
+        // The kotlin driver record K-P3 fan-out: the same resolved edges
+        // `archspec scan` states (file_edges file grain), no second
+        // resolver — the python arm's lineage.
+        crate::archspec::language::Language::Kotlin => kotlin::scan(root)?,
+        // C5 wired the file-level mode for ts: the report embeds the same
+        // resolved edges `archspec inspect` renders.
+        crate::archspec::language::Language::Ts => ts::scan(root)?,
     };
     Ok(Some(mermaid::render(&graph)))
 }

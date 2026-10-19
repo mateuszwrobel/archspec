@@ -18,7 +18,7 @@ archspec help [topic]
 | `constraints` | the seven constraint types with their keys and severity | the JSON Schema in `archspec spec --schema` |
 | `languages` | the language-tier matrix (which model tiers each scanner populates) | `LANGUAGE_TIERS` (consistency-tested) |
 | `workflow` | the numbered audit recipe (this topic owns the ordering) | — |
-| `diagnostics` | the catalog of every `verify`/`report` finding category: message pattern, meaning, origin, severity + `--strict`, follow-up, decision, and the required report format | the finding strings in `verify/compare.rs` |
+| `diagnostics` | the catalog of every `verify`/`report` finding category: message pattern, meaning, origin, severity + `--strict`, follow-up, decision, and the required report format | the finding strings in `verify/compare` |
 | `<command>` | that command's `--help`, byte-identical | `archspec <command> --help` |
 
 ## Accepted input

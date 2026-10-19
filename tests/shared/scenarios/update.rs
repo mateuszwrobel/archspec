@@ -3,8 +3,8 @@ use crate::shared::driver::{Driver, LogicalTree};
 use crate::shared::feature::Feature;
 use crate::shared::scenario::Scenario;
 use crate::shared::scenarios::{
-    expect_success, scenario, scenario_when, scenario_when_capability, scenario_when_inert,
-    csharp_project_files,
+    expect_success, scenario, scenario_when, scenario_when_capability,
+    test_inert_deriving_driver, csharp_project_files,
 };
 
 pub fn all() -> Vec<Scenario> {
@@ -35,11 +35,11 @@ pub fn all() -> Vec<Scenario> {
             "root-module-declarations",
             seed_test_tier_follows_cfg_gating_not_module_name,
         ),
-        scenario_when_inert(
+        scenario_when(
             Feature::UpdateSeed,
             "seed_omits_go_test_file_imports_and_marks_no_module",
             "the go dialect of the same provenance: imports carried only by *_test.go files seed no dependency and no module carries a test mark — keyed inert on `test-tier` because the table states go applies the exclusion at the file tier with no serialized mark",
-            "test-tier",
+            test_inert_deriving_driver,
             seed_omits_go_test_file_imports_and_marks_no_module,
         ),
     ]

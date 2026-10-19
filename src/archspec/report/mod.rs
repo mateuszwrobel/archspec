@@ -481,9 +481,16 @@ mod tests {
             manifest_integrity: vec!["crates/app/Cargo.toml has forbidden dependency clap".into()],
             feature_boundaries: vec!["app depends on gated module x (feature: f)".into()],
             forbidden_submodule_dependencies: vec!["o::common -> o::control_loop".into()],
+            dead_references: vec![
+                "module 'app' allowed.depend_on target \"ghost\" does not exist — create it or \
+                 fix the reference"
+                    .into(),
+            ],
             warnings: vec![
                 "cycle: a -> b -> a".into(),
-                "dead reference: module 'app' allowed.depend_on target \"ghost\" does not exist"
+                "dead reference: module 'app' allowed.depend_on target \"app::storage\" exists \
+                 in source but undeclared — references resolve to declared claim names at any \
+                 depth"
                     .into(),
                 "laundered forbidden edge: a -> b via hidden".into(),
                 "unresolved module file: app::ghost".into(),
@@ -543,7 +550,7 @@ mod tests {
     fn the_exit_gate_and_the_renderers_share_one_field_list() {
         let manifest = env!("CARGO_MANIFEST_DIR");
         let compare_src = std::fs::read_to_string(format!(
-            "{manifest}/src/archspec/verify/compare.rs"
+            "{manifest}/src/archspec/verify/compare/diff.rs"
         ))
         .expect("compare source");
         let struct_src = compare_src
@@ -710,7 +717,11 @@ mod tests {
             has("cycle detected in", "warning"),
             "warning cycle keeps the cycle category"
         );
-        assert!(has("dead reference", "warning"));
+        assert!(has("dead reference", "error"), "promoted does-not-exist class");
+        assert!(
+            has("dead reference", "warning"),
+            "the other dead-reference classes stay warning-severity"
+        );
         assert!(has("vacuous constraint", "warning"));
     }
 

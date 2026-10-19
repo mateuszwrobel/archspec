@@ -1,5 +1,10 @@
 [project]
 language = "rust"
+# The npm installer package ships beside the crate: node sources with their
+# own package.json marker, not part of the Rust model (ADR-051). Its guards
+# live in tests/npm_channel.rs and npm/test/; the language agreement check
+# must never count them.
+excluded_sources = [ { path = "npm", reason = "the npm installer package — node sources with their own marker, verified by tests/npm_channel.rs" } ]
 
 # CLI layer: the binary entrypoint, the module tree that wires commands, and one
 # prefix claim over the per-command submodules.
@@ -12,7 +17,7 @@ matches = { modules = [
 ] }
 
 [module.allowed]
-depend_on = ["engines", "foundations"]
+depend_on = ["engines", "foundations", "scan-core"]
 
 # Analysis engines: each engine lives in its own module subtree, claimed by
 # prefix so nested submodules fold into the same boundary — the depgraph
@@ -27,7 +32,6 @@ depend_on = ["engines", "foundations"]
 [[module]]
 name = "engines"
 matches = { units = ["archspec"], modules = [
-  "archspec::archspec::scan*",
   "archspec::archspec::verify*",
   "archspec::archspec::depgraph*",
   "archspec::archspec::diagram*",
@@ -39,7 +43,7 @@ matches = { units = ["archspec"], modules = [
 ] }
 
 [module.allowed]
-depend_on = ["foundations", "rust-arch-test-kit"]
+depend_on = ["foundations", "rust-arch-test-kit", "scan-core", "scan-ts", "scan-python", "scan-kotlin"]
 
 # Shared foundations: the extracted model, the spec schema, CLI parsing, config
 # and language detection. Depends on nothing.
@@ -76,6 +80,56 @@ matches = { modules = ["rust-arch-test-kit::collector*"] }
 name = "lib-render"
 matches = { modules = ["rust-arch-test-kit::render*"] }
 
+
+# Scan-internal zones (self-audit F1 cycle break): the scan host and the
+# language drivers are separate boundaries so the driver -> host helper ring
+# can never come back — `no_cycles` below and the exact `depend_on` tables
+# gate recurrence. `leg` is the leaf both the host and the drivers call for
+# the parallel fact leg; `scan-ts` folds `ts::common`, the vocabulary leaf
+# `ts` and `ts::resolution` share. `engines` keeps no scan pattern: the
+# `scan*` catch-all would tie with the exact `scan` entry on every scan
+# descendant (ancestor scoring in verify's specificity) and report
+# ambiguity.
+[[module]]
+name = "scan-core"
+matches = { modules = [
+  "archspec::archspec::scan",
+  "archspec::archspec::scan::csharp*",
+  "archspec::archspec::scan::go*",
+  "archspec::archspec::scan::rust*",
+] }
+
+[module.allowed]
+depend_on = ["foundations", "engines", "scan-ts", "scan-python", "scan-kotlin"]
+
+[[module]]
+name = "scan-leg"
+matches = { modules = ["archspec::archspec::scan::leg"] }
+
+[module.allowed]
+depend_on = []
+
+[[module]]
+name = "scan-ts"
+matches = { modules = ["archspec::archspec::scan::ts*"] }
+
+[module.allowed]
+depend_on = ["foundations", "engines", "scan-leg"]
+
+[[module]]
+name = "scan-python"
+matches = { modules = ["archspec::archspec::scan::python*"] }
+
+[module.allowed]
+depend_on = ["foundations", "engines", "scan-leg"]
+
+[[module]]
+name = "scan-kotlin"
+matches = { modules = ["archspec::archspec::scan::kotlin*"] }
+
+[module.allowed]
+depend_on = ["foundations", "engines", "scan-leg"]
+
 # --- The crate's own constraint surface --------------------------------------
 # Four of the seven constraint types are declared on this crate: `no_cycles`
 # over the boundary groups, `public_api_allowlist` over the library root,
@@ -106,7 +160,10 @@ allowed = ["collector", "render"]
 # Grammar machinery is the parse engine's job, not layer zero's: the modules
 # that model, spec-schema, CLI-parsing, config, capability, language detection
 # and the diagnostics-help catalog live in must not import tree-sitter (or its
-# grammars) or syn. walkdir deliberately stays off this list — foundations'
+# grammars) or syn. The pinned ts resolution layer lives in the scan layer and
+# nowhere else (ADR-024): oxc_resolver joins the forbid list so a resolver
+# import outside the scan arm reddens this crate's own verify — law, not
+# convention. walkdir deliberately stays off this list — foundations'
 # language detection legitimately walks directories with it.
 [[constraint]]
 type = "forbid_external_crates"
@@ -119,7 +176,7 @@ from = [
   "archspec::archspec::capability",
   "archspec::archspec::helptext",
 ]
-forbid = ["tree_sitter", "tree_sitter_c_sharp", "tree_sitter_go", "syn"]
+forbid = ["tree_sitter", "tree_sitter_c_sharp", "tree_sitter_go", "syn", "oxc_resolver"]
 
 # Both units ship from one publishable manifest: `publish = ["gitea"]`
 # flattens to publishable, and the per-unit manifests deduplicate to a single
@@ -129,3 +186,13 @@ forbid = ["tree_sitter", "tree_sitter_c_sharp", "tree_sitter_go", "syn"]
 [[constraint]]
 type = "manifest_integrity"
 require_publish = true
+
+# F1 recurrence gate: the scan zones above form their own cycle group. A
+# reintroduced driver -> host helper call closes `scan-core -> <driver> ->
+# scan-core` here (and fires the `disallowed cross-component dependency`
+# table at the same time). `engines` stays out of the group: folding inspect
+# and parse into one node manufactures a pair-cycle the module tier does not
+# have (decision-check record, MAJOR finding).
+[[constraint]]
+type = "no_cycles"
+modules = ["scan-core", "scan-leg", "scan-ts", "scan-python", "scan-kotlin"]

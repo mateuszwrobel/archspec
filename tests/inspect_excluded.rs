@@ -104,9 +104,12 @@ fn inspect_rejects_crate_with_only_excluded_sources() {
     let output = fixture.run(&["inspect"]);
 
     assert_ne!(output.status.code(), Some(0));
+    // The detection walk runs behind the mechanical exclusion set: build
+    // output under target/ cannot select a driver, so the rejection fires
+    // at detection with the generic no-sources message.
     assert!(
-        stderr(&output).contains("no Rust sources found under:"),
-        "stderr must say no Rust sources found:\n{}",
+        stderr(&output).contains("no supported-language sources found under:"),
+        "stderr must say no supported-language sources found:\n{}",
         stderr(&output)
     );
     assert!(stdout(&output).is_empty(), "no partial diagram on error");

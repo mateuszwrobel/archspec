@@ -5,11 +5,40 @@ on:
     tags:
       - 'v*'
 
+# Republish-freeze law (ADR-051): one run per tag at a time, never cancelled.
+# The publish-gate job refuses a run whose version is already on npm BEFORE
+# any build or upload touches the release page.
+concurrency:
+  group: archspec-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
 jobs:
+  publish-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Tag shape gate
+        run: sh npm/scripts/gate-tag.sh "${GITHUB_REF_NAME}"
+      - name: Registry existence gate
+        env:
+          NPM_SCOPE: ${{ vars.NPM_SCOPE }}
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          if [ -z "${NPM_SCOPE:-}" ]; then
+            echo "publish-gate: vars.NPM_SCOPE is unset — the npm channel is not configured, no npm pin exists to break; publish-npm still fails closed below"
+            exit 0
+          fi
+          sh npm/scripts/gate-registry.sh --pkg "@${NPM_SCOPE}/archspec" --version "${ver}"
+
   build-linux-x86_64:
+    needs: publish-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +99,7 @@ jobs:
             sh /w/install-check-arch-package.sh "/w/$pkg"
       - uses: actions/upload-artifact@v4
         with:
+          if-no-files-found: error
           name: linux-x86_64
           path: |
             archspec-*.tar.gz
@@ -80,6 +110,7 @@ jobs:
             archspec-*.pkg.tar.zst.sha256
 
   build-linux-aarch64:
+    needs: publish-gate
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -149,6 +180,7 @@ jobs:
             target/aarch64-unknown-linux-musl/release/archspec
       - uses: actions/upload-artifact@v4
         with:
+          if-no-files-found: error
           name: linux-aarch64
           path: |
             archspec-*.tar.gz
@@ -159,7 +191,8 @@ jobs:
             archspec-*.pkg.tar.zst.sha256
 
   build-macos-x86_64:
-    runs-on: macos-15-intel
+    needs: publish-gate
+    runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -176,11 +209,13 @@ jobs:
           shasum -a 256 "$pkg" > "$pkg.sha256"
       - uses: actions/upload-artifact@v4
         with:
+          if-no-files-found: error
           name: macos-x86_64
           path: archspec-*
 
   build-macos-aarch64:
-    runs-on: macos-15
+    needs: publish-gate
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -197,10 +232,12 @@ jobs:
           shasum -a 256 "$pkg" > "$pkg.sha256"
       - uses: actions/upload-artifact@v4
         with:
+          if-no-files-found: error
           name: macos-aarch64
           path: archspec-*
 
   build-windows-x86_64:
+    needs: publish-gate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -215,14 +252,22 @@ jobs:
           $exe = "target/release/archspec.exe"
           $zip = "archspec-$ver-x86_64-pc-windows-msvc.zip"
           Compress-Archive -Path $exe -DestinationPath $zip
-          (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower() | Set-Content "$zip.sha256"
+          # Portable sidecar shape — hash, two spaces, filename, LF — so the
+          # asset passes `sha256sum -c` like every other platform's sidecar
+          # (Set-Content would write CRLF without the filename: not verifiable).
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          # $PWD must be joined explicitly: .NET's current directory does not
+          # follow PowerShell's provider location.
+          [System.IO.File]::WriteAllText((Join-Path $PWD.Path "$zip.sha256"), "$hash  $zip`n")
       - uses: actions/upload-artifact@v4
         with:
+          if-no-files-found: error
           name: windows-x86_64
           path: archspec-*
 
   release:
     needs:
+      - publish-gate
       - build-linux-x86_64
       - build-linux-aarch64
       - build-macos-x86_64
@@ -239,3 +284,97 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: sh release-assets.sh "${GITHUB_REF_NAME}" dist
+
+  # npm channel (ADR-051): one downloader package per release, published via
+  # npm Trusted Publishing — OIDC from the runner, no NPM_TOKEN anywhere.
+  # The republish-freeze refusal already happened in publish-gate; this job
+  # fails closed on scope, npm floor, token presence, asset totality, sidecar
+  # verifiability and — after publish — on provenance.
+  publish-npm:
+    needs:
+      - publish-gate
+      - release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: npm floor assert (trusted publishing needs npm >= 11.5.1)
+        run: |
+          set -euo pipefail
+          npm_v="$(npm --version)"
+          if [ "$(printf '%s\n' 11.5.1 "${npm_v}" | sort -V | head -n1)" != "11.5.1" ]; then
+            echo "npm ${npm_v} is below the 11.5.1 trusted-publishing floor — older npm silently falls back to token auth" >&2
+            exit 1
+          fi
+      - name: No token present (trusted publishing only)
+        run: |
+          set -euo pipefail
+          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NODE_AUTH_TOKEN is set in this environment — token auth would silently win over OIDC; unset it" >&2
+            exit 1
+          fi
+      - name: Resolve scope (fails closed when the channel is unconfigured)
+        id: scope
+        env:
+          NPM_SCOPE: ${{ vars.NPM_SCOPE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NPM_SCOPE:-}" ]; then
+            echo "vars.NPM_SCOPE is unset — the npm channel is not configured; see the first-publish runbook" >&2
+            exit 1
+          fi
+          echo "scope=${NPM_SCOPE}" >> "$GITHUB_OUTPUT"
+      - name: Download the five matrix assets by exact name (fail closed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          mkdir -p assets
+          for name in \
+            "archspec-${ver}-x86_64-unknown-linux-musl.tar.gz" \
+            "archspec-${ver}-aarch64-unknown-linux-gnu.tar.gz" \
+            "archspec-${ver}-x86_64-apple-darwin.tar.gz" \
+            "archspec-${ver}-aarch64-apple-darwin.tar.gz" \
+            "archspec-${ver}-x86_64-pc-windows-msvc.zip"; do
+            if ! gh release download "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" -D assets -p "$name"; then
+              echo "publish-npm: the release carries no asset named $name — failing closed, no package version is published" >&2
+              exit 1
+            fi
+          done
+      - name: Download the rest and verify every shipped sidecar passes sha256sum -c
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" -D assets || true
+          cd assets
+          found=0
+          for sidecar in *.sha256; do
+            [ -e "${sidecar}" ] || continue
+            sha256sum -c "${sidecar}"
+            found=$(( found + 1 ))
+          done
+          [ "${found}" -ge 9 ] || { echo "publish-npm: only ${found} sidecars on the release page — expected at least one per installable" >&2; exit 1; }
+      - name: Generate the pinned assets map (hashes from bytes)
+        run: node npm/scripts/gen-assets.mjs --dir assets --version "${GITHUB_REF_NAME#v}" --out assets.json
+      - name: Stage the package with identity injected
+        run: |
+          set -euo pipefail
+          node npm/scripts/prepare-package.mjs --out pkg \
+            --scope "${{ steps.scope.outputs.scope }}" \
+            --version "${GITHUB_REF_NAME#v}" \
+            --repository "${{ github.repository }}" \
+            --assets assets.json
+      - name: Publish to npm (OIDC trusted publishing, provenance auto-attached)
+        run: npm publish --provenance pkg
+      - name: Provenance assert (green publish without attestations is a bug)
+        run: |
+          sh npm/scripts/assert-attestations.sh \
+            --pkg "@${{ steps.scope.outputs.scope }}/archspec" \
+            --version "${GITHUB_REF_NAME#v}"

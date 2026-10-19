@@ -15,6 +15,7 @@ use std::sync::{Mutex, OnceLock};
 pub(crate) struct Table {
     rows: BTreeMap<(String, String), String>,
     rules: Vec<(String, String)>,
+    postures: BTreeMap<String, (String, String)>,
     granular: Mutex<Option<HashMap<(String, String), bool>>>,
 }
 
@@ -31,6 +32,7 @@ pub(crate) fn table() -> &'static Table {
         );
         let mut rows = BTreeMap::new();
         let mut rules = Vec::new();
+        let mut postures = BTreeMap::new();
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             let mut words = line.split_whitespace();
             match words.next() {
@@ -49,6 +51,15 @@ pub(crate) fn table() -> &'static Table {
                     };
                     rules.push((rule.to_string(), fact.to_string()));
                 }
+                Some("posture") => {
+                    let mut words = line["posture ".len()..].split_whitespace();
+                    let (Some(lang), Some(scope), Some(severity)) =
+                        (words.next(), words.next(), words.next())
+                    else {
+                        panic!("malformed posture row: {line}");
+                    };
+                    postures.insert(lang.to_string(), (scope.to_string(), severity.to_string()));
+                }
                 other => panic!("unknown matrix line: {other:?} in {line:?}"),
             }
         }
@@ -59,6 +70,7 @@ pub(crate) fn table() -> &'static Table {
         Table {
             rows,
             rules,
+            postures,
             granular: Mutex::new(None),
         }
     })
@@ -69,6 +81,14 @@ impl Table {
         self.rows
             .get(&(language.to_string(), fact.to_string()))
             .map(String::as_str)
+    }
+
+    /// The posture the binary derives for a language: `(scope, severity)`
+    /// of the `capability matrix` posture rows (ADR-023).
+    pub(crate) fn posture(&self, language: &str) -> Option<(&str, &str)> {
+        self.postures
+            .get(language)
+            .map(|(scope, severity)| (scope.as_str(), severity.as_str()))
     }
 
     pub(crate) fn languages(&self) -> BTreeSet<String> {

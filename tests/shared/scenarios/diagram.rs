@@ -3,7 +3,7 @@ use crate::shared::driver::Driver;
 use crate::shared::feature::Feature;
 use crate::shared::scenario::Scenario;
 use crate::shared::scenarios::{
-    expect_success, mermaid_node_markers, scenario, scenario_when_capability,
+    expect_success, mermaid_node_markers, not_ts, scenario, scenario_when,
 };
 
 pub fn all() -> Vec<Scenario> {
@@ -20,11 +20,11 @@ pub fn all() -> Vec<Scenario> {
             "diagram renders a forbidden edge dashed and keeps allowed edges solid",
             marks_forbidden_edge_dashed,
         ),
-        scenario_when_capability(
+        scenario_when(
             Feature::Diagram,
             "scan_mode_marks_role_carriers",
             "diagram --source scan marks exactly the nodes the model's roles map addresses under the `.`/`::` separator equivalence, and nothing else, so a node looks special in the diagram exactly when the model says it is",
-            "module-tier",
+            not_ts,
             scan_mode_marks_role_carriers,
         ),
     ]
@@ -113,9 +113,7 @@ fn scan_mode_marks_role_carriers(driver: &Driver, fx: &common::Fixture) -> Resul
     if marked.is_empty() {
         return Err(format!("the scan diagram renders no node declarations:\n{stdout}"));
     }
-    let roles = model["roles"]
-        .as_object()
-        .ok_or_else(|| "the canonical tree derives roles, so the model must serialize a map".to_string())?;
+    let roles = super::roles_map_or_absent(&model, driver.language.as_str())?;
     for (name, marker) in &marked {
         // The view's lookup mirrored: the first entry in map order addressing
         // this node (roles keys iterate sorted, as the renderer's map does).

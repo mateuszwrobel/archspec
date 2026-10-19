@@ -431,8 +431,8 @@ fn init_rejects_undetectable_language_without_profile() {
         "must say no language detected and where:\n{err}"
     );
     assert!(
-        err.contains("Cargo.toml, go.mod, or *.csproj/*.sln"),
-        "must list expected signals:\n{err}"
+        err.contains("Cargo.toml, package.json, go.mod, or *.csproj/*.sln"),
+        "must list expected signals (package.json joined the marker list — detection record GC):\n{err}"
     );
     assert!(stdout(&output).is_empty(), "stdout must be empty on error");
     assert!(

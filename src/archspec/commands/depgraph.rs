@@ -84,7 +84,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         return Err("--parent is only valid for the submodules view".to_string());
     }
 
-    let detected = language::detect(root_path)
+    let detected = language::select(root_path, None)?
         .ok_or_else(|| format!("no supported-language sources found under: {root}"))?;
     if !scan::driver_available(detected) {
         return Err(format!(

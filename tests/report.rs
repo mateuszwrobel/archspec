@@ -1,4 +1,6 @@
 mod common;
+#[allow(dead_code)]
+mod shared;
 
 use common::{stderr, stdout};
 use std::collections::BTreeSet;
@@ -1240,9 +1242,31 @@ fn report_markdown_omits_empty_violation_sections() {
     assert!(stderr(&output).is_empty(), "no stderr on success");
 }
 
+// Regression (phase B fan-out audit): `report` once carried a private
+// language table that lagged the canonical parser's ts arm, so a valid ts
+// spec answered `invalid spec: unknown language "ts"` while verify, scan and
+// diagram accepted it. The command now reads the canonical mapping, and this
+// test pins that a clean ts tree reports.
+#[test]
+fn report_accepts_a_ts_spec() {
+    use shared::driver::{Driver, Language};
+    use shared::scenarios::boundary_spec;
+    let driver = Driver {
+        language: Language::Ts,
+    };
+    let fx = common::Fixture::new();
+    driver.materialize(&fx, &driver.probe_tree());
+    fx.write("architecture.spec.toml", &boundary_spec(&driver));
+    let output = driver.run(&fx, &["report"]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    assert!(out.contains("language: ts"), "header names ts:\n{out}");
+}
+
 /// Single crate whose spec carries a `depend_on` target (`storage`) naming no
-/// declared module: the ONLY finding is a dead-reference warning. No cycle, so
-/// any cycles category is a mislabel.
+/// declared module: the ONLY finding is a promoted error-severity dead
+/// reference (phase B, D10/R3-11). No cycle, so any cycles category is a
+/// mislabel.
 fn dead_reference_report_fixture() -> common::Fixture {
     let fixture = common::Fixture::new();
     fixture.write(
@@ -1257,10 +1281,28 @@ fn dead_reference_report_fixture() -> common::Fixture {
     fixture
 }
 
+/// The warning-class twin of `dead_reference_report_fixture`: a reference
+/// that exists in the source but is undeclared stays warning-severity after
+/// the phase B promotion, so a run of it alone stays informational.
+fn warning_class_dead_reference_fixture() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "pub mod storage;\n");
+    fixture.write("src/storage.rs", "pub fn store() {}\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"app\"\nmatches = { units = [\"app\"] }\n\n[module.allowed]\ndepend_on = [\"app::storage\"]\n",
+    );
+    fixture
+}
 /// Mutual auth <-> billing dependency forms a cycle monitored by a warning-severity
-/// `no_cycles` constraint; `auth` additionally `depend_on`s an undeclared `ghost`.
-/// The only two findings are one warning-severity cycle and one dead reference,
-/// so the report must keep them in distinct categories.
+/// `no_cycles` constraint; `auth` additionally `depend_on`s `auth::internal`, a
+/// path present in the source but declared nowhere — the warning-class dead
+/// reference. The only two findings are one warning-severity cycle and one
+/// dead reference, so the report must keep them in distinct categories.
 fn warning_cycle_plus_dead_reference_fixture() -> common::Fixture {
     let fixture = common::Fixture::new();
     fixture.write(
@@ -1271,7 +1313,8 @@ fn warning_cycle_plus_dead_reference_fixture() -> common::Fixture {
         "crates/auth/Cargo.toml",
         "[package]\nname = \"auth\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nbilling = { path = \"../billing\" }\n",
     );
-    fixture.write("crates/auth/src/lib.rs", "pub fn auth() {}\n");
+    fixture.write("crates/auth/src/lib.rs", "pub mod internal;\npub fn auth() {}\n");
+    fixture.write("crates/auth/src/internal.rs", "pub fn held() {}\n");
     fixture.write(
         "crates/billing/Cargo.toml",
         "[package]\nname = \"billing\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nauth = { path = \"../auth\" }\n",
@@ -1279,14 +1322,16 @@ fn warning_cycle_plus_dead_reference_fixture() -> common::Fixture {
     fixture.write("crates/billing/src/lib.rs", "pub fn bill() {}\n");
     fixture.write(
         "architecture.spec.toml",
-        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"auth\"] }\n\n[module.allowed]\ndepend_on = [\"billing\", \"ghost\"]\n\n[[module]]\nname = \"billing\"\nmatches = { units = [\"billing\"] }\n\n[module.allowed]\ndepend_on = [\"auth\"]\n\n[[constraint]]\ntype = \"no_cycles\"\nmodules = [\"auth\", \"billing\"]\nseverity = \"warning\"\n",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"auth\"] }\n\n[module.allowed]\ndepend_on = [\"billing\", \"auth::internal\"]\n\n[[module]]\nname = \"billing\"\nmatches = { units = [\"billing\"] }\n\n[module.allowed]\ndepend_on = [\"auth\"]\n\n[[constraint]]\ntype = \"no_cycles\"\nmodules = [\"auth\", \"billing\"]\nseverity = \"warning\"\n",
     );
     fixture
 }
 
-// A dead-reference warning must render under its own `dead reference` category,
-// never relabeled as a cycle. With no cycle present, no cycles category may
-// appear and the cycles metric must stay 0.
+// A dead reference of the promoted `does not exist` class (phase B, D10/R3-11)
+// renders under its own `dead reference` category at ERROR severity — it is a
+// violation, so `report` (which carries the result line) exits 1 — never
+// relabeled as a cycle. With no cycle present, no cycles category may appear
+// and the cycles metric must stay 0.
 #[test]
 fn report_dead_reference_renders_under_own_category_not_cycle() {
     let fixture = dead_reference_report_fixture();
@@ -1294,8 +1339,8 @@ fn report_dead_reference_renders_under_own_category_not_cycle() {
 
     assert_eq!(
         output.status.code(),
-        Some(0),
-        "report is informational, exit 0 (stderr: {})",
+        Some(1),
+        "the promoted class is a violation, exit 1 (stderr: {})",
         stderr(&output)
     );
     let out = stdout(&output);
@@ -1336,7 +1381,10 @@ fn report_warning_findings_keep_categories_apart() {
         out.contains("dead reference:"),
         "dead reference category:\n{out}"
     );
-    assert!(out.contains("\"ghost\""), "names the dead target:\n{out}");
+    assert!(
+        out.contains("\"auth::internal\""),
+        "names the dead target:\n{out}"
+    );
     assert!(
         !out.contains("cycle detected in: module 'auth'"),
         "the dead reference must not be relabeled as a cycle:\n{out}"
@@ -1719,7 +1767,7 @@ fn report_json_clean_fixture_exits_zero_with_empty_findings() {
 
 #[test]
 fn report_json_warning_findings_carry_warning_severity_and_exit_zero() {
-    let fixture = dead_reference_report_fixture();
+    let fixture = warning_class_dead_reference_fixture();
     let output = fixture.run(&["report", "--format", "json"]);
     assert_eq!(
         output.status.code(),
@@ -1741,6 +1789,33 @@ fn report_json_warning_findings_carry_warning_severity_and_exit_zero() {
     assert!(findings
         .iter()
         .any(|f| f["category"].as_str() == Some("dead reference")));
+}
+
+// The promoted `does not exist` class (phase B, D10/R3-11): the JSON contract
+// carries it under the `dead reference` category with ERROR severity, and the
+// violation flips the report exit.
+#[test]
+fn report_json_promoted_dead_reference_is_error_severity() {
+    let fixture = dead_reference_report_fixture();
+    let output = fixture.run(&["report", "--format", "json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "the promoted class is a violation (stderr: {})",
+        stderr(&output)
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("json report parses");
+    let findings = value["findings"].as_array().expect("findings array");
+    let dead = findings
+        .iter()
+        .find(|f| f["category"].as_str() == Some("dead reference"))
+        .expect("dead reference finding present");
+    assert_eq!(
+        dead["severity"].as_str(),
+        Some("error"),
+        "the does-not-exist class is error-severity:\n{dead}"
+    );
 }
 
 #[test]

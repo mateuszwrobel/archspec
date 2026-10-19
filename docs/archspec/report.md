@@ -5,10 +5,10 @@ Spec: architecture.spec.toml (language: rust)
 
 Metrics
 -------
-components:          6
+components:          11
 units:               2
 edges (internal):    1
-edges (external):    9
+edges (external):    14
 cycles detected:     0
 
 Roles

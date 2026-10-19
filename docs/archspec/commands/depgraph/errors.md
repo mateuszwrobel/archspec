@@ -13,6 +13,8 @@ Every failure produces a clear human message naming the cause. Messages go to st
 | path does not exist | `path does not exist: <path>` |
 | path is a regular file | `path is not a directory: <path>` |
 | no supported-language sources | `no supported-language sources found under: <path>` |
+| more than one root marker at the scan root with no pin | `ambiguous root markers: <path> (<language>), … — pin [project] language or scan a single-language root` |
+| a pinned language whose root marker is absent while other root markers stand | `language mismatch: <declared> — no root marker <marker> for the declared language, found: <markers>` |
 | driver for detected language missing | `detected language '<lang>' but the <lang> driver is not available (run 'archspec doctor')` |
 | model has no module tier (the tree's packages reference none of each other) | `depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of` |
 | unsupported `--format` (graph views) | `unsupported format: <x> (supported: mermaid, plantuml)` |

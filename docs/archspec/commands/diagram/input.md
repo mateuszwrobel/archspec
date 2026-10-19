@@ -55,8 +55,9 @@ archspec diagram ./crates/auth --source scan ./artifacts/model.json
 | model with no components/units to render | nothing to draw |
 | more than one positional argument | ambiguous target |
 | `--source scan` without an artefact path | the snapshot is not named |
-| `--tiers` with a value outside `units`, `modules`, a duplicate entry, or an empty list | the tier selector is closed: it names supported tiers or fails |
-| `--tiers` with `--source spec` | the spec source renders declared components at full depth; it has no tier vocabulary |
+| `--tiers` with a value outside `units`, `modules`, `files`, a duplicate entry, or an empty list | the tier selector is closed: it names supported tiers or fails |
+| `--tiers` naming `units` or `modules` with `--source spec` | the spec source renders declared components at full depth; on it only `files` is a tier value |
+| `--tiers files` with `--source scan`, or without `--module`/`--modules-dir` | the files tier needs the spec's facts and a claim's territory — no whole-tree file render |
 
 Each rejection produces a clear message naming the cause and a non-zero exit (see `errors.md`).
 

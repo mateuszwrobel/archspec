@@ -51,9 +51,18 @@ fn schema_project_language_is_required_and_enumerated() {
     let project = schema_of(&Fixture::new())["properties"]["project"].clone();
 
     assert_eq!(project["required"], serde_json::json!(["language"]));
+    // The ONE driver-name table (`language::LANGUAGES`) renders the enum —
+    // the schema and the parser cannot drift (round-8 F11).
     assert_eq!(
         project["properties"]["language"]["enum"],
-        serde_json::json!(["rust", "csharp", "go"])
+        serde_json::json!(["rust", "csharp", "go", "ts", "python", "kotlin"])
+    );
+    // The framework registry is driver-side and computed (round-8 P-FW1):
+    // names registered SOMEWHERE; the per-driver split is validated at
+    // spec load, not by the schema enum.
+    assert_eq!(
+        project["properties"]["framework"]["enum"],
+        serde_json::json!(["sveltekit"])
     );
 }
 
@@ -125,6 +134,12 @@ fn schema_constraint_types_severity_and_modules() {
     assert_eq!(
         items["properties"]["modules"]["type"],
         serde_json::json!("array")
+    );
+    // The `scope` field of the no_cycles arm (ts-driver design D5): the
+    // schema types the enum; the row-kind gate is load-time validation.
+    assert_eq!(
+        items["properties"]["scope"]["enum"],
+        serde_json::json!(["claims", "both"])
     );
 }
 

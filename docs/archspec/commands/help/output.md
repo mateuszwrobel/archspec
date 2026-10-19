@@ -94,13 +94,13 @@ architecture-rework) and the severity + exit-code contract (`error` → exit 1,
 along: `exit 64` for usage mistakes, `exit 70` for a missing spec), then the
 required REPORT FORMAT (finding / evidence / resolution / follow-up). Each
 category block names
-the verbatim message pattern emitted by `verify/compare.rs` (`render_report`,
+the verbatim message pattern emitted by `verify/compare` (`render_report`,
 its `format!` bodies, and the `report::diff_items` labels), its meaning, origin,
 severity + `--strict` behaviour, the first follow-up command (`scan` /
 `report` / `depgraph` / `inspect` keys), and the decision rule. Split into
 error-level then warning-level groups; `root_public_exports` / `root_glob_exports`
 are noted as model tiers that surface through the public-API categories rather
-than standalone lines. Adding a finding category to `verify/compare.rs` requires
+than standalone lines. Adding a finding category to `verify/compare` requires
 a new block here **and** a new entry in the `DIAGNOSTIC_CATEGORIES` list in
 `tests/help.rs` (the completeness guard).
 

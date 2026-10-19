@@ -2,7 +2,10 @@
   "languages": [
     "rust",
     "csharp",
-    "go"
+    "go",
+    "ts",
+    "python",
+    "kotlin"
   ],
   "features": [
     {
@@ -10,7 +13,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -19,7 +25,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -28,7 +41,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -37,7 +57,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -46,7 +72,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -55,11 +84,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -68,11 +103,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -81,11 +122,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -94,11 +141,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -107,11 +160,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -120,11 +179,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -133,7 +198,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -142,11 +213,15 @@
           "status": {
             "csharp": "skipped",
             "go": "pass",
-            "rust": "skipped"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
-            "csharp": "role-facade: granular",
-            "rust": "role-facade: granular"
+            "csharp": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -156,7 +231,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "not-implemented",
-        "rust": "implemented"
+        "kotlin": "not-implemented",
+        "python": "not-implemented",
+        "rust": "implemented",
+        "ts": "not-implemented"
       },
       "behaviors": [
         {
@@ -165,10 +243,16 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
-            "go": "scan.soft_structure not implemented"
+            "go": "scan.soft_structure not implemented",
+            "kotlin": "scan.soft_structure not implemented",
+            "python": "scan.soft_structure not implemented",
+            "ts": "scan.soft_structure not implemented"
           }
         },
         {
@@ -177,10 +261,16 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
-            "go": "scan.soft_structure not implemented"
+            "go": "scan.soft_structure not implemented",
+            "kotlin": "scan.soft_structure not implemented",
+            "python": "scan.soft_structure not implemented",
+            "ts": "scan.soft_structure not implemented"
           }
         },
         {
@@ -189,10 +279,16 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
-            "go": "scan.soft_structure not implemented"
+            "go": "scan.soft_structure not implemented",
+            "kotlin": "scan.soft_structure not implemented",
+            "python": "scan.soft_structure not implemented",
+            "ts": "scan.soft_structure not implemented"
           }
         }
       ]
@@ -202,7 +298,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -211,7 +310,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -220,7 +322,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -229,7 +334,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         }
       ]
@@ -239,7 +347,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -248,7 +359,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -257,7 +374,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -266,11 +386,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -279,11 +405,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -292,11 +424,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -306,7 +444,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -315,7 +456,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -324,7 +468,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -333,11 +480,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -346,11 +499,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -359,11 +518,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -372,11 +537,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -385,11 +556,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -399,7 +576,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "not-implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -408,7 +588,10 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           },
           "skip_reasons": {
             "go": "scan.unit_manifests not implemented"
@@ -420,7 +603,10 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           },
           "skip_reasons": {
             "go": "scan.unit_manifests not implemented"
@@ -432,7 +618,10 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           },
           "skip_reasons": {
             "go": "scan.unit_manifests not implemented"
@@ -445,7 +634,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -454,7 +646,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -463,7 +658,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -472,7 +670,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -481,7 +682,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -490,11 +694,15 @@
           "status": {
             "csharp": "skipped",
             "go": "pass",
-            "rust": "skipped"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "role-facade: granular",
-            "rust": "role-facade: granular"
+            "rust": "role-facade: granular",
+            "ts": "role-facade: granular"
           }
         },
         {
@@ -503,7 +711,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -512,7 +723,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -521,7 +739,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -530,10 +751,15 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
-            "go": "project shape not applicable"
+            "go": "project shape not applicable",
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -542,7 +768,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -551,7 +780,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -560,7 +792,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -569,11 +804,17 @@
           "status": {
             "csharp": "skipped",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "root-module-declarations: not-emitted",
-            "go": "root-module-declarations: not-emitted"
+            "go": "root-module-declarations: not-emitted",
+            "kotlin": "root-module-declarations: not-emitted",
+            "python": "root-module-declarations: declarations, no gating facts",
+            "ts": "root-module-declarations: declarations, no gating facts"
           }
         },
         {
@@ -582,7 +823,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "skipped"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "skipped",
+            "ts": "pass"
           },
           "skip_reasons": {
             "rust": "root-module-declarations: granular"
@@ -594,11 +838,17 @@
           "status": {
             "csharp": "skipped",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "root-module-declarations: not-emitted",
-            "go": "root-module-declarations: not-emitted"
+            "go": "root-module-declarations: not-emitted",
+            "kotlin": "root-module-declarations: not-emitted",
+            "python": "root-module-declarations: declarations, no gating facts",
+            "ts": "root-module-declarations: declarations, no gating facts"
           }
         },
         {
@@ -607,11 +857,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -620,11 +876,17 @@
           "status": {
             "csharp": "skipped",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "root-module-declarations: not-emitted",
-            "go": "root-module-declarations: not-emitted"
+            "go": "root-module-declarations: not-emitted",
+            "kotlin": "root-module-declarations: not-emitted",
+            "python": "root-module-declarations: declarations, no gating facts",
+            "ts": "root-module-declarations: declarations, no gating facts"
           }
         },
         {
@@ -633,11 +895,17 @@
           "status": {
             "csharp": "skipped",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "root-module-declarations: not-emitted",
-            "go": "root-module-declarations: not-emitted"
+            "go": "root-module-declarations: not-emitted",
+            "kotlin": "root-module-declarations: not-emitted",
+            "python": "root-module-declarations: declarations, no gating facts",
+            "ts": "root-module-declarations: declarations, no gating facts"
           }
         },
         {
@@ -646,11 +914,17 @@
           "status": {
             "csharp": "skipped",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "root-module-declarations: not-emitted",
-            "go": "root-module-declarations: not-emitted"
+            "go": "root-module-declarations: not-emitted",
+            "kotlin": "root-module-declarations: not-emitted",
+            "python": "root-module-declarations: declarations, no gating facts",
+            "ts": "root-module-declarations: declarations, no gating facts"
           }
         }
       ]
@@ -660,7 +934,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -669,7 +946,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -678,7 +962,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -687,7 +978,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -696,7 +994,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -705,11 +1010,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -719,7 +1030,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "not-implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -728,7 +1042,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "kotlin": "verify.forbid_external not implemented"
           }
         },
         {
@@ -737,7 +1057,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "kotlin": "verify.forbid_external not implemented"
           }
         },
         {
@@ -746,11 +1072,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "verify.forbid_external not implemented",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -759,11 +1091,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "verify.forbid_external not implemented",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -772,11 +1110,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "verify.forbid_external not implemented",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -785,11 +1129,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "verify.forbid_external not implemented",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -798,7 +1148,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "kotlin": "verify.forbid_external not implemented"
           }
         }
       ]
@@ -808,7 +1164,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "not-implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -817,10 +1176,14 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
-            "go": "verify.manifest_integrity not implemented"
+            "go": "verify.manifest_integrity not implemented",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -829,10 +1192,14 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
-            "go": "verify.manifest_integrity not implemented"
+            "go": "verify.manifest_integrity not implemented",
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -842,7 +1209,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -851,7 +1221,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -860,7 +1233,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -869,11 +1245,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -882,11 +1264,17 @@
           "status": {
             "csharp": "skipped",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "root-module-declarations: not-emitted",
-            "go": "root-module-declarations: not-emitted"
+            "go": "root-module-declarations: not-emitted",
+            "kotlin": "root-module-declarations: not-emitted",
+            "python": "root-module-declarations: declarations, no gating facts",
+            "ts": "root-module-declarations: declarations, no gating facts"
           }
         },
         {
@@ -895,11 +1283,17 @@
           "status": {
             "csharp": "skipped",
             "go": "pass",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
-            "csharp": "test-tier: granular",
-            "rust": "test-tier: granular"
+            "csharp": "project shape not applicable",
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -909,7 +1303,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -918,7 +1315,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -927,7 +1327,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -936,7 +1339,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -945,7 +1351,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -954,7 +1363,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         }
       ]
@@ -964,7 +1376,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -973,7 +1388,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -982,7 +1400,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -991,7 +1412,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         }
       ]
@@ -1001,7 +1425,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1010,7 +1437,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -1019,7 +1449,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -1029,7 +1465,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1038,7 +1477,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -1048,7 +1494,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1057,7 +1506,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -1066,7 +1522,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -1075,11 +1534,17 @@
           "status": {
             "csharp": "skipped",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "project shape not applicable",
-            "go": "project shape not applicable"
+            "go": "project shape not applicable",
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -1088,7 +1553,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -1098,7 +1569,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1107,7 +1581,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -1116,7 +1593,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -1125,7 +1605,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -1135,7 +1621,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1144,7 +1633,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -1153,7 +1645,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         }
       ]
@@ -1163,7 +1658,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1172,7 +1670,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         }
       ]
@@ -1182,7 +1683,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "not-implemented",
-        "rust": "implemented"
+        "kotlin": "not-implemented",
+        "python": "not-implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1191,10 +1695,15 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "pass"
           },
           "skip_reasons": {
-            "go": "verify.root_facade not implemented"
+            "go": "verify.root_facade not implemented",
+            "kotlin": "verify.root_facade not implemented",
+            "python": "verify.root_facade not implemented"
           }
         },
         {
@@ -1203,10 +1712,15 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "pass"
           },
           "skip_reasons": {
-            "go": "verify.root_facade not implemented"
+            "go": "verify.root_facade not implemented",
+            "kotlin": "verify.root_facade not implemented",
+            "python": "verify.root_facade not implemented"
           }
         },
         {
@@ -1215,11 +1729,17 @@
           "status": {
             "csharp": "pass",
             "go": "skipped",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "go": "verify.root_facade not implemented",
-            "rust": "project shape not applicable"
+            "kotlin": "verify.root_facade not implemented",
+            "python": "verify.root_facade not implemented",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -1229,7 +1749,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "not-implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1238,7 +1761,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "kotlin": "verify.forbidden_laundering not implemented"
           }
         },
         {
@@ -1247,11 +1776,17 @@
           "status": {
             "csharp": "skipped",
             "go": "pass",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "verify.forbidden_laundering not implemented",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -1260,7 +1795,13 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "kotlin": "verify.forbidden_laundering not implemented"
           }
         },
         {
@@ -1269,10 +1810,16 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
-            "rust": "project shape not applicable"
+            "kotlin": "verify.forbidden_laundering not implemented",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         }
       ]
@@ -1282,7 +1829,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "not-implemented",
+        "python": "not-implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1291,7 +1841,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "kotlin": "verify.submodule_contracts not implemented",
+            "python": "verify.submodule_contracts not implemented"
           }
         },
         {
@@ -1300,11 +1857,17 @@
           "status": {
             "csharp": "skipped",
             "go": "pass",
-            "rust": "skipped"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "skipped"
           },
           "skip_reasons": {
             "csharp": "project shape not applicable",
-            "rust": "project shape not applicable"
+            "kotlin": "verify.submodule_contracts not implemented",
+            "python": "verify.submodule_contracts not implemented",
+            "rust": "project shape not applicable",
+            "ts": "project shape not applicable"
           }
         },
         {
@@ -1313,7 +1876,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "kotlin": "verify.submodule_contracts not implemented",
+            "python": "verify.submodule_contracts not implemented"
           }
         },
         {
@@ -1322,7 +1892,14 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "kotlin": "verify.submodule_contracts not implemented",
+            "python": "verify.submodule_contracts not implemented"
           }
         }
       ]
@@ -1332,7 +1909,10 @@
       "language_capability": {
         "csharp": "implemented",
         "go": "implemented",
-        "rust": "implemented"
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
       },
       "behaviors": [
         {
@@ -1341,7 +1921,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         },
         {
@@ -1350,7 +1933,10 @@
           "status": {
             "csharp": "pass",
             "go": "pass",
-            "rust": "pass"
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
           }
         }
       ]

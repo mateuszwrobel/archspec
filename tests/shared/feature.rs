@@ -151,18 +151,12 @@ fn scan_tier_populated(driver: &Driver, tier: &str) -> bool {
     }
 }
 
-/// A spec declaring one boundary per canonical unit with the app->shared edge
-/// allowed. Verifies clean for every driver.
+/// A spec declaring the canonical tree's clean boundaries — one shared helper
+/// with the scenarios (see `shared::scenarios::boundary_spec`), so the
+/// feature probes and the scenario suite read the same clean-spec law on
+/// every driver, the ts single-package arm included.
 fn boundary_spec(driver: &Driver) -> String {
-    format!(
-        "[project]\nlanguage = \"{}\"\n\n\
-         [[module]]\nname = \"app\"\nmatches = {{ units = [\"{}\"] }}\n\
-         [module.allowed]\ndepend_on = [\"shared\"]\n\n\
-         [[module]]\nname = \"shared\"\nmatches = {{ units = [\"{}\"] }}\n",
-        driver.language.as_str(),
-        driver.unit_name("app"),
-        driver.unit_name("shared")
-    )
+    crate::shared::scenarios::boundary_spec(driver)
 }
 
 fn probe_verify_boundaries(driver: &Driver) -> bool {
@@ -175,6 +169,34 @@ fn probe_verify_boundaries(driver: &Driver) -> bool {
 
 fn probe_verify_no_cycles(driver: &Driver) -> bool {
     let fx = common::Fixture::new();
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // Hard unit edges have no ts dialect (D1 single-package law) and no
+        // python dialect (single-distribution dialect, python driver record
+        // P1/P3): the probe cycles the single package's file modules
+        // instead, proving the cycle adjudication over module edges rather
+        // than a scan error.
+        let mut tree = LogicalTree::new();
+        tree.units = vec!["app".into()];
+        tree.modules.insert("app".into(), vec!["a".into(), "b".into()]);
+        tree.module_usings.push(("app".into(), "a".into(), "b".into()));
+        tree.module_usings.push(("app".into(), "b".into(), "a".into()));
+        driver.materialize(&fx, &tree);
+        let a = driver.module_path("app", "a");
+        let b = driver.module_path("app", "b");
+        fx.write(
+            "architecture.spec.toml",
+            &format!(
+                "[project]\nlanguage = \"{}\"\n\n\
+                 [[module]]\nname = \"app\"\nmatches = {{ units = [\"app\"] }}\n\n\
+                 [[module]]\nname = \"{a}\"\nmatches = {{ modules = [\"{a}\"] }}\n[module.allowed]\ndepend_on = [\"{b}\"]\n\n\
+                 [[module]]\nname = \"{b}\"\nmatches = {{ modules = [\"{b}\"] }}\n[module.allowed]\ndepend_on = [\"{a}\"]\n\n\
+                 [[constraint]]\ntype = \"no_cycles\"\nmodules = [\"{a}\", \"{b}\"]\n",
+                driver.language.as_str()
+            ),
+        );
+        let output = driver.run(&fx, &["verify"]);
+        return output.status.code() != Some(0) && common::stdout(&output).contains("cycle: ");
+    }
     let mut tree = LogicalTree::new();
     tree.units = vec!["a".into(), "b".into()];
     tree.hard_edges = vec![("a".into(), "b".into()), ("b".into(), "a".into())];
@@ -202,6 +224,9 @@ fn probe_verify_forbid_external(driver: &Driver) -> bool {
         Language::Rust => "serde",
         Language::Csharp => "Newtonsoft.Json",
         Language::Go => "example.com/third/party",
+        Language::Ts => "lodash",
+        Language::Python => "requests",
+        Language::Kotlin => crate::shared::scenarios::external_dep(driver),
     };
     let fx = common::Fixture::new();
     let mut tree = LogicalTree::new();
@@ -232,11 +257,25 @@ fn probe_verify_manifest(driver: &Driver) -> bool {
         Language::Rust => "serde",
         Language::Csharp => "Newtonsoft.Json",
         Language::Go => "somepkg",
+        Language::Ts => "lodash",
+        Language::Python => "requests",
+        // The kotlin manifest fact is the coordinate name (`group:artifact`)
+        // the gradle scanner states in `unit_manifests`.
+        Language::Kotlin => "com.example.lib:lib",
     };
     let fx = common::Fixture::new();
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
     tree.packages.insert("app".into(), vec![pkg.into()]);
+    if matches!(driver.language, Language::Ts | Language::Python | Language::Kotlin) {
+        // The ts and python scan legs need at least one source file: a
+        // manifest-only tree errors before the manifest facts exist, which
+        // would prove the probe green on an error exit. A module file makes
+        // the probe adjudicate the real manifest facts. The kotlin leg
+        // follows the same rule for the same reason (kotlin driver record
+        // K-P3: files carry the identity the scan walks).
+        tree.modules.insert("app".into(), vec!["core".into()]);
+    }
     driver.materialize(&fx, &tree);
     fx.write(
         "architecture.spec.toml",
@@ -354,6 +393,28 @@ fn probe_help_diagnostics(driver: &Driver) -> bool {
 fn probe_verify_root_facade(driver: &Driver) -> bool {
     if !crate::shared::capability::table().granular(driver.language.as_str(), "role-facade") {
         return false;
+    }
+    if driver.language == Language::Ts {
+        // The ts counterpart (C4): the package-root barrel `index.ts` is the
+        // public entry surface; the sibling imports its own item back through
+        // the barrel, and the check reports the barrel hop. The declared
+        // derivation is the pure-republication barrel, not a guessed shape.
+        let fx = common::Fixture::new();
+        fx.write(
+            "package.json",
+            "{ \"name\": \"app\", \"version\": \"1.0.0\", \"dependencies\": {} }\n",
+        );
+        fx.write("index.ts", "export { Thing } from \"./src/engine\";\n");
+        fx.write(
+            "src/engine.ts",
+            "export const Thing = \"x\";\nimport { Thing } from \"../index\";\nexport const make = Thing;\n",
+        );
+        fx.write(
+            "architecture.spec.toml",
+            "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"umbrella\"\nmatches = { units = [\"app\"] }\n\n[module.allowed]\ndepend_on = [\"engine\"]\n\n[[module]]\nname = \"engine\"\nmatches = { modules = [\"src/engine.ts\"] }\n\n[module.allowed]\ndepend_on = [\"umbrella\"]\n",
+        );
+        let output = driver.run(&fx, &["verify"]);
+        return common::stdout(&output).contains("facade dependency:");
     }
     let fx = common::Fixture::new();
     fx.write(
@@ -480,6 +541,27 @@ fn probe_verify_submodule_contracts(driver: &Driver) -> bool {
              [[module]]\nname = \"auth\"\nmatches = { units = [\"example.com/demo/auth\", \"example.com/demo/auth/entity\"] }\n\n\
              [[module.submodules]]\nname = \"auth::entity\"\nmatches = { modules = [\"example.com/demo/auth/entity\"] }\n\
              contract = { forbid = [\"entity\"] }\n",
+        );
+        let output = driver.run(&fx, &["verify"]);
+        return common::stdout(&output).contains("contract leak");
+    }
+    if driver.language == Language::Ts {
+        // The ts counterpart (C3): a submodule `a::b` whose boundary addresses
+        // the files of module b and its nested child; the stereotype classifies
+        // the child file by path, so the contract leaks through the same
+        // shipped leak shape on a file-backed module tree.
+        let fx = common::Fixture::new();
+        driver.materialize(&fx, &submodule_tree());
+        let a = driver.unit_name("a");
+        fx.write(
+            "architecture.spec.toml",
+            &format!(
+                "[project]\nlanguage = \"ts\"\n\n\
+                 [[module]]\nname = \"{a}\"\nmatches = {{ units = [\"{a}\"] }}\n\n\
+                 [[stereotype]]\nname = \"c\"\nmatch = {{ paths = [\"src/b/c.ts\"] }}\n\n\
+                 [[module.submodules]]\nname = \"{a}::b\"\nmatches = {{ modules = [\"src/b.ts\", \"src/b/c.ts\"] }}\n\
+                 contract = {{ forbid = [\"c\"] }}\n"
+            ),
         );
         let output = driver.run(&fx, &["verify"]);
         return common::stdout(&output).contains("contract leak");

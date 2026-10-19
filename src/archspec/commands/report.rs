@@ -1,7 +1,7 @@
 use crate::archspec::cli::{self, FlagSpec};
 use crate::archspec::config;
 use crate::archspec::inspect;
-use crate::archspec::language::{self, Language};
+use crate::archspec::language;
 use crate::archspec::report;
 use crate::archspec::scan;
 use crate::archspec::spec;
@@ -97,7 +97,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let loaded = spec::load_report(root_path)?;
     let spec_file = root_path.join(spec::SPEC_FILE);
-    let language = language_from_str(&loaded.project.language, &spec_file)?;
+    let language = language::from_name(&loaded.project.language).ok_or_else(|| {
+        format!(
+            "invalid spec: {}: unknown language \"{}\"",
+            spec_file.display(),
+            loaded.project.language
+        )
+    })?;
 
     if !scan::driver_available(language) {
         return Err(format!(
@@ -179,16 +185,4 @@ pub fn run(args: &[String]) -> Result<(), String> {
         return Err(RULE_VIOLATION_REPORTED.to_string());
     }
     Ok(())
-}
-
-fn language_from_str(value: &str, spec_file: &Path) -> Result<Language, String> {
-    match value {
-        "rust" => Ok(Language::Rust),
-        "csharp" => Ok(Language::Csharp),
-        "go" => Ok(Language::Go),
-        other => Err(format!(
-            "invalid spec: {}: unknown language \"{other}\"",
-            spec_file.display()
-        )),
-    }
 }

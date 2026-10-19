@@ -1,0 +1,1143 @@
+{
+  "schema": "archspec-e2e-matrix-v0",
+  "generated_by": "tests/e2e_matrix.rs (generated, never hand-edited)",
+  "denominator": {
+    "mode_cells": 59,
+    "exit_class_cells": 4,
+    "line_class_rows": 19,
+    "note": "the proposal heading says 58 verb-mode cells; the registry enumerates the table rows, which is the honest denominator"
+  },
+  "cells": [
+    {
+      "id": "version/default",
+      "verb": "version",
+      "mode": "version",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "version"
+      ],
+      "exit_class": 0,
+      "witness": "stdout names the tool with a version",
+      "status": "pass"
+    },
+    {
+      "id": "version/dashdash-version",
+      "verb": "version",
+      "mode": "--version",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "--version"
+      ],
+      "exit_class": 0,
+      "witness": "--version emits the same identity line shape",
+      "status": "pass"
+    },
+    {
+      "id": "init/default",
+      "verb": "init",
+      "mode": "[path]",
+      "kind": "mode",
+      "corpus": "rust-workspace",
+      "args": [
+        "init"
+      ],
+      "exit_class": 0,
+      "witness": "init scaffolds config + starter spec",
+      "status": "pass"
+    },
+    {
+      "id": "scan/default",
+      "verb": "scan",
+      "mode": "default",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "scan"
+      ],
+      "exit_class": 0,
+      "witness": "compact model JSON on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "scan/output",
+      "verb": "scan",
+      "mode": "--output",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "scan",
+        "--output",
+        "model.json"
+      ],
+      "exit_class": 0,
+      "witness": "model written to the destination file",
+      "status": "pass"
+    },
+    {
+      "id": "scan/check",
+      "verb": "scan",
+      "mode": "--check",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "scan",
+        "--check",
+        "--output",
+        "model.json"
+      ],
+      "exit_class": 0,
+      "witness": "fresh check names the destination with the ok-line",
+      "status": "pass"
+    },
+    {
+      "id": "scan/pretty",
+      "verb": "scan",
+      "mode": "--pretty",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "scan",
+        "--pretty"
+      ],
+      "exit_class": 0,
+      "witness": "indented JSON body",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/spec-source",
+      "verb": "diagram",
+      "mode": "spec source",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram"
+      ],
+      "exit_class": 0,
+      "witness": "mermaid body from the declared spec on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/source-scan",
+      "verb": "diagram",
+      "mode": "--source scan",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "scan.json"
+      ],
+      "exit_class": 0,
+      "witness": "mermaid body from the scan artefact",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/format-plantuml",
+      "verb": "diagram",
+      "mode": "--format plantuml",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--format",
+        "plantuml"
+      ],
+      "exit_class": 0,
+      "witness": "plantuml body",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/tiers",
+      "verb": "diagram",
+      "mode": "--tiers",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "scan.json",
+        "--tiers",
+        "modules"
+      ],
+      "exit_class": 0,
+      "witness": "additive module-tier render on the scan source exits 0 with a body",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/module",
+      "verb": "diagram",
+      "mode": "--module",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--module",
+        "app"
+      ],
+      "exit_class": 0,
+      "witness": "single-claim territory render",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/modules-dir",
+      "verb": "diagram",
+      "mode": "--modules-dir",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--modules-dir",
+        "diagrams"
+      ],
+      "exit_class": 0,
+      "witness": "one diagram file per module claim",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/output",
+      "verb": "diagram",
+      "mode": "--output",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--output",
+        "out.mmd"
+      ],
+      "exit_class": 0,
+      "witness": "diagram written to the destination file",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/check",
+      "verb": "diagram",
+      "mode": "--check",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--check",
+        "--output",
+        "out.mmd"
+      ],
+      "exit_class": 0,
+      "witness": "fresh check names the destination with the ok-line",
+      "status": "pass"
+    },
+    {
+      "id": "verify/default",
+      "verb": "verify",
+      "mode": "default",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "verify"
+      ],
+      "exit_class": 1,
+      "witness": "violation diffs on stdout, exit 1",
+      "status": "pass"
+    },
+    {
+      "id": "verify/strict",
+      "verb": "verify",
+      "mode": "--strict",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "verify",
+        "--strict"
+      ],
+      "exit_class": 1,
+      "witness": "--strict keeps the verdict, promotes vacuity class",
+      "status": "pass"
+    },
+    {
+      "id": "update/default",
+      "verb": "update",
+      "mode": "default",
+      "kind": "mode",
+      "corpus": "rust-workspace",
+      "args": [
+        "update"
+      ],
+      "exit_class": 0,
+      "witness": "seed spec generated from the tree",
+      "status": "pass"
+    },
+    {
+      "id": "update/force",
+      "verb": "update",
+      "mode": "--force",
+      "kind": "mode",
+      "corpus": "rust-workspace",
+      "args": [
+        "update",
+        "--force"
+      ],
+      "exit_class": 0,
+      "witness": "--force rewrites an existing seed spec",
+      "status": "pass"
+    },
+    {
+      "id": "report/text",
+      "verb": "report",
+      "mode": "text",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "report"
+      ],
+      "exit_class": 0,
+      "witness": "text body on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "report/format-markdown",
+      "verb": "report",
+      "mode": "--format markdown",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "report",
+        "--format",
+        "markdown"
+      ],
+      "exit_class": 0,
+      "witness": "markdown body on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "report/format-json",
+      "verb": "report",
+      "mode": "--format json",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "report",
+        "--format",
+        "json"
+      ],
+      "exit_class": 0,
+      "witness": "already-indented JSON body",
+      "status": "pass"
+    },
+    {
+      "id": "report/output",
+      "verb": "report",
+      "mode": "--output",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "report",
+        "--output",
+        "report.md"
+      ],
+      "exit_class": 0,
+      "witness": "report written to the destination file",
+      "status": "pass"
+    },
+    {
+      "id": "report/check",
+      "verb": "report",
+      "mode": "--check",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "report",
+        "--check",
+        "--output",
+        "report.md"
+      ],
+      "exit_class": 0,
+      "witness": "fresh check names the destination with the ok-line",
+      "status": "pass"
+    },
+    {
+      "id": "report/pretty",
+      "verb": "report",
+      "mode": "--pretty",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "report",
+        "--format",
+        "json",
+        "--pretty"
+      ],
+      "exit_class": 0,
+      "witness": "hole (b): --pretty actually runs; body bytes identical to non-pretty",
+      "status": "pass"
+    },
+    {
+      "id": "spec/reference",
+      "verb": "spec",
+      "mode": "reference",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "spec"
+      ],
+      "exit_class": 0,
+      "witness": "annotated spec reference on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "spec/schema",
+      "verb": "spec",
+      "mode": "--schema",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "spec",
+        "--schema"
+      ],
+      "exit_class": 0,
+      "witness": "draft-07 JSON Schema on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "doctor/default",
+      "verb": "doctor",
+      "mode": "(zero flags)",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "doctor"
+      ],
+      "exit_class": 0,
+      "witness": "driver/toolchain census per language",
+      "status": "pass"
+    },
+    {
+      "id": "inspect/default",
+      "verb": "inspect",
+      "mode": "default",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect"
+      ],
+      "exit_class": 0,
+      "witness": "file-level mermaid on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "inspect/tree",
+      "verb": "inspect",
+      "mode": "tree",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect",
+        "tree"
+      ],
+      "exit_class": 0,
+      "witness": "structural tree model renders",
+      "status": "pass"
+    },
+    {
+      "id": "inspect/scanner",
+      "verb": "inspect",
+      "mode": "scanner",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect",
+        "scanner"
+      ],
+      "exit_class": 0,
+      "witness": "unit-tier scanner model renders",
+      "status": "pass"
+    },
+    {
+      "id": "inspect/format",
+      "verb": "inspect",
+      "mode": "--format",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect",
+        "--format",
+        "plantuml"
+      ],
+      "exit_class": 0,
+      "witness": "plantuml body",
+      "status": "pass"
+    },
+    {
+      "id": "inspect/output",
+      "verb": "inspect",
+      "mode": "--output",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect",
+        "--output",
+        "inspect.mmd"
+      ],
+      "exit_class": 0,
+      "witness": "diagram written to the destination file",
+      "status": "pass"
+    },
+    {
+      "id": "inspect/check",
+      "verb": "inspect",
+      "mode": "--check",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect",
+        "--check",
+        "--output",
+        "inspect.mmd"
+      ],
+      "exit_class": 0,
+      "witness": "fresh check names the destination with the ok-line",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/modules",
+      "verb": "depgraph",
+      "mode": "modules",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "modules"
+      ],
+      "exit_class": 0,
+      "witness": "module-tier graph on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/api-usage",
+      "verb": "depgraph",
+      "mode": "api-usage",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "api-usage"
+      ],
+      "exit_class": 0,
+      "witness": "markdown usage table exits 0 (exit-class witness)",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/submodules",
+      "verb": "depgraph",
+      "mode": "submodules",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "submodules",
+        "--parent",
+        "app::core"
+      ],
+      "exit_class": 0,
+      "witness": "child graph of one module",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/format",
+      "verb": "depgraph",
+      "mode": "--format",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "modules",
+        "--format",
+        "plantuml"
+      ],
+      "exit_class": 0,
+      "witness": "plantuml body",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/parent",
+      "verb": "depgraph",
+      "mode": "--parent",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "submodules",
+        "--parent",
+        "app::core"
+      ],
+      "exit_class": 0,
+      "witness": "--parent selects the expanded module",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/output",
+      "verb": "depgraph",
+      "mode": "--output",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "modules",
+        "--output",
+        "deps.mmd"
+      ],
+      "exit_class": 0,
+      "witness": "body written to the destination file",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/check",
+      "verb": "depgraph",
+      "mode": "--check",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "modules",
+        "--check",
+        "--output",
+        "deps.mmd"
+      ],
+      "exit_class": 0,
+      "witness": "fresh check names the destination with the ok-line",
+      "status": "pass"
+    },
+    {
+      "id": "capability/matrix",
+      "verb": "capability",
+      "mode": "matrix",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "capability",
+        "matrix"
+      ],
+      "exit_class": 0,
+      "witness": "driver capability table on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "capability/granular",
+      "verb": "capability",
+      "mode": "granular",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "capability",
+        "granular",
+        "rust",
+        "role-facade"
+      ],
+      "exit_class": 0,
+      "witness": "machine query exits 0 at full granularity",
+      "status": "pass"
+    },
+    {
+      "id": "skill/audit",
+      "verb": "skill",
+      "mode": "audit emit",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "skill"
+      ],
+      "exit_class": 0,
+      "witness": "default audit skill on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "skill/print",
+      "verb": "skill",
+      "mode": "print",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "skill",
+        "print"
+      ],
+      "exit_class": 0,
+      "witness": "print emits the audit skill",
+      "status": "pass"
+    },
+    {
+      "id": "skill/install",
+      "verb": "skill",
+      "mode": "install",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "skill",
+        "install",
+        "."
+      ],
+      "exit_class": 0,
+      "witness": "skill installed under .agent/skills/",
+      "status": "pass"
+    },
+    {
+      "id": "skill/force",
+      "verb": "skill",
+      "mode": "--force",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "skill",
+        "install",
+        ".",
+        "--force"
+      ],
+      "exit_class": 0,
+      "witness": "--force overwrites drifted content; the echo names the file",
+      "status": "pass"
+    },
+    {
+      "id": "help/no-args",
+      "verb": "help",
+      "mode": "no args",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help"
+      ],
+      "exit_class": 0,
+      "witness": "manual index on stdout",
+      "status": "pass"
+    },
+    {
+      "id": "help/per-command",
+      "verb": "help",
+      "mode": "per-command",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "scan",
+        "--help"
+      ],
+      "exit_class": 0,
+      "witness": "per-command help surfaces the usage line",
+      "status": "pass"
+    },
+    {
+      "id": "help/typo",
+      "verb": "help",
+      "mode": "typo",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "scanx"
+      ],
+      "exit_class": 64,
+      "witness": "unknown topic is a usage error listing valid topics",
+      "status": "pass"
+    },
+    {
+      "id": "help/topic-commands",
+      "verb": "help",
+      "mode": "commands",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "commands"
+      ],
+      "exit_class": 0,
+      "witness": "manual topic prints a page",
+      "status": "pass"
+    },
+    {
+      "id": "help/topic-glob",
+      "verb": "help",
+      "mode": "glob",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "glob"
+      ],
+      "exit_class": 0,
+      "witness": "manual topic prints a page",
+      "status": "pass"
+    },
+    {
+      "id": "help/topic-spec",
+      "verb": "help",
+      "mode": "spec",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "spec"
+      ],
+      "exit_class": 0,
+      "witness": "manual topic prints a page",
+      "status": "pass"
+    },
+    {
+      "id": "help/topic-constraints",
+      "verb": "help",
+      "mode": "constraints",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "constraints"
+      ],
+      "exit_class": 0,
+      "witness": "manual topic prints a page",
+      "status": "pass"
+    },
+    {
+      "id": "help/topic-languages",
+      "verb": "help",
+      "mode": "languages",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "languages"
+      ],
+      "exit_class": 0,
+      "witness": "manual topic prints a page",
+      "status": "pass"
+    },
+    {
+      "id": "help/topic-roles",
+      "verb": "help",
+      "mode": "roles",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "roles"
+      ],
+      "exit_class": 0,
+      "witness": "manual topic prints a page",
+      "status": "pass"
+    },
+    {
+      "id": "help/topic-workflow",
+      "verb": "help",
+      "mode": "workflow",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "workflow"
+      ],
+      "exit_class": 0,
+      "witness": "manual topic prints a page",
+      "status": "pass"
+    },
+    {
+      "id": "help/topic-capabilities",
+      "verb": "help",
+      "mode": "capabilities",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "capabilities"
+      ],
+      "exit_class": 0,
+      "witness": "manual topic prints a page",
+      "status": "pass"
+    },
+    {
+      "id": "help/topic-diagnostics",
+      "verb": "help",
+      "mode": "diagnostics",
+      "kind": "mode",
+      "corpus": "empty",
+      "args": [
+        "help",
+        "diagnostics"
+      ],
+      "exit_class": 0,
+      "witness": "manual topic prints a page",
+      "status": "pass"
+    },
+    {
+      "id": "verify/missing-spec",
+      "verb": "verify",
+      "mode": "(no spec)",
+      "kind": "exit-class",
+      "corpus": "empty",
+      "args": [
+        "verify"
+      ],
+      "exit_class": 70,
+      "witness": "missing precondition exits 70 naming the file",
+      "status": "pass"
+    },
+    {
+      "id": "report/missing-spec",
+      "verb": "report",
+      "mode": "(no spec)",
+      "kind": "exit-class",
+      "corpus": "empty",
+      "args": [
+        "report"
+      ],
+      "exit_class": 70,
+      "witness": "missing precondition exits 70 naming the file",
+      "status": "pass"
+    },
+    {
+      "id": "cli/unknown-command",
+      "verb": "cli",
+      "mode": "unknown command",
+      "kind": "exit-class",
+      "corpus": "empty",
+      "args": [
+        "frobnicate"
+      ],
+      "exit_class": 64,
+      "witness": "unknown command exits 64",
+      "status": "pass"
+    },
+    {
+      "id": "cli/unknown-flag",
+      "verb": "cli",
+      "mode": "unknown flag",
+      "kind": "exit-class",
+      "corpus": "empty",
+      "args": [
+        "scan",
+        "--nope"
+      ],
+      "exit_class": 64,
+      "witness": "unknown flag exits 64",
+      "status": "pass"
+    },
+    {
+      "id": "scan/python-not-modelled",
+      "verb": "scan",
+      "mode": "python dynamic sites",
+      "kind": "line-class",
+      "corpus": "python-dynamic",
+      "args": [
+        "scan"
+      ],
+      "exit_class": 0,
+      "witness": "hole (a): python emitter witnessed at binary level; never in the machine body",
+      "status": "pass"
+    },
+    {
+      "id": "scan/ts-dynamic-wildcard",
+      "verb": "scan",
+      "mode": "ts dynamic wildcard",
+      "kind": "line-class",
+      "corpus": "ts-dynamic",
+      "args": [
+        "scan"
+      ],
+      "exit_class": 0,
+      "witness": "wildcard report line on stderr; never in the machine body",
+      "status": "pass"
+    }
+  ],
+  "known_failing": [],
+  "line_class_rows": [
+    {
+      "class": "dynamic import wildcard",
+      "evidence": [
+        {
+          "test": "ts_driver.rs",
+          "needle": "dynamic import wildcard"
+        }
+      ],
+      "lit_by": "scan/ts-dynamic-wildcard"
+    },
+    {
+      "class": "dynamic import not modelled",
+      "evidence": [
+        {
+          "test": "python_driver.rs",
+          "needle": "dynamic import not modelled"
+        }
+      ],
+      "lit_by": "scan/python-not-modelled"
+    },
+    {
+      "class": "external not installed",
+      "evidence": [
+        {
+          "test": "ts_driver.rs",
+          "needle": "external not installed"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "workspace link missing",
+      "evidence": [
+        {
+          "test": "ts_workspace.rs",
+          "needle": "workspace link missing"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "undeclared member import",
+      "evidence": [
+        {
+          "test": "ts_workspace.rs",
+          "needle": "undeclared member import"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "workspace target not built",
+      "evidence": [
+        {
+          "test": "ts_workspace.rs",
+          "needle": "workspace target not built"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "generated source not built",
+      "evidence": [
+        {
+          "test": "ts_driver.rs",
+          "needle": "generated source not built"
+        },
+        {
+          "test": "ts_workspace.rs",
+          "needle": "generated source not built"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "generated tsconfig absent",
+      "evidence": [
+        {
+          "test": "ts_driver.rs",
+          "needle": "generated tsconfig absent"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "tsconfig extends not installed",
+      "evidence": [
+        {
+          "test": "ts_driver.rs",
+          "needle": "tsconfig extends not installed"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "virtual specifier not modelled",
+      "evidence": [
+        {
+          "test": "ts_driver.rs",
+          "needle": "virtual specifier not modelled"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "framework conventions not configured",
+      "evidence": [
+        {
+          "test": "ts_driver.rs",
+          "needle": "framework conventions not configured"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "no settings file",
+      "evidence": [
+        {
+          "test": "kotlin_driver.rs",
+          "needle": "no settings file"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "unresolved settings include",
+      "evidence": [
+        {
+          "test": "kotlin_driver.rs",
+          "needle": "unresolved settings include"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "split package",
+      "evidence": [
+        {
+          "test": "kotlin_driver.rs",
+          "needle": "split package"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "gradle catalog unreadable",
+      "evidence": [
+        {
+          "test": "kotlin_driver.rs",
+          "needle": "gradle catalog unreadable"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "boundary advisory",
+      "evidence": [
+        {
+          "test": "kotlin_driver.rs",
+          "needle": "boundary advisory"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "java sources not indexed",
+      "evidence": [
+        {
+          "test": "kotlin_driver.rs",
+          "needle": "java sources not indexed"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "orphan file / orphan file census",
+      "evidence": [
+        {
+          "test": "ts_driver.rs",
+          "needle": "orphan file"
+        }
+      ],
+      "lit_by": null
+    },
+    {
+      "class": "vacuous constraint (scan manifest)",
+      "evidence": [
+        {
+          "test": "python_driver.rs",
+          "needle": "vacuous constraint"
+        }
+      ],
+      "lit_by": "scan/python-not-modelled"
+    }
+  ]
+}

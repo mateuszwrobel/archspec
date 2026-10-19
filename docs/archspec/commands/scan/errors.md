@@ -10,7 +10,13 @@ A parse failure **aborts the run** — the model is not produced from a partiall
 |---|---|---|
 | path does not exist | the invalid path | non-zero |
 | path is a regular file | the path is invalid and why | non-zero |
-| no supported-language sources found (recursively) | that no Rust/C#/Go sources were found, and where | non-zero |
+| no supported-language sources found (recursively) | that no Rust/C#/Go/ts/python sources were found, and where | non-zero |
+| the spec pins a language whose root marker is absent while other root markers stand (`language mismatch: <declared> — no root marker <marker> for the declared language, found: <markers>`) | the declared language, the marker file it expects, and the marker files actually found | non-zero |
+| more than one root marker at the scan root with no spec pinning a language (`ambiguous root markers: <path> (<language>), … — pin [project] language or scan a single-language root`) | that the root is polyglot, every marker file named, and the pin or per-root remedy | non-zero |
+| the spec's declared language disagrees with the counted tree (`language mismatch`, the D14 agreement check — only when a spec sits at the scanned root) | the declared and found languages with the counts of each, and the `excluded_sources` remedy | non-zero |
+| a foreign root-marker file sits below the scan root (`nested foreign marker: <path> (<language>) — not modelled`) | that the tree below that marker is not modelled — report-only, one line per marker file, exit 0 | 0 |
+| a scanned ts source file carries no model fact (`orphan file: <path>`, closed by one `orphan file census: <n> of <m> scanned files — the model lists no fact for any of them` summary, never at zero) | that the import-graph fact sets list no fact for the file (the census names its blind spots in `help diagnostics`) — report-only, one line per file, exit 0 | 0 |
+| a ts specifier resolves to no file (`unresolvable import`) — or only into an excluded tree, where the line names the exclusion | the importing file, the specifier verbatim, and the exclusion remedy | non-zero |
 | a source file fails to parse | the name of the failing file | non-zero |
 | language detected but no driver/toolchain present | the detected language, that its toolchain is missing, and to run `archspec doctor` | non-zero |
 | more than one positional argument | that only one path is accepted | non-zero |

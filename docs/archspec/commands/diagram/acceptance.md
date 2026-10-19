@@ -70,12 +70,27 @@ Running `diagram` on a fixture project renders a byte-stable diagram (Mermaid by
 | 36 | spec whose claim name equals a rendered unit name | run with `--tiers modules` | exit 0; the two tiers render two distinct nodes (ids cannot collapse); labels stay grep-able |
 | 37 | `--check` with `--tiers modules`, destination holds the flagged render | run `diagram --source scan <artefact> --tiers modules --output <f> --check` | exit 0; the compared bytes are the flagged render's |
 
+## File tier (`--tiers files` — spec source with a territory flag)
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 40 | spec whose claim territory holds a two-file cycle, flag set | run `diagram --source spec --tiers files --module <claim>` | exit 0; the claim subgraph holds a `files` cluster with one node per file and one arrow per used_by edge; the cycle's arrows carry the violation mark — verdict-for-verdict equal to the cycle findings `verify` reports for the same tree |
+| 41 | same tree, `verify` exits 0 (the files edges are legal under the contract) | run `diagram --source spec --tiers files --module <claim>` and `verify` | both exit 0; the render carries no `violates spec` mark — exit-code parity across the surfaces |
+| 42 | territory holds a file and an asset (`.css`); an asset and a file import the file | run `diagram --source spec --tiers files --module <claim>` | exit 0; the asset vertex renders with its incoming edge only and never carries the mark — cycles close between source files only |
+| 43 | same tree, warning-severity cycle | run `diagram --source spec --tiers files --module <claim>` while `verify` exits 0 | exit 0; the cycle's arrows render solid — the mark set is the error bucket, the warning bucket stays unmarked |
+| 44 | scan artefact | run `diagram --source scan <artefact> --tiers files` | exit `64`; message says the tier requires the spec source (the scan tier is the module tier — the scan leg extracts no file-level edges) |
+| 45 | `--tiers files` without `--module` or `--modules-dir` | run `diagram --source spec --tiers files` | exit `64`; message names both territory flags and the size law (one claim's territory per render, the whole tree never) |
+| 46 | rust project with a multi-file crate | run `diagram --source spec --tiers files --module <claim>` | exit 0; the `files` cluster carries the serialized `file_edges` rows when the claim's patterns address the files, the module-view bytes stay inside it, and no `note:` line prints — the rust driver emits the fact (a tree whose unit shows no file adjacency renders the module view unchanged, still with no note: an empty render states absence by omission of rows, not by fabrication) |
+| 47 | `--modules-dir` batch | run `diagram --source spec --tiers files --modules-dir <dir>` | exit 0; each diagram whose claim holds a files cycle carries the cluster and marks; other diagrams keep their exact default bytes |
+| 48 | `--check` with `--tiers files`, destination holds the cluster render | run `diagram --source spec --tiers files --module <claim> --output <f> --check` | exit 0; the compared bytes are the cluster render's |
+
 ## Errors — tier selection
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 38 | `--tiers` value outside `units`/`modules`, a duplicate entry, or an empty list | run `diagram --source scan <artefact> --tiers <bad>` | exit `64`; message names the offending value and the supported tiers |
-| 39 | `--tiers` with `--source spec` | run `diagram --tiers modules` | exit `64`; message says the flag requires `--source scan` |
+| 38 | `--tiers` value outside `units`/`modules`/`files`, a duplicate entry, or an empty list | run `diagram --source scan <artefact> --tiers <bad>` | exit `64`; message names the offending value and the supported tiers |
+| 39 | `--tiers units` or `--tiers modules` with `--source spec` | run `diagram --tiers modules` | exit `64`; message says the flag requires `--source scan` |
+| 44/45 | the `--tiers files` refusals | see the file-tier table | exit `64`; messages as stated there |
 
 ## Role marks (`--source scan`)
 
@@ -105,4 +120,19 @@ the shared scenario `diagram / scan_mode_marks_role_carriers`. Tier-plan pins
 `…::unit_tier_ceiling_gap_edge_marks_without_flag`; row 36 —
 `…::tiers_modules_claim_name_equal_unit_name_does_not_collapse`; row 37 —
 `…::tiers_check_gates_flagged_bytes`; rows 38–39 —
-`…::tiers_invalid_values_exit_64`.
+`…::tiers_invalid_values_exit_64`. File-tier pins
+(workplan_archspec_ts_driver, phase C — rows 40–48, appended with a
+numbering gap noted): row 40 —
+`tests/diagram_files_tier.rs::files_tier_renders_territory_files_and_file_edges`,
+row 41 — `…::files_tier_marks_agree_verdict_for_verdict_with_verify`
+(exit-code-parity arms included), row 42 —
+`…::asset_vertex_renders_incoming_only_and_never_cycle_marked`, row 43 —
+`…::warning_severity_cycle_stays_solid_in_the_files_render` and the
+plantuml grammar arm `…::files_tier_renders_plantuml_with_the_violation_grammar`,
+row 44 — `…::files_tier_with_scan_source_is_refused`, row 45 —
+`…::files_tier_without_territory_scope_is_refused`, row 46 —
+`…::files_tier_on_a_rust_spec_states_vacuity_and_never_fabricates`, row 47 —
+`…::modules_dir_batch_renders_clusters_and_check_gates_them`
+(`--check` arm is row 48). The unknown-tier vocabulary arm is
+`…::unknown_tier_value_names_the_extended_vocabulary` and the byte-identity
+arm is `…::module_render_without_files_value_is_byte_unchanged`.

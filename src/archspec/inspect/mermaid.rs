@@ -1,4 +1,4 @@
-use crate::archspec::inspect::FileGraph;
+use crate::archspec::inspect::file_graph::FileGraph;
 use rust_arch_test_kit::render::{
     mermaid_edge, mermaid_layout_link, mermaid_node, mermaid_subgraph,
 };
@@ -52,12 +52,25 @@ fn first_node(dir: &Dir) -> String {
     if let Some(file) = dir.files.iter().next() {
         return file.clone();
     }
-    first_node(dir.dirs.values().next().unwrap())
+    // build_tree creates a Dir only as an ancestor of a file, so a file-less
+    // Dir always has a subdirectory holding one (self-audit F5).
+    first_node(
+        dir.dirs
+            .values()
+            .next()
+            .expect("file-less tree dir carries a subdir by construction"),
+    )
 }
 
 fn last_node(dir: &Dir) -> String {
     if let Some((_, sub)) = dir.dirs.iter().next_back() {
         return last_node(sub);
     }
-    dir.files.iter().next_back().unwrap().clone()
+    // A Dir with no subdirectories is the file's own directory (the build_tree
+    // law above), so it carries at least one file (self-audit F5).
+    dir.files
+        .iter()
+        .next_back()
+        .expect("subdir-less tree dir carries a file by construction")
+        .clone()
 }

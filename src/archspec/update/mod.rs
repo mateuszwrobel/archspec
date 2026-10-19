@@ -54,6 +54,25 @@ pub fn seed_spec(model: &Model) -> String {
             return seed_go_packages(model);
         }
     }
+    // The ts module tier is file identity (D10): the fold below keys on
+    // `unit::module` paths the ts model never states, so a ts tree that
+    // carries module facts seeds per-file boundaries instead (see
+    // `seed_ts_files`). The python driver carries the same file-identity
+    // tier (the ts precedent), so its module facts seed through the very
+    // same shape — the language line keeps the emitted dialect honest.
+    // The kotlin driver is NOT in this arm: its file identity rides
+    // `file_edges`, its `module_edges` rows name gradle-unit identities,
+    // and the general fold below seeds exactly one boundary per gradle
+    // unit with `allowed.depend_on` from the hard project edges (K-P2).
+    if matches!(model.language.as_str(), "ts" | "python")
+        && (!model.module_edges.is_empty()
+            || model
+                .root_module_declarations
+                .values()
+                .any(|declarations| !declarations.is_empty()))
+    {
+        return seed_ts_files(model);
+    }
     let mut units = model.units.clone();
     units.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -278,6 +297,83 @@ pub fn seed_spec(model: &Model) -> String {
     // constraint with no `modules` list, which already means "all declared
     // modules" — seeded projects start cycle-clean without engine defaults or
     // schema additions.
+    out.push('\n');
+    out.push_str("[[constraint]]\n");
+    out.push_str("type = \"no_cycles\"\n");
+
+    out.push('\n');
+    out
+}
+
+/// Seed for the ts model: the module tier is file identity (D10), so the
+/// seed declares one `[[module]]` per file vertex the model states — every
+/// declaration name and every module-edge endpoint — claiming it through
+/// `matches.modules` and allowing exactly the file's real internal targets.
+/// The single package is claimed by unit name. The result verifies clean
+/// against its own tree: ceiling, floor and endpoint ownership all read the
+/// same scan facts the seed was derived from.
+fn seed_ts_files(model: &Model) -> String {
+    let mut units = model.units.clone();
+    units.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut files: BTreeSet<String> = BTreeSet::new();
+    for declarations in model.root_module_declarations.values() {
+        files.extend(declarations.iter().map(|decl| decl.name.clone()));
+    }
+    let mut targets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for edge in &model.module_edges {
+        files.insert(edge.from.clone());
+        files.insert(edge.to.clone());
+        if edge.from != edge.to {
+            targets
+                .entry(edge.from.clone())
+                .or_default()
+                .insert(edge.to.clone());
+        }
+    }
+
+    let mut out = String::new();
+    out.push_str("[project]\n");
+    out.push_str(&format!(
+        "language = \"{}\"\n",
+        toml_escape(&model.language)
+    ));
+    out.push('\n');
+
+    for (index, unit) in units.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        out.push_str("[[module]]\n");
+        out.push_str(&format!("name = \"{}\"\n", toml_escape(&unit.name)));
+        out.push_str(&format!(
+            "matches = {{ units = [\"{}\"] }}\n",
+            toml_escape(&unit.name)
+        ));
+    }
+
+    for file in &files {
+        out.push('\n');
+        out.push_str("[[module]]\n");
+        out.push_str(&format!("name = \"{}\"\n", toml_escape(file)));
+        out.push_str(&format!(
+            "matches = {{ modules = [\"{}\"] }}\n",
+            toml_escape(file)
+        ));
+        if let Some(file_targets) = targets.get(file.as_str())
+            && !file_targets.is_empty()
+        {
+            let rendered = file_targets
+                .iter()
+                .map(|target| format!("\"{}\"", toml_escape(target)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!("allowed = {{ depend_on = [{rendered}] }}\n"));
+        }
+    }
+
+    // Global cycle guard, as in the general seed: an unlisted `modules` set
+    // already means "all declared modules".
     out.push('\n');
     out.push_str("[[constraint]]\n");
     out.push_str("type = \"no_cycles\"\n");

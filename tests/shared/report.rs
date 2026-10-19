@@ -45,6 +45,13 @@ pub fn empty_report() -> MatrixReport {
         .map(|feature| {
             let mut language_capability = BTreeMap::new();
             for driver in Driver::all() {
+                // Heartbeat: the matrix probes run binaries; a stalled leg
+                // must name itself instead of silently burning the lane.
+                eprintln!(
+                    "MILE probe {} on {}",
+                    feature.as_str(),
+                    driver.language.as_str()
+                );
                 let fx = common::Fixture::new();
                 let implemented = feature.probe(&driver, &fx);
                 language_capability.insert(

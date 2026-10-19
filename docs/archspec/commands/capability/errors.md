@@ -16,7 +16,7 @@ answer, and guards treat it as such.
 | extra positional after `matrix` | `capability matrix takes no arguments` | 1 |
 | `granular` with fewer than two arguments | `usage: archspec capability granular <language> <fact>` | 1 |
 | `granular` with more than two arguments | `capability granular takes two arguments` | 1 |
-| language not one of `rust`, `csharp`, `go` | `unknown language: <name>` | 1 |
+| language not a driver name | `unknown language: <name>` | 1 |
 | fact not stated for that language in the table | `unknown fact for <language>: <fact>` | 1 |
 | row exists but is not full granularity | `not-granular` (query answer, not a fault) | 1 |
 | unknown flag | `unknown flag: --<name>` | 64 (usage class) |
@@ -38,8 +38,8 @@ error: not-granular
 $ archspec capability
 error: usage: archspec capability matrix | granular <language> <fact>
 
-$ archspec capability granular kotlin module-tier
-error: unknown language: kotlin
+$ archspec capability granular fortran module-tier
+error: unknown language: fortran
 
 $ archspec capability granular rust no-such-fact
 error: unknown fact for rust: no-such-fact

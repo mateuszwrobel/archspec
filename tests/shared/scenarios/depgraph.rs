@@ -5,7 +5,8 @@ use crate::shared::driver::{
 use crate::shared::feature::Feature;
 use crate::shared::scenario::Scenario;
 use crate::shared::scenarios::{
-    expect_success, mermaid_node_markers, scenario_when, scenario_when_capability,
+    expect_success, mermaid_node_markers, not_ts, not_ts_or_py, scenario_when,
+    scenario_when_capability,
 };
 use serde_json::Value;
 
@@ -22,11 +23,11 @@ fn rust_only(driver: &Driver) -> bool {
 
 pub fn all() -> Vec<Scenario> {
     vec![
-        scenario_when_capability(
+        scenario_when(
             Feature::Depgraph,
             "modules_projects_top_level_graph",
             "depgraph modules collapses nested module paths to top-level nodes and may draw several (cross product of folded top-nodes)",
-            "module-tier",
+            not_ts_or_py,
             modules_projects_top_level_graph,
         ),
         scenario_when_capability(
@@ -43,11 +44,11 @@ pub fn all() -> Vec<Scenario> {
             rust_only,
             submodules_view_scopes_to_parent,
         ),
-        scenario_when_capability(
+        scenario_when(
             Feature::Depgraph,
             "modules_mark_folded_role_carriers",
             "depgraph modules marks a rendered node exactly when the roles keys folded through the view's own projection state one distinct role there, so no marker appears without an entry and no entry the view can honestly name is dropped",
-            "module-tier",
+            not_ts,
             modules_mark_folded_role_carriers,
         ),
     ]
@@ -89,6 +90,34 @@ fn nested_module_tree() -> LogicalTree {
 }
 
 fn modules_projects_top_level_graph(driver: &Driver, fx: &common::Fixture) -> Result<(), String> {
+    if driver.language == Language::Kotlin {
+        // The kotlin module tier is unit-identified (kotlin driver record
+        // K-P2): the modules view projects one node per gradle unit, so the
+        // two-unit tree with a project dependency is the shape that renders
+        // an inter-module edge — a single-unit file tree folds onto one node.
+        let mut tree = LogicalTree::new();
+        tree.units = vec!["app".into(), "shared".into()];
+        tree.modules.insert("app".into(), vec!["core".into()]);
+        tree.modules.insert("shared".into(), vec!["models".into()]);
+        tree.hard_edges.push(("app".into(), "shared".into()));
+        driver.materialize(fx, &tree);
+        let output = expect_success(driver, fx, &["depgraph", "modules"])?;
+        let stdout = common::stdout(&output);
+        if !stdout.contains("graph TD") {
+            return Err(format!(
+                "depgraph modules must render a mermaid graph:\n{stdout}"
+            ));
+        }
+        let edge = format!(
+            "{} --> {}",
+            driver.unit_name("app"),
+            driver.unit_name("shared")
+        );
+        if !stdout.contains(&edge) {
+            return Err(format!("expected top-level edge {edge}:\n{stdout}"));
+        }
+        return Ok(());
+    }
     if driver.language == Language::Go {
         // A single-module go tree folds the whole graph onto one node: the
         // modules view projects one node per module and both endpoints of an
@@ -132,6 +161,28 @@ fn api_usage_view_emits_table_contract(
     driver: &Driver,
     fx: &common::Fixture,
 ) -> Result<(), String> {
+    if driver.language == Language::Kotlin {
+        // The kotlin module tier is unit-identified (kotlin driver record
+        // K-P2), so a single-unit file tree states no module tier and the
+        // command refuses: the two-unit project dependency is the shape
+        // carrying an api-usage row.
+        let mut tree = LogicalTree::new();
+        tree.units = vec!["app".into(), "shared".into()];
+        tree.modules.insert("app".into(), vec!["core".into()]);
+        tree.modules.insert("shared".into(), vec!["models".into()]);
+        tree.hard_edges.push(("app".into(), "shared".into()));
+        driver.materialize(fx, &tree);
+        let output = expect_success(driver, fx, &["depgraph", "api-usage"])?;
+        let stdout = common::stdout(&output);
+        let has_table = stdout.contains("| Target module | Used by module | APIs used |");
+        let has_none = stdout.contains("No internal API usage details found.");
+        if !has_table && !has_none {
+            return Err(format!(
+                "api-usage must emit the fixed-column table or the no-usage statement:\n{stdout}"
+            ));
+        }
+        return Ok(());
+    }
     driver.materialize(fx, &soft_module_tree());
     let output = expect_success(driver, fx, &["depgraph", "api-usage"])?;
     let stdout = common::stdout(&output);
@@ -245,9 +296,7 @@ fn modules_mark_folded_role_carriers(driver: &Driver, fx: &common::Fixture) -> R
     if rendered.is_empty() {
         return Err(format!("the modules view renders no node declarations:\n{stdout}"));
     }
-    let roles = model["roles"]
-        .as_object()
-        .ok_or_else(|| "the canonical tree derives roles, so the model must serialize a map".to_string())?;
+    let roles = super::roles_map_or_absent(&model, driver.language.as_str())?;
     let deep = projects_deep(&model);
     // The view's fold, mirrored: lift driver-native separators to the model's
     // `::` grammar, project, and collect one honest role per node — a node

@@ -152,6 +152,7 @@ fn extract_single_module(root: &Path) -> Result<Model, String> {
     let module_edges: Vec<ModuleEdge> = edge_set
         .iter()
         .map(|(from, to)| ModuleEdge {
+            type_only: false,
             unit: module.clone(),
             from: dotted_module(from),
             to: dotted_module(to),
@@ -163,25 +164,13 @@ fn extract_single_module(root: &Path) -> Result<Model, String> {
         .collect();
 
     Ok(Model {
-        schema_version: 1,
-        language: "go".to_string(),
         units,
         edges,
-        usage: Default::default(),
-        soft_structure: Default::default(),
         external,
         module_edges,
-        manifest: Default::default(),
-        root_public_exports: Default::default(),
-        root_glob_exports: Default::default(),
-        root_empty_glob_exports: Default::default(),
-        module_public_types: Default::default(),
         module_external,
-        root_module_declarations: Default::default(),
-        unit_manifests: Default::default(),
-        unresolved_module_files: Default::default(),
-        test_gated_modules: Default::default(),
         roles,
+        ..Model::new("go")
     })
 }
 
@@ -435,6 +424,7 @@ fn extract_workspace(
             continue;
         };
         module_edges.push(ModuleEdge {
+            type_only: false,
             unit: from_member.to_string(),
             from: dotted_module(from),
             to: dotted_module(to),
@@ -449,25 +439,14 @@ fn extract_workspace(
     });
 
     Ok(Model {
-        schema_version: 1,
-        language: "go".to_string(),
         units,
         edges,
-        usage: Default::default(),
         soft_structure,
         external,
         module_edges,
-        manifest: Default::default(),
-        root_public_exports: Default::default(),
-        root_glob_exports: Default::default(),
-        root_empty_glob_exports: Default::default(),
-        module_public_types: Default::default(),
         module_external,
-        root_module_declarations: Default::default(),
-        unit_manifests: Default::default(),
-        unresolved_module_files: Default::default(),
-        test_gated_modules: Default::default(),
         roles,
+        ..Model::new("go")
     })
 }
 

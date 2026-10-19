@@ -68,4 +68,23 @@ done
 echo "Credits freshness: gen-credits --check"
 "$SCRIPT_DIR/scripts/gen-credits.sh" --check
 
+# 4. npm-channel legs (ADR-051). The node suite exercises the package tree
+#    (shim, install path, gates, staging). The containerized build image has
+#    no node — there the leg prints a named skip instead of passing silently;
+#    hook legs run on hosts with node and always run the suite. The
+#    leak-parity script lives in the project's internal/ dir (outside the
+#    payload) and is likewise skipped by name where absent.
+if command -v node >/dev/null 2>&1; then
+  echo "npm channel: node suite (node $(node --version))"
+  bash "$SCRIPT_DIR/npm/test/run-npm-tests.sh"
+else
+  echo "npm channel: node absent (containerized leg) — node suite skipped by name"
+fi
+if [[ -f "$SCRIPT_DIR/../../internal/test_npm_leak_parity.sh" ]]; then
+  echo "npm channel: leak parity against the publish guard's list"
+  bash "$SCRIPT_DIR/../../internal/test_npm_leak_parity.sh"
+else
+  echo "npm channel: internal/test_npm_leak_parity.sh absent — parity leg skipped by name"
+fi
+
 echo "All rust-arch-test-kit tests, clippy, self verify and doc freshness checks passed."

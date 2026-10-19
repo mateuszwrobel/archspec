@@ -1,6 +1,6 @@
 [package]
 name = "rust-arch-test-kit"
-version = "0.6.0"  # released — entry lives in CHANGELOG.md under [0.6.0]; do not bump past the tag until the release commit; the 0.6.0 line carries the exit-taxonomy retrofit — usage errors exit 64, undeclared verbs exit 64, a missing spec answers 70 — a breaking change to the public exit surface; releases at 0.5.x and older age out through the deprecation note in that entry, never through a retro-shim; the relation-analysis playbook emitted as its own analysis skill (`archspec skill analysis`), with its README, agent-guide and skill wiring, and the .github/FUNDING.yml sponsorship file land on this same version line; the feature_matrix read-only-source gate fix (target-dir report regeneration with committed-copy byte check) lands on this same version line; the ADR-020 module-claim jurisdiction design record (plan, ADR and decision-check landed together) lands on this same version line; the nested-submodule dependency engagement implementation (most-specific-claim adjudication at depth, policy inheritance, the containment law, claim-engagement warnings, depth-rendered spec diagrams) lands on this same version line; the submodule dependency engagement audit fixups (Breaking release note, workplan amendment, fan-out restatements, duplicate-name weld) land on this same version line; the report findings render fix (constraint-tier categories printed by every renderer, the exit gate and the renderers sharing one field list, the silent-red guard) lands on this same version line; the scan-diagram module-tier adjudication seam extraction lands on this same version line; the scan diagram module tier (opt-in --tiers, claim-named module identity, shared-adjudication marking with the always-on unit-tier ceiling-mark fix, ADR-021) lands on this same version line; the contract expose chain law (contract.expose un-reserved at every depth — the deepest-claim crossing adjudication, staleness and vacuity carriers, C# root-territory exclusion, the go vacuity rewrite, diagram --module/--modules-dir per the widened adjudication seam, the stderr version footer) lands on this same version line; the release-prep changelog rollup for 0.6.0 lands on this same version line
+version = "0.6.29"  # released — entry lives in CHANGELOG.md under [0.6.29]; do not bump past the tag until the release commit
 edition = "2024"
 
 rust-version = "1.99"
@@ -21,6 +21,39 @@ tree-sitter = "0.24"
 # in-repo combination resolves the same version.
 tree-sitter-c-sharp = "=0.23.1"
 tree-sitter-go = "0.23"
+# Exact pins under the same ABI discipline: the pinned pair was probed
+# in-repo against the runtime 0.24 pin on 2026-10-16 — set_language clean,
+# `.ts` (generics, interfaces), `.tsx` (JSX) and plain JS (template-literal
+# dynamic imports) all parse. Grammar releases newer than these pins may
+# carry a newer grammar ABI than the runtime speaks (ADR-014 law), so the
+# combination moves only as a probed unit. The JavaScript sibling grammar
+# answers `.js` and `.jsx` (D1). ADR-022.
+tree-sitter-typescript = "=0.23.2"
+tree-sitter-javascript = "=0.23.1"
+# Exact pin under the same probe-unit discipline (ADR-014, python driver
+# record P2): tree-sitter-python 0.23.6 carries grammar ABI 14, matching the
+# runtime 0.24 pin; the combination was probed in-repo (set_language clean,
+# `import_statement`/`import_from_statement` extraction, error-free parses of
+# relative and dotted forms). 0.25.0 carries the ABI-15 trap the pair above
+# documents — the runtime bump is a SEPARATE decision, not part of this pin.
+tree-sitter-python = "=0.23.6"
+# Exact pin under the same probe-unit discipline (ADR-014): brokk-tree-sitter-kotlin
+# 0.4.6 was probed in-repo against the runtime 0.24 pin — set_language clean, an
+# error-free tree for package + import + declaration source. The canonical
+# fwcd-family tree-sitter-kotlin crates did not resolve against this runtime
+# pin when probed (grammar dependency conflict), so the kotlin grammar enters
+# through this crate. The grammar moves only as a probed unit.
+brokk-tree-sitter-kotlin = "=0.4.6"
+# Exact pin under the same probe-unit discipline (ADR-014): this is the
+# newest stable oxc_resolver release on crates.io at Lane R1 start, and the
+# version whose resolution and error-payload behavior was measured end-to-end
+# in the Lane R1 spike (every planted resolution class resolved as specified,
+# no Node.js invoked — the measured basis of ADR-024). Releases newer than
+# this pin may change the tsconfig-extends semantics or the ResolveError
+# variant set the scan-layer seam maps exhaustively, so the combination moves
+# only as a probed unit. ADR-024. Confined to the scan layer by the
+# `forbid_external_crates` constraint in architecture.spec.toml.
+oxc_resolver = "=11.24.3"
 
 [lints.rust]
 unused_imports = "deny"

@@ -6,6 +6,1008 @@ only.
 
 ## [Unreleased]
 
+## [0.6.29] - 2026-10-18
+
+### Added
+
+- Self-dogfooding e2e coverage harness: `tests/e2e_matrix.rs` registers every
+  documented verb×mode cell (contract × hermetic corpus), executes the real
+  binary over each cell, and witnesses the exit class plus stdout/stderr
+  line-class facts; the generated `e2e-matrix.json` is freshness-checked like
+  `feature-matrix.json`, and the registry is welded to the live help bytes in
+  both directions. `tests/python_driver.rs` witnesses the python driver at
+  binary level; `report --pretty` now runs in a cell with the byte-identity
+  witness; `tests/goldens/derivation.json` + `tests/golden_derivation.rs`
+  make golden freshness derived (content fingerprint + named derivation
+  event) instead of asserted by prose. No engine behaviour strings moved.
+
+### Notes
+
+- Release-prep sync: the Cargo.toml version-line release marker now points
+  at this section (`under [0.6.29]`) — the tag number, which is the heading
+  the release-notes extractor keys on; the blind5 version-line weld pins
+  the same bytes.
+
+## [0.6.28] - 2026-10-18
+
+### Changed
+
+- Rust trait references now appear as ordinary dependency edges: trait paths
+  in `impl ... for ...` headers, trait paths of `dyn Trait` bounds, and type
+  paths nested inside generic arguments are extracted like value imports.
+  A trait path that starts with a reserved segment (`crate`, `self`,
+  `super`) resolves at the module tier and adds a file-level `path` edge;
+  a trait path with any other first segment resolves at the unit tier and
+  adds a unit edge only when the trait lives in another unit. External-crate
+  traits, self-impls, generic and blanket impls, and stdlib targets emit no
+  edge — trait positions never add external rows. The previously invisible
+  set of trait edges can newly complete cycles or cross declared boundaries
+  in `verify`, so a spec that was green can turn red on this change.
+
+## [0.6.27] - 2026-10-18
+
+### Changed
+
+- ~1,184 specifiers' worth of previously invisible member edges can newly
+  cross declared boundaries or complete cycles in `verify`: a member-subpath
+  import whose mapped target is ABSENT and gitignored — the exact state
+  that printed `generated source not built` — is now attributed to the one
+  existing SOURCE file the winning exports entry declares under its
+  `types` arm (`*` captures expanded from the same single key match). The
+  import replaces that line with the existing `workspace target not built`
+  disclosure, whose first slot now spells the member-qualified specifier
+  (`workspace target not built: @org/ui/gen/map ->
+  packages/ui/dist/gen/map.js`). Zero candidates, two or more candidates
+  or a `types` arm spelling only `.d.ts` declarations keep today's line
+  VERBATIM — archspec never position-picks and never infers paths.
+
+## [0.6.26] - 2026-10-18
+
+### Changed
+
+- Internal structure: the three bare `unwrap()` sites the self-audit named —
+  the mermaid tree endpoints in `inspect::mermaid` and the SCC pop in the
+  `verify::compare::cycles` Tarjan walk — now carry named invariant
+  messages (self-audit F5). Each invariant is enforced by construction:
+  `build_tree` creates a directory only as an ancestor of a file, and the
+  Tarjan root is on the stack at its own close, so no failure path changed
+  and none is reachable from input. Zero bare unwraps remain outside the
+  test modules. No behavior, output or exit-code change.
+
+## [0.6.25] - 2026-10-18
+
+### Changed
+
+- Internal structure: the module-wide `#![allow(dead_code)]` in
+  `archspec::parse` is gone. The allowance now rides the single documented
+  item it covered — `grammar::first_error_range`, the error-tolerance probe
+  exercised by the grammar tests and deliberately not called from a command
+  path — as an item-level `allow(dead_code, reason = ...)` (self-audit F4).
+  The dead-code lint watches every other item in the module again, and the
+  F7 dead-signal census now covers the `parse` surface at zero candidates.
+  No behavior, output or exit-code change.
+
+## [0.6.24] - 2026-10-18
+
+### Changed
+
+- Internal structure: the eight scan-driver `Model` literals and the model
+  tests' empty-model helper now build on one scaffold constructor
+  `Model::new(language)` — schema version 1, the scanned language, every
+  collection empty and every optional absent, stated once in `model.rs`
+  (self-audit F3). Each driver site lists only the fields it populates
+  (`..Model::new(language)` update syntax); the find-replace field-order
+  fossils the rust, go and csharp literals carried are gone, and a new model
+  fact lands empty in the constructor instead of at nine call sites. The
+  constructor states exactly the field values the collapsed literals stated:
+  every scan output stays byte-identical. No behavior, output or exit-code
+  change.
+
+## [0.6.23] - 2026-10-18
+
+### Changed
+
+- Internal structure: `verify/compare.rs` now lives as the module directory
+  `archspec::verify::compare` — a thin `mod.rs` holding `compare` and its
+  tests, plus twelve cohesive submodules (`diff`, `mapping`, `claims`,
+  `pattern`, `edges`, `adjudicate`, `contracts`, `cycles`, `surfaces`,
+  `external`, `boundaries`, `engagement`), every one under 1k lines. The move
+  is verbatim: the `verify` public surface re-exports the same names, every
+  scan/verify/report/diagram output and exit code is byte-identical on all
+  corpora, and the crate's own `no_cycles` gate stays green — the file-tier
+  import ring the single file carried is gone. No behavior, output or
+  exit-code change.
+
+## [0.6.22] - 2026-10-18
+
+### Changed
+
+- Internal structure: the parallel fact-leg machinery now lives in the leaf
+  module `archspec::scan::leg` and the ts exclusion/resolution vocabulary in
+  the leaf module `archspec::scan::ts::common`. The scan host and its
+  language drivers call down into these leaves and nothing calls back, so the
+  import ring the scan module graph carried is gone — no behavior, output or
+  exit-code change. The crate's own spec now gates the area as five boundaries
+  (`scan-core`, `scan-leg`, `scan-ts`, `scan-python`, `scan-kotlin`) under a
+  dedicated `no_cycles` row and exact `depend_on` tables, so a reintroduced
+  back-call fails `archspec verify` on the spot.
+
+## [0.6.21] - 2026-10-18
+
+### Added
+
+- **npm channel**: the release now also ships an npm installer package.
+  `npm install -g @scope/archspec` (the scope is set per repository) installs
+  the same binary as the GitHub release assets — one archive per platform
+  pair, downloaded by the platform table in
+  `npm/lib/matrix.mjs` and checked against the release's SHA256 sidecars
+  before it is cached or run. The package carries no binaries; the archive
+  for the installing machine's platform is fetched at install time, from the
+  cache (`~/.cache/archspec/`) when already present. Windows installation
+  needs PowerShell 5.1 or newer. `archspec upgrade` (cargo install) remains
+  the default documented path.
+- The release workflow gained a `publish-gate` job: a tag whose version has
+  a published npm version with different content fails before any build
+  starts (the republish freeze), and the same check re-runs before the npm
+  publish step.
+
+## [0.6.20] - 2026-10-18
+
+### Notes
+
+- Round-2 fan-out (decision-check round 2, verdicts ADOPTED): the
+  `help diagnostics` catalog, the claim-registry welds, the capability
+  docs enumeration and the cross-driver matrix harness were aligned with
+  the census in the same release; the matrix silence-law census strip is
+  driver-scoped to ts. Version lands at 0.6.20 under the auto-bump law
+  (the census commit itself carried 0.6.19).
+
+## [0.6.19] - 2026-10-18
+
+### Added
+
+- **ts driver orphan-file census**: a scanned ts source file the model
+  lists NO fact for now states itself on the scan/verify report surface.
+  A fact is membership in exactly three sets — an endpoint (either end)
+  of an internal edge, an external-attribution key, or a dynamic-import
+  wildcard key. The observable outcome: one report-only
+  `orphan file: <path>` line per such file (sorted, deduped) and one
+  closing `orphan file census: <n> of <m> scanned files — the model
+  lists no fact for any of them` summary that never fires at zero. The
+  lines are stderr-only, never the model JSON, stdout or any artefact,
+  and never a verdict (exit 0). The capability table gains an
+  `orphan-census` row: ts `granular`, every driver without the arm
+  `not-emitted`. The census computes strictly after the named extraction
+  tripwire and never feeds its arms; the `help diagnostics` catalog
+  entry names the reading rules and the blind spots (generated-
+  attributed member imports; self-contained entry points that import
+  nothing are listed; `require()` sites now state edges).
+
+
+## [0.6.18] - 2026-10-18
+
+### Changed
+
+- A literal `require("...")` whose target resolves to nothing now aborts
+  the scan like any literal import — the `unresolvable import:` line names
+  file and specifier, exit 1. Before this release the site was not
+  traced at all, so such trees finished green.
+
+### Added
+
+- **ts driver `require()` tracing**: a literal `require("lit")` in any
+  ts-family file (every scanned extension and every Svelte `<script>`
+  block) states an ordinary value edge through the ordinary resolution
+  law — the same file edges an `import` mints, with no symbols and never
+  a republication. A computed `require(expr)` states the existing
+  `dynamic import wildcard` report line and rides the model's
+  `dynamic_import_wildcards` census: report-only, never an edge, never
+  red. `require.resolve`, `require.cache`, `jest.requireActual` and
+  `jest.requireMock` are not require sites. The pilot corpus of one
+  multi-package monorepo gains the 94 require edges the previous scan
+  left blind; the second corpus (SvelteKit) is byte-identical.
+
+## [0.6.17] - 2026-10-18
+
+- The kotlin driver's pilot config landed; the version ride continues — no release cut.
+
+## [0.6.16] - 2026-10-18
+
+### Added
+
+- **The kotlin driver**: `language = "kotlin"` scans gradle projects.
+  `settings.gradle.kts` / `settings.gradle` is the module list — every
+  `include(...)` names one unit, a nested project path `:a:Tests` folds
+  to the unit `a::Tests`, and a tree carrying both settings files fails
+  closed before anything is scanned. Each unit's `build.gradle.kts`
+  states its declared dependencies: `project(":shared")` is a hard edge,
+  a coordinate `group:artifact` — or a `libs.alias` entry resolved
+  through the version catalog — is an external. Every `.kt` file's
+  `package` and `import` headers state the source facts; `.kts` scripts
+  are fact-legs, never vertices, and `.java` files are counted, not
+  indexed. The module tier is unit-identified (the kotlin driver record
+  K-P2): a gradle project IS the module a spec addresses, so modules,
+  boundaries and the graph views read the gradle project graph directly.
+- Kotlin was added to the language-detection chain at the LOWEST rank
+  (the python precedent): gradle files or `.kt` sources answer kotlin
+  only when no higher-ranked language claims the tree, so a corpus that
+  predates the driver cannot shift language under it.
+- The `verify` surfaces reach kotlin: unit and module boundaries, cycle
+  checks, externals (coordinates from the build scripts; the top segment
+  of an import names a plain external), the vacuity law (its carrier is
+  a MISSING build script — a script stating an empty `dependencies { }`
+  block states a fact, the ts/python C5 shape verbatim), and the
+  test-tier law (a `src/test` or `src/androidTest` source set carrying
+  test-engine evidence states a test file). `update seed` and
+  `spec init` emit the gradle shape.
+- The modules and api-usage graphs render a model whose module edges
+  name their endpoints directly — when neither prefix fold separates
+  the endpoints, distinct endpoints keep distinct nodes instead of
+  colliding into `root`.
+
+## [0.6.15] - 2026-10-17
+
+### Changed
+
+- The ts and python drivers' **per-file fact leg runs across worker
+  threads** (scoped std threads, no new dependency): a file's read and
+  parse is pure, so it parallelizes over the walk-ordered file list,
+  while resolution and the fold stay strictly serial. The fold replays
+  the per-file results in walk order and returns on the FIRST
+  per-file error — a later file's findings can never exist when an
+  earlier file errored — so stdout, stderr and exit codes are
+  byte-identical to the previous serial loop on every scanned tree
+  (measured 8.1 s → 1.2 s on a 13k-file ts monorepo; trees below 128
+  files keep the serial loop unchanged).
+- The ts resolver **memoizes the manifest-unreadable verdict per
+  probed manifest path**: guard G's upward walk re-probed the same
+  paths across (dir, package) cache keys (measured 253,226 `stat`s on
+  a large monorepo resolve); the verdict is a function of the path
+  alone over the committed tree, so the predicate is probed once per
+  path per scan. The existing (dir, package) walk-answer cache stays —
+  a per-path predicate cache and a walk-answer cache are different
+  caches.
+
+## [0.6.14] - 2026-10-17
+
+### Breaking
+
+- **The `svelte.config.js` presence probe is deleted.** The static
+  implicit `$lib` alias no longer engages when the file merely exists
+  at the scan root — file presence was auto-discovery, and framework
+  auto-discovery is out of scope by ruling. The signal is now the
+  declared key: `[project] framework = "sveltekit"` registers the `$lib`
+  alias and the paired tsconfig framework behavior. Migration (the
+  measured case is open-webui): add `framework = "sveltekit"` next to
+  `language = "ts"` in `architecture.spec.toml`; without the key the
+  tree stays green but `$lib` imports return to the external tier and
+  their edges leave the model.
+
+### Added
+
+- **`[project] framework`** — an optional single name declaring which
+  framework's path conventions the tool models. The registry is
+  driver-side and computed (`archspec spec` renders it): the ts driver
+  registers `sveltekit`, every other driver registers nothing. An
+  unregistered name is an `invalid spec` error at spec load on every
+  verb, naming the driver's registered alternatives (`none` where the
+  driver registers nothing).
+- **One report-only line for `$`-shaped specifiers without the key**:
+  `specifier not a package name: <verbatim> — framework conventions
+  not configured?` — a `$`-prefixed bare specifier cannot be an npm
+  package name, so the generic external delegation asks the wrong
+  question. The line states the unmodelled shape; attribution stays
+  exactly as before (no laundering, verdict unchanged), deduplicated
+  per importing dir and spelled specifier like the sibling lines.
+- **Generated-class exclusion additions** `.next`, `.nuxt`, `.astro`
+  join the mechanical exclusion list (exclusions only — exclusions
+  never become auto-discovery; the pytest ruling is unchanged).
+
+### Changed
+
+- Docs fan-out: the capability errors surface no longer enumerates the
+  languages (`language not a driver name`); the list follows the driver
+  registry (schema enum drift fix, F11).
+
+## [0.6.13] - 2026-10-17
+
+### Changed
+
+- A **bare-resolution memo per (importing dir, specifier)**: the edge
+  loop re-entered the bare-classification seam for repeated pairs
+  (measured 819 repeat calls of 43,652 on a large monorepo resolve,
+  ~235 µs each); one classification per pair per scan now. The verdict
+  is a function of the pair over the committed tree, and every
+  side-effect channel the seam writes (report-only lines, fault and
+  manifest findings, resolver entries) is a deduped set — a memo hit
+  replays the identical verdict and owes nothing further. The memo key
+  keeps the importing dir, so the per-file config law (the same alias
+  spelled from two dirs resolving through two configs) stands
+  byte-identical; BARE-MEMO-KEY trap fixture.
+
+## [0.6.12] - 2026-10-17
+
+### Changed
+
+- A **member-manifest memo per member dir**: every member-classify pass
+  re-read and re-parsed the member's `package.json` (measured 24,293
+  manifest reads on a large monorepo resolve); one parse per member dir
+  per scan now. The memo is keyed by the member dir, so two members with
+  different manifests never answer from each other's parse; a manifest
+  that exists but fails to parse is never memoized — the re-read keeps
+  the exact fail-open shape of the pre-fix read.
+
+## [0.6.11] - 2026-10-17
+
+### Changed
+
+- A **generated-source verdict cache per base path**: the candidate loops
+  re-probed the same absent bases through the ignore walk; each base now
+  walks once per scan. The verdict is a function of the path alone over
+  the committed tree, so the memo cannot drift from the walk it replaces.
+
+## [0.6.10] - 2026-10-17
+
+### Changed
+
+- A **`.gitignore` parse cache per scan**: the generated-source test walks
+  the ancestor chain of every absent candidate; every walk step used to
+  re-read and re-parse every ancestor `.gitignore` (measured ~6 opens per
+  query on a large tree). One parse per file per scan now; a missing or
+  unreadable file is cached as a no-file entry, keeping the fail-closed
+  law. Verdicts are byte-identical: deepest-file-wins, last-match-in-file,
+  negation, and the excluded-parent no-re-entry law are unchanged.
+
+## [0.6.9] - 2026-10-17
+
+### Added
+
+- A **python driver**: `archspec scan` now detects and extracts python
+  trees. Parsing rides the `tree-sitter-python` grammar; resolution runs
+  with NO interpreter, NO venv and no version modeling — tiers resolve
+  OWN PACKAGE → STDLIB → EXTERNAL from the filesystem alone. OWN keys on
+  directory existence under the package root (a package-root directory
+  named like a PyPI import name claims first-party — a named deviation
+  from `sys.path`, zero such sites measured on the pilot); the stdlib
+  tier is a static union of the CPython 3.9–3.13 top-level names, so a
+  list miss can only drift the attribution label, never a verdict — a
+  missed stdlib import stays an EXTERNAL fact. `from a.b import c` is
+  submodule-or-attribute ambiguous: when `a/b/c.py` or `a/b/c/__init__.py`
+  exists the edge also lands on that module. A bare namespace-directory
+  import (PEP 420) is a first-party module-grain edge, never red.
+  Dynamic imports (`importlib.import_module`, `__import__`) print
+  report-only `dynamic import not modelled:` lines — no edge, never a
+  finding. The package root is its own resolution root when it holds
+  sources; otherwise a single all-sources child is the root, or every
+  top-level source-bearing directory is one.
+- **Python manifests**: a root `pyproject.toml` states the unit
+  (`[project]` name, dependencies plus dependency-groups/extras);
+  `requirements*.txt` ADD to the dependency facts. Manifests are read at
+  the scan root only — no walk-up. One pyproject is one package unit.
+- **The python test tier**: `test_*.py` / `*_test.py` / `conftest.py`
+  files are nodes and import sources, marked test-gated only when the
+  root manifest ALSO states a pytest-family dependency — co-occurrence
+  or nothing.
+- `pyproject.toml` joins ROOT_MARKERS. A root carrying both
+  `package.json` and `pyproject.toml` now answers `ambiguous root
+  markers` to a no-pin scan — the detection record's landmine, realized;
+  the remedy is `[project] language` pinning or a per-root scan. A
+  multi-marker set naming ONE language resolves to that language.
+- `help languages`, the capability matrix, `doctor`, `depgraph`,
+  `diagram` and the feature matrix gained the python rows; module-tier
+  file-identity rules ts pioneered (the D10 shape: file vertices,
+  `::`-restated submodule identity, per-file seeds) now read python
+  trees through the same arms. New fixtures PY-*.
+
+## [0.6.8] - 2026-10-17
+
+### Changed
+
+- Language detection now consults ROOT MARKERS first: a `Cargo.toml`,
+  `package.json` or `go.mod` AT the scan root names the driver outright.
+  Several root markers with no pin answer the new error
+  `ambiguous root markers: <path> (<language>), … — pin [project] language
+  or scan a single-language root`; a spec pin selects the driver exactly
+  as `verify` always pinned, and a pin whose root marker is absent while
+  foreign markers stand reddens with the `language mismatch:` byte prefix
+  naming the markers found. With no root marker the shipped fallback chain
+  runs byte-for-byte unchanged; the tree-wide agreement check is unchanged.
+  A foreign root-marker file BELOW the scan root now emits one report-only
+  line per marker file, `nested foreign marker: <path> (<language>) — not
+  modelled`, exit 0 — behind the mechanical exclusion set, never a finding.
+  New fixtures DET-ROOT-PIN-*, DET-ROOT-AMBIGUOUS*, DET-PIN-NO-ROOT-MARKER,
+  DET-NESTED-FOREIGN-REPORT, DET-NESTED-EXCLUDED-SILENT, DET-STRAY-FLIP,
+  SRC-MJS-CJS-INDEX, SRC-MJS-NEXTMAP, SRC-MTS-CTS-INDEX.
+- The ts driver's source family gained the Node resolution flavours:
+  `.mjs`/`.cjs` (JavaScript grammar) and `.mts`/`.cts` (TypeScript
+  grammar) are counted, parsed and linked like the shipped extensions —
+  no new grammar crate; the flavour is a resolution property, not a
+  language one.
+
+### Added
+
+- `help diagnostics` gained the `ambiguous root markers` and
+  `nested foreign marker` categories; the claim registry and the
+  every-emitted-category guard welded to both.
+
+## [0.6.7] - 2026-10-17
+
+### Changed
+
+- TS resolution adopted the generated-tsconfig pairing law, implemented
+  together. An ABSENT `extends` target now answers three honest facts: a
+  target absent under a generated-output directory (the generated class of
+  the mechanical exclusion list — `.svelte-kit`, `dist`, `target`, `bin`,
+  `obj`) emits one report-only line `generated tsconfig absent: <path>`,
+  exit 0; a target that resolves through node_modules style with no
+  installed copy emits one report-only line
+  `tsconfig extends not installed: <specifier>`, exit 0; every other
+  absence keeps the `tsconfig not found` red byte-identical. A tree with
+  `svelte.config.js` at its scan root (file presence is the signal — the
+  file's content and alias override are never read) gains the static
+  implicit alias `$lib → <root>/src/lib`, consulted where nothing else
+  answered: an unbuilt generated tsconfig can no longer silent-mistier the
+  `$lib` surface. The line and the alias are PAIRED — either half alone
+  launders the external tier behind a quiet report. New fixtures
+  TSCGEN-SVELTEKIT-ABSENT with its red twin (non-generated absence),
+  TSCGEN-EXTENDS-NOT-INSTALLED and SVELTE-ALIAS-VACUITY.
+- The mechanical `vendor` class narrowed: a `vendor` segment under the
+  scan root excludes nothing — first-party glue spelled in ts lands its
+  edges and asset leaf edges (`.wasm` and the rest) land again. One
+  predicate law answers the scan walk and resolution alike.
+  `node_modules`, `dist`, `target`, `.svelte-kit`, `.git`, `bin` and
+  `obj` stay absolute exclusions, and a declared `excluded_sources`
+  entry still wins everywhere with the shipped red text unchanged. New
+  fixture pair VENDOR-SOURCE-EXT-UNDER-ROOT and VENDOR-ABSOLUTE-CLASSES.
+
+## [0.6.5] - 2026-10-17
+
+### Changed
+
+- TS resolution program adopted three laws, implemented together.
+  P-CTX (context-free member resolution): a bare specifier or subpath that
+  names a workspace member resolves to that member through the registry
+  MEMBERSHIP, with no importer tsconfig gate — the old context-first order
+  let a missing `paths` entry on the importing side demote a member import
+  to the external tier. The importer's tsconfig no longer decides the tier;
+  a member import that the importing tsconfig cannot spell keeps a
+  report-only line `undeclared member import: <from> -> <member>` (bare
+  family only, hoisting-family gates keep their verdict). New fixture pair
+  CTX-MEMBER-BARE-FROM-UNDECLARED and CTX-EXPORTS-WILDCARD-SUBPATH.
+  P-DIST (source-always-for-members): a member target that is absent or
+  sits under build output (`dist`, `build`, `out`) resolves to the member's
+  SOURCE entry — the types-condition target first, else the main/module
+  spellings with the build-output prefix stripped through the candidates
+  table — and the edge lands on the source file with a report-only line
+  `workspace target not built: <member> -> <declared-target>` once per
+  pair. A literal target that exists outside build output still wins
+  (P-LITERAL). New fixture pair DIST-TYPES-CONDITION-WINS and DIST-STRIP-MAIN.
+  P-GENSRC (gitignore-evidenced generated-source class): an otherwise-red
+  absent target whose path is ignored by the repository's committed
+  `.gitignore` files is a repo-declared generated artifact: the scan exits
+  0 with a report-only line `generated source not built: <verbatim-target>
+  — gitignored <pattern-file>:<line>`, no edge and no external-tier entry.
+  Without a committed `.gitignore` covering the path the red stands (fail
+  closed). The evaluator is static — git never runs at scan time — and its
+  semantics (parent-exclusion, deepest-file precedence, last-match-wins,
+  negation, anchors, dir-only and `**` forms) are pinned against captured
+  `git check-ignore -v` oracle data. New fixtures GEN-NOTBUILT-IMPORTS-MAP,
+  GEN-NOTBUILT-ALIAS, GEN-PARENT-DIR-IGNORE, GEN-NEGATION,
+  GEN-NESTED-PRECEDENCE, GEN-ANCHORED and GEN-RELATIVE, each with its
+  vacuity carrier.
+
+## [0.6.4] - 2026-10-17
+
+### Breaking
+
+- **Breaking: the rust `no_cycles` default scope flips from `claims` to
+  `both`.** Rust now matches the ts posture: a file cycle inside one claim
+  reddens `verify` at error severity with no `scope` written in the spec —
+  the file tier joins the module tier in the default SCC. The counted
+  residual was cleaned before the flip — the pre-flip probe counted zero
+  intra-claim file cycles across the rust sources — so the flip lands green,
+  and the serialized `file_edges` facts carry the adjudication. The posture
+  table (`archspec capabilities`), the `capability matrix` and verify help
+  surfaces, spec.md and the output docs restate the row, and ADR-023 records
+  the named change. A spec that wants the old verdict writes
+  `scope = "claims"` explicitly.
+
+- **Breaking: the dead-reference `does not exist` class is an error now**
+  (warning-green→red). An `allowed.depend_on` or `allowed.forbidden` entry
+  naming a target that exists nowhere — a removed claim, a forward-declared
+  target never created — printed
+  `warning: dead reference: … does not exist …` and exited `0` without
+  `--strict`. It now prints `dead reference: … does not exist …` as an
+  error-class finding: `verify` exits `1` without `--strict` and `report`
+  counts it as a violation. The line bytes are unchanged apart from the
+  dropped `warning: ` prefix, and the line is byte-identical under
+  `--strict` — the severity is declared, not promoted. The other
+  dead-reference classifications (`exists in source but undeclared`, `not
+  verifiable from source`, the contract-target `names no stereotype`
+  entries) keep warning severity. The promotion covers the whole class at
+  once per the design record (R3-11), so one verdict can never carry two
+  severities by field shape. The spec.md rule line, the verify and report
+  output docs and the `help diagnostics` severity line fan out to this
+  law in the same change. Phase B of the ts-driver design record.
+
+### Added
+
+- The five remaining ts gaps close (Lane C of the
+  ts-resolution-and-completeness design record). (i) A module claim whose
+  selectors name files or a module identity now accounts for its
+  package's units through the claim-unit fallback, so a banned edge routed
+  through a claimed conduit barrel launders under
+  `verify.forbidden_laundering` on ts exactly as on the other drivers —
+  an unclaimed conduit stays off the pair graph and surfaces only through
+  `unowned module edge endpoint` warnings. (ii) The ts scan reads the
+  test-tier convention (`*.test.*`, `*.spec.*`, `__tests__/` directories,
+  gated on test-framework evidence in the manifest) and states each
+  package manifest's dependencies in `unit_manifests`, so
+  `scan.unit_manifests` engages instead of resting inert. (iii)
+  `forbid_submodule_dependency` engages on ts: file edges project onto
+  their claim owners at the restated `::` submodule identity, a parent
+  constraint bans edges between sibling submodules with the
+  submodule-dependency label, and contract stereotype patterns match the
+  file path and its restated form. (iv) A package-root `index.ts` that is
+  pure republication derives `Role::Facade` at scan, so the root facade
+  rule engages on ts through the roles map. (v) `inspect --file` renders
+  file-level nodes and edges for ts, reusing the scan's module edges — no
+  second resolver. Each closed cell carries its named vacuity carrier for
+  the empty-evidence case (`scan.unit_manifests`,
+  `verify.forbidden_laundering`, `verify.root_facade`,
+  `verify.submodule_contracts`, `inspect.file_level`), vacuous never
+  gating without `--strict`. The capability table, the feature matrix,
+  the claim registry, ADR-017 and the verify output docs fan out in the
+  same change.
+
+- Workspace resolution joins the ts resolution seam (Lane R2 of the
+  ts-resolution-and-completeness design record). An npm `workspaces` field
+  (array or object form) or a `pnpm-workspace.yaml` at the scan root
+  registers a workspace registry of member directories — globs expand
+  one segment deep, membership is realpath-based. A workspace tree is a
+  multi-unit tree: the root unit plus one unit per member directory,
+  files attributed to the deepest owning directory, manifests collected
+  per unit; a single-package tree stays byte-identical (its registry is
+  empty). The realpath-wins precedence law adjudicates member imports:
+  (i) a resolution landing inside a member directory classifies
+  first-party even when a link stands between the root and the importing
+  file, and a deep `@org/pkg/sub` import lands first-party on the member
+  entry file; (ii) a member-naming import the importing manifest declares
+  that resolves to a copy outside the member directory classifies
+  external and fires the report-only line `workspace link missing:
+  <member name> — resolved to <path> instead of the member dir` — the
+  verdict is unchanged and the run exits 0; an undeclared hoisted copy is
+  a plain external fact with no line; (iii) a declared member name whose
+  member directory is absent from disk stays first-party — resolved onto
+  the member entry through its manifest — and fires the report-only line
+  `workspace link missing: <member name> — absent from disk`; (iv) an
+  undeclared member-name import states `unresolvable import` naming its
+  target and exits 1. Package-tier edges join the model `edges`: declared
+  member-naming dependencies — any version spelling — from the root and
+  member manifests become package-level edges between the units owning
+  the two manifests, and the `no_cycles` projection takes the union of
+  resolved-ownership edges and package edges, so a package cycle reddens
+  where no file-level SCC exists. The `help diagnostics` catalog, the
+  help-suite category weld and the claim registry fan out in the same
+  change.
+
+- The `ts` language arm joins the driver languages as the fallback of the
+  fixed detection chain rust > csharp > go > ts. Detection now runs behind a
+  mechanical exclusion set (`node_modules`, `dist`, `target`, `.git`,
+  `vendor`, `bin`, `obj`, `.svelte-kit`), so dependency and build trees can
+  never select a driver. A TS/JS/Svelte tree is detected as `ts`; the
+  extraction arm states its absence loudly until the following change of
+  the same design delivers it. Phase A of the ts-driver design record.
+- The `[project] excluded_sources` spec key registers with the ts-driver
+  design record: an array of `{ path, reason }` entries with both keys
+  mandatory — an entry missing one, or carrying an empty value, is an
+  invalid-spec error naming the entry and the key. Every run of `scan` and
+  `verify` prints every active entry on the report surface as
+  `excluded sources: <path> — <reason>`, so an exclusion can never shrink
+  the analyzed set in silence. `scan` now reads a spec at the scanned root
+  by root-only discovery — an invalid spec fails `scan` with verify's
+  message class. Phase A of the ts-driver design record — detection-side
+  consumption of the entries lands with the agreement guard.
+- The language agreement guard lands on both `scan` and `verify` as a run
+  precondition: with a spec at the tree root, the declared `[project]`
+  language is the truth, and any counted source file outside it — after
+  the mechanical exclusion set and every `excluded_sources` entry — fails
+  the run loud with `language mismatch: <declared> vs <found> — <lang>:
+  <n> files, ...` before any verdict, model or artifact (exit 1). The
+  counted walk counts source-extension files only; marker files state no
+  counts. Without a spec, chain detection stays the whole truth and
+  nothing is checked. The `help diagnostics` catalog names the new
+  fail-loud class. Phase A of the ts-driver design record — the entries
+  registered by the previous entry are now consumed.
+- The ts extraction arm delivers v1 file-grained facts: every scanned
+  `.ts`/`.tsx`/`.js`/`.jsx`/`.svelte` file registers as a module vertex
+  identified by its repo-relative path, and every import becomes a
+  file-grained `module_edges` row. A `type` import carries the row with
+  the new `type_only: true` marker (a mixed clause contributes exactly
+  one value and one type row); the marker is absent from the JSON of
+  every row that is not type-only, so rust, go and csharp model bytes
+  are untouched. `.svelte` files parse through their `<script>` blocks.
+  Bare specifiers resolve to the npm package identity in the external
+  tier; relative specifiers resolve through extension and index
+  inference and fail loud as `unresolvable import: <file> -> "<spec>"`
+  when nothing is found (naming the entry when the only candidate sits
+  in an excluded tree). A non-literal `import()` specifier is stated as
+  a `dynamic import wildcard: <file> -> <expression>` report line and a
+  model `dynamic_import_wildcards` fact — report-only, never a verdict.
+  A package whose scanned files import but that carries no resolvable
+  structure fails loud through the content tripwire. `package.json`
+  dependencies feed the manifest facts and exported names the public
+  facts. The grammar layer registers the pinned TypeScript, TSX and
+  JavaScript grammars (ADR-022). Phase A of the ts-driver design record.
+  This change's first commit attempt fired the version stamp: the
+  `## [0.6.1]` heading and the `0.6.1` manifest and lock lines it wrote
+  carry no tag, so they are reverted and the delta is registered on the
+  version line instead — the version stays 0.6.0 through phase A.
+- The capability table states every fact for every language: the nine
+  dependency-facts rows now carry a `ts` column beside rust, csharp and
+  go. The ts rows read `granular` for the module tier, symbols, external
+  packages, public-api surface and the new `file-grained-dependency-facts`
+  fact; `not-emitted` for role-facade, role-composition and test-tier (the
+  ADR-017 investigation found no derivable role or test idiom); and the
+  conditional `declarations, no gating facts` for root-module-declarations.
+  The `feature-matrix.{json,md}` artefacts regenerate at four drivers, and
+  the matrix guard that pins the matrix languages to the table languages
+  makes the fourth column mechanical. The ts driver runs every shared
+  scenario: where a tree shape has no ts dialect — multi-unit hard-edge
+  trees, role-derived cells, manifest-only and go-test-file trees, the
+  top-level module fold and the unit-manifest tier — an applicability
+  predicate names the skip, never a fake shape. Phase A of the ts-driver
+  design record.
+- `module.allowed` entries accept the tagged shape
+  `{ target = "<pattern>", type_only = "count" | "exempt" }` beside the
+  bare string. The `type_only` key adjudicates the dependency tier:
+  `count` (which is also the default) counts a type-only edge like any
+  other edge, and `exempt` admits the pair's type-only crossing while the
+  same crossing written as a value import stays red. The exemption lives
+  on the rule row, never on the language: the cycle graph counts every
+  edge regardless of kind, and on rust, go and csharp trees — whose edges
+  carry no kind fact — every crossing is a value crossing, so `exempt`
+  reddens their crossings exactly like `count`. A tagged
+  entry with an unknown key, a value outside the closed set, or a shape
+  that is neither string nor table is a load-time spec error naming the
+  entry index, the key and the supported values.
+- The ts driver keys `module_external` by the bare repo-relative file
+  path — the same identity its module edges and spec claims use (the D10
+  file-identity law) — and merges `package.json` declared dependencies
+  into the `external` tier after the content tripwire, so a declared-but-
+  unused package appears in `external` and never in `module_external`:
+  the family's external law now reads the same for all four drivers.
+  A `from` pattern naming the unit attributes every file key of the
+  single package. `update` seeds a ts tree per file: one `[[module]]`
+  per file vertex, matched by its path, allowed to exactly the file's
+  real internal targets, plus the global `no_cycles` guard. Verify
+  engagement now counts ts declaration names as module vertices, so a
+  claim or `from` pattern naming an export-only or external-only file
+  engages instead of reading unmatched. Phase A of the ts-driver design
+  record.
+- The `no_cycles` constraint accepts `scope = "claims" | "both"` — the
+  adjudication tier selector of the ts-driver design record (D5). The
+  field is validated at spec load like `severity`: a value outside the
+  two supported values is an invalid-spec error naming them, and the
+  field on any other constraint row kind is an invalid-spec error naming
+  the field and the row kind. The JSON Schema types the enum beside
+  `severity`. Scope adjudication lands with the following change of the
+  same record; until then every scope value adjudicates at the shipped
+  claim tier. Phase B of the ts-driver design record.
+- The per-language posture table lands as declared data in the binary (D7):
+  `ts → both/error`, `rust, go, csharp → claims/error` — the answer to an
+  absent `scope` until the scope adjudication change engages it. The
+  `capability matrix` surface gains one `posture <language> <scope>
+  <severity>` row per language arm beside the capability rows, so the
+  table is read by value, never restated, and the weld test binds every
+  `both` posture to the granular `file-grained-dependency-facts` row. A
+  new `capabilities` help topic makes the shipped vacuity pointer
+  `archspec help capabilities` resolve; the topic list fans out to the
+  help docs and the exit-taxonomy byte pins in the same change. The ADR
+  agreement guard pins the binary's rows, the posture table and ADR-023's
+  wording together. Phase B of the ts-driver design record.
+- The `scope = "both"` adjudication engages the file tier (D5/D6): the run
+  adjudicates the claim tier as today and then the strongly connected
+  components of the file-grained adjacency — a type-only import is an edge
+  in the cycle graph, an asset import never closes one. A file ring prints
+  as `cycle: <claim>: <file> -> <file>` attributed to the nearest common
+  claim ancestor of its members over the claims union the synthetic tree
+  root; members under disjoint top-level claims carry no claiming segment
+  and name every member. Each ring rotates deterministically to its
+  smallest path. A file SCC whose claim projection is a cycle the claim
+  tier already printed — every projected edge an edge of a reported claim
+  cycle — is suppressed: one violation one finding, coarsest tier first.
+  The `help diagnostics` cycle entry, the verify and report output docs
+  and the `spec.md` constraint table fan out to these bytes in the same
+  change. rust, go and csharp postures stay `claims` — their file tier
+  rides the named flip change. Phase B of the ts-driver design record.
+- The `no_cycles` vacuity carrier covers the file tier (D7): with the file
+  tier in scope — posture-derived or explicit `scope = "both"` — a run
+  whose file-grained dependency facts the capability table marks
+  `not-emitted` prints the capability-naming carrier on the shipped
+  `vacuous constraint` channel, and a run whose facts are granular but
+  whose file adjacency is empty among the constraint's files prints the
+  empty-adjacency carrier. The carrier keys on the FACTS, never the row's
+  label: an empty adjacency states itself even when the row reads
+  `granular` — no silent green. The `help diagnostics` vacuous entry and
+  the verify output docs fan out to these bytes in the same change.
+  Phase B of the ts-driver design record.
+- `diagram --tiers files` renders the file tier (D8): with the spec source
+  and a territory flag (`--module` or `--modules-dir` — the size law: one
+  claim's territory per render, never the whole tree), the claim's
+  subgraph gains a `files` cluster — one vertex per territory file by its
+  repo-relative path with extension, one arrow per first-party file edge.
+  Cycle arrows are marked through the adjudication seam's cycle-membership
+  query, never a diagram-side SCC re-derivation, so the marks agree
+  verdict-for-verdict with `verify`: the error bucket renders dashed
+  `violates spec`, the warning bucket renders solid. Asset vertices render
+  with their incoming edges only and never carry the mark — cycles close
+  between source files only. `--tiers files` with `--source scan` is a
+  usage error (exit `64`): the scan tier is the module tier; the seam
+  marks through facts a scan artefact does not carry. A language whose
+  driver emits no file-grained-dependency-facts fact states the vacuity
+  on stderr and renders the module-view bytes — never a fabricated empty
+  cluster. `files` joins the `--tiers` vocabulary (`units, modules,
+  files`); every default and `--tiers modules` render stays byte-exact.
+  The diagram cli, errors and input docs, the acceptance tier tables, the
+  help surface and the claim registry fan out in the same change.
+  Phase C of the ts-driver design record.
+- The rust driver serializes file-grained dependency facts (the D11-named
+  precondition of the rust posture): the model gains the additive
+  `file_edges` key — `(unit, from, to, kind)` rows over repo-relative file
+  identities with rust's truthful lexical kind vocabulary (`mod`, `use`,
+  `path`). Resolved file-backed `mod` declarations source the `mod` rows;
+  resolved intra-unit imports and qualified path uses source the `use`
+  and `path` rows. Rust fabricates nothing it does not carry: there is no
+  type-only split, no dynamic import and no asset edge, and a file
+  adjacency the scanner cannot derive — an inline `mod` body, an
+  `include!`, a macro-built tree, an unresolved declaration — serializes
+  no row. Rows stay unit-internal; a cross-unit reference stays a unit
+  edge. The `file-grained-dependency-facts` capability row reads
+  `granular` for rust — welded to the serialized facts, never to a guess
+  — and a `no_cycles` with an explicit `scope = "both"` adjudicates the
+  file tier on rust's real facts. Verdicts stay byte-identical: the rust
+  posture row stays `claims`. go and csharp scan bytes are untouched (the
+  field serializes nothing when empty). The capability matrix, the
+  `capabilities` help topic, the diagram files-tier cells, the verify
+  output docs and the ADR-023 restatement fan out in the same change.
+- The ts resolution seam lands: the ts driver resolves every bare and `#`
+  specifier through the pinned `oxc_resolver` (`resolve_file`) instead of
+  stating a name-only fact. Per importing file the seam takes the owning
+  tsconfig from the bounded chain of Lane R1 part A and delegates with
+  `TsconfigDiscovery::Manual` (references disabled — the crate's `Auto`
+  walk stays unused); with no owning config within the bound the
+  delegation runs alias-free. The condition set is `node` + `import` +
+  `require` + `svelte` (no `types` — a types-only export map rides the
+  exports miss) and the extension list is `.ts`/`.tsx`/`.js`/`.jsx`/
+  `.svelte`/`.json`. Node builtins — the canonical name list, `node:`-
+  prefixed or bare — classify external: never delegated, never
+  unresolvable. Every `ResolveError` variant has exactly one home: dead
+  alias targets, `#imports` misses and export-map misses ride the
+  `unresolvable import` line naming their target, manifest or condition
+  set; `tsconfig not found`, `tsconfig load failed`, `tsconfig cycle
+  (extends or reference)`, `package manifest invalid` — fired even beside
+  a successful legacy fallback — and the `unclassified resolver error`
+  catch-all are named findings that exit 1; a resolution landing in
+  `node_modules` or outside the scan root states the package identity as
+  an external fact. A declared-but-absent package adds the report-only
+  line `external not installed: <package> — declared in <manifest>,
+  absent from disk`: never red, never in the model artifact. The `help
+  diagnostics` catalog, the help-suite category weld and the claim
+  registry fan out in the same change. Part B of the
+  ts-resolution-and-completeness design record (Lane R1).
+
+### Changed
+
+- Part A (Lane R1) of the ts-resolution-and-completeness design record —
+  plumbing only, no behavior change: the pinned `oxc_resolver` dependency
+  lands at an exact pin (`=11.24.3`, the release the Lane R1 spike measured
+  end-to-end — the measured basis of ADR-024), confined to the scan layer by
+  the `forbid_external_crates` constraint so a resolver import outside the
+  scan arm reddens the crate's own verify — law, not convention. The scan
+  ts arm gains the bounded owning-tsconfig discovery: an importing file's
+  owning `tsconfig.json` is the first one met walking upward from the file's
+  directory, the walk consulting the scan root and stopping there — a config
+  above the bound is never read and never reddened, and no config within the
+  bound is the inferred project: alias-free and never a fault. The tsconfig
+  pre-read leg validates the full `extends` closure (own config plus every
+  named file, at ANY file name, deduped by canonical path) before any
+  resolution runs, with three named classes: a present-but-unreadable or
+  unparsable config, a missing `extends` target (the as-declared specifier
+  beside the attempted path), and an `extends` chain that loops — the cycle
+  is its own class, never a load failure. The pinned crate's
+  `TsconfigDiscovery::Auto` is not used: the spike measured its walk running
+  unbounded past the scan root and silently skipping unreadable candidates,
+  so the chain and the pre-read are computed on the crate's exposed pieces
+  (the never-silent law). Nothing consumes the two legs yet; the resolution
+  verdicts are byte-identical until the resolver-seam change lands (workplan
+  archspec_ts_resolution_completeness, Lane R1).
+
+- The ts-resolution decision-check round-3 closure: the design record gains the manifest-fallback honesty extension (an unreadable package manifest on a resolution path is a named `package manifest invalid` error even when a legacy fallback resolves the import — fixture variant UNREADABLE-MANIFEST-FALLBACK), the OUT-OF-BOUND-BROKEN-ANCESTOR fixture variant pinning the scan-root discovery bound (a broken `tsconfig.json` one level above the scan root stays green with alias-free resolution), and an accurate release-posture sentence (no version-VALUE bump; the CHANGELOG delta is the meta rollup bullet only) — a docs-only delta with no behavior change
+
+- The ts-resolution-and-completeness design record, decision-check round 2 adoption: the workplan gains the package-cycle UNION projection (resolved-ownership edges plus declared package-level dependency edges — a declared member-to-member cycle reddens even across registry copies), the node-builtins law (`node:`-prefixed and bare builtins classify external, never unresolvable), the scan-root discovery bound (configs above the scan root are never read and never reddened), the exhaustive resolver-error taxonomy (one named class per variant, a new `package manifest invalid` class and an `unclassified resolver error` catch-all that fails loud), the bounded pre-read set equal to the delegation read set plus the extends closure at any file name, and the declaration-only firing of the `workspace link missing` line; ADR-024 restates the bound, the attempted-target naming, the widened cycle name, the exhaustive mapping and the builtins consequence; two internal-crate names in scan-layer code comments were reworded generically so the published payload carries no internal identifiers — a docs-and-comments-only delta with no behavior change
+
+- The ts-resolution-and-completeness design record, decision-check round 1 adoption: the workplan gains the realpath-wins workspace precedence law (a resolution beats a name — resolved-outside member imports ride the external classification with a report-only `workspace link missing` line), the six-class unresolvable taxonomy (adds `tsconfig extends cycle` and the export-map miss riding the `unresolvable import` category), the tsconfig pre-read law (a present-but-unreadable config reddens — never a silent alias-free green), the vacuity mandate for every flipping ts row, and the widened `node` + `import` + `require` + `svelte` condition set (CJS-only packages land on implementation files); ADR-024 restates the taxonomy, the precedence and the corrected tsrs rejection rationale — a docs-only delta with no behavior change
+
+- The ts-resolution-and-completeness design record: the workplan and ADR-024 state the ts-driver resolution-layer laws (the pinned `oxc_resolver` resolution layer) and the five ts completeness cells as a docs-only delta with no behavior change
+
+- The rust posture-flip design-record closeout: the ADR-006 deferred-language line, the ADR-022 driver-status line and the ADR-023 posture line state the implemented posture — the rust `no_cycles` default scope is `both` since 2026-10-16 with the zero-count fleet re-probe measured at the change — a docs-only restatement with no behavior change
+
+- The rust file-cycle adjudication laws at the scanner and the verifier file tier: a `mod` declaration row is composition and never rows at file grain, a path that lands on a CONTAINING (ancestor) module of the using module — spelled `super::`, `crate::`-absolute or a bare name — is containment, not dependency, and contributes no file row, test-gated `use`/path references contribute no file rows, and name-match resolution never targets a containing module; the law keeps sibling hops and descendant-target rows intact (the tier-comparability law of the D6 projection dedup, ADR-023)
+
+- **File-tier territory spelling projects file identities to module
+  spellings before claim adjudication.** A dotted-module claim (`domain::models`)
+  now matches its backing file (`src/domain/models.rs`) at the file tier — the
+  file identity is projected to the module spelling before the claim lookup,
+  the mirror of the cycle-count probe's projection (`file_module_identity` in
+  the verify comparison). A test-gated file never participates in file-tier
+  adjacency: the `mod tests;` declaration plus the test file's imports is a
+  declaration-and-import pair, not a production ring (the one-case-one-verdict
+  law at file grain, mirroring the module-tier exclusion of test-gated
+  modules and the go and ts test-file law). The file tier stays off the rust
+  default until the posture flip of the same design record, so both rules
+  bind today only at an explicit `scope = "both"`.
+
+- A bare first segment of a `use` path resolves by the declaring-file law:
+  the name is in scope only when the file carrying the `use` declares that
+  module (`mod name;` in the same file, inline or file-backed). The scan
+  previously walked the module's ancestors and the crate root, so a
+  dependency import inside a module named like the dependency (a module
+  `tauri` with dependency `tauri`) resolved to the crate's own module — a
+  false parent back-edge in the model and a phantom file cycle. Such an
+  import now registers the dependency as external, exactly as Rust resolves
+  it. The same law governs bare glob prefixes on the public-surface walk.
+- Intra-claim file cycles removed in the archspec payload: `CommandInfo` now
+  lives in the new leaf module `src/archspec/commands/registry.rs` and the
+  `help` surface receives the command rows as data from the dispatch, while
+  `FileGraph` now lives in the new leaf module
+  `src/archspec/inspect/file_graph.rs` and the language file scanners import
+  it directly. The command tree and the inspect tree import one way, so the
+  file dependency graph has no strongly connected component inside a claim.
+  No behavior change: the rendered help text, exit codes and diagrams are
+  byte-identical; only the file layout of the imports moved.
+- `archspec report` reads the language mapping from the canonical parser: a
+  spec declaring `language = "ts"` now reports the way it verifies. The
+  command's private table had lagged the phase A ts arm and answered
+  `invalid spec: unknown language "ts"` while verify, scan and diagram
+  accepted the same spec. The report binary carries a ts-acceptance test.
+  Phase B of the ts-driver design record.
+- both macOS release builds moved from the `macos-15` / `macos-15-intel`
+  runner labels to `macos-26` / `macos-26-intel` — GitHub's macOS-14
+  deprecation notice keeps moving the images forward, and the macOS 26
+  images are the newest supported runner images per current GitHub
+  runner docs.
+
+### Docs
+
+- ADR-022 records the TS/JS/Svelte native driver — the fourth `Language`
+  arm, pinned grammar crates and `<script>`-block extraction behind the
+  shipped model — and its revision line closes the TS/JS deferral clause
+  of ADR-006. ADR-023 records the doctrine beside the planned `scope`
+  field of `no_cycles`: the per-language posture table, cycle attribution
+  to the nearest common ancestor, and the deep-cycle posture in which
+  `warning` stays an explicit exception under the checked-in baseline
+  guard only. Design record only — no tool behavior moves with this entry.
+- The ts-driver and file-cycle design record carries its round-1
+  decision-check: 20 findings adopted — the `type_only` dependency fact,
+  the dynamic-specifier wildcard and asset-import edges, the posture-row
+  and cross-check agreement law, the baseline guard, the facts-file
+  identity and content-tripwire contract, and the blind-spot and coverage
+  amendments to ADR-022 and ADR-023. The workplan gains the same
+  amendments. Design record only — no tool behavior moves with this
+  entry.
+- The ts-driver design record carries its round-2 decision-check: 9 findings
+  adopted — the declared-language truth with a divergence guard, the
+  `[project] excluded_sources` key with mandatory reasons, the fallback
+  detection position, the per-entry `type_only` law (default `count`), the
+  capability/posture/docs agreement weld, the exclusion resolution law, the
+  synthetic-root attribution, the asset vertices, and the honest
+  before/after pair for the dead-reference promotion. The ADRs and this
+  entry's round-1 wording move with the amendments. Design record only — no
+  tool behavior moves with this entry.
+- The ts-driver design record carries its round-3 decision-check: 11 findings
+  adopted — the one-verdict resolution for excluded-path imports (an
+  `unresolvable import` naming the exclusion, exit 1; the wildcard class is
+  non-literal specifiers only), the projection-keyed cross-tier cycle dedup,
+  the three-key schema registration (`scope`, `[project] excluded_sources`,
+  entry-level `type_only`), the scan-side spec-reading mechanics behind the
+  graph-is-artefact law, the excluded-tree report line with its owner surface,
+  the spec-source files tier with the extended usage refusal, the
+  `(from, to, kind)` edge rows, the site-keyed weld oracle with its two named
+  law-change cells, and the whole does-not-exist dead-reference class. This
+  entry's section moves back under `[Unreleased]`: the `## [0.6.1]` heading the
+  version-stamp hook stamped during the round-2 landing carried no tag and no
+  version line, and is deleted. Design record only — no tool behavior moves
+  with this entry.
+- The ts-driver design record carries its round-4 decision-check: two MINOR
+  coherence findings adopted — the D12 schema-key count corrected to the
+  three registered keys with the Breaking classes itemized, and the D14
+  verify-side seam sentence stating the detection walk the divergence guard
+  re-runs. Design record only — no tool behavior moves with this entry.
+
+## [0.6.3] - 2026-10-17
+
+### Added
+
+- The ts driver maps NodeNext extension spellings archspec-side, in the
+  relative-specifier candidate loop: `.js` also tries `.ts` and `.tsx`,
+  `.mjs` tries `.mts`, `.cjs` tries `.cts` — the LITERAL spelling first,
+  always. When both `x.js` and `x.ts` exist the edge lands on `x.js`:
+  the runtime loads what it loads (the mixed-tree law). The mapping
+  fires only after the literal miss, carries no `.svelte` row, and the
+  delegated resolver's own alias table stays disabled — it would fire
+  before the literal and error on twin-less trees.
+- The ts resolution seam gained the virtual-specifier and query-suffix
+  laws. A scheme-shaped specifier (`^[A-Za-z][A-Za-z0-9+.-]*:`) or a
+  NUL-leading one is a virtual module id: never delegated, never
+  stripped — the run records NO edge and NO external-tier entry and
+  states one report-only `virtual specifier not modelled: <verbatim>`
+  line, exit 0 (the measured fix: `https://esm.sh/lodash` no longer
+  pollutes the external tier with the identity `https:`). A `?`-query
+  on a relative, aliased or bare specifier resolves on the BASE: found,
+  an ordinary edge with the external identity losing the query
+  (`canvas-confetti?optional` names `canvas-confetti`); base absent,
+  the ordinary miss class naming the FULL ORIGINAL specifier verbatim.
+  The builtins law runs before the virtual test, so `node:` keeps its
+  shipped external fact. A `help diagnostics` catalog entry, the claim
+  registry row and the every-emitted-category guard carry the new
+  line; no capability row flips with these laws.
+
+### Changed
+
+- The ts scanner decodes escape sequences in specifier strings: fragments
+  and escapes join in order, so a virtual id spelled `"\0virtual:module"`
+  arrives at the seam as the runtime NUL-leading string the law tests by
+  name (previously the first fragment alone was taken and the leading
+  escape was dropped). The silent-parser tripwire now also counts
+  report-only lines as stated outcomes: a file whose only import is a
+  virtual specifier exits 0 with its line, not tripwire red.
+
+## [0.6.2] - 2026-10-17
+
+### Added
+
+- The ts resolution seam narrows its case-(iv) verdict for BARE
+  undeclared member-name imports through a linker-family gate read from
+  the lockfile at the workspace registry root (the lockfile is read as a
+  family signal — file names only, never content, never a registry).
+  A bare specifier naming a registered workspace member with no on-disk
+  resolution, imported by a manifest that does not declare it, is now a
+  first-party membership edge onto the first registered member for that
+  name (nearest scan root first) when the root carries a hoisting-family
+  lockfile (`yarn.lock` or `npm-shrinkwrap.json`) — the hoisting linker
+  makes the import a real runtime edge, so the run honors the linker
+  with one report-only `undeclared member import: <from> -> <member>`
+  line and exits 0. Under `pnpm-lock.yaml` or no lockfile the same miss
+  keeps the honest `unresolvable import` red, exit 1 — pnpm-strict
+  refuses the link and red is the runtime truth there. Subpath misses
+  (member name + path) keep the red under every family; non-member bare
+  misses and the declared-member cases are unchanged. A `help
+  diagnostics` catalog entry, the claim registry row and the
+  every-emitted-category guard carry the new line; ADR-024's precedence
+  sentence states the gate.
+
+## [0.6.1] - 2026-10-17
+
+### Documentation
+
+- The ts-resolution design record carries its round-4 amendments (a
+  post-landing regressions audit): the R5 case-(iv) narrowing with the
+  hoisting-linker membership gate (a bare undeclared member import under
+  a `yarn.lock`/`npm-shrinkwrap.json` family becomes a first-party edge
+  with a report-only line; `pnpm-lock.yaml` or no lockfile keeps the
+  honest red; subpath misses keep the red), the archspec-side NodeNext
+  extension mapping (R10 — literal-first substitution in the ts candidate
+  loop; the resolver-side alias table rejected on two measurements), the
+  query-suffix and virtual-specifier law (scheme-shaped specifiers are
+  never delegated and never pollute the external tier), and the
+  mechanical corrections — ADR-024 flips to Accepted, the fan-out owner
+  of the retired npm-workspace blind-spot entry corrected to the ADR-022
+  record, the `tsconfig cycle` finding string narrowed to name the
+  unread project references, and three behavior fixtures required for
+  the alias/imports-map/export-map arms. Design record only — no tool
+  behavior moves with this entry.
+
 ## [0.6.0] - 2026-10-15
 
 ### Added

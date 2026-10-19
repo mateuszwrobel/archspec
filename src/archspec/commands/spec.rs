@@ -1,4 +1,5 @@
 use crate::archspec::cli::{self, FlagSpec};
+use crate::archspec::language;
 use crate::archspec::spec;
 
 /// Annotated reference for `architecture.spec.toml` — every section, with
@@ -15,7 +16,8 @@ print the architecture.spec.toml JSON schema (--schema) or annotated reference
 # Constraint keys and severity defaults: archspec help constraints.
 
 [project]
-language = \"rust\"   # rust | csharp | go
+language = \"rust\"   # required; the accepted driver names: archspec spec --schema
+# framework = \"sveltekit\"  # optional; a driver-registered framework name (the driver's registry: archspec spec --schema); framework semantics never auto-discover
 
 [[module]]
 name = \"domain\"                                   # required
@@ -125,7 +127,19 @@ fn schema_json() -> String {
                 "properties": {
                     "language": {
                         "type": "string",
-                        "enum": ["rust", "csharp", "go"]
+                        // The ONE driver-name table (`language::LANGUAGES`) —
+                        // the emitted enum and the parser cannot drift
+                        // (round-8 F11: the stale three-name copy is deleted).
+                        "enum": language::LANGUAGES.iter().map(|(name, _)| *name).collect::<Vec<_>>()
+                    },
+                    "framework": {
+                        "type": "string",
+                        // The framework registry across drivers
+                        // (`language::frameworks_all`): names registered
+                        // SOMEWHERE; the per-driver split is validated at
+                        // spec load against the selected driver (round-8
+                        // P-FW1 — a key, never a discovery).
+                        "enum": language::frameworks_all()
                     }
                 },
                 "required": ["language"]
@@ -141,6 +155,7 @@ fn schema_json() -> String {
                     "properties": {
                         "type": { "enum": ALL_TYPES },
                         "severity": { "enum": ["error", "warning"] },
+                        "scope": { "enum": ["claims", "both"] },
                         "modules": { "type": "array", "items": { "type": "string" } }
                     },
                     "oneOf": constraint_items

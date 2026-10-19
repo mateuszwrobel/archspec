@@ -34,6 +34,7 @@ graph TD
         src_archspec_commands_doctor_rs_d02235c7["src/archspec/commands/doctor.rs"]
         src_archspec_commands_help_rs_f871e883["src/archspec/commands/help.rs"]
         src_archspec_commands_mod_rs_f189e4c2["src/archspec/commands/mod.rs"]
+        src_archspec_commands_registry_rs_40e82144["src/archspec/commands/registry.rs"]
         src_archspec_commands_report_rs_d3cf6492["src/archspec/commands/report.rs"]
         src_archspec_commands_scan_rs_e238786b["src/archspec/commands/scan.rs"]
         src_archspec_commands_skill_rs_2b7ff5cc["src/archspec/commands/skill.rs"]
@@ -45,7 +46,8 @@ graph TD
         src_archspec_commands_diagram_rs_7669d2f6 ~~~ src_archspec_commands_doctor_rs_d02235c7
         src_archspec_commands_doctor_rs_d02235c7 ~~~ src_archspec_commands_help_rs_f871e883
         src_archspec_commands_help_rs_f871e883 ~~~ src_archspec_commands_mod_rs_f189e4c2
-        src_archspec_commands_mod_rs_f189e4c2 ~~~ src_archspec_commands_report_rs_d3cf6492
+        src_archspec_commands_mod_rs_f189e4c2 ~~~ src_archspec_commands_registry_rs_40e82144
+        src_archspec_commands_registry_rs_40e82144 ~~~ src_archspec_commands_report_rs_d3cf6492
         src_archspec_commands_report_rs_d3cf6492 ~~~ src_archspec_commands_scan_rs_e238786b
         src_archspec_commands_scan_rs_e238786b ~~~ src_archspec_commands_skill_rs_2b7ff5cc
         src_archspec_commands_skill_rs_2b7ff5cc ~~~ src_archspec_commands_spec_rs_faee5f0a
@@ -59,20 +61,28 @@ graph TD
       end
       subgraph src_archspec_inspect_400c7210["src/archspec/inspect"]
         src_archspec_inspect_csharp_rs_bd8196b4["src/archspec/inspect/csharp.rs"]
+        src_archspec_inspect_file_graph_rs_25f18c7d["src/archspec/inspect/file_graph.rs"]
         src_archspec_inspect_go_rs_42a07122["src/archspec/inspect/go.rs"]
+        src_archspec_inspect_kotlin_rs_c8c7af51["src/archspec/inspect/kotlin.rs"]
         src_archspec_inspect_mermaid_rs_377dfa56["src/archspec/inspect/mermaid.rs"]
         src_archspec_inspect_mod_rs_3ddff110["src/archspec/inspect/mod.rs"]
         src_archspec_inspect_plantuml_rs_c9e8046e["src/archspec/inspect/plantuml.rs"]
+        src_archspec_inspect_python_rs_89576aa9["src/archspec/inspect/python.rs"]
         src_archspec_inspect_scanner_rs_b36ad045["src/archspec/inspect/scanner.rs"]
         src_archspec_inspect_structural_rs_815d3581["src/archspec/inspect/structural.rs"]
         src_archspec_inspect_tree_rs_b0fcf613["src/archspec/inspect/tree.rs"]
-        src_archspec_inspect_csharp_rs_bd8196b4 ~~~ src_archspec_inspect_go_rs_42a07122
-        src_archspec_inspect_go_rs_42a07122 ~~~ src_archspec_inspect_mermaid_rs_377dfa56
+        src_archspec_inspect_ts_rs_232f79f4["src/archspec/inspect/ts.rs"]
+        src_archspec_inspect_csharp_rs_bd8196b4 ~~~ src_archspec_inspect_file_graph_rs_25f18c7d
+        src_archspec_inspect_file_graph_rs_25f18c7d ~~~ src_archspec_inspect_go_rs_42a07122
+        src_archspec_inspect_go_rs_42a07122 ~~~ src_archspec_inspect_kotlin_rs_c8c7af51
+        src_archspec_inspect_kotlin_rs_c8c7af51 ~~~ src_archspec_inspect_mermaid_rs_377dfa56
         src_archspec_inspect_mermaid_rs_377dfa56 ~~~ src_archspec_inspect_mod_rs_3ddff110
         src_archspec_inspect_mod_rs_3ddff110 ~~~ src_archspec_inspect_plantuml_rs_c9e8046e
-        src_archspec_inspect_plantuml_rs_c9e8046e ~~~ src_archspec_inspect_scanner_rs_b36ad045
+        src_archspec_inspect_plantuml_rs_c9e8046e ~~~ src_archspec_inspect_python_rs_89576aa9
+        src_archspec_inspect_python_rs_89576aa9 ~~~ src_archspec_inspect_scanner_rs_b36ad045
         src_archspec_inspect_scanner_rs_b36ad045 ~~~ src_archspec_inspect_structural_rs_815d3581
         src_archspec_inspect_structural_rs_815d3581 ~~~ src_archspec_inspect_tree_rs_b0fcf613
+        src_archspec_inspect_tree_rs_b0fcf613 ~~~ src_archspec_inspect_ts_rs_232f79f4
       end
       subgraph src_archspec_parse_dba4b7cf["src/archspec/parse"]
         src_archspec_parse_grammar_rs_1aa4a06d["src/archspec/parse/grammar.rs"]
@@ -83,8 +93,10 @@ graph TD
         src_archspec_report_mod_rs_2a583ff5["src/archspec/report/mod.rs"]
       end
       subgraph src_archspec_scan_debaf393["src/archspec/scan"]
+        src_archspec_scan_leg_rs_b0c0f884["src/archspec/scan/leg.rs"]
         src_archspec_scan_mod_rs_9cb8843b["src/archspec/scan/mod.rs"]
         src_archspec_scan_rust_rs_ba8a9ddd["src/archspec/scan/rust.rs"]
+        src_archspec_scan_leg_rs_b0c0f884 ~~~ src_archspec_scan_mod_rs_9cb8843b
         src_archspec_scan_mod_rs_9cb8843b ~~~ src_archspec_scan_rust_rs_ba8a9ddd
         subgraph src_archspec_scan_csharp_8738af6b["src/archspec/scan/csharp"]
           src_archspec_scan_csharp_mod_rs_d3833a53["src/archspec/scan/csharp/mod.rs"]
@@ -96,25 +108,87 @@ graph TD
           src_archspec_scan_go_syntax_rs_310769ec["src/archspec/scan/go/syntax.rs"]
           src_archspec_scan_go_mod_rs_ec1e33d1 ~~~ src_archspec_scan_go_syntax_rs_310769ec
         end
+        subgraph src_archspec_scan_kotlin_7771d65d["src/archspec/scan/kotlin"]
+          src_archspec_scan_kotlin_gradle_rs_9c8fedc2["src/archspec/scan/kotlin/gradle.rs"]
+          src_archspec_scan_kotlin_mod_rs_b744ed9f["src/archspec/scan/kotlin/mod.rs"]
+          src_archspec_scan_kotlin_settings_rs_2dad9589["src/archspec/scan/kotlin/settings.rs"]
+          src_archspec_scan_kotlin_syntax_rs_6697440f["src/archspec/scan/kotlin/syntax.rs"]
+          src_archspec_scan_kotlin_gradle_rs_9c8fedc2 ~~~ src_archspec_scan_kotlin_mod_rs_b744ed9f
+          src_archspec_scan_kotlin_mod_rs_b744ed9f ~~~ src_archspec_scan_kotlin_settings_rs_2dad9589
+          src_archspec_scan_kotlin_settings_rs_2dad9589 ~~~ src_archspec_scan_kotlin_syntax_rs_6697440f
+        end
+        subgraph src_archspec_scan_python_d128c377["src/archspec/scan/python"]
+          src_archspec_scan_python_mod_rs_02928ed3["src/archspec/scan/python/mod.rs"]
+          src_archspec_scan_python_stdlib_rs_e8f27a33["src/archspec/scan/python/stdlib.rs"]
+          src_archspec_scan_python_syntax_rs_91dee78c["src/archspec/scan/python/syntax.rs"]
+          src_archspec_scan_python_mod_rs_02928ed3 ~~~ src_archspec_scan_python_stdlib_rs_e8f27a33
+          src_archspec_scan_python_stdlib_rs_e8f27a33 ~~~ src_archspec_scan_python_syntax_rs_91dee78c
+        end
+        subgraph src_archspec_scan_ts_4764d06a["src/archspec/scan/ts"]
+          src_archspec_scan_ts_common_rs_f8ac0be2["src/archspec/scan/ts/common.rs"]
+          src_archspec_scan_ts_config_chain_rs_b6e16667["src/archspec/scan/ts/config_chain.rs"]
+          src_archspec_scan_ts_config_preload_rs_88795ac5["src/archspec/scan/ts/config_preload.rs"]
+          src_archspec_scan_ts_gitignore_rs_cadc55fa["src/archspec/scan/ts/gitignore.rs"]
+          src_archspec_scan_ts_mod_rs_8cc6c210["src/archspec/scan/ts/mod.rs"]
+          src_archspec_scan_ts_resolution_rs_eed36e15["src/archspec/scan/ts/resolution.rs"]
+          src_archspec_scan_ts_syntax_rs_b9b4fd38["src/archspec/scan/ts/syntax.rs"]
+          src_archspec_scan_ts_workspace_rs_ce575ad6["src/archspec/scan/ts/workspace.rs"]
+          src_archspec_scan_ts_common_rs_f8ac0be2 ~~~ src_archspec_scan_ts_config_chain_rs_b6e16667
+          src_archspec_scan_ts_config_chain_rs_b6e16667 ~~~ src_archspec_scan_ts_config_preload_rs_88795ac5
+          src_archspec_scan_ts_config_preload_rs_88795ac5 ~~~ src_archspec_scan_ts_gitignore_rs_cadc55fa
+          src_archspec_scan_ts_gitignore_rs_cadc55fa ~~~ src_archspec_scan_ts_mod_rs_8cc6c210
+          src_archspec_scan_ts_mod_rs_8cc6c210 ~~~ src_archspec_scan_ts_resolution_rs_eed36e15
+          src_archspec_scan_ts_resolution_rs_eed36e15 ~~~ src_archspec_scan_ts_syntax_rs_b9b4fd38
+          src_archspec_scan_ts_syntax_rs_b9b4fd38 ~~~ src_archspec_scan_ts_workspace_rs_ce575ad6
+        end
         src_archspec_scan_rust_rs_ba8a9ddd ~~~ src_archspec_scan_csharp_mod_rs_d3833a53
         src_archspec_scan_csharp_syntax_rs_232b496b ~~~ src_archspec_scan_go_mod_rs_ec1e33d1
+        src_archspec_scan_go_syntax_rs_310769ec ~~~ src_archspec_scan_kotlin_gradle_rs_9c8fedc2
+        src_archspec_scan_kotlin_syntax_rs_6697440f ~~~ src_archspec_scan_python_mod_rs_02928ed3
+        src_archspec_scan_python_syntax_rs_91dee78c ~~~ src_archspec_scan_ts_common_rs_f8ac0be2
       end
       subgraph src_archspec_update_8eb512a9["src/archspec/update"]
         src_archspec_update_mod_rs_e0173b9b["src/archspec/update/mod.rs"]
       end
       subgraph src_archspec_verify_76bad41d["src/archspec/verify"]
-        src_archspec_verify_compare_rs_7a4898a8["src/archspec/verify/compare.rs"]
         src_archspec_verify_mod_rs_76886026["src/archspec/verify/mod.rs"]
-        src_archspec_verify_compare_rs_7a4898a8 ~~~ src_archspec_verify_mod_rs_76886026
+        subgraph src_archspec_verify_compare_4a3d3485["src/archspec/verify/compare"]
+          src_archspec_verify_compare_adjudicate_rs_44538ae0["src/archspec/verify/compare/adjudicate.rs"]
+          src_archspec_verify_compare_boundaries_rs_543a12f6["src/archspec/verify/compare/boundaries.rs"]
+          src_archspec_verify_compare_claims_rs_ff31945a["src/archspec/verify/compare/claims.rs"]
+          src_archspec_verify_compare_contracts_rs_6f1e6784["src/archspec/verify/compare/contracts.rs"]
+          src_archspec_verify_compare_cycles_rs_7a16f3ee["src/archspec/verify/compare/cycles.rs"]
+          src_archspec_verify_compare_diff_rs_1ea7ac2e["src/archspec/verify/compare/diff.rs"]
+          src_archspec_verify_compare_edges_rs_96998a58["src/archspec/verify/compare/edges.rs"]
+          src_archspec_verify_compare_engagement_rs_c3c042c0["src/archspec/verify/compare/engagement.rs"]
+          src_archspec_verify_compare_external_rs_f48392b0["src/archspec/verify/compare/external.rs"]
+          src_archspec_verify_compare_mapping_rs_7cae1a7d["src/archspec/verify/compare/mapping.rs"]
+          src_archspec_verify_compare_mod_rs_0fce8512["src/archspec/verify/compare/mod.rs"]
+          src_archspec_verify_compare_pattern_rs_7d04036f["src/archspec/verify/compare/pattern.rs"]
+          src_archspec_verify_compare_surfaces_rs_6cbe1d13["src/archspec/verify/compare/surfaces.rs"]
+          src_archspec_verify_compare_adjudicate_rs_44538ae0 ~~~ src_archspec_verify_compare_boundaries_rs_543a12f6
+          src_archspec_verify_compare_boundaries_rs_543a12f6 ~~~ src_archspec_verify_compare_claims_rs_ff31945a
+          src_archspec_verify_compare_claims_rs_ff31945a ~~~ src_archspec_verify_compare_contracts_rs_6f1e6784
+          src_archspec_verify_compare_contracts_rs_6f1e6784 ~~~ src_archspec_verify_compare_cycles_rs_7a16f3ee
+          src_archspec_verify_compare_cycles_rs_7a16f3ee ~~~ src_archspec_verify_compare_diff_rs_1ea7ac2e
+          src_archspec_verify_compare_diff_rs_1ea7ac2e ~~~ src_archspec_verify_compare_edges_rs_96998a58
+          src_archspec_verify_compare_edges_rs_96998a58 ~~~ src_archspec_verify_compare_engagement_rs_c3c042c0
+          src_archspec_verify_compare_engagement_rs_c3c042c0 ~~~ src_archspec_verify_compare_external_rs_f48392b0
+          src_archspec_verify_compare_external_rs_f48392b0 ~~~ src_archspec_verify_compare_mapping_rs_7cae1a7d
+          src_archspec_verify_compare_mapping_rs_7cae1a7d ~~~ src_archspec_verify_compare_mod_rs_0fce8512
+          src_archspec_verify_compare_mod_rs_0fce8512 ~~~ src_archspec_verify_compare_pattern_rs_7d04036f
+          src_archspec_verify_compare_pattern_rs_7d04036f ~~~ src_archspec_verify_compare_surfaces_rs_6cbe1d13
+        end
+        src_archspec_verify_mod_rs_76886026 ~~~ src_archspec_verify_compare_adjudicate_rs_44538ae0
       end
       src_archspec_spec_rs_a8194740 ~~~ src_archspec_commands_capability_rs_64476979
       src_archspec_commands_verify_rs_bc7cac43 ~~~ src_archspec_init_detect_rs_b8b98ac4
       src_archspec_init_mod_rs_e4f655ce ~~~ src_archspec_inspect_csharp_rs_bd8196b4
-      src_archspec_inspect_tree_rs_b0fcf613 ~~~ src_archspec_parse_grammar_rs_1aa4a06d
+      src_archspec_inspect_ts_rs_232f79f4 ~~~ src_archspec_parse_grammar_rs_1aa4a06d
       src_archspec_parse_mod_rs_6c77072d ~~~ src_archspec_report_mod_rs_2a583ff5
-      src_archspec_report_mod_rs_2a583ff5 ~~~ src_archspec_scan_mod_rs_9cb8843b
-      src_archspec_scan_go_syntax_rs_310769ec ~~~ src_archspec_update_mod_rs_e0173b9b
-      src_archspec_update_mod_rs_e0173b9b ~~~ src_archspec_verify_compare_rs_7a4898a8
+      src_archspec_report_mod_rs_2a583ff5 ~~~ src_archspec_scan_leg_rs_b0c0f884
+      src_archspec_scan_ts_workspace_rs_ce575ad6 ~~~ src_archspec_update_mod_rs_e0173b9b
+      src_archspec_update_mod_rs_e0173b9b ~~~ src_archspec_verify_mod_rs_76886026
     end
     src_render_rs_8e751ed1 ~~~ src_archspec_capability_rs_d60fec76
   end
@@ -130,6 +204,7 @@ graph TD
     tests_blind5_help_surfaces_rs_5f61e2b1["tests/blind5_help_surfaces.rs"]
     tests_blind5_release_prep_rs_3d0b25db["tests/blind5_release_prep.rs"]
     tests_capability_prose_rs_90e27b9e["tests/capability_prose.rs"]
+    tests_capability_ts_matrix_rs_480ef871["tests/capability_ts_matrix.rs"]
     tests_check_rs_5f25ce5b["tests/check.rs"]
     tests_claim_fanout_rs_b12456af["tests/claim_fanout.rs"]
     tests_cli_pipe_rs_6e496383["tests/cli_pipe.rs"]
@@ -144,14 +219,18 @@ graph TD
     tests_depgraph_rs_70116f64["tests/depgraph.rs"]
     tests_depgraph_reasons_rs_28dac1e5["tests/depgraph_reasons.rs"]
     tests_diagram_rs_b546d08e["tests/diagram.rs"]
+    tests_diagram_files_tier_rs_7714bc02["tests/diagram_files_tier.rs"]
     tests_diagram_modules_rs_2a47643b["tests/diagram_modules.rs"]
     tests_doc_surface_nits_rs_cdb2ac7d["tests/doc_surface_nits.rs"]
     tests_doctor_rs_5bb74127["tests/doctor.rs"]
+    tests_e2e_matrix_rs_ef4a1eaa["tests/e2e_matrix.rs"]
+    tests_excluded_sources_report_rs_8a2c30ef["tests/excluded_sources_report.rs"]
     tests_exit_taxonomy_rs_975de231["tests/exit_taxonomy.rs"]
     tests_extraction_freeze_rs_ff26bd53["tests/extraction_freeze.rs"]
     tests_feature_matrix_rs_91dd71b6["tests/feature_matrix.rs"]
     tests_go_syntax_rs_dcc778f7["tests/go_syntax.rs"]
     tests_go_tier_agreement_rs_875013bb["tests/go_tier_agreement.rs"]
+    tests_golden_derivation_rs_603725c3["tests/golden_derivation.rs"]
     tests_help_rs_4ee9fa11["tests/help.rs"]
     tests_help_audit_recipe_rs_f3afb474["tests/help_audit_recipe.rs"]
     tests_init_rs_43f88b2a["tests/init.rs"]
@@ -160,18 +239,31 @@ graph TD
     tests_inspect_excluded_rs_617795f1["tests/inspect_excluded.rs"]
     tests_inspect_go_rs_a12a6b66["tests/inspect_go.rs"]
     tests_inspect_structural_rs_dae3804f["tests/inspect_structural.rs"]
+    tests_kotlin_driver_rs_8ab631d1["tests/kotlin_driver.rs"]
+    tests_language_agreement_rs_90c454cb["tests/language_agreement.rs"]
     tests_lib_imports_guard_rs_c21683b3["tests/lib_imports_guard.rs"]
     tests_licensing_rs_74473a7f["tests/licensing.rs"]
     tests_mermaid_syntax_rs_a63f01b5["tests/mermaid_syntax.rs"]
+    tests_npm_channel_rs_d88cc6e4["tests/npm_channel.rs"]
     tests_output_dash_rs_64f5de00["tests/output_dash.rs"]
+    tests_parallel_fact_leg_rs_2aac20a6["tests/parallel_fact_leg.rs"]
+    tests_python_driver_rs_8b437ef2["tests/python_driver.rs"]
     tests_reference_engagement_rs_b6588aa0["tests/reference_engagement.rs"]
     tests_report_rs_d3343c12["tests/report.rs"]
     tests_roles_matrix_rs_d9342ae1["tests/roles_matrix.rs"]
+    tests_rust_file_facts_rs_79d55f98["tests/rust_file_facts.rs"]
+    tests_rust_trait_refs_rs_2bbc649b["tests/rust_trait_refs.rs"]
     tests_scan_rs_9d8497cf["tests/scan.rs"]
     tests_scan_modules_rs_b38784a5["tests/scan_modules.rs"]
     tests_skill_rs_1ae9470b["tests/skill.rs"]
     tests_spec_rs_62683ba2["tests/spec.rs"]
     tests_spec_self_verify_rs_696fa1ec["tests/spec_self_verify.rs"]
+    tests_spec_type_only_key_rs_e9fad2de["tests/spec_type_only_key.rs"]
+    tests_ts_cycles_rs_d0e5b8f4["tests/ts_cycles.rs"]
+    tests_ts_detection_rs_4cef86d3["tests/ts_detection.rs"]
+    tests_ts_driver_rs_3a036c39["tests/ts_driver.rs"]
+    tests_ts_workspace_rs_fedb3131["tests/ts_workspace.rs"]
+    tests_type_only_exemption_rs_87b6eab2["tests/type_only_exemption.rs"]
     tests_update_rs_d4d62fa8["tests/update.rs"]
     tests_vacuous_guards_rs_dd44012c["tests/vacuous_guards.rs"]
     tests_verify_rs_ca0c67e6["tests/verify.rs"]
@@ -188,7 +280,8 @@ graph TD
     tests_blind5_dirt_map_rs_a68ae3c5 ~~~ tests_blind5_help_surfaces_rs_5f61e2b1
     tests_blind5_help_surfaces_rs_5f61e2b1 ~~~ tests_blind5_release_prep_rs_3d0b25db
     tests_blind5_release_prep_rs_3d0b25db ~~~ tests_capability_prose_rs_90e27b9e
-    tests_capability_prose_rs_90e27b9e ~~~ tests_check_rs_5f25ce5b
+    tests_capability_prose_rs_90e27b9e ~~~ tests_capability_ts_matrix_rs_480ef871
+    tests_capability_ts_matrix_rs_480ef871 ~~~ tests_check_rs_5f25ce5b
     tests_check_rs_5f25ce5b ~~~ tests_claim_fanout_rs_b12456af
     tests_claim_fanout_rs_b12456af ~~~ tests_cli_pipe_rs_6e496383
     tests_cli_pipe_rs_6e496383 ~~~ tests_config_rs_0b65e312
@@ -202,15 +295,19 @@ graph TD
     tests_csharp_typepositions_rs_b5fef5b6 ~~~ tests_depgraph_rs_70116f64
     tests_depgraph_rs_70116f64 ~~~ tests_depgraph_reasons_rs_28dac1e5
     tests_depgraph_reasons_rs_28dac1e5 ~~~ tests_diagram_rs_b546d08e
-    tests_diagram_rs_b546d08e ~~~ tests_diagram_modules_rs_2a47643b
+    tests_diagram_rs_b546d08e ~~~ tests_diagram_files_tier_rs_7714bc02
+    tests_diagram_files_tier_rs_7714bc02 ~~~ tests_diagram_modules_rs_2a47643b
     tests_diagram_modules_rs_2a47643b ~~~ tests_doc_surface_nits_rs_cdb2ac7d
     tests_doc_surface_nits_rs_cdb2ac7d ~~~ tests_doctor_rs_5bb74127
-    tests_doctor_rs_5bb74127 ~~~ tests_exit_taxonomy_rs_975de231
+    tests_doctor_rs_5bb74127 ~~~ tests_e2e_matrix_rs_ef4a1eaa
+    tests_e2e_matrix_rs_ef4a1eaa ~~~ tests_excluded_sources_report_rs_8a2c30ef
+    tests_excluded_sources_report_rs_8a2c30ef ~~~ tests_exit_taxonomy_rs_975de231
     tests_exit_taxonomy_rs_975de231 ~~~ tests_extraction_freeze_rs_ff26bd53
     tests_extraction_freeze_rs_ff26bd53 ~~~ tests_feature_matrix_rs_91dd71b6
     tests_feature_matrix_rs_91dd71b6 ~~~ tests_go_syntax_rs_dcc778f7
     tests_go_syntax_rs_dcc778f7 ~~~ tests_go_tier_agreement_rs_875013bb
-    tests_go_tier_agreement_rs_875013bb ~~~ tests_help_rs_4ee9fa11
+    tests_go_tier_agreement_rs_875013bb ~~~ tests_golden_derivation_rs_603725c3
+    tests_golden_derivation_rs_603725c3 ~~~ tests_help_rs_4ee9fa11
     tests_help_rs_4ee9fa11 ~~~ tests_help_audit_recipe_rs_f3afb474
     tests_help_audit_recipe_rs_f3afb474 ~~~ tests_init_rs_43f88b2a
     tests_init_rs_43f88b2a ~~~ tests_inspect_rs_6c6c1252
@@ -218,19 +315,32 @@ graph TD
     tests_inspect_csharp_rs_a713e81a ~~~ tests_inspect_excluded_rs_617795f1
     tests_inspect_excluded_rs_617795f1 ~~~ tests_inspect_go_rs_a12a6b66
     tests_inspect_go_rs_a12a6b66 ~~~ tests_inspect_structural_rs_dae3804f
-    tests_inspect_structural_rs_dae3804f ~~~ tests_lib_imports_guard_rs_c21683b3
+    tests_inspect_structural_rs_dae3804f ~~~ tests_kotlin_driver_rs_8ab631d1
+    tests_kotlin_driver_rs_8ab631d1 ~~~ tests_language_agreement_rs_90c454cb
+    tests_language_agreement_rs_90c454cb ~~~ tests_lib_imports_guard_rs_c21683b3
     tests_lib_imports_guard_rs_c21683b3 ~~~ tests_licensing_rs_74473a7f
     tests_licensing_rs_74473a7f ~~~ tests_mermaid_syntax_rs_a63f01b5
-    tests_mermaid_syntax_rs_a63f01b5 ~~~ tests_output_dash_rs_64f5de00
-    tests_output_dash_rs_64f5de00 ~~~ tests_reference_engagement_rs_b6588aa0
+    tests_mermaid_syntax_rs_a63f01b5 ~~~ tests_npm_channel_rs_d88cc6e4
+    tests_npm_channel_rs_d88cc6e4 ~~~ tests_output_dash_rs_64f5de00
+    tests_output_dash_rs_64f5de00 ~~~ tests_parallel_fact_leg_rs_2aac20a6
+    tests_parallel_fact_leg_rs_2aac20a6 ~~~ tests_python_driver_rs_8b437ef2
+    tests_python_driver_rs_8b437ef2 ~~~ tests_reference_engagement_rs_b6588aa0
     tests_reference_engagement_rs_b6588aa0 ~~~ tests_report_rs_d3343c12
     tests_report_rs_d3343c12 ~~~ tests_roles_matrix_rs_d9342ae1
-    tests_roles_matrix_rs_d9342ae1 ~~~ tests_scan_rs_9d8497cf
+    tests_roles_matrix_rs_d9342ae1 ~~~ tests_rust_file_facts_rs_79d55f98
+    tests_rust_file_facts_rs_79d55f98 ~~~ tests_rust_trait_refs_rs_2bbc649b
+    tests_rust_trait_refs_rs_2bbc649b ~~~ tests_scan_rs_9d8497cf
     tests_scan_rs_9d8497cf ~~~ tests_scan_modules_rs_b38784a5
     tests_scan_modules_rs_b38784a5 ~~~ tests_skill_rs_1ae9470b
     tests_skill_rs_1ae9470b ~~~ tests_spec_rs_62683ba2
     tests_spec_rs_62683ba2 ~~~ tests_spec_self_verify_rs_696fa1ec
-    tests_spec_self_verify_rs_696fa1ec ~~~ tests_update_rs_d4d62fa8
+    tests_spec_self_verify_rs_696fa1ec ~~~ tests_spec_type_only_key_rs_e9fad2de
+    tests_spec_type_only_key_rs_e9fad2de ~~~ tests_ts_cycles_rs_d0e5b8f4
+    tests_ts_cycles_rs_d0e5b8f4 ~~~ tests_ts_detection_rs_4cef86d3
+    tests_ts_detection_rs_4cef86d3 ~~~ tests_ts_driver_rs_3a036c39
+    tests_ts_driver_rs_3a036c39 ~~~ tests_ts_workspace_rs_fedb3131
+    tests_ts_workspace_rs_fedb3131 ~~~ tests_type_only_exemption_rs_87b6eab2
+    tests_type_only_exemption_rs_87b6eab2 ~~~ tests_update_rs_d4d62fa8
     tests_update_rs_d4d62fa8 ~~~ tests_vacuous_guards_rs_dd44012c
     tests_vacuous_guards_rs_dd44012c ~~~ tests_verify_rs_ca0c67e6
     tests_verify_rs_ca0c67e6 ~~~ tests_verify_constraints_rs_885d1ae0
@@ -243,13 +353,15 @@ graph TD
       tests_shared_capability_rs_19c683be["tests/shared/capability.rs"]
       tests_shared_driver_rs_7fa50e23["tests/shared/driver.rs"]
       tests_shared_feature_rs_ca539f34["tests/shared/feature.rs"]
+      tests_shared_matrix_rs_630a133c["tests/shared/matrix.rs"]
       tests_shared_mod_rs_2c3ed550["tests/shared/mod.rs"]
       tests_shared_report_rs_ea4d6b1c["tests/shared/report.rs"]
       tests_shared_roles_matrix_rs_9d70fa48["tests/shared/roles_matrix.rs"]
       tests_shared_scenario_rs_c788db03["tests/shared/scenario.rs"]
       tests_shared_capability_rs_19c683be ~~~ tests_shared_driver_rs_7fa50e23
       tests_shared_driver_rs_7fa50e23 ~~~ tests_shared_feature_rs_ca539f34
-      tests_shared_feature_rs_ca539f34 ~~~ tests_shared_mod_rs_2c3ed550
+      tests_shared_feature_rs_ca539f34 ~~~ tests_shared_matrix_rs_630a133c
+      tests_shared_matrix_rs_630a133c ~~~ tests_shared_mod_rs_2c3ed550
       tests_shared_mod_rs_2c3ed550 ~~~ tests_shared_report_rs_ea4d6b1c
       tests_shared_report_rs_ea4d6b1c ~~~ tests_shared_roles_matrix_rs_9d70fa48
       tests_shared_roles_matrix_rs_9d70fa48 ~~~ tests_shared_scenario_rs_c788db03
@@ -281,7 +393,7 @@ graph TD
     tests_verify_submodules_rs_c8522173 ~~~ tests_common_mod_rs_279f1ed6
     tests_common_mod_rs_279f1ed6 ~~~ tests_shared_capability_rs_19c683be
   end
-  src_archspec_verify_mod_rs_76886026 ~~~ tests_agents_guide_reporting_rs_c2c89bc7
+  src_archspec_verify_compare_surfaces_rs_6cbe1d13 ~~~ tests_agents_guide_reporting_rs_c2c89bc7
   src_archspec_capability_rs_d60fec76 --> src_archspec_language_rs_232ea882
   src_archspec_commands_capability_rs_64476979 --> src_archspec_capability_rs_d60fec76
   src_archspec_commands_capability_rs_64476979 --> src_archspec_cli_rs_a6998732
@@ -291,6 +403,7 @@ graph TD
   src_archspec_commands_depgraph_rs_d360365f --> src_archspec_depgraph_rs_8874051e
   src_archspec_commands_depgraph_rs_d360365f --> src_archspec_language_rs_232ea882
   src_archspec_commands_depgraph_rs_d360365f --> src_archspec_scan_mod_rs_9cb8843b
+  src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_capability_rs_d60fec76
   src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_cli_rs_a6998732
   src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_config_rs_dfd15f62
   src_archspec_commands_diagram_rs_7669d2f6 --> src_archspec_diagram_rs_5eacff0a
@@ -301,11 +414,12 @@ graph TD
   src_archspec_commands_doctor_rs_d02235c7 --> src_archspec_cli_rs_a6998732
   src_archspec_commands_doctor_rs_d02235c7 --> src_archspec_language_rs_232ea882
   src_archspec_commands_doctor_rs_d02235c7 --> src_archspec_scan_mod_rs_9cb8843b
+  src_archspec_commands_help_rs_f871e883 --> src_archspec_capability_rs_d60fec76
   src_archspec_commands_help_rs_f871e883 --> src_archspec_cli_rs_a6998732
+  src_archspec_commands_help_rs_f871e883 --> src_archspec_commands_registry_rs_40e82144
   src_archspec_commands_help_rs_f871e883 --> src_archspec_commands_spec_rs_faee5f0a
   src_archspec_commands_help_rs_f871e883 --> src_archspec_helptext_rs_b89a2a86
   src_archspec_commands_help_rs_f871e883 --> src_archspec_language_rs_232ea882
-  src_archspec_commands_help_rs_f871e883 --> src_archspec_mod_rs_d8485b4a
   src_archspec_commands_help_rs_f871e883 --> src_archspec_model_rs_b8d77281
   src_archspec_commands_help_rs_f871e883 --> src_archspec_scan_mod_rs_9cb8843b
   src_archspec_commands_mod_rs_f189e4c2 --> src_archspec_commands_capability_rs_64476979
@@ -313,6 +427,7 @@ graph TD
   src_archspec_commands_mod_rs_f189e4c2 --> src_archspec_commands_diagram_rs_7669d2f6
   src_archspec_commands_mod_rs_f189e4c2 --> src_archspec_commands_doctor_rs_d02235c7
   src_archspec_commands_mod_rs_f189e4c2 --> src_archspec_commands_help_rs_f871e883
+  src_archspec_commands_mod_rs_f189e4c2 --> src_archspec_commands_registry_rs_40e82144
   src_archspec_commands_mod_rs_f189e4c2 --> src_archspec_commands_report_rs_d3cf6492
   src_archspec_commands_mod_rs_f189e4c2 --> src_archspec_commands_scan_rs_e238786b
   src_archspec_commands_mod_rs_f189e4c2 --> src_archspec_commands_skill_rs_2b7ff5cc
@@ -327,10 +442,11 @@ graph TD
   src_archspec_commands_report_rs_d3cf6492 --> src_archspec_report_mod_rs_2a583ff5
   src_archspec_commands_report_rs_d3cf6492 --> src_archspec_scan_mod_rs_9cb8843b
   src_archspec_commands_report_rs_d3cf6492 --> src_archspec_spec_rs_a8194740
-  src_archspec_commands_report_rs_d3cf6492 --> src_archspec_verify_compare_rs_7a4898a8
+  src_archspec_commands_report_rs_d3cf6492 --> src_archspec_verify_compare_mod_rs_0fce8512
   src_archspec_commands_scan_rs_e238786b --> src_archspec_scan_mod_rs_9cb8843b
   src_archspec_commands_skill_rs_2b7ff5cc --> src_archspec_cli_rs_a6998732
   src_archspec_commands_spec_rs_faee5f0a --> src_archspec_cli_rs_a6998732
+  src_archspec_commands_spec_rs_faee5f0a --> src_archspec_language_rs_232ea882
   src_archspec_commands_spec_rs_faee5f0a --> src_archspec_spec_rs_a8194740
   src_archspec_commands_update_rs_e2c6821b --> src_archspec_cli_rs_a6998732
   src_archspec_commands_update_rs_e2c6821b --> src_archspec_language_rs_232ea882
@@ -342,43 +458,53 @@ graph TD
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_language_rs_232ea882
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_scan_mod_rs_9cb8843b
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_spec_rs_a8194740
-  src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_verify_compare_rs_7a4898a8
+  src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_verify_compare_mod_rs_0fce8512
   src_archspec_depgraph_rs_8874051e --> src_archspec_model_rs_b8d77281
   src_archspec_depgraph_rs_8874051e --> src_render_rs_8e751ed1
   src_archspec_diagram_rs_5eacff0a --> src_archspec_model_rs_b8d77281
   src_archspec_diagram_rs_5eacff0a --> src_archspec_spec_rs_a8194740
-  src_archspec_diagram_rs_5eacff0a --> src_archspec_verify_compare_rs_7a4898a8
+  src_archspec_diagram_rs_5eacff0a --> src_archspec_verify_compare_mod_rs_0fce8512
   src_archspec_diagram_rs_5eacff0a --> src_render_rs_8e751ed1
   src_archspec_init_detect_rs_b8b98ac4 --> src_archspec_language_rs_232ea882
   src_archspec_init_mod_rs_e4f655ce --> src_archspec_cli_rs_a6998732
   src_archspec_init_mod_rs_e4f655ce --> src_archspec_init_detect_rs_b8b98ac4
-  src_archspec_inspect_csharp_rs_bd8196b4 --> src_archspec_inspect_mod_rs_3ddff110
+  src_archspec_inspect_csharp_rs_bd8196b4 --> src_archspec_inspect_file_graph_rs_25f18c7d
   src_archspec_inspect_csharp_rs_bd8196b4 --> src_archspec_scan_csharp_mod_rs_d3833a53
-  src_archspec_inspect_go_rs_42a07122 --> src_archspec_inspect_mod_rs_3ddff110
+  src_archspec_inspect_go_rs_42a07122 --> src_archspec_inspect_file_graph_rs_25f18c7d
   src_archspec_inspect_go_rs_42a07122 --> src_archspec_scan_go_mod_rs_ec1e33d1
-  src_archspec_inspect_mermaid_rs_377dfa56 --> src_archspec_inspect_mod_rs_3ddff110
+  src_archspec_inspect_kotlin_rs_c8c7af51 --> src_archspec_inspect_file_graph_rs_25f18c7d
+  src_archspec_inspect_kotlin_rs_c8c7af51 --> src_archspec_scan_kotlin_mod_rs_b744ed9f
+  src_archspec_inspect_mermaid_rs_377dfa56 --> src_archspec_inspect_file_graph_rs_25f18c7d
   src_archspec_inspect_mermaid_rs_377dfa56 --> src_archspec_inspect_tree_rs_b0fcf613
   src_archspec_inspect_mermaid_rs_377dfa56 --> src_render_rs_8e751ed1
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_cli_rs_a6998732
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_config_rs_dfd15f62
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_csharp_rs_bd8196b4
+  src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_file_graph_rs_25f18c7d
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_go_rs_42a07122
+  src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_kotlin_rs_c8c7af51
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_mermaid_rs_377dfa56
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_plantuml_rs_c9e8046e
+  src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_python_rs_89576aa9
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_scanner_rs_b36ad045
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_structural_rs_815d3581
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_tree_rs_b0fcf613
+  src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_inspect_ts_rs_232f79f4
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_language_rs_232ea882
   src_archspec_inspect_mod_rs_3ddff110 --> src_archspec_scan_mod_rs_9cb8843b
-  src_archspec_inspect_plantuml_rs_c9e8046e --> src_archspec_inspect_mod_rs_3ddff110
+  src_archspec_inspect_plantuml_rs_c9e8046e --> src_archspec_inspect_file_graph_rs_25f18c7d
   src_archspec_inspect_plantuml_rs_c9e8046e --> src_archspec_inspect_tree_rs_b0fcf613
   src_archspec_inspect_plantuml_rs_c9e8046e --> src_render_rs_8e751ed1
-  src_archspec_inspect_scanner_rs_b36ad045 --> src_archspec_inspect_mod_rs_3ddff110
+  src_archspec_inspect_python_rs_89576aa9 --> src_archspec_inspect_file_graph_rs_25f18c7d
+  src_archspec_inspect_python_rs_89576aa9 --> src_archspec_scan_python_mod_rs_02928ed3
+  src_archspec_inspect_scanner_rs_b36ad045 --> src_archspec_inspect_file_graph_rs_25f18c7d
   src_archspec_inspect_scanner_rs_b36ad045 --> src_collector_rs_7d5e8ae6
   src_archspec_inspect_structural_rs_815d3581 --> src_archspec_language_rs_232ea882
   src_archspec_inspect_structural_rs_815d3581 --> src_archspec_model_rs_b8d77281
   src_archspec_inspect_structural_rs_815d3581 --> src_archspec_scan_mod_rs_9cb8843b
   src_archspec_inspect_structural_rs_815d3581 --> src_render_rs_8e751ed1
+  src_archspec_inspect_ts_rs_232f79f4 --> src_archspec_inspect_file_graph_rs_25f18c7d
+  src_archspec_inspect_ts_rs_232f79f4 --> src_archspec_scan_ts_mod_rs_8cc6c210
   src_archspec_mod_rs_d8485b4a --> src_archspec_capability_rs_d60fec76
   src_archspec_mod_rs_d8485b4a --> src_archspec_cli_rs_a6998732
   src_archspec_mod_rs_d8485b4a --> src_archspec_commands_mod_rs_f189e4c2
@@ -401,7 +527,7 @@ graph TD
   src_archspec_report_mod_rs_2a583ff5 --> src_archspec_helptext_rs_b89a2a86
   src_archspec_report_mod_rs_2a583ff5 --> src_archspec_model_rs_b8d77281
   src_archspec_report_mod_rs_2a583ff5 --> src_archspec_spec_rs_a8194740
-  src_archspec_report_mod_rs_2a583ff5 --> src_archspec_verify_compare_rs_7a4898a8
+  src_archspec_report_mod_rs_2a583ff5 --> src_archspec_verify_compare_mod_rs_0fce8512
   src_archspec_scan_csharp_mod_rs_d3833a53 --> src_archspec_model_rs_b8d77281
   src_archspec_scan_csharp_mod_rs_d3833a53 --> src_archspec_scan_csharp_syntax_rs_232b496b
   src_archspec_scan_csharp_syntax_rs_232b496b --> src_archspec_language_rs_232ea882
@@ -410,32 +536,159 @@ graph TD
   src_archspec_scan_go_mod_rs_ec1e33d1 --> src_archspec_scan_go_syntax_rs_310769ec
   src_archspec_scan_go_syntax_rs_310769ec --> src_archspec_language_rs_232ea882
   src_archspec_scan_go_syntax_rs_310769ec --> src_archspec_parse_grammar_rs_1aa4a06d
+  src_archspec_scan_kotlin_mod_rs_b744ed9f --> src_archspec_language_rs_232ea882
+  src_archspec_scan_kotlin_mod_rs_b744ed9f --> src_archspec_model_rs_b8d77281
+  src_archspec_scan_kotlin_mod_rs_b744ed9f --> src_archspec_scan_kotlin_gradle_rs_9c8fedc2
+  src_archspec_scan_kotlin_mod_rs_b744ed9f --> src_archspec_scan_kotlin_settings_rs_2dad9589
+  src_archspec_scan_kotlin_mod_rs_b744ed9f --> src_archspec_scan_kotlin_syntax_rs_6697440f
+  src_archspec_scan_kotlin_mod_rs_b744ed9f --> src_archspec_scan_leg_rs_b0c0f884
+  src_archspec_scan_kotlin_mod_rs_b744ed9f --> src_archspec_spec_rs_a8194740
+  src_archspec_scan_kotlin_mod_rs_b744ed9f --> src_archspec_verify_compare_mod_rs_0fce8512
+  src_archspec_scan_kotlin_syntax_rs_6697440f --> src_archspec_language_rs_232ea882
+  src_archspec_scan_kotlin_syntax_rs_6697440f --> src_archspec_parse_grammar_rs_1aa4a06d
   src_archspec_scan_mod_rs_9cb8843b --> src_archspec_cli_rs_a6998732
   src_archspec_scan_mod_rs_9cb8843b --> src_archspec_config_rs_dfd15f62
   src_archspec_scan_mod_rs_9cb8843b --> src_archspec_language_rs_232ea882
   src_archspec_scan_mod_rs_9cb8843b --> src_archspec_model_rs_b8d77281
   src_archspec_scan_mod_rs_9cb8843b --> src_archspec_scan_csharp_mod_rs_d3833a53
   src_archspec_scan_mod_rs_9cb8843b --> src_archspec_scan_go_mod_rs_ec1e33d1
+  src_archspec_scan_mod_rs_9cb8843b --> src_archspec_scan_kotlin_mod_rs_b744ed9f
+  src_archspec_scan_mod_rs_9cb8843b --> src_archspec_scan_leg_rs_b0c0f884
+  src_archspec_scan_mod_rs_9cb8843b --> src_archspec_scan_python_mod_rs_02928ed3
   src_archspec_scan_mod_rs_9cb8843b --> src_archspec_scan_rust_rs_ba8a9ddd
+  src_archspec_scan_mod_rs_9cb8843b --> src_archspec_scan_ts_mod_rs_8cc6c210
+  src_archspec_scan_mod_rs_9cb8843b --> src_archspec_spec_rs_a8194740
+  src_archspec_scan_python_mod_rs_02928ed3 --> src_archspec_language_rs_232ea882
+  src_archspec_scan_python_mod_rs_02928ed3 --> src_archspec_model_rs_b8d77281
+  src_archspec_scan_python_mod_rs_02928ed3 --> src_archspec_scan_leg_rs_b0c0f884
+  src_archspec_scan_python_mod_rs_02928ed3 --> src_archspec_scan_python_stdlib_rs_e8f27a33
+  src_archspec_scan_python_mod_rs_02928ed3 --> src_archspec_scan_python_syntax_rs_91dee78c
+  src_archspec_scan_python_mod_rs_02928ed3 --> src_archspec_spec_rs_a8194740
+  src_archspec_scan_python_syntax_rs_91dee78c --> src_archspec_language_rs_232ea882
+  src_archspec_scan_python_syntax_rs_91dee78c --> src_archspec_parse_grammar_rs_1aa4a06d
   src_archspec_scan_rust_rs_ba8a9ddd --> src_archspec_model_rs_b8d77281
   src_archspec_scan_rust_rs_ba8a9ddd --> src_collector_rs_7d5e8ae6
+  src_archspec_scan_ts_common_rs_f8ac0be2 --> src_archspec_language_rs_232ea882
+  src_archspec_scan_ts_common_rs_f8ac0be2 --> src_archspec_spec_rs_a8194740
+  src_archspec_scan_ts_config_preload_rs_88795ac5 --> src_archspec_scan_ts_config_chain_rs_b6e16667
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_language_rs_232ea882
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_model_rs_b8d77281
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_scan_leg_rs_b0c0f884
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_scan_ts_common_rs_f8ac0be2
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_scan_ts_config_chain_rs_b6e16667
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_scan_ts_config_preload_rs_88795ac5
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_scan_ts_gitignore_rs_cadc55fa
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_scan_ts_resolution_rs_eed36e15
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_scan_ts_syntax_rs_b9b4fd38
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_scan_ts_workspace_rs_ce575ad6
+  src_archspec_scan_ts_mod_rs_8cc6c210 --> src_archspec_spec_rs_a8194740
+  src_archspec_scan_ts_resolution_rs_eed36e15 --> src_archspec_language_rs_232ea882
+  src_archspec_scan_ts_resolution_rs_eed36e15 --> src_archspec_scan_ts_common_rs_f8ac0be2
+  src_archspec_scan_ts_resolution_rs_eed36e15 --> src_archspec_scan_ts_config_chain_rs_b6e16667
+  src_archspec_scan_ts_resolution_rs_eed36e15 --> src_archspec_scan_ts_config_preload_rs_88795ac5
+  src_archspec_scan_ts_resolution_rs_eed36e15 --> src_archspec_scan_ts_gitignore_rs_cadc55fa
+  src_archspec_scan_ts_resolution_rs_eed36e15 --> src_archspec_scan_ts_workspace_rs_ce575ad6
+  src_archspec_scan_ts_syntax_rs_b9b4fd38 --> src_archspec_parse_grammar_rs_1aa4a06d
+  src_archspec_scan_ts_workspace_rs_ce575ad6 --> src_archspec_language_rs_232ea882
   src_archspec_spec_rs_a8194740 --> src_archspec_cli_rs_a6998732
+  src_archspec_spec_rs_a8194740 --> src_archspec_language_rs_232ea882
   src_archspec_update_mod_rs_e0173b9b --> src_archspec_model_rs_b8d77281
-  src_archspec_verify_compare_rs_7a4898a8 --> src_archspec_capability_rs_d60fec76
-  src_archspec_verify_compare_rs_7a4898a8 --> src_archspec_language_rs_232ea882
-  src_archspec_verify_compare_rs_7a4898a8 --> src_archspec_model_rs_b8d77281
-  src_archspec_verify_compare_rs_7a4898a8 --> src_archspec_spec_rs_a8194740
-  src_archspec_verify_mod_rs_76886026 --> src_archspec_verify_compare_rs_7a4898a8
+  src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_capability_rs_d60fec76
+  src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_language_rs_232ea882
+  src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_verify_compare_claims_rs_ff31945a
+  src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_verify_compare_contracts_rs_6f1e6784
+  src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_verify_compare_cycles_rs_7a16f3ee
+  src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
+  src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_compare_boundaries_rs_543a12f6 --> src_archspec_capability_rs_d60fec76
+  src_archspec_verify_compare_boundaries_rs_543a12f6 --> src_archspec_language_rs_232ea882
+  src_archspec_verify_compare_boundaries_rs_543a12f6 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_boundaries_rs_543a12f6 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_boundaries_rs_543a12f6 --> src_archspec_verify_compare_diff_rs_1ea7ac2e
+  src_archspec_verify_compare_boundaries_rs_543a12f6 --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_compare_claims_rs_ff31945a --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_claims_rs_ff31945a --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_claims_rs_ff31945a --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_compare_contracts_rs_6f1e6784 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_contracts_rs_6f1e6784 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_contracts_rs_6f1e6784 --> src_archspec_verify_compare_claims_rs_ff31945a
+  src_archspec_verify_compare_contracts_rs_6f1e6784 --> src_archspec_verify_compare_engagement_rs_c3c042c0
+  src_archspec_verify_compare_contracts_rs_6f1e6784 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
+  src_archspec_verify_compare_contracts_rs_6f1e6784 --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_compare_contracts_rs_6f1e6784 --> src_archspec_verify_compare_surfaces_rs_6cbe1d13
+  src_archspec_verify_compare_cycles_rs_7a16f3ee --> src_archspec_capability_rs_d60fec76
+  src_archspec_verify_compare_cycles_rs_7a16f3ee --> src_archspec_language_rs_232ea882
+  src_archspec_verify_compare_cycles_rs_7a16f3ee --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_cycles_rs_7a16f3ee --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_cycles_rs_7a16f3ee --> src_archspec_verify_compare_claims_rs_ff31945a
+  src_archspec_verify_compare_cycles_rs_7a16f3ee --> src_archspec_verify_compare_mapping_rs_7cae1a7d
+  src_archspec_verify_compare_diff_rs_1ea7ac2e --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_diff_rs_1ea7ac2e --> src_archspec_verify_compare_claims_rs_ff31945a
+  src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_verify_compare_adjudicate_rs_44538ae0
+  src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_verify_compare_claims_rs_ff31945a
+  src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_verify_compare_cycles_rs_7a16f3ee
+  src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_verify_compare_diff_rs_1ea7ac2e
+  src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
+  src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_capability_rs_d60fec76
+  src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_language_rs_232ea882
+  src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_verify_compare_claims_rs_ff31945a
+  src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_verify_compare_cycles_rs_7a16f3ee
+  src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_verify_compare_external_rs_f48392b0
+  src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
+  src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_compare_external_rs_f48392b0 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_external_rs_f48392b0 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_external_rs_f48392b0 --> src_archspec_verify_compare_diff_rs_1ea7ac2e
+  src_archspec_verify_compare_external_rs_f48392b0 --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_compare_mapping_rs_7cae1a7d --> src_archspec_language_rs_232ea882
+  src_archspec_verify_compare_mapping_rs_7cae1a7d --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_mapping_rs_7cae1a7d --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_mapping_rs_7cae1a7d --> src_archspec_verify_compare_claims_rs_ff31945a
+  src_archspec_verify_compare_mapping_rs_7cae1a7d --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_capability_rs_d60fec76
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_language_rs_232ea882
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_adjudicate_rs_44538ae0
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_boundaries_rs_543a12f6
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_claims_rs_ff31945a
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_contracts_rs_6f1e6784
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_cycles_rs_7a16f3ee
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_diff_rs_1ea7ac2e
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_edges_rs_96998a58
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_engagement_rs_c3c042c0
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_external_rs_f48392b0
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_surfaces_rs_6cbe1d13
+  src_archspec_verify_compare_pattern_rs_7d04036f --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_verify_compare_cycles_rs_7a16f3ee
+  src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_verify_compare_diff_rs_1ea7ac2e
+  src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
+  src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_mod_rs_76886026 --> src_archspec_verify_compare_mod_rs_0fce8512
   src_lib_rs_2fba4152 --> src_collector_rs_7d5e8ae6
   src_lib_rs_2fba4152 --> src_render_rs_8e751ed1
   src_main_rs_df9f8d2d --> src_archspec_mod_rs_d8485b4a
   tests_shared_mod_rs_2c3ed550 --> tests_shared_capability_rs_19c683be
   tests_shared_mod_rs_2c3ed550 --> tests_shared_driver_rs_7fa50e23
   tests_shared_mod_rs_2c3ed550 --> tests_shared_feature_rs_ca539f34
+  tests_shared_mod_rs_2c3ed550 --> tests_shared_matrix_rs_630a133c
   tests_shared_mod_rs_2c3ed550 --> tests_shared_report_rs_ea4d6b1c
   tests_shared_mod_rs_2c3ed550 --> tests_shared_roles_matrix_rs_9d70fa48
   tests_shared_mod_rs_2c3ed550 --> tests_shared_scenario_rs_c788db03
   tests_shared_mod_rs_2c3ed550 --> tests_shared_scenarios_mod_rs_c073fd6e
+  tests_shared_scenarios_depgraph_rs_f685cee8 --> tests_shared_scenarios_mod_rs_c073fd6e
+  tests_shared_scenarios_diagram_rs_38836d8c --> tests_shared_scenarios_mod_rs_c073fd6e
+  tests_shared_scenarios_inspect_rs_b30e213c --> tests_shared_scenarios_mod_rs_c073fd6e
   tests_shared_scenarios_mod_rs_c073fd6e --> tests_shared_scenarios_cli_rs_16043b7b
   tests_shared_scenarios_mod_rs_c073fd6e --> tests_shared_scenarios_depgraph_rs_f685cee8
   tests_shared_scenarios_mod_rs_c073fd6e --> tests_shared_scenarios_diagram_rs_38836d8c
@@ -446,3 +699,4 @@ graph TD
   tests_shared_scenarios_mod_rs_c073fd6e --> tests_shared_scenarios_scan_rs_bb01872c
   tests_shared_scenarios_mod_rs_c073fd6e --> tests_shared_scenarios_update_rs_1cd76d35
   tests_shared_scenarios_mod_rs_c073fd6e --> tests_shared_scenarios_verify_rs_f2098988
+  tests_shared_scenarios_scan_rs_bb01872c --> tests_shared_scenarios_mod_rs_c073fd6e

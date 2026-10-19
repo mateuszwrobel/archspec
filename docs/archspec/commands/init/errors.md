@@ -38,7 +38,7 @@ error: archspec.toml already exists: ./configured/archspec.toml
 
 # message says no language was detected and where
 $ archspec init ./empty-project
-error: could not detect project language: ./empty-project (expected Cargo.toml, go.mod, or *.csproj/*.sln)
+error: could not detect project language: ./empty-project (expected Cargo.toml, package.json, go.mod, or *.csproj/*.sln)
 
 # message says only one path is accepted
 $ archspec init ./src ./tests

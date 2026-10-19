@@ -15,10 +15,15 @@ mod common;
 
 use common::{stderr, stdout};
 
-// R1: a `depend_on` target that is not a declared module and matches nothing in
-// the source is a dead reference warning; exit 0, never "matches source model".
+// R1 (phase B promotion, D10/R2-9): a `depend_on` target that names nothing —
+// a removed claim, the retirement case — is an ERROR-class dead reference:
+// exit 1 WITHOUT --strict, the line printed without the `warning:` prefix.
+// The shipped shape was warning-severity rc-neutral (probe 2026-10-15,
+// archspec 0.6.0: `warning: dead reference: module '<name>' allowed.depend_on
+// target "<entry>" does not exist — create it or fix the reference`); this
+// scenario is the declared promotion, never a restatement of that green.
 #[test]
-fn r1_dead_depend_on_target_is_warned() {
+fn r1_dead_depend_on_target_is_an_error() {
     let fixture = common::Fixture::new();
     fixture.write(
         "Cargo.toml",
@@ -34,18 +39,22 @@ fn r1_dead_depend_on_target_is_warned() {
     let output = fixture.run(&["verify"]);
     assert_eq!(
         output.status.code(),
-        Some(0),
-        "dead references must not fail without --strict (stderr: {})",
+        Some(1),
+        "a naming-a-removed-claim dead reference must fail without --strict (stderr: {})",
         stderr(&output)
     );
     let out = stdout(&output);
     assert!(out.contains("dead reference:"), "report:\n{out}");
+    assert!(
+        !out.contains("warning: dead reference:"),
+        "the promoted class prints without the warning prefix:\n{out}"
+    );
     assert!(out.contains("allowed.depend_on"), "report:\n{out}");
     assert!(out.contains("\"storage\""), "report:\n{out}");
     assert!(out.contains("does not exist"), "report:\n{out}");
     assert!(
         !out.contains("matches source model"),
-        "a run with warnings must not claim a match:\n{out}"
+        "a failing run must not claim a match:\n{out}"
     );
     assert!(
         stderr(&output).is_empty(),
@@ -82,10 +91,13 @@ fn r2_nested_reference_exists_in_source_but_undeclared() {
     assert!(!out.contains("matches source model"), "report:\n{out}");
 }
 
-// R3: an `allowed.forbidden` target matching no declared boundary and a
-// `contract.forbid` naming no declared stereotype are both dead references.
+// R3 (phase B promotion, D10/R3-11): the `allowed.forbidden` ghost names
+// nothing — the whole `does not exist` class is promoted to error, so the
+// run exits 1 and that line prints without the warning prefix. The
+// `contract.forbid` stereotype finding is a different class ("names no
+// stereotype") and stays a warning entry.
 #[test]
-fn r3_dead_forbidden_target_and_stereotype_are_warned() {
+fn r3_dead_forbidden_target_is_an_error_stereotype_stays_warning() {
     let fixture = common::Fixture::new();
     fixture.write(
         "Cargo.toml",
@@ -100,18 +112,31 @@ fn r3_dead_forbidden_target_and_stereotype_are_warned() {
          [module.contract]\nforbid = [\"external\"]\n",
     );
     let output = fixture.run(&["verify"]);
-    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a does-not-exist dead reference fails without --strict (stderr: {})",
+        stderr(&output)
+    );
     let out = stdout(&output);
-    assert!(out.contains("dead reference:"), "report:\n{out}");
-    assert!(out.contains("allowed.forbidden"), "report:\n{out}");
-    assert!(out.contains("\"ghost\""), "report:\n{out}");
-    assert!(out.contains("contract.forbid"), "report:\n{out}");
+    assert!(
+        out.contains("dead reference: module 'app' allowed.forbidden target \"ghost\" does not exist"),
+        "report:\n{out}"
+    );
+    assert!(
+        !out.contains("warning: dead reference: module 'app' allowed.forbidden"),
+        "the promoted class prints without the warning prefix:\n{out}"
+    );
+    assert!(
+        out.contains("warning: dead reference: module 'app' contract.forbid"),
+        "the stereotype class stays warning-severity:\n{out}"
+    );
     assert!(out.contains("names no stereotype"), "report:\n{out}");
     assert!(!out.contains("matches source model"), "report:\n{out}");
 }
 
-// R3b: an absent reference similar to a declared module name gets a
-// did-you-mean candidate.
+// R3b (phase B promotion): a did-you-mean candidate rides the does-not-exist
+// class — error severity, exit 1 without --strict.
 #[test]
 fn r3b_absent_reference_gets_did_you_mean_candidate() {
     let fixture = common::Fixture::new();
@@ -134,9 +159,18 @@ fn r3b_absent_reference_gets_did_you_mean_candidate() {
          [[module]]\nname = \"storage\"\nmatches = { modules = [\"app::storage\"] }\n",
     );
     let output = fixture.run(&["verify"]);
-    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "the does-not-exist class fails without --strict (stderr: {})",
+        stderr(&output)
+    );
     let out = stdout(&output);
     assert!(out.contains("dead reference:"), "report:\n{out}");
+    assert!(
+        !out.contains("warning: dead reference:"),
+        "the promoted class prints without the warning prefix:\n{out}"
+    );
     assert!(out.contains("\"storage\""), "report:\n{out}");
     assert!(out.contains("did you mean \"storage\""), "report:\n{out}");
 }
@@ -171,8 +205,10 @@ fn r4_declared_references_are_zero_noise() {
     assert!(!out.contains("dead reference"), "report:\n{out}");
 }
 
-// R5: --strict promotes dead reference warnings to errors; exit 1 and the
-// `warning: ` prefix is dropped.
+// R5: --strict promotes the WARNING-class dead references (the classifications
+// not promoted by the phase B law) to errors; exit 1 and the `warning: `
+// prefix is dropped. The warning-class fixture is r2's — a reference that
+// exists in source but is undeclared.
 #[test]
 fn r5_strict_promotes_dead_references() {
     let fixture = common::Fixture::new();
@@ -180,12 +216,25 @@ fn r5_strict_promotes_dead_references() {
         "Cargo.toml",
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    fixture.write("src/lib.rs", "pub fn app() {}\n");
+    fixture.write("src/lib.rs", "pub mod storage;\n");
+    fixture.write("src/storage.rs", "pub fn store() {}\n");
     fixture.write(
         "architecture.spec.toml",
         "[project]\nlanguage = \"rust\"\n\n\
          [[module]]\nname = \"app\"\nmatches = { units = [\"app\"] }\n\n\
-         [module.allowed]\ndepend_on = [\"storage\"]\n",
+         [module.allowed]\ndepend_on = [\"app::storage\"]\n",
+    );
+    let plain = fixture.run(&["verify"]);
+    assert_eq!(
+        plain.status.code(),
+        Some(0),
+        "the warning class stays rc-neutral without --strict (stderr: {})",
+        stderr(&plain)
+    );
+    assert!(
+        stdout(&plain).contains("warning: dead reference:"),
+        "the warning class keeps its prefix without --strict:\n{}",
+        stdout(&plain)
     );
     let output = fixture.run(&["verify", "--strict"]);
     assert_eq!(
@@ -200,6 +249,50 @@ fn r5_strict_promotes_dead_references() {
         !out.contains("warning: dead reference:"),
         "promoted lines drop the warning prefix:\n{out}"
     );
+}
+
+// R7 (phase B, R3-11): the promotion covers the ENTIRE `does not exist`
+// class — a forward-declared target named in an allowed entry but never
+// created reddens verify WITHOUT --strict — and the error line is
+// byte-identical with and without --strict (the severity is declared, not
+// promoted).
+#[test]
+fn r7_forward_declared_target_reddens_and_the_line_is_strict_stable() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "pub fn app() {}\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n\
+         [[module]]\nname = \"app\"\nmatches = { units = [\"app\"] }\n\n\
+         [module.allowed]\ndepend_on = [\"planned_reporting\"]\n",
+    );
+    let plain = fixture.run(&["verify"]);
+    assert_eq!(
+        plain.status.code(),
+        Some(1),
+        "a forward-declared allowed target fails without --strict (stderr: {})",
+        stderr(&plain)
+    );
+    let plain_out = stdout(&plain);
+    assert!(
+        plain_out.contains(
+            "dead reference: module 'app' allowed.depend_on target \"planned_reporting\" does not exist"
+        ),
+        "report:\n{plain_out}"
+    );
+    let strict = fixture.run(&["verify", "--strict"]);
+    assert_eq!(strict.status.code(), Some(1));
+    let strict_out = stdout(&strict);
+    for line in plain_out.lines().filter(|l| l.contains("dead reference:")) {
+        assert!(
+            strict_out.lines().any(|s| s == line),
+            "the error line must be byte-identical under --strict:\n{line}"
+        );
+    }
 }
 
 // R6: the dead reference report is byte-stable across runs.

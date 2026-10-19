@@ -127,6 +127,11 @@ pub(crate) fn external_dep(driver: &Driver) -> &'static str {
         Language::Rust => "serde",
         Language::Csharp => "Newtonsoft.Json",
         Language::Go => "example.com/third/party",
+        Language::Ts => "lodash",
+        Language::Python => "requests",
+        // The kotlin external vocabulary is an import's TOP segment (the
+        // python tier parity), so the harness names externals one segment.
+        Language::Kotlin => crate::shared::driver::KOTLIN_EXTERNAL,
     }
 }
 
@@ -137,6 +142,9 @@ pub(crate) fn other_dep(driver: &Driver) -> &'static str {
         Language::Rust => "tokio",
         Language::Csharp => "Microsoft.EntityFrameworkCore",
         Language::Go => "example.com/other/third",
+        Language::Ts => "dayjs",
+        Language::Python => "flask",
+        Language::Kotlin => "com.example.other:other",
     }
 }
 
@@ -144,7 +152,10 @@ pub(crate) fn other_dep(driver: &Driver) -> &'static str {
 /// component (rust/c# project files). Go scopes packages by directory path,
 /// so a dotted stem is not a sub-unit there — it is a separate component.
 pub(crate) fn dot_stems_nest_units(driver: &Driver) -> bool {
-    matches!(driver.language, Language::Rust | Language::Csharp)
+    matches!(
+        driver.language,
+        Language::Rust | Language::Csharp | Language::Kotlin
+    )
 }
 
 /// True when the materializer writes real project files (csproj) alongside
@@ -157,6 +168,55 @@ pub(crate) fn csharp_project_files(driver: &Driver) -> bool {
 /// (module-tier conditional on go.work, no derivable facade role).
 pub(crate) fn go_driver(driver: &Driver) -> bool {
     matches!(driver.language, Language::Go)
+}
+
+/// True only for the ts driver — behaviors pinned to what the ts scan emits
+/// (file-grained identity, package-root unit).
+pub(crate) fn ts_driver(driver: &Driver) -> bool {
+    matches!(driver.language, Language::Ts)
+}
+
+/// True for every driver EXCEPT ts: the multi-unit project shapes (several
+/// units with hard edges, per-unit manifests) have no ts dialect — the
+/// single-package law (ts-driver design record, D1) keeps them out of the
+/// ts arm until multi-package engagement lands as a named change.
+pub(crate) fn not_ts(driver: &Driver) -> bool {
+    !ts_driver(driver)
+}
+
+/// True for the python driver — the single-distribution dialect (python
+/// driver record P1/P3: one `pyproject.toml` root, one unit) has no
+/// multi-unit hard-edge shape, mirroring the ts D1 exclusion for these legs.
+pub(crate) fn py_driver(driver: &Driver) -> bool {
+    matches!(driver.language, Language::Python)
+}
+
+/// True for every driver with a multi-unit dialect: excludes ts (D1
+/// single-package law) and python (single-distribution dialect, python
+/// driver record P1/P3).
+pub(crate) fn not_ts_or_py(driver: &Driver) -> bool {
+    !ts_driver(driver) && !py_driver(driver)
+}
+
+/// The inert side of the `test-tier` fact for drivers that have a source
+/// dialect to omit test imports from but no serialized mark: go applies the
+/// exclusion at the file tier with no serialized fact, so the seed contract
+/// reads there. Drivers whose table row is granular (including ts since the
+/// ts-resolution C leg) are excluded by the capability clause.
+pub(crate) fn test_inert_deriving_driver(driver: &Driver) -> bool {
+    !crate::shared::capability::table()
+        .granular(driver.language.as_str(), "test-tier")
+}
+
+/// The inert side of the role-facade fact for drivers that still derive role
+/// entries from another fact: go marks facade not-emitted yet states its
+/// `package main` composition entry, so the roles map must still be stated
+/// there. Drivers whose table row is granular (including ts since the
+/// ts-resolution C leg derives the package-barrel facade) are excluded by
+/// the capability clause.
+pub(crate) fn role_inert_deriving_driver(driver: &Driver) -> bool {
+    !crate::shared::capability::table()
+        .granular(driver.language.as_str(), "role-facade")
 }
 
 /// The mermaid id the renderers emit for a raw name: pure `[A-Za-z0-9_]`
@@ -258,6 +318,24 @@ pub(crate) fn is_sorted(value: &Value) -> bool {
 /// The unit-boundary spec exercising the canonical tree: one component per unit
 /// with the hard edge declared allowed. Verifies clean for every driver.
 pub(crate) fn boundary_spec(driver: &Driver) -> String {
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // The ts and python probe trees are one package with two file
+        // modules (ts D1 single-package law; python driver record P1/P3
+        // single-distribution dialect): the clean spec claims the package
+        // as a unit and the files as module boundaries, with the core
+        // file's real internal target as the allowed ceiling and floor.
+        let unit = driver.unit_name("app");
+        let core = driver.module_path("app", "core");
+        let ui = driver.module_path("app", "ui");
+        return format!(
+            "[project]\nlanguage = \"{}\"\n\n\
+             [[module]]\nname = \"{unit}\"\nmatches = {{ units = [\"{unit}\"] }}\n\n\
+             [[module]]\nname = \"{core}\"\nmatches = {{ modules = [\"{core}\"] }}\n\
+             [module.allowed]\ndepend_on = [\"{ui}\"]\n\n\
+             [[module]]\nname = \"{ui}\"\nmatches = {{ modules = [\"{ui}\"] }}\n",
+            driver.language.as_str()
+        );
+    }
     format!(
         "[project]\nlanguage = \"{}\"\n\n\
          [[module]]\nname = \"app\"\nmatches = {{ units = [\"{}\"] }}\n\
@@ -332,4 +410,25 @@ pub(crate) fn metric_value(text: &str, name: &str) -> Option<String> {
         .find(|line| line.starts_with(&format!("{name}:")))
         .and_then(|line| line.split(':').nth(1))
         .map(|value| value.trim().to_string())
+}
+
+/// The model's `roles` map with the honest reading of its absence: the
+/// serde law states an empty map as a missing key (model.rs), so a driver
+/// whose role facts are BOTH not-emitted (python, capability rows P2) may
+/// omit the map entirely; every driver that derives a role fact must
+/// serialize it. Shared by the roles-bearing scenario families.
+pub(crate) fn roles_map_or_absent<'a>(
+    model: &'a serde_json::Value,
+    language: &str,
+) -> Result<&'a serde_json::Map<String, serde_json::Value>, String> {
+    static NO_ROLES: std::sync::OnceLock<serde_json::Map<String, serde_json::Value>> =
+        std::sync::OnceLock::new();
+    if let Some(map) = model["roles"].as_object() {
+        return Ok(map);
+    }
+    let table = crate::shared::capability::table();
+    if !table.granular(language, "role-facade") && !table.granular(language, "role-composition") {
+        return Ok(NO_ROLES.get_or_init(serde_json::Map::new));
+    }
+    Err("the canonical tree derives roles, so the model must serialize a map".to_string())
 }

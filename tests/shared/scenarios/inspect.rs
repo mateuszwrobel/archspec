@@ -4,7 +4,9 @@ use crate::shared::driver::{
 };
 use crate::shared::feature::Feature;
 use crate::shared::scenario::Scenario;
-use crate::shared::scenarios::{expect_success, expect_success_in, mermaid_id, scenario};
+use crate::shared::scenarios::{
+    expect_success, expect_success_in, mermaid_id, not_ts, not_ts_or_py, scenario, scenario_when,
+};
 
 pub fn all() -> Vec<Scenario> {
     vec![
@@ -32,16 +34,18 @@ pub fn all() -> Vec<Scenario> {
             "inspect tree renders one subgraph per unit with its module nodes and edges",
             tree_view_renders_units_and_module_edges,
         ),
-        scenario(
+        scenario_when(
             Feature::InspectStructuralScanner,
             "scanner_view_draws_unit_edges",
             "inspect scanner draws the cross-unit hard edges between unit subgraphs",
+            not_ts_or_py,
             scanner_view_draws_unit_edges,
         ),
-        scenario(
+        scenario_when(
             Feature::InspectStructuralTree,
             "inspect_tree_marks_role_carrying_nodes",
             "every node whose model path carries a role entry renders its visible label suffixed with that role's marker, so why a node looks important reads off the diagram alone",
+            not_ts,
             inspect_tree_marks_role_carrying_nodes,
         ),
     ]
@@ -62,6 +66,22 @@ fn materialize_file_level(driver: &Driver, fx: &common::Fixture) -> (&'static st
         Language::Csharp => {
             driver.materialize(fx, &soft_module_tree());
             (".", "app/core.cs".to_string(), "app/ui.cs".to_string())
+        }
+        Language::Ts => {
+            driver.materialize(fx, &soft_module_tree());
+            (".", "src/core.ts".to_string(), "src/ui.ts".to_string())
+        }
+        Language::Python => {
+            driver.materialize(fx, &soft_module_tree());
+            (".", "app/core.py".to_string(), "app/ui.py".to_string())
+        }
+        Language::Kotlin => {
+            driver.materialize(fx, &soft_module_tree());
+            (
+                ".",
+                "app/src/main/java/app/core/Core.kt".to_string(),
+                "app/src/main/java/app/ui/Ui.kt".to_string(),
+            )
         }
         Language::Go => {
             materialize_go_declared_grouping(fx);
@@ -144,6 +164,37 @@ fn tree_view_renders_units_and_module_edges(
             mermaid_id("example.com::api"),
             mermaid_id("example.com::store")
         );
+        if !stdout.contains(&edge) {
+            return Err(format!("module edge {edge} missing:\n{stdout}"));
+        }
+        return Ok(());
+    }
+    if driver.language == Language::Kotlin {
+        // The kotlin module tier is unit-identified (kotlin driver record
+        // K-P2): a module edge joins two gradle units, so the two-unit tree
+        // with a project dependency is the shape that renders nodes and an
+        // edge. A single-unit tree states no edge and is refused elsewhere.
+        let mut tree = LogicalTree::new();
+        tree.units = vec!["app".into(), "shared".into()];
+        tree.modules.insert("app".into(), vec!["core".into()]);
+        tree.modules.insert("shared".into(), vec!["models".into()]);
+        tree.hard_edges.push(("app".into(), "shared".into()));
+        driver.materialize(fx, &tree);
+        let output = expect_success(driver, fx, &["inspect", "tree"])?;
+        let stdout = common::stdout(&output);
+        if !stdout.contains("graph TD") {
+            return Err(format!(
+                "inspect tree must render a mermaid graph:\n{stdout}"
+            ));
+        }
+        let app = driver.unit_name("app");
+        let shared = driver.unit_name("shared");
+        for unit in [&app, &shared] {
+            if !stdout.contains(unit.as_str()) {
+                return Err(format!("unit {unit} missing from tree view:\n{stdout}"));
+            }
+        }
+        let edge = format!("{} --> {}", mermaid_id(&app), mermaid_id(&shared));
         if !stdout.contains(&edge) {
             return Err(format!("module edge {edge} missing:\n{stdout}"));
         }
@@ -239,7 +290,98 @@ fn production_imports_never_target_test_files(
         Language::Rust => rust_imports_never_target_test_targets(driver, fx),
         Language::Csharp => csharp_imports_never_target_test_projects(driver, fx),
         Language::Go => go_imports_never_target_test_files(fx),
+        // The ts identity (C2 facts, C5 wiring): the test tier rides the
+        // co-occurrence of runner evidence (`vitest` in devDependencies)
+        // and the `*.test.*` convention. The test file stays a node and an
+        // import source — its edge into production renders — while no
+        // production file targets it.
+        Language::Ts => ts_imports_never_target_test_files(driver, fx),
+        // The python identity (python driver record P5): the test tier rides
+        // the co-occurrence of pytest-family manifest evidence and the
+        // `test_*.py` convention — the same shape as the ts leg, stated by
+        // the python driver's own serialized test mark.
+        Language::Python => python_imports_never_target_test_files(driver, fx),
+        // The kotlin identity (kotlin driver record K-P4): the test tier
+        // rides the co-occurrence of junit-family manifest evidence and the
+        // `*Test.kt` convention — the test file stays a node and an import
+        // source while no production file targets it.
+        Language::Kotlin => kotlin_imports_never_target_test_files(driver, fx),
     }
+}
+
+/// The python dialect of the ts C2 identity: pytest in the root manifest AND
+/// the `test_` naming make the file test-tier; its import into production
+/// renders as a source edge while no production file targets it.
+fn python_imports_never_target_test_files(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    driver.materialize(fx, &soft_module_tree());
+    fx.write(
+        "pyproject.toml",
+        "[project]\nname = \"app\"\nversion = \"0.1.0\"\ndependencies = [\"pytest\"]\n",
+    );
+    fx.write(
+        "app/test_helper.py",
+        "from app.core import core\n\n\ndef test_h():\n    core()\n",
+    );
+    let output = expect_success_in(fx, ".", &["inspect"])?;
+    let diagram = common::stdout(&output);
+    expect_edge(&diagram, "app/core.py", "app/ui.py")?;
+    expect_node(&diagram, "app/test_helper.py")?;
+    expect_edge(&diagram, "app/test_helper.py", "app/core.py")?;
+    expect_never_targeted(&diagram, "app/test_helper.py")
+}
+
+/// The kotlin dialect of the ts C2 identity: junit-family evidence in the
+/// unit's gradle manifest AND the `*Test.kt` naming make the file test-tier
+/// (kotlin driver record K-P4); its import into production renders as a
+/// source edge while no production file targets it.
+fn kotlin_imports_never_target_test_files(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    driver.materialize(fx, &soft_module_tree());
+    fx.write(
+        "app/build.gradle.kts",
+        "plugins {\n    id(\"org.jetbrains.kotlin.jvm\") version \"2.0.0\"\n}\n\
+         dependencies {\n    testImplementation(\"junit:junit:4.13.2\")\n}\n",
+    );
+    fx.write(
+        "app/src/test/java/app/HelperTest.kt",
+        "package app\n\nimport app.core.Core\nimport org.junit.Test\n\nclass HelperTest {\n    @Test fun h() { Core() }\n}\n",
+    );
+    let output = expect_success_in(fx, ".", &["inspect"])?;
+    let diagram = common::stdout(&output);
+    expect_edge(&diagram, "app/src/main/java/app/core/Core.kt", "app/src/main/java/app/ui/Ui.kt")?;
+    expect_node(&diagram, "app/src/test/java/app/HelperTest.kt")?;
+    expect_edge(
+        &diagram,
+        "app/src/test/java/app/HelperTest.kt",
+        "app/src/main/java/app/core/Core.kt",
+    )?;
+    expect_never_targeted(&diagram, "app/src/test/java/app/HelperTest.kt")
+}
+
+fn ts_imports_never_target_test_files(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    driver.materialize(fx, &soft_module_tree());
+    fx.write(
+        "package.json",
+        "{\n  \"name\": \"app\",\n  \"version\": \"1.0.0\",\n  \"dependencies\": {},\n  \"devDependencies\": { \"vitest\": \"1.0.0\" }\n}\n",
+    );
+    fx.write(
+        "src/helper.test.ts",
+        "import { helper } from \"./core\";\nimport { describe } from \"vitest\";\ndescribe(\"h\", () => { helper(); });\n",
+    );
+    let output = expect_success_in(fx, ".", &["inspect"])?;
+    let diagram = common::stdout(&output);
+    expect_edge(&diagram, "src/core.ts", "src/ui.ts")?;
+    expect_node(&diagram, "src/helper.test.ts")?;
+    expect_edge(&diagram, "src/helper.test.ts", "src/core.ts")?;
+    expect_never_targeted(&diagram, "src/helper.test.ts")
 }
 
 /// A `tests/` integration target importing through the package name is a
@@ -353,9 +495,7 @@ fn inspect_tree_marks_role_carrying_nodes(
     let tree = driver.probe_tree();
     driver.materialize(fx, &tree);
     let model = driver.scan(fx);
-    let roles = model["roles"]
-        .as_object()
-        .ok_or_else(|| "the canonical tree derives roles, so the model must serialize a map".to_string())?;
+    let roles = super::roles_map_or_absent(&model, driver.language.as_str())?;
     let output = expect_success(driver, fx, &["inspect", "tree"])?;
     let stdout = common::stdout(&output);
     for (path, role) in roles {

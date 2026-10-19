@@ -1,0 +1,116 @@
+{
+  "schema": "archspec-golden-derivation-v0",
+  "generated_by": "tests/golden_derivation.rs in ARCHSPEC_GOLDEN mode (never hand-edit fingerprints)",
+  "goldens": [
+    {
+      "path": "depgraph-modules/csharp.mmd",
+      "fingerprint": "fnv1a64-500929b6aa873bba",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "depgraph-modules/go-workspace.mmd",
+      "fingerprint": "fnv1a64-3c079c1a101a25d3",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "depgraph-modules/go.mmd",
+      "fingerprint": "fnv1a64-de15fb03b87a3a60",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "depgraph-modules/rust.mmd",
+      "fingerprint": "fnv1a64-0568eeb94fb1ceda",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "inspect-tree/csharp.mmd",
+      "fingerprint": "fnv1a64-913d83e6cb57e0ef",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "inspect-tree/go-workspace.mmd",
+      "fingerprint": "fnv1a64-5ed94ebb0fb7184a",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "inspect-tree/go.mmd",
+      "fingerprint": "fnv1a64-3853c8f34c40a582",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "inspect-tree/rust.mmd",
+      "fingerprint": "fnv1a64-ed2e21b0dfedf079",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "report/csharp.json",
+      "fingerprint": "fnv1a64-68641b24e4171f70",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "report/go-workspace.json",
+      "fingerprint": "fnv1a64-39f9f6a505b2f9f8",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "report/go.json",
+      "fingerprint": "fnv1a64-deefffb00b097b82",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "report/rust.json",
+      "fingerprint": "fnv1a64-bb16f7befd70077c",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "scan/csharp.json",
+      "fingerprint": "fnv1a64-6a9f619c06338a16",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "scan/go-workspace.json",
+      "fingerprint": "fnv1a64-d6e135eb2d2824f8",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "scan/go.json",
+      "fingerprint": "fnv1a64-16abcf353c5a71e4",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "scan/rust.json",
+      "fingerprint": "fnv1a64-b38b4d50eb831e79",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "skill/analysis.md",
+      "fingerprint": "fnv1a64-7ae8c3df2cb5c9be",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "skill/audit.md",
+      "fingerprint": "fnv1a64-95ab94e389f94850",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "update/csharp.toml",
+      "fingerprint": "fnv1a64-99f98fffac9cacef",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "update/go-workspace.toml",
+      "fingerprint": "fnv1a64-50200bbd18a29952",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "update/go.toml",
+      "fingerprint": "fnv1a64-df0e220928b7f537",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    },
+    {
+      "path": "update/rust.toml",
+      "fingerprint": "fnv1a64-06035057dc5bd72a",
+      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+    }
+  ]
+}

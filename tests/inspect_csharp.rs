@@ -525,8 +525,8 @@ fn inspect_csharp_rejects_tree_with_only_excluded_sources() {
 
     assert_ne!(output.status.code(), Some(0));
     assert!(
-        stderr(&output).contains("no C# sources found under:"),
-        "stderr must say no C# sources found:\n{}",
+        stderr(&output).contains("no supported-language sources found under:"),
+        "stderr must say no supported-language sources found:\n{}",
         stderr(&output)
     );
     assert!(stdout(&output).is_empty(), "no partial diagram on error");

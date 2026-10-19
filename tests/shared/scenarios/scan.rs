@@ -4,7 +4,8 @@ use crate::shared::feature::Feature;
 use crate::shared::scenario::Scenario;
 use crate::shared::scenarios::{
     array_contains, array_count, csharp_project_files, expect_success, external_dep, is_sorted,
-    other_dep, scenario, scenario_when, scenario_when_capability, scenario_when_inert,
+    not_ts, not_ts_or_py, other_dep, role_inert_deriving_driver, scenario, scenario_when,
+    scenario_when_capability,
 };
 
 /// A canonical two-unit tree with a hard edge app -> shared. Exercises the
@@ -18,22 +19,25 @@ fn units_with_edge() -> LogicalTree {
 
 pub fn all() -> Vec<Scenario> {
     vec![
-        scenario(
+        scenario_when(
             Feature::ScanUnits,
             "lists_each_declared_unit",
             "scan reports every materialized logical unit under its concrete unit name",
+            not_ts_or_py,
             lists_each_declared_unit,
         ),
-        scenario(
+        scenario_when(
             Feature::ScanUnits,
             "records_hard_edge_between_dependent_units",
             "a declared hard edge between two units is emitted as a model edge on their concrete names",
+            not_ts_or_py,
             records_hard_edge_between_dependent_units,
         ),
-        scenario(
+        scenario_when(
             Feature::ScanUnits,
             "keeps_own_member_out_of_external",
             "a dependency on another unit of the project is an edge, never an external dependency",
+            not_ts,
             keeps_own_member_out_of_external,
         ),
         scenario(
@@ -120,10 +124,11 @@ pub fn all() -> Vec<Scenario> {
             "a unit whose modules reference nothing emits no module edges",
             no_module_edges_for_units_without_soft_reference,
         ),
-        scenario(
+        scenario_when(
             Feature::ScanExternal,
             "lists_manifest_declared_packages_as_external",
             "manifest-declared packages appear in the external dependency list",
+            not_ts,
             lists_manifest_declared_packages_as_external,
         ),
         scenario(
@@ -219,17 +224,18 @@ pub fn all() -> Vec<Scenario> {
             "a unit with no declared packages reports an empty dependency list",
             unit_without_packages_has_empty_dependencies,
         ),
-        scenario(
+        scenario_when(
             Feature::ScanUnits,
             "model_states_roles_map_per_language",
             "the roles map states the entries each driver derives from its own facts on the canonical tree: rust names its mod-declaration-only roots `facade`, c# names its DI-wired entrypoint root and go its `package main` unit `composition`, and every stated value comes from the closed vocabulary",
+            not_ts,
             model_states_roles_map_per_language,
         ),
-        scenario_when_inert(
+        scenario_when(
             Feature::ScanUnits,
             "roles_map_never_states_facade_where_fact_not_emitted",
             "on a driver whose table marks role-facade not-emitted the roles map states no facade value anywhere while its own derived entries stay stated — honest absence per path, never a guessed stand-in",
-            "role-facade",
+            role_inert_deriving_driver,
             roles_map_never_states_facade_where_fact_not_emitted,
         ),
     ]
@@ -383,6 +389,37 @@ fn records_module_edge_from_internal_using(
     fx: &common::Fixture,
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
+    if driver.language == Language::Kotlin {
+        // The kotlin module tier is unit-identified (kotlin driver record
+        // K-P2): the module edge an internal using states crosses units,
+        // and its endpoints are the unit names the model carries.
+        tree.units = vec!["app".into(), "shared".into()];
+        tree.modules
+            .insert("app".into(), vec!["ui".into()]);
+        tree.modules
+            .insert("shared".into(), vec!["models".into()]);
+        tree.module_usings
+            .push(("app".into(), "ui".into(), "models".into()));
+        driver.materialize(fx, &tree);
+        let model = driver.scan(fx);
+        let unit = driver.module_edge_unit("app");
+        let from = driver.unit_name("app");
+        let to = driver.unit_name("shared");
+        let edges = model["module_edges"]
+            .as_array()
+            .ok_or("module_edges must be an array")?;
+        let found = edges.iter().any(|edge| {
+            edge["unit"].as_str() == Some(unit.as_str())
+                && edge["from"].as_str() == Some(from.as_str())
+                && edge["to"].as_str() == Some(to.as_str())
+        });
+        if !found {
+            return Err(format!(
+                "module edge {from} -> {to} in {unit} missing: {edges:?}"
+            ));
+        }
+        return Ok(());
+    }
     tree.units = vec!["app".into()];
     tree.modules
         .insert("app".into(), vec!["core".into(), "ui".into()]);
@@ -695,6 +732,27 @@ fn attributes_external_dependency_to_its_module(
     fx: &common::Fixture,
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
+    if driver.language == Language::Kotlin {
+        // The kotlin module tier is unit-identified (kotlin driver record
+        // K-P2): a manifest external is attributed to its OWNING UNIT — the
+        // unit-rooted `module_external` key the external guards monitor.
+        tree.units = vec!["app".into()];
+        let external = external_dep(driver);
+        tree.packages.insert("app".into(), vec![external.into()]);
+        driver.materialize(fx, &tree);
+        let model = driver.scan(fx);
+        let unit = driver.unit_name("app");
+        let crates = model["module_external"]
+            .get(&unit)
+            .and_then(|value| value.as_array())
+            .ok_or_else(|| format!("module_external for {unit} must be an array"))?;
+        if !crates.iter().any(|name| name.as_str() == Some(external)) {
+            return Err(format!(
+                "external dep {external} not attributed to {unit}: {crates:?}"
+            ));
+        }
+        return Ok(());
+    }
     tree.units = vec!["app".into()];
     tree.modules.insert("app".into(), vec!["core".into()]);
     let external = external_dep(driver);
@@ -721,6 +779,34 @@ fn keeps_external_usage_off_sibling_modules(
     fx: &common::Fixture,
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
+    if driver.language == Language::Kotlin {
+        // The kotlin sibling of a MODULE is a sibling UNIT (kotlin driver
+        // record K-P2): a dependency stated by one unit's build script
+        // never attributes to another unit's key.
+        tree.units = vec!["app".into(), "shared".into()];
+        let external = external_dep(driver);
+        tree.packages.insert("app".into(), vec![external.into()]);
+        driver.materialize(fx, &tree);
+        let model = driver.scan(fx);
+        let app = driver.unit_name("app");
+        let shared = driver.unit_name("shared");
+        let crates = model["module_external"]
+            .get(&app)
+            .and_then(|value| value.as_array())
+            .ok_or_else(|| format!("module_external for {app} must be an array"))?;
+        if !crates.iter().any(|name| name.as_str() == Some(external)) {
+            return Err(format!("external dep {external} not on {app}: {crates:?}"));
+        }
+        if model["module_external"]
+            .get(&shared)
+            .is_some_and(|value| !value.as_array().is_some_and(|list| list.is_empty()))
+        {
+            return Err(format!(
+                "sibling unit {shared} must not record the external dep"
+            ));
+        }
+        return Ok(());
+    }
     tree.units = vec!["app".into()];
     tree.modules
         .insert("app".into(), vec!["core".into(), "ui".into()]);
@@ -1005,6 +1091,12 @@ fn family_root_using_ties_family_sibling_packages(
 fn exposes_dependency_facts_per_unit(driver: &Driver, fx: &common::Fixture) -> Result<(), String> {
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into()];
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // The ts dialect (D10): one package per tree, and a fileless tree
+        // fails the scan leg, so the package carries a source file beside
+        // its manifest. The dependency facts ride the single package row.
+        tree.modules.insert("app".into(), vec!["main".into()]);
+    }
     let external = external_dep(driver);
     tree.packages.insert("app".into(), vec![external.into()]);
     driver.materialize(fx, &tree);
@@ -1026,6 +1118,31 @@ fn exposes_dependency_facts_per_unit(driver: &Driver, fx: &common::Fixture) -> R
 fn unit_manifests_cover_every_unit(driver: &Driver, fx: &common::Fixture) -> Result<(), String> {
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into(), "shared".into()];
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // A ts tree materializes ONE package (the root package.json names
+        // it); the second logical unit has no manifest row to cover. The
+        // honest ts reading: the materialized package is covered, and no
+        // phantom row states a unit the tree never materialized.
+        tree.modules.insert("app".into(), vec!["main".into()]);
+        let external = external_dep(driver);
+        tree.packages.insert("app".into(), vec![external.to_string()]);
+        driver.materialize(fx, &tree);
+        let model = driver.scan(fx);
+        let manifests = model["unit_manifests"]
+            .as_object()
+            .ok_or("unit_manifests must be an object")?;
+        let app = driver.unit_name("app");
+        if !manifests.contains_key(&app) {
+            return Err(format!("unit_manifests must cover {app}"));
+        }
+        let shared = driver.unit_name("shared");
+        if manifests.contains_key(&shared) {
+            return Err(format!(
+                "unit_manifests must state no row for a unit the tree never materialized: {shared}"
+            ));
+        }
+        return Ok(());
+    }
     let external = external_dep(driver);
     tree.packages.insert("app".into(), vec![external.into()]);
     driver.materialize(fx, &tree);
@@ -1048,6 +1165,23 @@ fn unit_without_packages_has_empty_dependencies(
 ) -> Result<(), String> {
     let mut tree = LogicalTree::new();
     tree.units = vec!["app".into(), "shared".into()];
+    if matches!(driver.language, Language::Ts | Language::Python) {
+        // ts materializes the single root package; the empty-dependency
+        // reading rides that package row (sources included per D10).
+        tree.modules.insert("app".into(), vec!["main".into()]);
+        driver.materialize(fx, &tree);
+        let model = driver.scan(fx);
+        let app = driver.unit_name("app");
+        let deps = model["unit_manifests"]
+            .get(&app)
+            .and_then(|facts| facts.get("dependencies"))
+            .and_then(|value| value.as_array())
+            .ok_or_else(|| format!("dependencies for {app} missing"))?;
+        if !deps.is_empty() {
+            return Err(format!("dependencies for {app} must be empty: {deps:?}"));
+        }
+        return Ok(());
+    }
     let external = external_dep(driver);
     tree.packages.insert("app".into(), vec![external.into()]);
     driver.materialize(fx, &tree);
@@ -1430,11 +1564,10 @@ fn using_dropped_test_project_namespace_stays_out_of_production(
 
 /// The serialized roles map of a scanned model as a plain path -> value map.
 fn stated_roles(
+    driver: &Driver,
     model: &serde_json::Value,
 ) -> Result<std::collections::BTreeMap<String, String>, String> {
-    let map = model["roles"]
-        .as_object()
-        .ok_or_else(|| "the canonical tree derives roles, so the model must serialize a map".to_string())?;
+    let map = super::roles_map_or_absent(model, driver.language.as_str())?;
     map.iter()
         .map(|(path, role)| {
             let value = role
@@ -1451,7 +1584,7 @@ fn model_states_roles_map_per_language(
 ) -> Result<(), String> {
     let tree = driver.probe_tree();
     driver.materialize(fx, &tree);
-    let stated = stated_roles(&driver.scan(fx))?;
+    let stated = stated_roles(driver, &driver.scan(fx))?;
 
     // One contract, three readings: the tree's declared composition roots
     // carry `composition` wherever the driver derives it (the capability rows
@@ -1489,7 +1622,7 @@ fn roles_map_never_states_facade_where_fact_not_emitted(
 ) -> Result<(), String> {
     let tree = driver.probe_tree();
     driver.materialize(fx, &tree);
-    let stated = stated_roles(&driver.scan(fx))?;
+    let stated = stated_roles(driver, &driver.scan(fx))?;
     if let Some((path, _)) = stated.iter().find(|(_, value)| *value == "facade") {
         return Err(format!(
             "the table states role-facade not-emitted for {}, yet the map claims a facade at {path}",

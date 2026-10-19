@@ -1,0 +1,43 @@
+{
+  "name": "@scope/archspec",
+  "version": "0.0.0",
+  "description": "The archspec architecture conformance CLI — a per-release downloader package that verifies and runs the binary built for your platform.",
+  "license": "Apache-2.0",
+  "bin": {
+    "archspec": "bin/archspec.mjs"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.mjs",
+    "test": "node --test test/"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "scripts/postinstall.mjs",
+    "assets.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://example.invalid/archspec.git"
+  },
+  "config": {
+    "downloadBaseUrl": "https://example.invalid/releases/download"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

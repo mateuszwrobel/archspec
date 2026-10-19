@@ -17,7 +17,7 @@ A JSON object (pretty-printed, newline-terminated) with:
 | `type` | `"object"` |
 | `properties` | `project`, `module`, `constraint`, `stereotype` |
 
-- `project`: object with `language` **required**, enumerated as `["rust", "csharp", "go"]`.
+- `project`: object with `language` **required**, enumerated by the ONE driver-name table the schema renders (the enum is computed, never a hand-maintained copy); optional `framework`, enumerated by the driver-side framework registry the schema computes.
 - `module`: array of objects — `name` **required**; `matches` accepts `units` and `modules` (arrays of strings); `contract` accepts the enforced `forbid`, while `expose` is reserved and rejected on presence (`"not": { "required": ["expose"] }` — an empty list is rejected too); `allowed` accepts `depend_on`/`forbidden`; `submodules` recurses to the same module shape — with `matches.units` declarable only on top-level modules: a submodule declares the module tier only, so `matches.units` on a submodule is rejected at parse.
 - `constraint`: array of objects — `type` enumerated over all 7 types; per-type `required` arrays match the shared required-field table exactly (see `../../spec.md`); `severity` is optional and enumerated as `["error", "warning"]`; `modules` is an optional array of strings.
 - `stereotype`: array of objects with a string `name`.
@@ -31,7 +31,8 @@ Annotated example TOML covering every section, preceded by the command's usage l
 # Boundaries and relations, not tree shape. See docs/archspec/spec.md.
 
 [project]
-language = "rust"   # rust | csharp | go
+language = "rust"   # the computed enum — rust | csharp | go | ts | python
+# framework = "sveltekit"   # optional; registry computed by the schema (ts: sveltekit)
 
 [[module]]
 name = "domain"                                   # required

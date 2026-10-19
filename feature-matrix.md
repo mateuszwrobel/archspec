@@ -1,7 +1,7 @@
 # Feature Matrix
 
 ## scan.units
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -9,53 +9,89 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 - **records_hard_edge_between_dependent_units** — a declared hard edge between two units is emitted as a model edge on their concrete names
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 - **keeps_own_member_out_of_external** — a dependency on another unit of the project is an edge, never an external dependency
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: pass
+  - kotlin: pass
 - **scan_is_deterministic_across_runs** — an unchanged tree scans to byte-identical JSON across runs
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **test_project_absent_from_production_model** — a project whose package set names a test runner contributes no unit, edge, soft tier, or external fact, and the tree minus that project scans to identical JSON
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **test_tier_follows_framework_evidence_not_name** — a no-framework project named LegacyTests stays production while a project named Helpers referencing xunit is test tier
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **test_framework_package_ids_are_the_decisive_evidence** — xunit/nunit-family and Microsoft.NET.Test.Sdk package ids mark the test tier while FluentAssertions-only stays production
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **central_test_reference_marks_tier_version_entries_do_not** — a centrally declared test-runner PackageReference marks the owning project test tier; a version-only pin marks nothing
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **conditional_props_reference_is_not_evidence_or_dependency** — a Condition-bearing central PackageReference is ignored entirely — the production model stays intact and the conditional runner reaches no tier
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **using_dropped_test_project_namespace_stays_out_of_production** — a production using under a dropped test project's namespace produces no edge, module, seed boundary, or verify finding
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **model_states_roles_map_per_language** — the roles map states the entries each driver derives from its own facts on the canonical tree: rust names its mod-declaration-only roots `facade`, c# names its DI-wired entrypoint root and go its `package main` unit `composition`, and every stated value comes from the closed vocabulary
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: pass
+  - kotlin: pass
 - **roles_map_never_states_facade_where_fact_not_emitted** — on a driver whose table marks role-facade not-emitted the roles map states no facade value anywhere while its own derived entries stay stated — honest absence per path, never a guessed stand-in
-  - rust: skipped (role-facade: granular)
-  - csharp: skipped (role-facade: granular)
+  - rust: skipped (project shape not applicable)
+  - csharp: skipped (project shape not applicable)
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: pass
+  - kotlin: pass
 
 ## scan.soft_structure
-**Capability:** rust=implemented, csharp=implemented, go=not-implemented
+**Capability:** rust=implemented, csharp=implemented, go=not-implemented, ts=not-implemented, python=not-implemented, kotlin=not-implemented
 
 **Behaviors:**
 
@@ -63,17 +99,26 @@
   - rust: pass
   - csharp: pass
   - go: skipped (scan.soft_structure not implemented)
+  - ts: skipped (scan.soft_structure not implemented)
+  - python: skipped (scan.soft_structure not implemented)
+  - kotlin: skipped (scan.soft_structure not implemented)
 - **nests_child_modules_under_parent** — a nested module is listed with its full dotted path, nested under its parent
   - rust: pass
   - csharp: pass
   - go: skipped (scan.soft_structure not implemented)
+  - ts: skipped (scan.soft_structure not implemented)
+  - python: skipped (scan.soft_structure not implemented)
+  - kotlin: skipped (scan.soft_structure not implemented)
 - **keeps_modules_of_distinct_units_separate** — soft structure is scoped per unit; one unit never lists another unit's modules
   - rust: pass
   - csharp: pass
   - go: skipped (scan.soft_structure not implemented)
+  - ts: skipped (scan.soft_structure not implemented)
+  - python: skipped (scan.soft_structure not implemented)
+  - kotlin: skipped (scan.soft_structure not implemented)
 
 ## scan.module_edges
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -81,17 +126,26 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **does_not_create_module_edge_to_external_target** — a using/import of an external package produces no module edge
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **no_module_edges_for_units_without_soft_reference** — a unit whose modules reference nothing emits no module edges
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 
 ## scan.external
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -99,25 +153,40 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: pass
+  - kotlin: pass
 - **sorts_and_deduplicates_external_entries** — external dependencies are sorted and deduplicated even when declared twice
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **central_props_package_reaches_external_tier** — a centrally declared PackageReference item reaches the external tier, its module_external attribution, and fires a forbid rule
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **nearest_props_file_overrides_root_for_central_entries** — each project's central entries come from the nearest props file walking upward; a project-level props shadows the root
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **unreferenced_props_entries_stay_out_of_external** — props PackageVersion entries no project references never appear as external dependencies
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 
 ## scan.module_external
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -125,33 +194,54 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **keeps_external_usage_off_sibling_modules** — only the module that uses an external package records it, never its siblings
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **misaligned_package_identity_replaces_namespace** — a using whose namespace misaligns with its referenced package id attributes the package (longest shared prefix), never the namespace; siblings sharing only a shorter prefix stay unattributed and namespaces stay in the soft tier
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **aligned_package_id_attributed_case_insensitively** — an aligned package whose id differs from its namespace only in case attributes the package id as referenced
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **declared_but_unused_package_stays_out_of_module_external** — a referenced package no using surfaces stays out of module_external but present in the unit manifests
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **uncompilable_namespace_absent_from_external_tiers** — a using that maps to no referenced package appears nowhere in the external tiers with no crash or placeholder entry
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **family_root_using_ties_family_sibling_packages** — a using of a family root namespace sharing its longest prefix with the root package and a sibling package extending it attributes both (documented tie)
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 
 ## scan.unit_manifests
-**Capability:** rust=implemented, csharp=implemented, go=not-implemented
+**Capability:** rust=implemented, csharp=implemented, go=not-implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -159,17 +249,26 @@
   - rust: pass
   - csharp: pass
   - go: skipped (scan.unit_manifests not implemented)
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **unit_manifests_cover_every_unit** — every materialized unit has an entry in unit_manifests
   - rust: pass
   - csharp: pass
   - go: skipped (scan.unit_manifests not implemented)
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **unit_without_packages_has_empty_dependencies** — a unit with no declared packages reports an empty dependency list
   - rust: pass
   - csharp: pass
   - go: skipped (scan.unit_manifests not implemented)
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 
 ## verify.module_boundaries
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -177,81 +276,138 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **module_boundary_with_allowed_dependency_verifies_clean** — a module-boundary spec whose depend_on allows the module edge verifies clean
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **undeclared_component_is_reported_missing** — a spec component matching no unit is reported as a missing component
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **stale_allowed_dependency_reports_missing_edge** — a declared depend_on edge absent from the model fails non-strict verify with the canonical missing edge label, and the same tree minus the stale declaration verifies clean
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **facade_rule_note_announces_facade_tierless_driver** — on a driver whose table marks role-facade not-emitted verify states the facade rule inert instead of staying silent, with the verdict and exit status unchanged
   - rust: skipped (role-facade: granular)
   - csharp: skipped (role-facade: granular)
   - go: pass
+  - ts: skipped (role-facade: granular)
+  - python: pass
+  - kotlin: pass
 - **undeclared_dependency_exceeds_allowed_ceiling** — an extracted edge no boundary declares fails with the cross-component ceiling label, and an explicit ban reroutes it to the forbidden-edge label
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **dead_reference_to_source_module_classifies_per_language** — an undeclared depend_on target is classified by model visibility: a target addressable as a module path reports exists in source but undeclared, one addressing nothing on an exact-import-path driver reports does not exist
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 - **undeclared_unit_reports_unexpected_component** — a source unit no boundary declares is reported as an unexpected component
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **dotted_subunit_of_declared_component_is_unassigned** — a unit nested under a declared component by name is reported as unassigned
   - rust: pass
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 - **two_boundaries_claim_module_at_equal_specificity** — two boundaries claiming one module at equal specificity fail with the ambiguous-match report
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **unclaimed_module_edge_endpoint_is_reported_unowned** — a module edge endpoint no boundary claims is a warning-level unowned endpoint, promoted by --strict; on go the endpoint's package is also an unclaimed unit, so the warning travels with unit-level findings
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **top_level_contract_forbid_stereotype_surfaced_by_unit** — a boundary contract forbidding a stereotype whose pattern matches the claimed unit name leaks
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **feature_boundary_gated_pattern_without_declaration_fires_where_emitted** — a feature_boundary gate naming no declared module fails on drivers whose table row emits root-module-declarations
   - rust: pass
   - csharp: skipped (root-module-declarations: not-emitted)
   - go: skipped (root-module-declarations: not-emitted)
+  - ts: skipped (root-module-declarations: declarations, no gating facts)
+  - python: skipped (root-module-declarations: declarations, no gating facts)
+  - kotlin: skipped (root-module-declarations: not-emitted)
 - **feature_boundary_missing_declarations_fact_surfaces_vacuous** — on a driver emitting no root-module-declarations fact the constraint surfaces once as a capability-reason vacuous warning, never as per-pattern errors
   - rust: skipped (root-module-declarations: granular)
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **rust_root_public_api_leak_pin** — a public root export outside the allowlist is reported as a public api leak
   - rust: pass
   - csharp: skipped (root-module-declarations: not-emitted)
   - go: skipped (root-module-declarations: not-emitted)
+  - ts: skipped (root-module-declarations: declarations, no gating facts)
+  - python: skipped (root-module-declarations: declarations, no gating facts)
+  - kotlin: skipped (root-module-declarations: not-emitted)
 - **csharp_public_api_leak_pin** — on a 3-segment corporate tree an unallowlisted public type leaks attributed to the module the model derives, and the corporate scan is byte-deterministic
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **rust_unverifiable_glob_export_pin** — a root glob re-export that resolves to nothing is reported as unverifiable
   - rust: pass
   - csharp: skipped (root-module-declarations: not-emitted)
   - go: skipped (root-module-declarations: not-emitted)
+  - ts: skipped (root-module-declarations: declarations, no gating facts)
+  - python: skipped (root-module-declarations: declarations, no gating facts)
+  - kotlin: skipped (root-module-declarations: not-emitted)
 - **rust_empty_glob_export_pin** — a root glob resolving to zero public items fails closed with the empty-glob label
   - rust: pass
   - csharp: skipped (root-module-declarations: not-emitted)
   - go: skipped (root-module-declarations: not-emitted)
+  - ts: skipped (root-module-declarations: declarations, no gating facts)
+  - python: skipped (root-module-declarations: declarations, no gating facts)
+  - kotlin: skipped (root-module-declarations: not-emitted)
 - **rust_unresolved_module_file_pin** — a module declaration with no source file is a warning-level unresolved module file, promoted by --strict
   - rust: pass
   - csharp: skipped (root-module-declarations: not-emitted)
   - go: skipped (root-module-declarations: not-emitted)
+  - ts: skipped (root-module-declarations: declarations, no gating facts)
+  - python: skipped (root-module-declarations: declarations, no gating facts)
+  - kotlin: skipped (root-module-declarations: not-emitted)
 
 ## verify.no_cycles
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -259,25 +415,40 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 - **cyclic_tree_fails_no_cycles_constraint** — a no_cycles constraint over a cyclic graph fails and reports the cycle
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 - **warning_severity_cycle_routes_to_warning_bucket** — a cycle caught by a warning-severity no_cycles constraint passes verify and renders in the warning bucket, promoted by --strict
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 - **vacuous_cycle_constraint_surfaces_edgeless_group** — a no_cycles constraint over a module group with no internal edges reports vacuous and stays green
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 - **cycle_through_a_test_project_is_invisible_to_production_guard** — a c# cycle carried only through a test-tier project leaves the production graph a DAG: the seed omits it and verify stays green (rust cfg(test) / go *_test.go parity)
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 
 ## verify.forbid_external
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=not-implemented
 
 **Behaviors:**
 
@@ -285,33 +456,54 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: skipped (verify.forbid_external not implemented)
 - **module_outside_forbid_list_passes** — a module not listed in the forbid constraint passes even when a sibling violates
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: skipped (verify.forbid_external not implemented)
 - **forbid_by_package_name_fires_on_misaligned_namespace** — a forbid rule naming the exact package id fires on a module whose only using maps to that package by longest shared prefix
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (verify.forbid_external not implemented)
 - **forbid_by_package_name_fires_on_aligned_namespace** — a forbid rule naming an aligned package id fires on the module that imports its namespace
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (verify.forbid_external not implemented)
 - **forbid_prefix_sharing_package_does_not_fire_on_longest_match** — a forbid rule naming a package that shares only a shorter prefix with the imported namespace does not fire (longest match attributes the real dependency)
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (verify.forbid_external not implemented)
 - **unused_reference_absent_from_module_external_but_in_manifests** — a referenced package no using surfaces is absent from module_external (no forbid fire) yet present in the unit manifests
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (verify.forbid_external not implemented)
 - **external_free_engages_the_serialized_module_tier** — an external_free pattern naming a module engages the module subtree on every module-tier driver: a pure match passes non-vacuously, contamination fails naming module and packages
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: skipped (verify.forbid_external not implemented)
 
 ## verify.manifest_integrity
-**Capability:** rust=implemented, csharp=implemented, go=not-implemented
+**Capability:** rust=implemented, csharp=implemented, go=not-implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -319,13 +511,19 @@
   - rust: pass
   - csharp: pass
   - go: skipped (verify.manifest_integrity not implemented)
+  - ts: skipped (project shape not applicable)
+  - python: pass
+  - kotlin: pass
 - **manifest_matching_constraint_verifies_clean** — a manifest whose dependencies avoid the forbidden list verifies clean
   - rust: pass
   - csharp: pass
   - go: skipped (verify.manifest_integrity not implemented)
+  - ts: skipped (project shape not applicable)
+  - python: pass
+  - kotlin: pass
 
 ## update.seed
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -333,25 +531,40 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **seed_verifies_clean_against_itself** — verify against the just-generated seed reports no violations
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **seed_omits_dotnet_test_projects_with_runner_evidence** — update omits a dotnet test project proven by runner-package evidence; the packable flag and the name play no part
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **seed_test_tier_follows_cfg_gating_not_module_name** — the rust dialect of the seed test-tier provenance: a #[cfg(test)] module (a cfg on a root declaration, the `root-module-declarations` row this leg is keyed on) seeds no boundary while a module merely named tests seeds one with its production edge
   - rust: pass
   - csharp: skipped (root-module-declarations: not-emitted)
   - go: skipped (root-module-declarations: not-emitted)
+  - ts: skipped (root-module-declarations: declarations, no gating facts)
+  - python: skipped (root-module-declarations: declarations, no gating facts)
+  - kotlin: skipped (root-module-declarations: not-emitted)
 - **seed_omits_go_test_file_imports_and_marks_no_module** — the go dialect of the same provenance: imports carried only by *_test.go files seed no dependency and no module carries a test mark — keyed inert on `test-tier` because the table states go applies the exclusion at the file tier with no serialized mark
-  - rust: skipped (test-tier: granular)
-  - csharp: skipped (test-tier: granular)
+  - rust: skipped (project shape not applicable)
+  - csharp: skipped (project shape not applicable)
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 
 ## report.metrics
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -359,25 +572,40 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **report_counts_units_and_components** — report counts one component per declared unit and every extracted unit
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **report_json_findings_match_text_rendering** — report --format json parses, carries the same finding set as the text report, and exits 1 on violations
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **report_json_clean_project_has_empty_findings** — a clean project reports empty findings and exit 0 in the json format
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **report_restates_model_roles_verbatim** — the report restates the model's roles map exactly — the json roles field equals the scan map key for key, and the text report names each populated closed-vocabulary group with its model paths
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 
 ## inspect.file_level
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -385,17 +613,26 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **file_level_diagram_is_deterministic** — an unchanged tree renders a byte-identical file-level diagram across runs
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **production_imports_never_target_test_files** — no production file-level import targets a test-tier file; test files stay nodes and import sources
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 
 ## inspect.structural_tree
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -403,13 +640,19 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **inspect_tree_marks_role_carrying_nodes** — every node whose model path carries a role entry renders its visible label suffixed with that role's marker, so why a node looks important reads off the diagram alone
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: pass
+  - kotlin: pass
 
 ## inspect.structural_scanner
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -417,9 +660,12 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 
 ## depgraph
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -427,21 +673,33 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
 - **api_usage_view_emits_table_contract** — depgraph api-usage emits the fixed-column table or the explicit no-usage statement
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **submodules_view_scopes_to_parent** — depgraph submodules expands one parent into its children (plus mod) and the edges between them
   - rust: pass
   - csharp: skipped (project shape not applicable)
   - go: skipped (project shape not applicable)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **modules_mark_folded_role_carriers** — depgraph modules marks a rendered node exactly when the roles keys folded through the view's own projection state one distinct role there, so no marker appears without an entry and no entry the view can honestly name is dropped
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: pass
+  - kotlin: pass
 
 ## diagram
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -449,17 +707,26 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **marks_forbidden_edge_dashed** — diagram renders a forbidden edge dashed and keeps allowed edges solid
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **scan_mode_marks_role_carriers** — diagram --source scan marks exactly the nodes the model's roles map addresses under the `.`/`::` separator equivalence, and nothing else, so a node looks special in the diagram exactly when the model says it is
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: pass
+  - kotlin: pass
 
 ## init
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -467,13 +734,19 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **init_refuses_to_overwrite_existing_spec** — init refuses to overwrite an existing architecture.spec.toml
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 
 ## help.diagnostics
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -481,9 +754,12 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 
 ## verify.root_facade
-**Capability:** rust=implemented, csharp=implemented, go=not-implemented
+**Capability:** rust=implemented, csharp=implemented, go=not-implemented, ts=implemented, python=not-implemented, kotlin=not-implemented
 
 **Behaviors:**
 
@@ -491,17 +767,26 @@
   - rust: pass
   - csharp: pass
   - go: skipped (verify.root_facade not implemented)
+  - ts: pass
+  - python: skipped (verify.root_facade not implemented)
+  - kotlin: skipped (verify.root_facade not implemented)
 - **canonical_import_stays_clean_under_active_facade** — canonical imports never touch the facade root, so verify passes with the rule active
   - rust: pass
   - csharp: pass
   - go: skipped (verify.root_facade not implemented)
+  - ts: pass
+  - python: skipped (verify.root_facade not implemented)
+  - kotlin: skipped (verify.root_facade not implemented)
 - **umbrella_root_consumed_by_referencing_unit_is_violation** — a project referencing the umbrella consumes it through the root namespace (`using <Root>;`): the facade rule engages on the roles map and reports the cross-unit edge
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (verify.root_facade not implemented)
+  - ts: skipped (project shape not applicable)
+  - python: skipped (verify.root_facade not implemented)
+  - kotlin: skipped (verify.root_facade not implemented)
 
 ## verify.forbidden_laundering
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=not-implemented
 
 **Behaviors:**
 
@@ -509,21 +794,33 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: skipped (verify.forbidden_laundering not implemented)
 - **worktree_free_go_tree_enforces_laundering_without_tier_note** — a single-module go tree (no go.work) engages the laundering check directly: a fired rule reports the laundered finding, a clean run reports nothing, and neither run carries any tier note
   - rust: skipped (project shape not applicable)
   - csharp: skipped (project shape not applicable)
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (verify.forbidden_laundering not implemented)
 - **laundering_traces_only_claimed_conduit_territory** — a ban routed through a conduit whose territory a boundary claims is reported as laundered; the same conduit claimed by no boundary leaves the pair graph — no laundered line, only unexpected component (go) or unowned endpoints (soft tier) surfacing
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: skipped (verify.forbidden_laundering not implemented)
 - **composition_root_wiring_sanctions_the_banned_bridge** — a ban whose route rides a hop owned by a composition-role-carrying boundary is sanctioned wiring — clean under `verify --strict`; the same edges without the composition role keep warning
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (verify.forbidden_laundering not implemented)
 
 ## verify.submodule_contracts
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=not-implemented, kotlin=not-implemented
 
 **Behaviors:**
 
@@ -531,21 +828,33 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: skipped (verify.submodule_contracts not implemented)
+  - kotlin: skipped (verify.submodule_contracts not implemented)
 - **go_submodule_contract_stereotype_needs_full_path_glob** — a submodule contract over go packages fires for a stereotype globbing the full import path under a parent that claims its units, and reads inert for a bare-name stereotype that matches no go unit
   - rust: skipped (project shape not applicable)
   - csharp: skipped (project shape not applicable)
   - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (verify.submodule_contracts not implemented)
+  - kotlin: skipped (verify.submodule_contracts not implemented)
 - **forbidden_submodule_dependency_across_sibling_children** — an edge between sibling submodules banned by the parent constraint is reported with the submodule-dependency label
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: skipped (verify.submodule_contracts not implemented)
+  - kotlin: skipped (verify.submodule_contracts not implemented)
 - **forbidden_submodule_dependency_full_path_engages** — the same sibling-submodule ban expressed with full module-path from/forbid engages identically on every module-tier driver and is never reported vacuous
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: skipped (verify.submodule_contracts not implemented)
+  - kotlin: skipped (verify.submodule_contracts not implemented)
 
 ## cli.artefact_freshness
-**Capability:** rust=implemented, csharp=implemented, go=implemented
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
 
 **Behaviors:**
 
@@ -553,8 +862,14 @@
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 - **scan_check_fails_on_stale_artefact** — a modified artefact makes `scan --check` exit non-zero with the out-of-date finding
   - rust: pass
   - csharp: pass
   - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 

@@ -183,10 +183,23 @@ fn projection_node(model: &Model) -> fn(&str) -> String {
     }
     let deeper = project(model, deep_node);
     if deeper.nodes.len() > top.nodes.len() {
-        deep_node
-    } else {
-        top_node
+        return deep_node;
     }
+    // Neither prefix fold separates the endpoints: the model states no
+    // containment under a shared prefix at all, and its module edges name
+    // their endpoints directly (the kotlin driver's module tier is its gradle
+    // units, so an endpoint is the whole identity, not a path below a unit).
+    // The fold that keeps distinct endpoints distinct is the identity — under
+    // either prefix fold the endpoints collide into `root` and the graph
+    // disappears. Structural, not language-keyed, exactly as the two trials
+    // above; a model whose paths carry a separating prefix never reaches it.
+    if model.soft_structure.is_empty() {
+        let direct = project(model, |path| path.to_string());
+        if direct.nodes.len() > top.nodes.len() {
+            return |path| path.to_string();
+        }
+    }
+    top_node
 }
 
 /// The node markers of one view (roles-views US 02): project every key of
@@ -583,7 +596,9 @@ mod tests {
 
     fn model_with(unit: &str, soft: Vec<&str>, edges: Vec<(&str, &str, &[&str])>) -> Model {
         Model {
+                dynamic_import_wildcards: Default::default(),
             schema_version: 1,
+            report_only_lines: Vec::new(),
             language: "rust".to_string(),
             units: vec![Unit {
                 name: unit.to_string(),
@@ -602,6 +617,7 @@ mod tests {
             module_edges: edges
                 .into_iter()
                 .map(|(from, to, syms)| ModuleEdge {
+                    type_only: false,
                     unit: unit.to_string(),
                     from: from.to_string(),
                     to: to.to_string(),
@@ -618,6 +634,7 @@ mod tests {
             unit_manifests: Default::default(),
             unresolved_module_files: Default::default(),
             test_gated_modules: Default::default(),
+            file_edges: Vec::new(),
             roles: Default::default(),
         }
     }
@@ -924,6 +941,7 @@ mod tests {
     fn csharp_like_model() -> Model {
         let base = model_with("Shop.Api", Vec::new(), Vec::new());
         Model {
+                dynamic_import_wildcards: Default::default(),
             language: "csharp".to_string(),
             units: vec![
                 unit("Shop.Api"),
@@ -976,6 +994,7 @@ mod tests {
     fn modules_graph_projects_unit_edges_of_multi_module_units_as_cross_product() {
         let base = model_with("app", Vec::new(), Vec::new());
         let model = Model {
+                dynamic_import_wildcards: Default::default(),
             units: vec![unit("app"), unit("web")],
             edges: vec![Edge {
                 from: "app".to_string(),
@@ -1010,6 +1029,7 @@ mod tests {
     fn modules_graph_projects_bin_unit_edge_onto_multi_module_lib() {
         let base = model_with("app", Vec::new(), Vec::new());
         let model = Model {
+                dynamic_import_wildcards: Default::default(),
             units: vec![unit("app"), unit("app-bin")],
             edges: vec![Edge {
                 from: "app-bin".to_string(),
@@ -1033,6 +1053,7 @@ mod tests {
     fn modules_graph_skips_unit_self_reference_edges() {
         let base = model_with("app", Vec::new(), Vec::new());
         let model = Model {
+                dynamic_import_wildcards: Default::default(),
             units: vec![unit("app")],
             edges: vec![Edge {
                 from: "app".to_string(),
@@ -1142,9 +1163,11 @@ mod tests {
     fn modules_graph_marks_go_composition_key_in_native_separator_spelling() {
         let base = model_with("example.com::demo", Vec::new(), Vec::new());
         let mut model = Model {
+                dynamic_import_wildcards: Default::default(),
             language: "go".to_string(),
             module_edges: vec![
                 ModuleEdge {
+                    type_only: false,
                     unit: "example.com::demo".to_string(),
                     from: "example.com::demo::app".to_string(),
                     to: "example.com::demo::shared".to_string(),
@@ -1168,6 +1191,7 @@ mod tests {
     fn modules_graph_conflicting_fold_states_no_role() {
         let base = model_with("X.Api", Vec::new(), Vec::new());
         let model = Model {
+                dynamic_import_wildcards: Default::default(),
             language: "csharp".to_string(),
             units: vec![unit("X.Api"), unit("Y.Api")],
             soft_structure: BTreeMap::from([
@@ -1207,6 +1231,7 @@ mod tests {
         );
         // Contrast: the same two paths agreeing on one role mark their node.
         let model = Model {
+                dynamic_import_wildcards: Default::default(),
             roles: BTreeMap::from([
                 ("X::Api".to_string(), Role::Facade),
                 ("Y::Api".to_string(), Role::Facade),

@@ -16,7 +16,7 @@ Multi-language architecture test & diagram tool. The living design (model, IR, A
 | `doctor` | Diagnose which language drivers/toolchains are present |
 | `inspect` | Zero-config file-level import map (discovery) |
 | `depgraph` | Model-faithful dependency views: [commands/depgraph/README.md](commands/depgraph/README.md) |
-| `help` | Print the built-in manual: topics (commands, glob, spec, constraints, languages, workflow, diagnostics) and per-command help |
+| `help` | Print the built-in manual: topics (commands, glob, spec, constraints, languages, roles, workflow, capabilities, diagnostics) and per-command help |
 | `skill` | Print or install the agent-facing skills (audit; analysis via `skill analysis`): [commands/skill/index.md](commands/skill/index.md) |
 
 Each `commands/<command>/` folder holds that command's contracts (invocation, input, output, errors, flows, acceptance). `inspect` is the first command with fully planned behaviors. Per-language capability and skip reasons: [feature-matrix.md](../../feature-matrix.md).

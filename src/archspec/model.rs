@@ -59,6 +59,15 @@ pub struct Model {
     /// inside it) references. Feeds `forbid_external_crates`.
     #[serde(default)]
     pub module_external: BTreeMap<String, Vec<String>>,
+    /// ts-only fact site (ts-driver design D2/R2-6): importing file ->
+    /// verbatim spellings of the non-literal `import()` and computed
+    /// `require()` specifiers it
+    /// carries, the `dynamic import wildcard` facts. Report-only, never
+    /// edges, never red. Absent from JSON when empty — absence states "no
+    /// such facts", so the rust, go and csharp model bytes are untouched
+    /// (the same optional-collection law as above).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dynamic_import_wildcards: BTreeMap<String, Vec<String>>,
     /// Unit crate name -> top-level module declarations found in the crate
     /// root, with their `cfg(feature = "...")` gating. Feeds
     /// `feature_boundary`.
@@ -92,6 +101,17 @@ pub struct Model {
     /// (fail closed): a module is only excluded when proven test-gated.
     #[serde(skip)]
     pub test_gated_modules: BTreeSet<String>,
+    /// File-grained dependency facts: rows keyed by file identity, serialized
+    /// by drivers whose `file-grained-dependency-facts` capability row reads
+    /// granular in the field their file identity lives in. rust fills this
+    /// field — its `module_edges` stay module-granular dotted paths; the ts
+    /// driver keys its `module_edges` rows by file identity directly (ts-driver
+    /// design D10) and leaves this field empty. Absent from JSON when empty
+    /// (the `roles` convention), so the ts, go and csharp model bytes stay
+    /// untouched. Consumers of the file tier read these rows through the
+    /// facts-keyed adjacency accessor, never a language guess.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_edges: Vec<FileEdge>,
     /// Structural roles the driver derives from its own facts, keyed by model
     /// path with values from the closed vocabulary `Role` (`facade`,
     /// `composition`). A publication-only crate root carries `facade` at its
@@ -104,6 +124,15 @@ pub struct Model {
     /// serde-skipped in-house `facade_roots` field.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub roles: BTreeMap<String, Role>,
+    /// ts-only fact site (ts-resolution record R7b law): the rendered
+    /// `external not installed` lines — packages a scanned tree declares in
+    /// its nearest manifest but the disk does not carry. Report-only like
+    /// `dynamic_import_wildcards`: never red, never part of the machine
+    /// body — and never persisted: the field is transient like
+    /// `unresolved_module_files`, skipped in both serde directions, so no
+    /// serialized model ever carries it.
+    #[serde(skip, default)]
+    pub report_only_lines: Vec<String>,
 }
 
 /// The closed structural-role vocabulary of the model's `roles` map (ADR-017
@@ -175,6 +204,67 @@ pub struct ModuleEdge {
     pub to: String,
     #[serde(default)]
     pub symbols: Vec<String>,
+    /// The ts-only edge-kind fact (ts-driver design D3/R3-9): a row keyed
+    /// `(from, to, kind)` — an `import type` crossing serializes
+    /// `type_only: true`, a value crossing omits the key, and a pair
+    /// carrying both serializes two rows in deterministic key order.
+    /// rust, go and csharp never set it, and the serde default with
+    /// skip-when-false keeps their serialized bytes exactly as shipped.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub type_only: bool,
+}
+
+/// A file-grained dependency fact: one adjacency between two source files
+/// of one unit, keyed by file identity (`from`/`to` are repo-relative file
+/// paths, spelled like the diagram's file vertices). `kind` states HOW the
+/// adjacency arises in rust's lexical vocabulary — a `mod` declaration, a
+/// resolved `use` import, or a resolved qualified path reference. Rows
+/// connect two distinct files; a reference a file makes to itself is not an
+/// adjacency fact. rust serializes one row per distinct `(from, to, kind)`;
+/// determinism is the same law as every other model collection (sorted).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileEdge {
+    pub unit: String,
+    pub from: String,
+    pub to: String,
+    pub kind: FileFactKind,
+}
+
+/// The closed kind vocabulary of rust's file-grained facts. It states only
+/// what the rust driver can see lexically; what rust does not carry stays
+/// absent from the vocabulary rather than fabricated: there is no type-only
+/// split (a rust `use` does not lexically distinguish type from value), no
+/// dynamic import (no such construct), and no asset edge. A file adjacency
+/// the scanner cannot derive — a module tree built by macros, an `include!`
+/// body — serializes no row; the capability docs state that limit, and a
+/// file-backed `mod` that resolves to no file is named by the
+/// unresolved-declaration warning instead of silently dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FileFactKind {
+    /// A file-backed `mod` declaration: the declaring file → the declared
+    /// module's file. An inline `mod x { ... }` has no target file, so it
+    /// contributes no row (its items live in the declaring file).
+    Mod,
+    /// A `use` import resolved to an item of another file's module: the
+    /// importing file → the target module's defining file.
+    Use,
+    /// A qualified path reference (`other::func()`, `Type::method` paths)
+    /// resolved to another file's module: the referring file → the target
+    /// module's defining file.
+    Path,
+}
+
+impl FileFactKind {
+    /// The closed-vocabulary word for this kind — the same lowercase text the
+    /// serialized model uses (the `Role::as_str` law).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FileFactKind::Mod => "mod",
+            FileFactKind::Use => "use",
+            FileFactKind::Path => "path",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -202,6 +292,43 @@ pub struct Edge {
 }
 
 impl Model {
+    /// The scaffold every scan driver builds its model on (self-audit F3):
+    /// schema version 1, the scanned language, and no facts anywhere else —
+    /// every collection empty, every optional absent, the transient channels
+    /// empty. A new model fact lands empty HERE, at the one place, not at
+    /// each driver literal; call sites state only the fields they actually
+    /// populate (`..Model::new(language)` update syntax). The serialized
+    /// bytes of a scaffold are the empty model of the language: `schema_version`
+    /// is the version every serialized model carries (a derived `Default`
+    /// would state version 0, which no model ever has — hence a constructor,
+    /// not `Default`).
+    pub fn new(language: &str) -> Self {
+        Self {
+            schema_version: 1,
+            language: language.to_string(),
+            units: Vec::new(),
+            edges: Vec::new(),
+            usage: BTreeMap::new(),
+            soft_structure: BTreeMap::new(),
+            external: Vec::new(),
+            module_edges: Vec::new(),
+            manifest: None,
+            root_public_exports: BTreeMap::new(),
+            root_glob_exports: BTreeMap::new(),
+            root_empty_glob_exports: BTreeMap::new(),
+            module_public_types: BTreeMap::new(),
+            module_external: BTreeMap::new(),
+            dynamic_import_wildcards: BTreeMap::new(),
+            root_module_declarations: BTreeMap::new(),
+            unresolved_module_files: BTreeMap::new(),
+            unit_manifests: BTreeMap::new(),
+            test_gated_modules: BTreeSet::new(),
+            file_edges: Vec::new(),
+            roles: BTreeMap::new(),
+            report_only_lines: Vec::new(),
+        }
+    }
+
     /// True when `module_path` is, or lives under, a module the scan proved
     /// test-gated (a `#[cfg(test)]` declaration or one of its descendants).
     /// Consulted by the boundary/cycle graph and the seed instead of a raw
@@ -258,27 +385,7 @@ mod tests {
     use super::*;
 
     fn empty_model() -> Model {
-        Model {
-            schema_version: 1,
-            language: "rust".to_string(),
-            units: Vec::new(),
-            edges: Vec::new(),
-            usage: Default::default(),
-            soft_structure: Default::default(),
-            external: Vec::new(),
-            module_edges: Vec::new(),
-            manifest: None,
-            root_public_exports: Default::default(),
-            root_glob_exports: Default::default(),
-            root_empty_glob_exports: Default::default(),
-            module_public_types: Default::default(),
-            module_external: Default::default(),
-            root_module_declarations: Default::default(),
-            unit_manifests: Default::default(),
-            unresolved_module_files: Default::default(),
-            test_gated_modules: Default::default(),
-            roles: Default::default(),
-        }
+        Model::new("rust")
     }
 
     /// The roles map is a serialized model fact: model path -> closed-vocabulary
@@ -320,6 +427,66 @@ mod tests {
         for (role, word) in [(Role::Facade, "facade"), (Role::Composition, "composition")] {
             assert_eq!(role.as_str(), word);
             let json = serde_json::to_string(&role).expect("role serializes");
+            assert_eq!(json, format!("\"{word}\""));
+        }
+    }
+
+    /// The file-grained rows are serialized model facts: `(from, to, kind)`
+    /// with the lowercase kind vocabulary, restored exactly by a round-trip.
+    #[test]
+    fn file_edges_serde_round_trip_pins_the_serialized_shape() {
+        let mut model = empty_model();
+        model.file_edges.push(FileEdge {
+            unit: "app".to_string(),
+            from: "src/lib.rs".to_string(),
+            to: "src/core.rs".to_string(),
+            kind: FileFactKind::Mod,
+        });
+        model.file_edges.push(FileEdge {
+            unit: "app".to_string(),
+            from: "src/ui.rs".to_string(),
+            to: "src/core.rs".to_string(),
+            kind: FileFactKind::Use,
+        });
+        let json = model.to_json().expect("model serializes");
+        assert!(
+            json.contains(
+                "\"file_edges\":[{\
+                 \"unit\":\"app\",\"from\":\"src/lib.rs\",\"to\":\"src/core.rs\",\"kind\":\"mod\"},\
+                 {\"unit\":\"app\",\"from\":\"src/ui.rs\",\"to\":\"src/core.rs\",\"kind\":\"use\"}]"
+            ),
+            "file edges must serialize unit/from/to/kind with lowercase kinds:\n{json}"
+        );
+        let back = Model::from_json(&json).expect("model deserializes");
+        assert_eq!(model, back);
+    }
+
+    /// Absence means "the driver serialized no file facts", never an empty
+    /// claim of them: an empty vector emits no `file_edges` key at all (the
+    /// pre-facts JSON shape of every driver stays byte-identical), and JSON
+    /// without the key loads as an empty vector (the additive-field law).
+    #[test]
+    fn empty_file_edges_emits_no_key_and_absent_key_loads_empty() {
+        let json = empty_model().to_json().expect("model serializes");
+        assert!(!json.contains("\"file_edges\""), "no facts => no key:\n{json}");
+        let back = Model::from_json(
+            r#"{"schema_version":1,"language":"rust","units":[],"edges":[]}"#,
+        )
+        .expect("a file_edges-less model still loads");
+        assert!(back.file_edges.is_empty());
+    }
+
+    /// The kind vocabulary words `as_str` hands to prose are exactly the
+    /// serialized values — the docs can never drift from the model JSON.
+    #[test]
+    fn file_fact_kind_as_str_matches_the_serialized_vocabulary() {
+        for (kind, word) in [
+            (FileFactKind::Mod, "mod"),
+            (FileFactKind::Use, "use"),
+            (FileFactKind::Path, "path"),
+        ] {
+            assert_eq!(kind.as_str(), word);
+            let json = serde_json::to_string(&kind).expect("kind serializes");
             assert_eq!(json, format!("\"{word}\""));
         }
     }

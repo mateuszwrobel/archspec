@@ -39,10 +39,31 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 
     let loaded = spec::load_verify(root_path)?;
+    // Every run names every active exclusion on the report surface (stderr)
+    // before the verdict prints — an exclusion can never shrink the analyzed
+    // set in silence (D13/R3-7).
+    eprint!("{}", spec::excluded_sources_report(&loaded));
     let language = language_from_str(&loaded.project.language)?;
 
-    if language::detect(root_path).is_none() {
-        return Err(format!("no supported-language sources found under: {root}"));
+    // Root-marker selection (detection record GC): the pin SELECTS the
+    // DRIVER — its root marker wins outright, a root carrying only foreign
+    // markers answers the `language mismatch:` branch (byte prefix kept),
+    // a marker-less root keeps the unchanged zero-hits guard. The
+    // nested-marker report line prints BEFORE the agreement precondition
+    // so a red run carries it too.
+    let language = language::select(root_path, Some(language))?
+        .ok_or_else(|| format!("no supported-language sources found under: {root}"))?;
+    eprint!("{}", language::marker_report(root_path, language));
+
+    // The agreement check is a precondition (D14): the declared language is
+    // the truth of the tree, and any un-excluded foreign source file fails
+    // the run loud BEFORE any verdict, note or artifact is computed.
+    if let Some(finding) = language::agreement_finding(
+        root_path,
+        language,
+        &spec::exclusion_paths(&loaded),
+    ) {
+        return Err(finding);
     }
     if !scan::driver_available(language) {
         return Err(format!(
@@ -52,6 +73,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 
     let model = scan::extract_checked(language, root_path)?;
+    // The scan report surface covers both verbs (D13): wildcard facts print
+    // here exactly as they do on `scan`, report-only (R2-6), and so do the
+    // `external not installed` lines (ts-resolution record R7b).
+    eprint!("{}", scan::wildcard_report(&model));
+    eprint!("{}", scan::report_only_report(&model));
 
     let mapping = compare::map_units(&model.units, &loaded.modules);
     let diff = compare::compare(
@@ -131,12 +157,10 @@ fn print_notes(notes: &[String]) {
 }
 
 fn language_from_str(value: &str) -> Result<Language, String> {
-    match value {
-        "rust" => Ok(Language::Rust),
-        "csharp" => Ok(Language::Csharp),
-        "go" => Ok(Language::Go),
-        other => Err(format!("invalid spec: unknown language \"{other}\"")),
-    }
+    // The shared parser (round-8 F11): the hand-copied third mapping is
+    // deleted — the red bytes stay byte-identical.
+    language::from_name(value)
+        .ok_or_else(|| format!("invalid spec: unknown language \"{value}\""))
 }
 
 fn language_display(language: Language) -> String {

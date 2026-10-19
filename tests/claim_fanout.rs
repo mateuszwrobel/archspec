@@ -520,7 +520,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 25] = [
+    let required: [&str; 50] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -546,6 +546,33 @@ fn registry_owns_claim_identity() {
         "first-spec-bootstrap",
         "destination-canonical",
         "artefact-dirt-map",
+        "files-tier-scan-refusal",
+        "files-tier-size-refusal",
+        "tsconfig-not-found",
+        "tsconfig-load-failed",
+        "tsconfig-cycle",
+        "package-manifest-invalid",
+        "unclassified-resolver-error",
+        "external-not-installed",
+        "unresolvable-import-misses",
+        "workspace-link-missing",
+        "undeclared-member-import",
+        "virtual-specifier-not-modelled",
+        "framework-conventions-not-configured",
+        "workspace-target-not-built",
+        "generated-source-not-built",
+        "generated-tsconfig-absent",
+        "tsconfig-extends-not-installed",
+        "ambiguous-root-markers",
+        "nested-foreign-marker",
+        "dynamic-import-wildcard",
+        "ts-vacuity-carriers",
+        "kotlin-model-honesty",
+        "orphan-file",
+        "orphan-file-census",
+        // Registered by the npm-channel change (ADR-051): the sentence the
+        // agents doc states beside the release-asset guidance.
+        "npm-channel-install",
     ];
     for required in required {
         assert!(
@@ -645,6 +672,57 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                     errors.push(format!(
                         "claim `{}` drifted: a tier-less tree's live inspect refusal bytes differ from the registered canonical: {}",
                         claim.id,
+                        stderr(&refused)
+                    ));
+                }
+            }
+            "files-tier-scan-refusal" => {
+                let canonical = claim.canonical.clone().expect("canonical");
+                let guard = std::fs::read_to_string(format!(
+                    "{}/tests/diagram_files_tier.rs",
+                    manifest()
+                ))
+                .expect("dedicated guard exists");
+                if !flatten(&guard).contains(&flatten(&canonical)) {
+                    errors.push(format!(
+                        "claim `{}` drifted: the dedicated guard no longer states the registered refusal bytes",
+                        claim.id
+                    ));
+                }
+                let fx = Fixture::new();
+                fx.write("package.json", "{\n  \"name\": \"demo-ui\",\n  \"dependencies\": {}\n}\n");
+                fx.write("src/a.ts", "export const a = 1;\n");
+                let scanned = fx.run(&["scan", ".", "--output", "scan.json"]);
+                assert!(scanned.status.code() == Some(0), "probe scan artefact: {}", stderr(&scanned));
+                let refused = fx.run(&["diagram", "--source", "scan", "scan.json", "--tiers", "files"]);
+                if refused.status.code() != Some(64)
+                    || !stderr(&refused).contains(canonical.as_str())
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the scan-source files-tier refusal bytes differ from the registered canonical — exit {:?}, stderr {:?}",
+                        claim.id,
+                        refused.status.code(),
+                        stderr(&refused)
+                    ));
+                }
+            }
+            "files-tier-size-refusal" => {
+                let canonical = claim.canonical.clone().expect("canonical");
+                let fx = Fixture::new();
+                fx.write("package.json", "{\n  \"name\": \"demo-ui\",\n  \"dependencies\": {}\n}\n");
+                fx.write("src/a.ts", "export const a = 1;\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"ui\"\nmatches = { units = [\"demo-ui\"], modules = [\"src/**\"] }\n",
+                );
+                let refused = fx.run(&["diagram", ".", "--tiers", "files"]);
+                if refused.status.code() != Some(64)
+                    || !stderr(&refused).contains(canonical.as_str())
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the unscoped files-tier refusal bytes differ from the registered canonical — exit {:?}, stderr {:?}",
+                        claim.id,
+                        refused.status.code(),
                         stderr(&refused)
                     ));
                 }
@@ -909,6 +987,7 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                 }
             }
             "csharp-duality" => contains_canonical(&mut errors, claim, "help languages"),
+            "kotlin-model-honesty" => contains_canonical(&mut errors, claim, "help languages"),
             "fold-pointer" => {
                 contains_canonical(&mut errors, claim, "depgraph --help");
                 contains_canonical(&mut errors, claim, "help depgraph");
@@ -1023,6 +1102,100 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                 }
             }
             "artefact-dirt-map" => contains_canonical(&mut errors, claim, "help diagnostics"),
+            "tsconfig-not-found"
+            | "tsconfig-load-failed"
+            | "tsconfig-cycle"
+            | "package-manifest-invalid"
+            | "unclassified-resolver-error"
+            | "external-not-installed"
+            | "unresolvable-import-misses"
+            | "workspace-link-missing"
+            | "undeclared-member-import"
+            | "virtual-specifier-not-modelled"
+            | "framework-conventions-not-configured"
+            | "workspace-target-not-built"
+            | "generated-source-not-built"
+            | "generated-tsconfig-absent"
+            | "tsconfig-extends-not-installed"
+            | "ambiguous-root-markers"
+            | "nested-foreign-marker"
+            | "dynamic-import-wildcard"
+            | "orphan-file"
+            | "orphan-file-census" => {
+                contains_canonical(&mut errors, claim, "help diagnostics")
+            }
+            "ts-vacuity-carriers" => {
+                // The four carriers are emitted by the ts legs of scan,
+                // inspect and verify on EMPTY evidence sets — the weld runs
+                // one probe per carrier and requires every registered
+                // carrier line in the joined streams.
+                let mut emitted = String::new();
+                let fx = Fixture::new();
+                fx.write("a.ts", "export const a = 1;\n");
+                let scan = fx.run(&["scan", "."]);
+                emitted.push_str(&stdout(&scan));
+                emitted.push('\n');
+                emitted.push_str(&stderr(&scan));
+                let fx = Fixture::new();
+                fx.write(
+                    "package.json",
+                    "{\n  \"name\": \"demo-ui\",\n  \"dependencies\": {}\n}\n",
+                );
+                fx.write("src/a.ts", "export const a = 1;\n");
+                fx.write("src/b.ts", "export const b = 2;\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"a\"\nmatches = { modules = [\"src/a.ts\"] }\n\n[module.allowed]\nforbidden = [\"b\"]\n\n[[module]]\nname = \"b\"\nmatches = { modules = [\"src/b.ts\"] }\n\n[[module]]\nname = \"demo-ui\"\nmatches = { units = [\"demo-ui\"] }\n",
+                );
+                let inspect = fx.run(&["inspect"]);
+                emitted.push_str(&stdout(&inspect));
+                emitted.push('\n');
+                emitted.push_str(&stderr(&inspect));
+                let verify = fx.run(&["verify", "."]);
+                emitted.push_str(&stdout(&verify));
+                emitted.push('\n');
+                emitted.push_str(&stderr(&verify));
+                let fx = Fixture::new();
+                fx.write(
+                    "package.json",
+                    "{\n  \"name\": \"demo-ui\",\n  \"dependencies\": {}\n}\n",
+                );
+                fx.write("index.ts", "export { secret } from \"./src/internal\";\n");
+                fx.write("src/internal.ts", "export const secret = 1;\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"demo-ui\"\nmatches = { units = [\"demo-ui\"], modules = [\"index.ts\", \"src/internal.ts\"] }\n",
+                );
+                let verify = fx.run(&["verify", "."]);
+                emitted.push_str(&stdout(&verify));
+                emitted.push('\n');
+                emitted.push_str(&stderr(&verify));
+                for fragment in &claim.canonical_fragments {
+                    if !emitted.contains(fragment.as_str()) {
+                        errors.push(format!(
+                            "claim `{}` drifted: the ts vacuity probes do not render the registered carrier {fragment:?}",
+                            claim.id
+                        ));
+                    }
+                }
+            }
+            "npm-channel-install" => {
+                // The welded statement surface: the agents doc states the
+                // npm-channel install sentence beside the release-asset
+                // guidance; the machine-readable half of the contract lives
+                // in the dedicated guard tests/npm_channel.rs.
+                let canonical = claim.canonical.clone().expect("npm-channel canonical");
+                let needle = flatten(&canonical).to_lowercase();
+                if !flatten(&load("docs/archspec/agents.md"))
+                    .to_lowercase()
+                    .contains(&needle)
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the agents doc no longer states the registered npm-channel sentence",
+                        claim.id
+                    ));
+                }
+            }
             other => errors.push(format!(
                 "claim `{other}` has no registry-to-surface weld — every registered claim must be compared against what its owner renders or emits"
             )),

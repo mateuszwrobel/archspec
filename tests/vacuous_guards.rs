@@ -415,3 +415,92 @@ fn engaged_from_module_with_external_import_verifies_clean() {
         "no vacuous warning:\n{out}"
     );
 }
+
+// V14 (phase B, D7; rust file facts landed): an explicit `scope = "both"` on
+// a rust tree adjudicates BOTH tiers on real facts. The claim tier is ENGAGED
+// (ui -> core) and the file tier reads the driver's serialized `file_edges`
+// rows, so the run states no vacuity at all — the capability-naming carrier
+// stays reserved for drivers whose row reads not-emitted (go, csharp). The
+// sibling cell proves the file tier adjudicates: a cycle only the file tier
+// sees reddens with real file findings and no carrier.
+#[test]
+fn v14_explicit_both_scope_on_rust_adjudicates_with_no_vacuity() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "pub mod core;\npub mod ui;\n");
+    fixture.write("src/core.rs", "pub fn core() {}\n");
+    fixture.write("src/ui.rs", "use crate::core;\npub fn ui() { core::core(); }\n");
+    fixture.write(
+        "architecture.spec.toml",
+        &[
+            "[project]\nlanguage = \"rust\"\n\n",
+            "[[module]]\nname = \"core\"\nmatches = { units = [\"app\"], modules = [\"app::core\"] }\n\n",
+            "[[module]]\nname = \"ui\"\nmatches = { units = [\"app\"], modules = [\"app::ui\"] }\nallowed = { depend_on = [\"core\"] }\n\n",
+            "[[constraint]]\ntype = \"no_cycles\"\nscope = \"both\"\n",
+        ]
+        .concat(),
+    );
+    let output = fixture.run(&["verify"]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    assert!(out.contains("matches source model"), "report:\n{out}");
+    assert!(
+        !out.contains("vacuous constraint"),
+        "the file tier engages the serialized facts — no vacuity carrier:\n{out}"
+    );
+}
+
+/// The vacuity-honesty cell for the flipped rust row: the file tier of a
+/// rust `scope = "both"` constraint adjudicates on real facts, so a cycle
+/// that lives only at the file grain (two files of one module importing
+/// each other — no module pair is involved) reddens with real file
+/// findings. The attribution follows the shipped rust reality: no claim
+/// pattern addresses a repo-relative file path, so the line names the
+/// members without a claiming segment — never a fabricated claim prefix.
+#[test]
+fn v14_rust_both_scope_reds_a_real_file_cycle_not_a_carrier() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "pub mod ui;\n");
+    fixture.write("src/ui/mod.rs", "mod a;\nmod b;\npub fn ui() {}\n");
+    fixture.write("src/ui/a.rs", "use super::b;\npub fn a() { b::b(); }\n");
+    fixture.write("src/ui/b.rs", "use super::a;\npub fn b() { a::a(); }\n");
+    fixture.write(
+        "architecture.spec.toml",
+        &[
+            "[project]\nlanguage = \"rust\"\n\n",
+            "[[module]]\nname = \"ui\"\nmatches = { units = [\"app\"], modules = [\"app::ui\"] }\n\n",
+            "[[constraint]]\ntype = \"no_cycles\"\nscope = \"both\"\n",
+        ]
+        .concat(),
+    );
+    let output = fixture.run(&["verify"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "the file tier reddens the file-grained cycle (report: {})",
+        stdout(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("src/ui/a.rs -> src/ui/b.rs"),
+        "the finding names the real files (report:\n{out})"
+    );
+    // Per-tier vacuity (D7): the claim tier here IS edge-free (one module),
+    // so its detail may print — but the FILE tier engaged on real facts and
+    // must never be declared vacuous, and the capability carrier is gone.
+    assert!(
+        !out.contains("no file-grained dependency edges"),
+        "the file tier engaged on serialized facts — no file-tier vacuity:\n{out}"
+    );
+    assert!(
+        !out.contains("driver emits no file-grained-dependency-facts"),
+        "the rust row reads granular — the capability carrier must not print:\n{out}"
+    );
+}

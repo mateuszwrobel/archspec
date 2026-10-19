@@ -1,4 +1,5 @@
 use crate::archspec::cli;
+use crate::archspec::commands::registry::CommandInfo;
 use crate::archspec::commands::spec;
 use crate::archspec::helptext::DIAGNOSTICS_HELP;
 
@@ -21,6 +22,8 @@ topics:
   roles         which views mark roles and which stay silent by decision
   workflow      the numbered audit recipe (this topic owns the ordering), the
                 --strict CI gate, and inspect-edge mining
+  capabilities  what each driver emits (the capability table) and each
+                language's deep-cycle posture
   diagnostics   every verify/report finding category: meaning, origin, severity,
                 the code-fix/spec-fix/architecture-rework decision, and report format
 
@@ -41,7 +44,7 @@ commands:
 run 'archspec help <topic>' for a topic; 'archspec help <command>' for a command
 ";
 
-const TOPICS: [&str; 8] = [
+const TOPICS: [&str; 9] = [
     "commands",
     "glob",
     "spec",
@@ -49,6 +52,7 @@ const TOPICS: [&str; 8] = [
     "languages",
     "roles",
     "workflow",
+    "capabilities",
     "diagnostics",
 ];
 
@@ -100,6 +104,16 @@ pub const LANGUAGE_TIERS: &[(&str, &[&str])] = &[
         "go",
         &["units", "module_edges", "external", "module_external"],
     ),
+    (
+        "kotlin",
+        &[
+            "units",
+            "module_edges",
+            "external",
+            "module_external",
+            "unit_manifests",
+        ],
+    ),
 ];
 
 /// Per-language naming facts the tier matrix cannot carry, stated in the
@@ -118,6 +132,10 @@ pub const LANGUAGE_NOTES: &[(&str, &str)] = &[
     (
         "go",
         "  `matches.units` targets must be full import paths — a short package\n  name does not resolve there (verify then reports `unexpected component` /\n  `missing component`); module `name` values and `allowed.depend_on`\n  references may be short — references resolve to declared claim names at\n  any depth. The module tier is derived from the tree's own packages, so a\n  single `go.mod` tree whose packages reference each other has one;\n  `archspec capability matrix` reports the fact.\n",
+    ),
+    (
+        "kotlin",
+        "  Units are gradle module paths: `include(\":app\")` names the unit\n  `app`, `include(\":libs:core\")` names the unit `libs::core` — the dotted\n  path IS the identity, and a `projectDir` remap moves location, never the\n  name (kotlin driver record K-P2). Model honesty (kotlin driver record\n  K-P6): Same-package references need no import in Kotlin. The kotlin\n  driver models edges only from import statements. A vertex can depend on\n  same-package code with no edge in the model.\n",
     ),
 ];
 
@@ -239,8 +257,8 @@ that reconciliation. The full audit of an unfamiliar repo, in order:
                               zero findings of any kind. A warning-only tree
                               passes bare but fails --strict.
                               [audit case=\"clean\" command=\"verify --strict\" exit=\"0\" pass=\"matches source model\"]
-                              [audit case=\"warning\" command=\"verify\" exit=\"0\" warning=\"dead reference\"]
-                              [audit case=\"warning\" command=\"verify --strict\" exit=\"1\" category=\"dead reference\"]
+                              [audit case=\"vacuous\" command=\"verify\" exit=\"0\" warning=\"vacuous constraint\"]
+                              [audit case=\"vacuous\" command=\"verify --strict\" exit=\"1\" category=\"vacuous constraint\"]
   6. archspec inspect          mine file-level import edges as hypotheses the
                               guard cannot express yet. Discovery (inspect) reads
                               files; the guard (verify) enforces only declared
@@ -303,7 +321,7 @@ else in the manual or the skill is a pointer to this topic, not a claim of
 its own.
 ";
 
-pub fn run(args: &[String]) -> Result<(), String> {
+pub fn run(args: &[String], commands: &[CommandInfo]) -> Result<(), String> {
     let parsed = cli::parse(args, &[])?;
     cli::exactly_one_positional(&parsed)?;
     let Some(topic) = parsed.positionals.first().map(String::as_str) else {
@@ -312,18 +330,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
     };
     match topic {
         "topics" => print!("{HELP}"),
-        "commands" => print!("{}", commands_block()),
+        "commands" => print!("{}", commands_block(commands)),
         "glob" => print!("{GLOB_HELP}"),
         "spec" => print!("{}", spec::HELP),
         "constraints" => print!("{CONSTRAINTS_HELP}"),
         "languages" => print!("{}", languages_block()),
         "roles" => print!("{ROLES_HELP}"),
         "workflow" => print!("{WORKFLOW_HELP}"),
+        "capabilities" => print!("{}", capabilities_block()),
         "diagnostics" => print!("{DIAGNOSTICS_HELP}"),
         other => {
-            if let Some(info) = crate::archspec::COMMANDS
-                .iter()
-                .find(|command| command.name == other)
+            if let Some(info) = commands.iter().find(|command| command.name == other)
             {
                 print!("{}", info.help);
             } else {
@@ -339,9 +356,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
 /// One block per command: name + purpose, then its full --help text, so the
 /// flag listing is the same single source the commands themselves print.
-fn commands_block() -> String {
+fn commands_block(commands: &[CommandInfo]) -> String {
     let mut out = String::from("commands:\n");
-    for command in crate::archspec::COMMANDS {
+    for command in commands {
         out.push_str(&format!("\n{}  {}\n", command.name, command.summary));
         for line in command.help.lines() {
             out.push_str(&format!("  {line}\n"));
@@ -363,6 +380,45 @@ fn languages_block() -> String {
         for tier in tiers {
             out.push_str(&format!("  {tier}\n"));
         }
+    }
+    out
+}
+
+/// Render the driver capability table and the deep-cycle posture table from
+/// their declared data (capability.rs) — the same rows `capability matrix`
+/// prints, so this topic and the machine projection cannot drift. The
+/// vacuity carriers' pointer (`archspec help capabilities`) lands here.
+fn capabilities_block() -> String {
+    use crate::archspec::capability;
+    let mut out = String::from(
+        "archspec help capabilities — what each driver emits, at which granularity\n",
+    );
+    out.push_str(
+        "\nThe rows are the binary's declared capability table; `capability matrix`\n\
+         prints the identical rows for machines. A rule whose fact reads\n\
+         `not-emitted` for a language is inert there, and a run whose facts are\n\
+         absent says so through the `vacuous constraint` category.\n",
+    );
+    out.push_str("\ncapability <language> <fact> <emission>:\n");
+    for (language, fact, emission) in capability::CAPABILITIES {
+        out.push_str(&format!(
+            "  capability {} {fact} {emission}\n",
+            language.as_str()
+        ));
+    }
+    out.push_str("\nchecks consuming a fact:\n");
+    for (rule, fact) in capability::RULES {
+        out.push_str(&format!("  rule {rule} {fact}\n"));
+    }
+    out.push_str(
+        "\nposture <language> <scope> <severity> — the (scope, severity) a\n\
+         `no_cycles` row with no `scope` derives from (ADR-023):\n",
+    );
+    for (language, scope, severity) in capability::POSTURES {
+        out.push_str(&format!(
+            "  posture {} {scope} {severity}\n",
+            language.as_str()
+        ));
     }
     out
 }
@@ -443,11 +499,35 @@ mod tests {
         write(root, "shared/shared.go", "package shared\n\nfunc X() {}\n");
     }
 
+    fn write_kotlin_fixture(root: &Path) {
+        write(
+            root,
+            "settings.gradle.kts",
+            "rootProject.name = \"demo\"\ninclude(\":app\")\ninclude(\":core\")\n",
+        );
+        write(
+            root,
+            "app/build.gradle.kts",
+            "plugins { kotlin(\"jvm\") }\ndependencies {\n    implementation(project(\":core\"))\n    implementation(\"com.squareup.okhttp3:okhttp:4.12.0\")\n}\n",
+        );
+        write(
+            root,
+            "app/src/main/kotlin/App.kt",
+            "package com.example.app\n\nimport com.example.core.Widget\nimport okhttp3.OkHttpClient\n\nfun run(client: OkHttpClient) { Widget() }\n",
+        );
+        write(
+            root,
+            "core/src/main/kotlin/Core.kt",
+            "package com.example.core\n\nclass Widget\n",
+        );
+    }
+
     fn language_of(name: &str) -> Language {
         match name {
             "rust" => Language::Rust,
             "csharp" => Language::Csharp,
             "go" => Language::Go,
+            "kotlin" => Language::Kotlin,
             _ => panic!("unknown language: {name}"),
         }
     }
@@ -458,6 +538,7 @@ mod tests {
             "rust" => write_rust_fixture(temp.path()),
             "csharp" => write_csharp_fixture(temp.path()),
             "go" => write_go_fixture(temp.path()),
+            "kotlin" => write_kotlin_fixture(temp.path()),
             _ => unreachable!(),
         }
         scan::extract(language_of(language), temp.path())

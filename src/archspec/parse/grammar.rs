@@ -41,16 +41,62 @@ fn go_grammar() -> tree_sitter::Language {
     tree_sitter_go::LANGUAGE.into()
 }
 
+fn python_grammar() -> tree_sitter::Language {
+    tree_sitter_python::LANGUAGE.into()
+}
+
+fn kotlin_grammar() -> tree_sitter::Language {
+    brokk_tree_sitter_kotlin::LANGUAGE.into()
+}
+
+/// ts grammar selection by file extension (ADR-022): `.ts` answers the
+/// TypeScript grammar, `.tsx` the TSX sibling, `.js` and `.jsx` the sibling
+/// JavaScript grammar (its JSX coverage is why plain `.jsx` needs no further
+/// grammar). `.mjs` and `.cjs` answer the SAME JavaScript grammar — the
+/// probe measured one grammar answering ESM and script content error-free,
+/// so the ESM/script flavor stays a Node RESOLUTION property, never a
+/// grammar choice (detection record, the mjs/cjs indexing law). `.mts` and
+/// `.cts` answer the TypeScript grammar — the probe recorded zero errors and
+/// the same import/export statement nodes as `.ts`, mirroring `.ts`.
+/// `.svelte` files have no grammar of their own — every `<script>` block is
+/// parsed here with the TypeScript grammar (the superset), which is the ts
+/// extraction module's caller-side law, not a registry entry.
+pub fn ts_grammar_for(path: &std::path::Path) -> Option<tree_sitter::Language> {
+    match path
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_lowercase())
+        .as_deref()
+    {
+        Some("tsx") => Some(tree_sitter_typescript::LANGUAGE_TSX.into()),
+        Some("ts") | Some("svelte") | Some("mts") | Some("cts") => {
+            Some(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+        }
+        Some("js") | Some("jsx") | Some("mjs") | Some("cjs") => {
+            Some(tree_sitter_javascript::LANGUAGE.into())
+        }
+        _ => None,
+    }
+}
+
 /// Grammar registry: language → compiled-in grammar. Rust (the only language
 /// without a tree-sitter path) and any future language without a registered
-/// handle answer `None`.
+/// handle answer `None`. The ts arm answers the TypeScript grammar as its
+/// representative handle; the per-extension selection the extraction arm
+/// uses lives in [`ts_grammar_for`].
 pub fn grammar_for(language: Language) -> Option<tree_sitter::Language> {
     let handle: GrammarHandle = match language {
         Language::Csharp => csharp_grammar,
         Language::Go => go_grammar,
+        Language::Python => python_grammar,
+        Language::Kotlin => kotlin_grammar,
         Language::Rust => return None,
+        Language::Ts => ts_grammar,
     };
     Some(handle())
+}
+
+fn ts_grammar() -> tree_sitter::Language {
+    tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
 }
 
 /// Parses `source` with the grammar registered for `language` and returns the
@@ -73,6 +119,7 @@ pub fn parse_tree(language: Language, source: &str) -> Result<Tree, ParseError> 
 /// in the tree, scanning in document order (preorder over named and
 /// anonymous nodes alike). `None` means the tree parsed clean. Syntax
 /// scanners use this to decide between extraction and fallback/reporting.
+#[allow(dead_code, reason = "documented error-tolerance probe of this module's surface, exercised by the grammar tests below; the csharp path deliberately extracts from the tree regardless (see `scan::csharp::syntax`), so no command path calls it yet (self-audit F4: this item-level allowance replaced the module-wide one)")]
 pub fn first_error_range(tree: &Tree) -> Option<(usize, usize)> {
     error_range_in(&tree.root_node())
 }
@@ -101,15 +148,69 @@ pub fn node_text<'a>(node: &Node<'_>, source: &'a str) -> &'a str {
 #[cfg(test)]
 mod tests {
     // Import through the same path the scanners will call: archspec::parse::grammar.
-    use super::{first_error_range, grammar_for, node_text, parse_tree, ParseError};
+    use super::{first_error_range, grammar_for, node_text, parse_tree, ts_grammar_for, ParseError};
     use crate::archspec::language::Language;
 
     #[test]
     fn registry_answers_compiled_grammars_per_language() {
         assert!(grammar_for(Language::Csharp).is_some());
         assert!(grammar_for(Language::Go).is_some());
+        assert!(grammar_for(Language::Python).is_some());
+        // ts registers with the extraction arm (ADR-022): the TypeScript
+        // grammar is its representative handle.
+        assert!(grammar_for(Language::Ts).is_some());
         // Rust has no tree-sitter path (syn alias rule) — never a handle.
         assert!(grammar_for(Language::Rust).is_none());
+    }
+
+    #[test]
+    fn ts_grammar_selection_follows_the_file_extension() {
+        // ADR-022: .tsx the TSX sibling, .js/.jsx the JavaScript sibling,
+        // .ts and the svelte `<script>` payloads the TypeScript grammar.
+        for name in [
+            "a.ts",
+            "a.d.ts",
+            "a.tsx",
+            "a.js",
+            "a.jsx",
+            "A.SVELTE",
+        ] {
+            assert!(
+                ts_grammar_for(std::path::Path::new(name)).is_some(),
+                "{name} must answer a compiled grammar"
+            );
+        }
+        for name in ["a.css", "a.rs", "a.go", "Mod.cs", "main.py"] {
+            assert!(
+                ts_grammar_for(std::path::Path::new(name)).is_none(),
+                "{name} is not a ts-family grammar"
+            );
+        }
+    }
+
+    #[test]
+    fn ts_family_snippets_parse_clean() {
+        let mut parser = tree_sitter::Parser::new();
+        let cases = [
+            (
+                "a.ts",
+                "export interface Shape { area(): number }\nexport const scale = <T,>(x: T): T => x;\n",
+            ),
+            ("a.tsx", "export const A = () => <div>x</div>;\n"),
+            (
+                "a.js",
+                "export async function load(name) { return await import(`./dyn/${name}`); }\n",
+            ),
+        ];
+        for (name, source) in cases {
+            let grammar = ts_grammar_for(std::path::Path::new(name)).expect("grammar registered");
+            parser.set_language(&grammar).expect("set_language");
+            let tree = parser.parse(source, None).expect("parse");
+            assert!(
+                !tree.root_node().has_error(),
+                "{name} must parse without error nodes"
+            );
+        }
     }
 
     #[test]

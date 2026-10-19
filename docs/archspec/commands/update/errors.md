@@ -11,6 +11,8 @@ A parse failure **aborts the run** — the spec is not produced for a partially 
 | path does not exist | the invalid path | non-zero |
 | path is a regular file | the path is invalid and why | non-zero |
 | no supported-language sources found (recursively) | that no sources were found, and where | non-zero |
+| more than one root marker at the scan root with no pin (`ambiguous root markers: <path> (<language>), … — pin [project] language or scan a single-language root`) | that the root is polyglot, every marker file named, and the pin or per-root remedy | non-zero |
+| a pinned language whose root marker is absent while other root markers stand (`language mismatch: <declared> — no root marker <marker> for the declared language, found: <markers>`) | the declared language, the marker it expects, and the markers found | non-zero |
 | a source file fails to parse | the name of the failing file | non-zero |
 | `architecture.spec.toml` already exists and no `--force` | the spec file path and that `--force` is required to overwrite | non-zero |
 | language driver disabled via the `ARCHSPEC_DISABLE_DRIVERS` seam | the missing driver/toolchain and a suggestion to run `archspec doctor` | non-zero |

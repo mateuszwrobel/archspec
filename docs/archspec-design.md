@@ -135,7 +135,7 @@ Output formats (artefacts): **mermaid, plantuml** (deterministic text). No SVG/i
 
 ```toml
 [project]
-language = "csharp"            # rust | csharp | go
+language = "csharp"            # accepted driver names: archspec spec --schema
 
 # user-declared stereotype vocabulary — core has no built-in conventions
 [[stereotype]]

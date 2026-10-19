@@ -43,6 +43,11 @@ packages `archspec-<version>-1-x86_64.pkg.tar.zst` and
 download that tag's assets, verify a sidecar with `sha256sum -c`; while a
 version has no tag yet, build from source instead.
 
+The npm channel carries the same bytes: one package per version tag, whose
+`bin` shim resolves the host platform and architecture against the asset
+names and hashes pinned at publish time, downloads and verifies the match,
+caches the binary atomically, and runs it.
+
 ## The built-in manual
 
 Instead of guessing flags, read the manual embedded in the binary:

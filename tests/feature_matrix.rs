@@ -59,12 +59,39 @@ fn matrix_run() -> &'static (MatrixReport, Vec<String>) {
                     }
                     "skipped".to_string()
                 } else {
+                    // Heartbeat: name the cell before it runs — a stalled
+                    // scenario shows up as the last MILE line, not silence.
+                    eprintln!("MILE cell {lang}::{}", scenario.name);
                     let fx = common::Fixture::new();
-                    match (scenario.run)(driver, &fx) {
-                        Ok(()) => "pass".to_string(),
-                        Err(message) => {
+                    // A panicking helper (for example `Driver::scan` on a
+                    // tree the driver cannot scan) fails its own cell by
+                    // name instead of aborting the whole matrix — silence
+                    // and collateral kills are both illegal here.
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        (scenario.run)(driver, &fx)
+                    }));
+                    match outcome {
+                        Ok(result) => match result {
+                            Ok(()) => "pass".to_string(),
+                            Err(message) => {
+                                failures.push(format!(
+                                    "{} [{}] {}: {}",
+                                    lang,
+                                    scenario.feature.as_str(),
+                                    scenario.name,
+                                    message
+                                ));
+                                "fail".to_string()
+                            }
+                        },
+                        Err(payload) => {
+                            let message = payload
+                                .downcast_ref::<String>()
+                                .cloned()
+                                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                                .unwrap_or_else(|| "panicked without a message".to_string());
                             failures.push(format!(
-                                "{} [{}] {}: {}",
+                                "{} [{}] {}: panicked: {}",
                                 lang,
                                 scenario.feature.as_str(),
                                 scenario.name,
@@ -104,15 +131,17 @@ fn skip_row(language: &str, fact: &str) -> String {
 fn feature_matrix() {
     let (report, failures) = matrix_run();
 
-    write_reports(report);
-
     // Gate assertion: a failing scenario on a driver where the feature is
     // implemented fails the whole suite. "pass" and "skipped" are fine.
+    // This runs before the artefact freshness check so the failing cells —
+    // the primary signal — are named even when reports are also stale.
     assert!(
         failures.is_empty(),
         "feature matrix gate failed:\n{}",
         failures.join("\n")
     );
+
+    write_reports(report);
 
     let mut passed = 0usize;
     let mut skipped = 0usize;
@@ -191,7 +220,7 @@ fn write_reports(report: &shared::report::MatrixReport) {
     }
 }
 /// Every diagnostic category `archspec verify` can render. The labels mirror
-/// the finding strings emitted by `src/archspec/verify/compare.rs`
+/// the finding strings emitted by `src/archspec/verify/compare/`
 /// (`render_report` and its push sites) — warning-bucket categories render
 /// with a `warning: ` prefix there; the label here is the unprefixed form.
 /// The scenario list pins which behaviors must produce each label.
@@ -289,7 +318,7 @@ const DIAGNOSTIC_CATEGORIES: &[(&str, &[&str])] = &[
     ),
 ];
 
-/// Completeness guard: every diagnostic compare.rs can emit must actually be
+/// Completeness guard: every diagnostic `verify/compare` can emit must actually be
 /// exercised on every non-rust driver — either the producing scenario passes
 /// there, or the driver is legitimately absent: its capability probe reports
 /// the scenario's feature not-implemented, or the scenario's applicability

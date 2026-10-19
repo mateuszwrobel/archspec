@@ -21,7 +21,7 @@ mod common;
 #[allow(dead_code)]
 mod shared;
 
-use shared::driver::{Driver, LogicalTree};
+use shared::driver::{Driver, Language, LogicalTree};
 use shared::scenarios::boundary_spec;
 
 /// One parsed `[audit ...]` citation: command + tree case + observables the
@@ -112,7 +112,7 @@ fn workflow_flat() -> String {
 /// Materialize the corpus tree a citation names in a fresh fixture. `clean`
 /// mirrors `unit_boundary_matching_tree_verifies_clean`, `ceiling` mirrors the
 /// undeclared-edge half of `undeclared_dependency_exceeds_allowed_ceiling`, and
-/// `warning` mirrors `dead_reference_to_source_module_classifies_per_language`.
+/// `vacuous` mirrors `vacuous_cycle_constraint_surfaces_edgeless_group`.
 fn build_case_tree(driver: &Driver, case: &str) -> common::Fixture {
     let fx = common::Fixture::new();
     match case {
@@ -121,47 +121,94 @@ fn build_case_tree(driver: &Driver, case: &str) -> common::Fixture {
             fx.write("architecture.spec.toml", &boundary_spec(driver));
         }
         "ceiling" => {
-            let mut tree = LogicalTree::new();
-            tree.units = vec!["a".into(), "b".into()];
-            tree.hard_edges.push(("a".into(), "b".into()));
-            driver.materialize(&fx, &tree);
-            let a = driver.unit_name("a");
-            let b = driver.unit_name("b");
-            fx.write(
-                "architecture.spec.toml",
-                &format!(
-                    "[project]\nlanguage = \"{}\"\n\n\
-                     [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"] }}\n\n\
-                     [[module]]\nname = \"b\"\nmatches = {{ units = [\"{b}\"] }}\n",
-                    driver.language.as_str()
-                ),
-            );
+            if matches!(driver.language, Language::Ts | Language::Python) {
+                // Hard unit edges have no ts dialect (D1) and python is the
+                // same single-distribution file-identity dialect (P1/P3):
+                // the ceiling the recipe step advertises reads over an
+                // import edge between two file modules of the single
+                // package, declared with no allowed ceiling — the same
+                // finding line fires.
+                let mut tree = LogicalTree::new();
+                tree.units = vec!["app".into()];
+                tree.modules.insert("app".into(), vec!["a".into(), "b".into()]);
+                tree.module_usings.push(("app".into(), "a".into(), "b".into()));
+                driver.materialize(&fx, &tree);
+                let app = driver.unit_name("app");
+                let a = driver.module_path("app", "a");
+                let b = driver.module_path("app", "b");
+                fx.write(
+                    "architecture.spec.toml",
+                    &format!(
+                        "[project]\nlanguage = \"{}\"\n\n\
+                         [[module]]\nname = \"{app}\"\nmatches = {{ units = [\"{app}\"] }}\n\n\
+                         [[module]]\nname = \"{a}\"\nmatches = {{ modules = [\"{a}\"] }}\n\n\
+                         [[module]]\nname = \"{b}\"\nmatches = {{ modules = [\"{b}\"] }}\n",
+                        driver.language.as_str()
+                    ),
+                );
+            } else {
+                let mut tree = LogicalTree::new();
+                tree.units = vec!["a".into(), "b".into()];
+                tree.hard_edges.push(("a".into(), "b".into()));
+                driver.materialize(&fx, &tree);
+                let a = driver.unit_name("a");
+                let b = driver.unit_name("b");
+                fx.write(
+                    "architecture.spec.toml",
+                    &format!(
+                        "[project]\nlanguage = \"{}\"\n\n\
+                         [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"] }}\n\n\
+                         [[module]]\nname = \"b\"\nmatches = {{ units = [\"{b}\"] }}\n",
+                        driver.language.as_str()
+                    ),
+                );
+            }
         }
-        "warning" => {
-            let mut tree = LogicalTree::new();
-            tree.units = vec!["a".into(), "b".into()];
-            tree.hard_edges.push(("a".into(), "b".into()));
-            tree.modules.insert("a".into(), vec!["core".into()]);
-            driver.materialize(&fx, &tree);
-            let a = driver.unit_name("a");
-            let b = driver.unit_name("b");
-            // Boundary `a` also claims core's module path: on go the nested
-            // package is a unit addressed by its full import path, and an
-            // unclaimed one would add an unassigned-unit error beside the dead
-            // reference under test (mirrors the scenario in verify.rs). The
-            // reference target stays the bare `core` — no declared module
-            // carries that name, so the dead-reference claim holds.
-            let a_core = driver.module_path("a", "core");
-            fx.write(
-                "architecture.spec.toml",
-                &format!(
-                    "[project]\nlanguage = \"{}\"\n\n\
-                     [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"], modules = [\"{a_core}\"] }}\n\
-                     [module.allowed]\ndepend_on = [\"b\", \"core\"]\n\n\
-                     [[module]]\nname = \"b\"\nmatches = {{ units = [\"{b}\"] }}\n",
-                    driver.language.as_str()
-                ),
-            );
+        "vacuous" => {
+            // The recipe step advertises a warning-only tree: the vacuous
+            // cycle constraint is warning-severity on EVERY driver, so the
+            // step's exit code is uniform — unlike a dead reference, whose
+            // `does not exist` class is error severity (phase B, D10).
+            if matches!(driver.language, Language::Ts | Language::Python) {
+                // A ts tree carries exactly one package (D1) and python is
+                // single-distribution too (P1/P3), so the edgeless group is
+                // two file-module claims of that package with no import
+                // between them — same vacuous verdict.
+                let mut tree = LogicalTree::new();
+                tree.units = vec!["app".into()];
+                tree.modules.insert("app".into(), vec!["core".into(), "ui".into()]);
+                driver.materialize(&fx, &tree);
+                let app = driver.unit_name("app");
+                let core = driver.module_path("app", "core");
+                let ui = driver.module_path("app", "ui");
+                fx.write(
+                    "architecture.spec.toml",
+                    &format!(
+                        "[project]\nlanguage = \"{}\"\n\n\
+                         [[module]]\nname = \"{app}\"\nmatches = {{ units = [\"{app}\"] }}\n\n\
+                         [[module]]\nname = \"{core}\"\nmatches = {{ modules = [\"{core}\"] }}\n\n\
+                         [[module]]\nname = \"{ui}\"\nmatches = {{ modules = [\"{ui}\"] }}\n\n\
+                         [[constraint]]\ntype = \"no_cycles\"\nmodules = [\"{core}\", \"{ui}\"]\n",
+                        driver.language.as_str()
+                    ),
+                );
+            } else {
+                let mut tree = LogicalTree::new();
+                tree.units = vec!["a".into(), "b".into()];
+                driver.materialize(&fx, &tree);
+                let a = driver.unit_name("a");
+                let b = driver.unit_name("b");
+                fx.write(
+                    "architecture.spec.toml",
+                    &format!(
+                        "[project]\nlanguage = \"{}\"\n\n\
+                         [[module]]\nname = \"a\"\nmatches = {{ units = [\"{a}\"] }}\n\n\
+                         [[module]]\nname = \"b\"\nmatches = {{ units = [\"{b}\"] }}\n\n\
+                         [[constraint]]\ntype = \"no_cycles\"\nmodules = [\"a\", \"b\"]\n",
+                        driver.language.as_str()
+                    ),
+                );
+            }
         }
         other => panic!("citation names unknown tree case {other:?}"),
     }

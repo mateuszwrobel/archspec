@@ -26,7 +26,7 @@ The generated `architecture.spec.toml` is a **minimal base spec**: a `[project]`
 
 ```toml
 [project]
-language = "rust"            # rust | csharp | go
+language = "rust"            # accepted driver names: archspec spec --schema
 
 [[constraint]]
 type = "no_cycles"           # global: all declared modules

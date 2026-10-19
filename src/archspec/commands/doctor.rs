@@ -89,6 +89,20 @@ fn probe(language: Language) -> Option<String> {
         Language::Rust => ("rustc", &["--version"]),
         Language::Csharp => ("dotnet", &["--version"]),
         Language::Go => ("go", &["version"]),
+        // The ts row joins the LANGUAGES list with the extraction arm; the
+        // probe is ready ahead of it (the driver itself needs no external
+        // toolchain — the grammars are compiled in).
+        Language::Ts => ("node", &["--version"]),
+        // The python driver needs NO interpreter (python driver record P3
+        // no-venv law): this arm keeps the match total. The row never
+        // enters LANGUAGES, so no probe ever runs it; nothing about python
+        // availability is a finding.
+        Language::Python => ("python3", &["--version"]),
+        // The kotlin driver needs NO JDK and NO gradle daemon (kotlin
+        // driver record K-P3 — the python no-venv law mirrored): this arm
+        // keeps the match total. The row never enters LANGUAGES, so no
+        // probe ever runs it; nothing about java availability is a finding.
+        Language::Kotlin => ("gradle", &["--version"]),
     };
     let output = probe_spawn(binary, args).ok()?;
     if !output.status.success() {
@@ -130,5 +144,8 @@ fn display_name(language: Language) -> &'static str {
         Language::Rust => "Rust",
         Language::Csharp => "Csharp",
         Language::Go => "Go",
+        Language::Ts => "Typescript",
+        Language::Python => "Python",
+        Language::Kotlin => "Kotlin",
     }
 }

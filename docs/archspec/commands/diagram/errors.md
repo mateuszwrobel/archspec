@@ -16,8 +16,10 @@ Every failure produces a clear human message naming the cause and a **non-zero e
 | unsupported `--format` value | the value and the supported formats | non-zero |
 | unsupported `--source` value | the value and the supported sources | non-zero |
 | `--source scan` without an artefact path | that an artefact path is required | non-zero |
-| `--tiers` value outside `units`, `modules` — invalid name, duplicate entry, or empty list | the offending value and the supported tiers: `invalid value "namespaces" for --tiers — supported tiers: units, modules` | `64` |
-| `--tiers` with `--source spec` | that the flag requires `--source scan` (the spec source has no tier vocabulary) | `64` |
+| `--tiers` value outside `units`, `modules`, `files` — invalid name, duplicate entry, or empty list | the offending value and the supported tiers: `invalid value "namespaces" for --tiers — supported tiers: units, modules, files` | `64` |
+| `--tiers` naming `units` or `modules` with `--source spec` | that the flag requires `--source scan` (on the spec source only `files` is a tier value) | `64` |
+| `--tiers files` with `--source scan` | that the files tier requires the spec source (the seam marks through facts a scan artefact does not carry) | `64` |
+| `--tiers files` without `--module` or `--modules-dir` | that the size law holds: one claim's territory per render, the whole tree never | `64` |
 | `--module <claim>` names no claim of the spec | the rejected name and that no claim of the spec carries it: `unknown module: no claim of the spec carries that name: <claim>` | `64` |
 | `--module` or `--modules-dir` with `--source scan` | that the flags require the spec source (a scan artefact carries no expose verdicts) | `64` |
 | `--module` together with `--modules-dir` | that the flags are mutually exclusive (one claim or the batch) | `64` |

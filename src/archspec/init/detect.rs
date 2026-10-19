@@ -1,1 +1,1 @@
-pub use crate::archspec::language::detect;
+pub use crate::archspec::language::select;

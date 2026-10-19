@@ -6,7 +6,9 @@
 //!
 //! * `archspec capability matrix` — one row per line:
 //!   `capability <language> <fact> <emission>` plus `rule <rule> <fact>`
-//!   lines for the checks that consume a fact.
+//!   lines for the checks that consume a fact, plus `posture <language>
+//!   <scope> <severity>` lines projecting the deep-cycle posture table
+//!   (ts-driver design record D7, ADR-023).
 //! * `archspec capability granular <language> <fact>` — exit 0 when the row
 //!   states full-granularity emission, exit 1 otherwise (and on an unknown
 //!   pair); prints nothing on success.
@@ -22,6 +24,7 @@ usage: archspec capability matrix
 matrix   prints the driver capability table verbatim:
            capability <language> <fact> <emission>
            rule <rule> <fact>
+           posture <language> <scope> <severity>
 granular exits 0 when the driver emits the fact at full granularity,
          1 otherwise; the machine query behind the prose-drift guards.
 ";
@@ -39,6 +42,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             for (rule, fact) in capability::RULES {
                 println!("rule {rule} {fact}");
+            }
+            for (language, scope, severity) in capability::POSTURES {
+                println!("posture {} {scope} {severity}", language.as_str());
             }
             Ok(())
         }

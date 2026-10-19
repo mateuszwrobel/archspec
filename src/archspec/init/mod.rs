@@ -43,9 +43,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
     }
 
-    let language = detect::detect(target_path).ok_or_else(|| {
+    let language = detect::select(target_path, None)?.ok_or_else(|| {
         format!(
-            "could not detect project language: {target} (expected Cargo.toml, go.mod, or *.csproj/*.sln)"
+            "could not detect project language: {target} (expected Cargo.toml, package.json, go.mod, or *.csproj/*.sln)"
         )
     })?;
 

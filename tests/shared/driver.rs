@@ -2,22 +2,35 @@ use crate::common;
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Output;
 
-/// The three language drivers the feature-matrix suite runs scenarios against.
+/// The six language drivers the feature-matrix suite runs scenarios against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
     Rust,
     Csharp,
     Go,
+    Ts,
+    Python,
+    Kotlin,
 }
 
 impl Language {
-    pub const ALL: [Language; 3] = [Language::Rust, Language::Csharp, Language::Go];
+    pub const ALL: [Language; 6] = [
+        Language::Rust,
+        Language::Csharp,
+        Language::Go,
+        Language::Ts,
+        Language::Python,
+        Language::Kotlin,
+    ];
 
     pub fn as_str(&self) -> &'static str {
         match self {
             Language::Rust => "rust",
             Language::Csharp => "csharp",
             Language::Go => "go",
+            Language::Ts => "ts",
+            Language::Python => "python",
+            Language::Kotlin => "kotlin",
         }
     }
 }
@@ -151,6 +164,52 @@ impl Driver {
                 // go half of the role world the goldens must show.
                 tree.composition_roots.push("app".into());
             }
+            Language::Ts => {
+                // The single-package law (ts-driver design record, D1): the
+                // ts arm scans one package root, so the canonical probe tree
+                // is one package whose modules are files under `src`.
+                tree.units = vec!["app".into()];
+                tree.modules
+                    .insert("app".into(), vec!["core".into(), "ui".into()]);
+                tree.module_usings
+                    .push(("app".into(), "core".into(), "ui".into()));
+                tree.module_usings
+                    .push(("app".into(), "ui".into(), "lodash".into()));
+                tree.packages.insert("app".into(), vec!["lodash".into()]);
+                tree.external_targets.push("lodash".into());
+            }
+            Language::Python => {
+                // The package-root dialect (python driver record P3, the
+                // open-webui `backend/` shape): one distribution whose
+                // package dir carries every module, imports spelled from the
+                // distribution name, dependencies in `pyproject.toml`.
+                tree.units = vec!["app".into()];
+                tree.modules
+                    .insert("app".into(), vec!["core".into(), "ui".into()]);
+                tree.module_usings
+                    .push(("app".into(), "core".into(), "ui".into()));
+                tree.module_usings
+                    .push(("app".into(), "ui".into(), "requests".into()));
+                tree.packages
+                    .insert("app".into(), vec!["requests".into()]);
+                tree.external_targets.push("requests".into());
+            }
+            Language::Kotlin => {
+                // The gradle multi-module dialect (kotlin driver record K-P2):
+                // units are settings-file projects, modules of a unit are
+                // source dirs its files' packages address, and an external
+                // rides an import whose top segment names it.
+                tree.units = vec!["app".into(), "shared".into()];
+                tree.modules
+                    .insert("app".into(), vec!["core".into(), "ui".into()]);
+                tree.modules.insert("shared".into(), vec!["models".into()]);
+                tree.hard_edges.push(("app".into(), "shared".into()));
+                tree.module_usings
+                    .push(("app".into(), "core".into(), "ui".into()));
+                tree.module_usings
+                    .push(("app".into(), "ui".into(), KOTLIN_EXTERNAL.into()));
+                tree.external_targets.push(KOTLIN_EXTERNAL.into());
+            }
         }
         tree
     }
@@ -172,14 +231,27 @@ impl Driver {
             Language::Rust => materialize_rust(fx, tree),
             Language::Csharp => materialize_csharp(fx, tree),
             Language::Go => materialize_go(fx, tree),
+            Language::Ts => materialize_ts(fx, tree),
+            Language::Python => materialize_python(fx, tree),
+            Language::Kotlin => materialize_kotlin(fx, tree),
         }
     }
 
     /// Map a logical unit name to the concrete unit name in the model.
     /// Rust/C#: identity. Go: `example.com/demo/<unit>` (go.mod module prefix).
+    /// Ts: identity — the package carries the (single) unit's name, the
+    /// single-package law keeping multi-unit trees out of this driver.
+    /// Python: identity — the `pyproject.toml` name IS the unit, the same
+    /// single-package dialect keeping multi-unit trees out (python driver
+    /// record P3, the package-root derivation).
     pub fn unit_name(&self, logical: &str) -> String {
         match self.language {
-            Language::Rust | Language::Csharp => logical.to_string(),
+            Language::Rust | Language::Csharp | Language::Ts | Language::Python => {
+                logical.to_string()
+            }
+            // Gradle paths join with `::` in the model (settings.rs), so a
+            // dotted stem names a nested project, not a dotted leaf name.
+            Language::Kotlin => logical.replace('.', "::"),
             Language::Go => format!("{GO_MODULE}/{logical}"),
         }
     }
@@ -200,6 +272,16 @@ impl Driver {
                 self.unit_name(logical_unit),
                 go_module_dir(logical_module)
             ),
+            Language::Ts => format!("src/{}.ts", ts_module_dir(logical_module)),
+            Language::Python => format!(
+                "{}/{}.py",
+                self.unit_name(logical_unit),
+                logical_module.replace("::", "/").replace('.', "/")
+            ),
+            // The kotlin module tier is unit-identified (K-P2), so a spec
+            // addresses a tree module through its source file — the same
+            // file-identity dialect the ts and python drivers use.
+            Language::Kotlin => kotlin_module_file(logical_unit, logical_module),
         }
     }
 
@@ -208,7 +290,10 @@ impl Driver {
     /// into the dotted module vocabulary (`/` -> `::`).
     pub fn model_module_path(&self, logical_unit: &str, logical_module: &str) -> String {
         match self.language {
-            Language::Rust | Language::Csharp => self.module_path(logical_unit, logical_module),
+            Language::Rust | Language::Csharp | Language::Ts | Language::Python => {
+                self.module_path(logical_unit, logical_module)
+            }
+            Language::Kotlin => self.module_path(logical_unit, logical_module),
             Language::Go => self.module_path(logical_unit, logical_module).replace('/', "::"),
         }
     }
@@ -218,7 +303,10 @@ impl Driver {
     /// module, so every edge in a single-module tree carries that path.
     pub fn module_edge_unit(&self, logical_unit: &str) -> String {
         match self.language {
-            Language::Rust | Language::Csharp => self.unit_name(logical_unit),
+            Language::Rust | Language::Csharp | Language::Ts | Language::Python => {
+                self.unit_name(logical_unit)
+            }
+            Language::Kotlin => self.unit_name(logical_unit),
             Language::Go => GO_MODULE.to_string(),
         }
     }
@@ -233,11 +321,17 @@ impl Driver {
             "scan must exit 0 (stderr: {})",
             common::stderr(&output)
         );
-        assert!(
-            common::stderr(&output).is_empty(),
-            "scan must not write stderr: {}",
-            common::stderr(&output)
-        );
+        // The orphan census rides the ts scan report surface by capability
+        // contract (capability fact orphan-census: ts granular, the other
+        // drivers not-emitted). The strip is driver-scoped so a regression
+        // emitting the class on another driver stays under the silence law.
+        let ts_census = matches!(self.language, Language::Ts);
+        let stderr: String = common::stderr(&output)
+            .lines()
+            .filter(|line| !(ts_census && line.starts_with("orphan file")))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(stderr.is_empty(), "scan must not write stderr: {stderr}");
         serde_json::from_str(&common::stdout(&output)).expect("scan stdout must be JSON")
     }
 
@@ -746,4 +840,429 @@ pub fn materialize_go_declared_submodule(fx: &common::Fixture) {
         "package auth\n\nimport \"example.com/demo/auth/entity\"\n\nfunc Auth() {}\n",
     );
     fx.write("auth/entity/entity.go", "package entity\n\nfunc Get() {}\n");
+}
+
+/// The package dir/file a logical module path materializes to: separators
+/// (`.` and `::`) become path slashes under the package's `src` dir.
+fn ts_module_dir(logical_module: &str) -> String {
+    logical_module.replace("::", "/").replace('.', "/")
+}
+
+/// The relative import specifier from one repo-relative ts file to another:
+/// `./`-prefixed when the target shares or sits below the importer's dir,
+/// `../`-stepping otherwise. Extension omitted — the scan's extension-and-
+/// index inference resolves it exactly like a real bundler would.
+fn ts_relative_spec(from_file: &str, to_file: &str) -> String {
+    let from_dir = from_file.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+    let to_stem = to_file.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(to_file);
+    let from_parts: Vec<&str> = from_dir.split('/').filter(|p| !p.is_empty()).collect();
+    let to_parts: Vec<&str> = to_stem.split('/').filter(|p| !p.is_empty()).collect();
+    let common = from_parts
+        .iter()
+        .zip(to_parts.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut spec = String::new();
+    for _ in 0..from_parts.len() - common {
+        spec.push_str("../");
+    }
+    if common == from_parts.len() {
+        spec.push('.');
+    }
+    spec.push('/');
+    spec.push_str(&to_parts[common..].join("/"));
+    spec
+}
+
+/// Materialize a `LogicalTree` as a single TypeScript package: one
+/// `package.json` at the root (name = the tree's unit — the single-package
+/// law), one `src/<path>.ts` file per declared module carrying an export,
+/// imports per `module_usings` (declared modules by relative specifier,
+/// anything else bare — the external tier), and manifest dependencies per
+/// `packages`. Test-tier evidence, composition-root shapes and multi-unit
+/// hard edges have no ts dialect: the capability rows and the applicability
+/// predicates keep those legs off this driver rather than faking a shape.
+fn materialize_ts(fx: &common::Fixture, tree: &LogicalTree) {
+    let package = tree
+        .units
+        .first()
+        .cloned()
+        .or_else(|| tree.modules.keys().next().cloned())
+        .unwrap_or_else(|| "pkg".to_string());
+    let dependencies: BTreeSet<&String> = tree.packages.values().flatten().collect();
+    let mut manifest = format!("{{\n  \"name\": \"{package}\",\n  \"version\": \"1.0.0\",\n");
+    if dependencies.is_empty() {
+        manifest.push_str("  \"dependencies\": {}\n");
+    } else {
+        let entries: Vec<String> = dependencies
+            .iter()
+            .map(|dependency| format!("    \"{dependency}\": \"1.0.0\""))
+            .collect();
+        manifest.push_str(&format!("  \"dependencies\": {{\n{}\n  }},\n", entries.join(",\n")));
+        manifest.push_str("  \"devDependencies\": {}\n");
+    }
+    manifest.push_str("}\n");
+    fx.write("package.json", &manifest);
+
+    // Declared dependencies materialize INSTALLED under `node_modules`, so a
+    // bare import of a declared dependency RESOLVES out-of-scope (the external
+    // leg of the resolution seam) instead of answering NotFound. The shared
+    // driver thereby keeps its empty-stderr contract byte-identical: the
+    // `external not installed` report line is proven in ts_driver.rs, not by
+    // the shared scans, and the external-tier cells the probes assert stay
+    // the same `External(identity)` facts either way.
+    for dependency in &dependencies {
+        fx.write(
+            &format!("node_modules/{dependency}/package.json"),
+            &format!("{{\n  \"name\": \"{dependency}\",\n  \"version\": \"1.0.0\",\n  \"main\": \"index.js\"\n}}\n"),
+        );
+        fx.write(
+            &format!("node_modules/{dependency}/index.js"),
+            "module.exports = {};\n",
+        );
+    }
+
+    // Logical module -> file path, for resolving `to` targets.
+    let mut module_files: BTreeMap<String, String> = BTreeMap::new();
+    for modules in tree.modules.values() {
+        for module in modules {
+            module_files.insert(module.clone(), format!("src/{}.ts", ts_module_dir(module)));
+        }
+    }
+
+    for (unit, modules) in &tree.modules {
+        for module in modules {
+            let file = format!("src/{}.ts", ts_module_dir(module));
+            let leaf = ts_module_dir(module)
+                .rsplit('/')
+                .next()
+                .unwrap_or(module.as_str())
+                .to_string()
+                .replace(['-', '@'], "_");
+            let mut imports: BTreeSet<String> = BTreeSet::new();
+            for (u, from, to) in &tree.module_usings {
+                if u != unit || from != module {
+                    continue;
+                }
+                let spec = match module_files.get(to) {
+                    Some(to_file) => ts_relative_spec(&file, to_file),
+                    None => to.clone(),
+                };
+                let binding = spec
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("mod")
+                    .replace(['.', '-', '@', '/', '"'], "_");
+                imports.insert(format!("import {{ {binding} }} from \"{spec}\";\n"));
+            }
+            let mut content = String::new();
+            for import in &imports {
+                content.push_str(import);
+            }
+            content.push_str(&format!("export const {leaf} = 1;\n"));
+            fx.write(&file, &content);
+        }
+    }
+}
+
+/// The package dir/file a logical module path materializes to: separators
+/// (`.` and `::`) become path slashes under the package dir.
+fn py_module_dir(logical_module: &str) -> String {
+    logical_module.replace("::", "/").replace('.', "/")
+}
+
+/// A python-importable identifier for a module path's leaf.
+fn py_binding(path: &str) -> String {
+    path.rsplit('/')
+        .next()
+        .unwrap_or(path)
+        .to_string()
+        .replace(['-', '@', '.'], "_")
+}
+
+/// Materialize a `LogicalTree` as a single python distribution: one
+/// `pyproject.toml` at the root (name = the tree's unit — the package-root
+/// dialect mirroring the ts single-package law), one `<package>/<path>.py`
+/// file per declared module plus the package `__init__.py`, imports per
+/// `module_usings` (declared modules spelled from the distribution name,
+/// anything else bare — the external tier), and manifest dependencies per
+/// `packages` (P1: the pyproject `[project]` table is the primary manifest).
+/// Test-tier evidence materializes as `test_<leaf>.py` files beside the
+/// modules WITH a pytest-family manifest entry (the P5 co-occurrence law);
+/// composition-root shapes and multi-unit hard edges have no python dialect:
+/// the capability rows and the applicability predicates keep those legs off
+/// this driver rather than faking a shape.
+fn materialize_python(fx: &common::Fixture, tree: &LogicalTree) {
+    let package = tree
+        .units
+        .first()
+        .cloned()
+        .or_else(|| tree.modules.keys().next().cloned())
+        .unwrap_or_else(|| "pkg".to_string());
+    let dependencies: BTreeSet<&String> = tree.packages.values().flatten().collect();
+    let test_evidence = tree.test_gated.values().flatten().next().is_some();
+    let mut manifest = format!("[project]\nname = \"{package}\"\nversion = \"0.1.0\"\n");
+    let mut entries: Vec<String> = dependencies
+        .iter()
+        .map(|dependency| format!("    \"{dependency}\","))
+        .collect();
+    if test_evidence {
+        // The P5 manifest half: pytest-family evidence co-occurs with the
+        // `test_` naming (the ts C2 law ported) — naming alone states no tier.
+        entries.push("    \"pytest\",".to_string());
+    }
+    if !entries.is_empty() {
+        manifest.push_str(&format!(
+            "dependencies = [\n{}\n]\n",
+            entries.join("\n")
+        ));
+    }
+    fx.write("pyproject.toml", &manifest);
+
+    // Logical module -> (owning unit, file path) for resolving `to` targets:
+    // every unit materializes as its own top-level package dir (the P3
+    // resolution-root union), imports spelled from the OWNING unit's name.
+    let mut module_files: BTreeMap<&String, (&String, String)> = BTreeMap::new();
+    for (unit, modules) in &tree.modules {
+        fx.write(&format!("{unit}/__init__.py"), "");
+        for module in modules {
+            module_files.insert(
+                module,
+                (unit, format!("{unit}/{}.py", py_module_dir(module))),
+            );
+        }
+    }
+    // A declared unit with no modules is still a package: its directory
+    // carries an empty `__init__.py`, so the scan sees a regular package
+    // rather than a sourceless tree (the ts root-package parity).
+    for unit in &tree.units {
+        if !tree.modules.contains_key(unit) {
+            fx.write(&format!("{unit}/__init__.py"), "");
+        }
+    }
+
+    for (unit, modules) in &tree.modules {
+        let gated: Vec<&String> = tree.test_gated.get(unit).into_iter().flatten().collect();
+        for module in modules {
+            let file = format!("{unit}/{}.py", py_module_dir(module));
+            let mut imports: BTreeSet<String> = BTreeSet::new();
+            for (u, from, to) in &tree.module_usings {
+                if u != unit || from != module {
+                    continue;
+                }
+                let line = match module_files.get(to) {
+                    Some((owner, _)) => format!(
+                        "from {owner}.{} import {binding};\n",
+                        py_module_dir(to),
+                        binding = py_binding(&py_module_dir(to))
+                    ),
+                    None => format!("import {};\n", to.replace('.', "_")),
+                };
+                imports.insert(line);
+            }
+            let mut content = String::new();
+            for import in &imports {
+                content.push_str(import);
+            }
+            content.push_str(&format!("{} = 1\n", py_binding(&py_module_dir(module))));
+            if gated.contains(&module) {
+                // The P5 convention half: the gated module's file rides the
+                // `test_` name beside the production one.
+                fx.write(
+                    &format!(
+                        "{package}/test_{}.py",
+                        py_module_dir(module).replace('/', "_")
+                    ),
+                    &content,
+                );
+            } else {
+                fx.write(&file, &content);
+            }
+        }
+    }
+}
+
+/// The external package name the kotlin materializer routes the shared
+/// scenarios through: the gradle COORDINATE name (`group:artifact`) the
+/// driver states from build-script facts — the kotlin external vocabulary
+/// for manifests. An external module_using materializes as that coordinate
+/// in the unit's `dependencies` block, never as an import.
+pub const KOTLIN_EXTERNAL: &str = "com.google.code.gson:gson";
+
+/// The capitalized file leaf a logical module path materializes to (Kotlin
+/// source files carry a type-named file, and the driver's resolution key is
+/// the import's basename).
+fn kotlin_leaf(module: &str) -> String {
+    let last = normalized(module)
+        .rsplit("::")
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let mut chars = last.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => last,
+    }
+}
+
+/// The source file a logical (unit, module) pair materializes to: the gradle
+/// convention layout (`<dir>/src/main/java/<package dirs>/…/<Leaf>.kt`).
+fn kotlin_module_file(logical_unit: &str, logical_module: &str) -> String {
+    let path = normalized(logical_module);
+    let (parents, leaf) = match path.rsplit_once("::") {
+        Some((parents, leaf)) => (format!("{parents}::"), leaf),
+        None => (String::new(), path.as_str()),
+    };
+    format!(
+        "{}/src/main/java/{}/{}/{}.kt",
+        logical_unit.replace('.', "/"),
+        logical_unit.replace('.', "/"),
+        format!("{parents}{leaf}").replace("::", "/"),
+        kotlin_leaf(leaf)
+    )
+}
+
+/// The package a logical unit's files declare: the dotted form of the unit
+/// name (a nested gradle project `:shop:domain` sources live under
+/// `shop/domain/src/main/java` and declare package `shop.domain`).
+fn kotlin_unit_package(logical_unit: &str) -> String {
+    normalized(logical_unit).replace("::", ".")
+}
+
+fn materialize_kotlin(fx: &common::Fixture, tree: &LogicalTree) {
+    // settings.gradle.kts — the module list (K-P2): every declared unit,
+    // a dotted logical stem materialized as a nested gradle path.
+    let includes: Vec<String> = tree
+        .units
+        .iter()
+        .map(|unit| format!("\":{}\"", unit.replace('.', ":")))
+        .collect();
+    let mut settings = "rootProject.name = \"demo\"\n".to_string();
+    if !includes.is_empty() {
+        settings.push_str(&format!("include({})\n", includes.join(", ")));
+    }
+    fx.write("settings.gradle.kts", &settings);
+
+    let all_modules: BTreeSet<String> = tree
+        .modules
+        .values()
+        .flatten()
+        .map(|module| normalized(module))
+        .collect();
+    let mut module_owner: BTreeMap<String, String> = BTreeMap::new();
+    for (unit, modules) in &tree.modules {
+        for module in modules {
+            module_owner.insert(normalized(module), unit.clone());
+        }
+    }
+
+    for unit in &tree.units {
+        let unit_dir = unit.replace('.', "/");
+        let unit_package = kotlin_unit_package(unit);
+
+        // build.gradle.kts — the unit manifest: project deps for hard edges,
+        // coordinates for declared packages and for external module_usings
+        // (names carrying a `:`), junit-family evidence when the tree states
+        // test-tier modules (the K-P4 co-occurrence half).
+        let mut manifest =
+            "plugins {\n    id(\"org.jetbrains.kotlin.jvm\") version \"2.0.0\"\n}\n".to_string();
+        let mut entries: Vec<String> = Vec::new();
+        for (from, to) in &tree.hard_edges {
+            if from == unit {
+                entries.push(format!(
+                    "    implementation(project(\":{}\"))",
+                    to.replace('.', ":")
+                ));
+            }
+        }
+        for package in tree.packages.get(unit).into_iter().flatten() {
+            let coordinate = if package.contains(':') {
+                format!("{package}:1.0")
+            } else {
+                format!("{package}:{package}:1.0")
+            };
+            entries.push(format!("    implementation(\"{coordinate}\")"));
+        }
+        for (u, _from, to) in &tree.module_usings {
+            if u == unit && !all_modules.contains(&normalized(to)) && to.contains(':') {
+                entries.push(format!("    implementation(\"{to}:1.0\")"));
+            }
+        }
+        if tree.test_gated.get(unit).is_some_and(|paths| !paths.is_empty()) {
+            entries.push("    testImplementation(\"junit:junit:4.13.2\")".to_string());
+        }
+        if !entries.is_empty() {
+            manifest.push_str(&format!("\ndependencies {{\n{}\n}}\n", entries.join("\n")));
+        }
+        fx.write(&format!("{unit_dir}/build.gradle.kts"), &manifest);
+
+        // The unit-root file: its declaration seeds the package census the
+        // import resolution keys on, its imports carry the hard-edge wiring.
+        let mut root_content = format!("package {unit_package}\n");
+        let mut root_imports: BTreeSet<String> = BTreeSet::new();
+        for (from, to) in &tree.hard_edges {
+            if from == unit {
+                root_imports.insert(format!("{}.{}", kotlin_unit_package(to), kotlin_leaf(to)));
+            }
+        }
+        for import in &root_imports {
+            root_content.push_str(&format!("import {import}\n"));
+        }
+        fx.write(
+            &format!(
+                "{unit_dir}/src/main/java/{unit_dir}/{}.kt",
+                kotlin_leaf(unit)
+            ),
+            &root_content,
+        );
+
+        // Module files: production files under `src/main/java`, test-tier
+        // modules under `src/test/java` named `*Test.kt` (the K-P4 naming
+        // half); usings whose `from` matches a gated path route into the
+        // test file (the go routing ported).
+        let gated: BTreeSet<String> = tree
+            .test_gated
+            .get(unit)
+            .into_iter()
+            .flatten()
+            .map(|module| normalized(module))
+            .collect();
+        for module in tree.modules.get(unit).into_iter().flatten() {
+            let path = normalized(module);
+            let is_test = gated.contains(&path);
+            let source_root = if is_test { "src/test/java" } else { "src/main/java" };
+            let leaf = kotlin_leaf(module);
+            let file = format!(
+                "{unit_dir}/{source_root}/{unit_dir}/{}/{}.kt",
+                path.replace("::", "/"),
+                if is_test { format!("{leaf}Test") } else { leaf.clone() }
+            );
+            let mut content = format!("package {unit_package}.{}\n", path.replace("::", "."));
+            let mut imports: BTreeSet<String> = BTreeSet::new();
+            for (u, from, to) in &tree.module_usings {
+                if u != unit || normalized(from) != path {
+                    continue;
+                }
+                let import = match module_owner.get(&normalized(to)) {
+                    Some(owner) => format!(
+                        "{}.{}.{}",
+                        kotlin_unit_package(owner),
+                        normalized(to).replace("::", "."),
+                        kotlin_leaf(to)
+                    ),
+                    // A coordinate names a manifest external (the driver
+                    // states it from the build script, no import needed);
+                    // a bare name states the top-segment external directly.
+                    None if to.contains(':') => continue,
+                    None => format!("{to}.Thing"),
+                };
+                imports.insert(import);
+            }
+            for import in &imports {
+                content.push_str(&format!("import {import}\n"));
+            }
+            content.push_str(&format!("class {leaf} {{}}\n"));
+            fx.write(&file, &content);
+        }
+    }
 }

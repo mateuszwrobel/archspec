@@ -19,10 +19,14 @@ A parse failure **aborts the run** — no diff is produced for a partially extra
 | module declares an empty `contract.expose` entry | the file, the module name, and the empty entry position | non-zero |
 | constraint references an undeclared module | the file, the 1-indexed constraint number, and the undeclared module name | non-zero |
 | no supported-language sources found (recursively) | that no sources were found, and where | non-zero |
+| the declared language has no root marker where other markers stand (`language mismatch: <declared> — no root marker <marker> for the declared language, found: <markers>`) | the declared language, the marker file it expects, and the marker files actually found | non-zero |
+| the declared language disagrees with the counted tree (`language mismatch`, the D14 agreement check) | the declared and found languages with the counts of each, and the `excluded_sources` remedy | non-zero |
+| a ts specifier resolves to no file (`unresolvable import`) — or only into an excluded tree, where the line names the exclusion | the importing file, the specifier verbatim, and the exclusion remedy | non-zero |
 | a source file fails to parse | the name of the failing file | non-zero |
 | language driver/toolchain missing | the language, and the suggestion to run `archspec doctor` | non-zero |
 | unknown flag | the flag name | non-zero |
 | more than one positional argument | that only one path is accepted | non-zero |
+| a scanned ts source file carries no model fact (`orphan file: <path>`, closed by one `orphan file census: <n> of <m> scanned files — the model lists no fact for any of them` summary, never at zero) | that the import-graph fact sets list no fact for the file — report-only stderr on the shipped report surface, printed under green AND red verdicts alike, never itself a verdict | 0 (green) / non-zero only from real findings |
 
 ## Examples
 

@@ -1,5 +1,5 @@
 use crate::archspec::model::{
-    Edge, ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Role, Unit,
+    Edge, FileEdge, FileFactKind, ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Role, Unit,
 };
 use rust_arch_test_kit::collector::{
     cfg_feature_name, flatten_use_tree, glob_token, has_cfg, is_cfg_test, is_public,
@@ -12,8 +12,18 @@ use toml::Value;
 use walkdir::WalkDir;
 
 /// Per-module references gathered during the first pass: the module path, its
-/// `use` trees, and the dotted paths referenced in its item bodies.
-type ModuleRefs = (Vec<String>, Vec<syn::UseTree>, BTreeSet<Vec<String>>);
+/// `use` trees, the dotted paths referenced in its item bodies, the trait- and
+/// type-position references collected by `TraitRefVisitor` (impl-header trait
+/// paths, `dyn`-bound paths, type paths nested in generic arguments — resolved
+/// by their own law, kept SEPARATE from `paths` so that set's single-segment
+/// law and stdlib drops stay byte-stable), and the file.
+type ModuleRefs = (
+    Vec<String>,
+    Vec<syn::UseTree>,
+    BTreeSet<Vec<String>>,
+    BTreeSet<Vec<String>>,
+    PathBuf,
+);
 
 pub fn extract(root: &Path) -> Result<Model, String> {
     let root_manifest_path = root.join("Cargo.toml");
@@ -83,6 +93,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     let mut root_module_declarations: BTreeMap<String, Vec<ModuleDeclaration>> = BTreeMap::new();
     let mut unresolved_files: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut test_gated_modules: BTreeSet<String> = BTreeSet::new();
+    let mut file_edges: Vec<FileEdge> = Vec::new();
     let mut roles: BTreeMap<String, Role> = BTreeMap::new();
     let mut edge_set: BTreeSet<(String, String)> = BTreeSet::new();
 
@@ -117,6 +128,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
             }
         }
         module_edges.extend(info.edges);
+        file_edges.extend(info.file_edges);
         external_from_uses.extend(info.external);
         for (module, crates) in info.module_external {
             module_external.insert(module, crates);
@@ -176,14 +188,17 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         .collect();
     external.sort();
 
+    // One deterministic order over the whole model's file-grained facts.
+    file_edges.sort_by(|left, right| {
+        (&left.unit, &left.from, &left.to, left.kind.as_str())
+            .cmp(&(&right.unit, &right.from, &right.to, right.kind.as_str()))
+    });
+
     let manifest = manifest_info(&root_manifest, workspace_deps);
 
     Ok(Model {
-        schema_version: 1,
-        language: "rust".to_string(),
         units,
         edges,
-        usage: Default::default(),
         soft_structure,
         external,
         module_edges,
@@ -191,13 +206,14 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         root_public_exports,
         root_glob_exports,
         root_empty_glob_exports,
-        module_public_types: Default::default(),
         module_external,
         root_module_declarations,
         unit_manifests,
         unresolved_module_files: unresolved_files,
         test_gated_modules,
+        file_edges,
         roles,
+        ..Model::new("rust")
     })
 }
 
@@ -213,6 +229,9 @@ struct UnitModuleInfo {
     unit_edges: Vec<(String, String)>,
     unresolved: Vec<String>,
     test_gated: Vec<String>,
+    /// File-grained dependency facts of this unit, spelled repo-relative
+    /// (the diagram's file-vertex identity), sorted by `(from, to, kind)`.
+    file_edges: Vec<FileEdge>,
     /// True when the unit's root file defines at least one production item
     /// (top-level struct/enum/trait/fn/type/const/static, not `#[cfg(test)]`).
     /// False means the root is a publication-only facade, which gives the
@@ -277,6 +296,7 @@ fn analyze_unit_modules(
         unit_edges: Vec::new(),
         unresolved: Vec::new(),
         test_gated: Vec::new(),
+        file_edges: Vec::new(),
         // A unit whose root file cannot be located proves nothing about its
         // definitions; keep the facade rule inactive rather than invent one.
         root_defines_items: true,
@@ -313,6 +333,8 @@ fn analyze_unit_modules(
         uses: Vec::new(),
         unresolved: BTreeSet::new(),
         test_gated: BTreeSet::new(),
+        module_files: BTreeMap::new(),
+        file_rows: BTreeSet::new(),
     };
     let crate_name = unit.name.clone();
     // The module tree is rooted at the unit itself for discovery; the bin root
@@ -329,8 +351,10 @@ fn analyze_unit_modules(
             &root_path,
             root_rel_dir,
             root_rel_dir,
+            Path::new(root_file),
             &root_ast.items,
             &mut state,
+            false,
         );
     }
     // The bin root is a `main` module; it is a real soft node and its own source
@@ -341,7 +365,11 @@ fn analyze_unit_modules(
     if unit.root == "main.rs" {
         let main_path = format!("{}::main", unit.name);
         state.known.insert(main_path.clone());
-        state.soft.insert(main_path);
+        state.soft.insert(main_path.clone());
+        state
+            .module_files
+            .entry(main_path)
+            .or_insert_with(|| PathBuf::from(unit.root.clone()));
         for entry in state.uses.iter_mut() {
             if entry.0.len() == 1 && entry.0[0] == unit.name {
                 entry.0.push("main".to_string());
@@ -350,26 +378,60 @@ fn analyze_unit_modules(
     }
 
     // Second pass: resolve `use` trees and qualified paths against the module set.
+    // The collected references move out of the walk state so the same state's
+    // `module_files` can map every resolved target to its file identity.
+    let uses = std::mem::take(&mut state.uses);
+    // Declaration index for in-scope resolution of bare `use` segments: the
+    // mod-declaration pairs (declaring file, backed file) collected by the walk
+    // tell which modules THIS file declares; `module_files` locates each
+    // module's defining file (inline declarations map to the declaring file).
+    let module_files = state.module_files.clone();
+    let mod_pairs: BTreeSet<(PathBuf, PathBuf)> = state
+        .file_rows
+        .iter()
+        .filter(|(_, _, kind)| matches!(kind, FileFactKind::Mod))
+        .map(|(from, to, _)| (from.clone(), to.clone()))
+        .collect();
     let mut edge_map: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
     let mut external: BTreeSet<String> = BTreeSet::new();
     let mut module_external: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut unit_edges: BTreeSet<(String, String)> = BTreeSet::new();
-    for (current, trees, paths) in &state.uses {
+    for (current, trees, paths, trait_refs, file) in &uses {
         let source_dotted = current.join("::");
         for tree in trees {
-            let mut paths = Vec::new();
-            flatten_use_tree(tree, Vec::new(), &mut paths);
-            for segments in paths {
+            let mut paths_flat = Vec::new();
+            flatten_use_tree(tree, Vec::new(), &mut paths_flat);
+            for segments in paths_flat {
                 let first = segments[0].as_str();
                 if is_reserved_segment(first) {
                     let full = resolve_module_path(&segments, current, &crate_name);
-                    if let Some((target, symbols)) = target_module(&full, &state.known)
-                        && target != source_dotted {
+                    if let Some((target, symbols)) = target_module(&full, &state.known) {
+                        if target != source_dotted {
                             edge_map
-                                .entry((source_dotted.clone(), target))
+                                .entry((source_dotted.clone(), target.clone()))
                                 .or_default()
                                 .extend(symbols);
                         }
+                        // A CONTAINMENT hop is not a dependency: a path that
+                        // lands on an ancestor module of the using module —
+                        // spelled `super::`, `crate::`-absolute, or a bare
+                        // name — points at a module that CONTAINS the using
+                        // one. The module tier already edges that pair as a
+                        // descendant→ancestor module edge, so the file tier
+                        // may not row it either (the tier-comparability law
+                        // of the D6 projection dedup: a file ring closing on
+                        // an ancestor hop would re-report a fact the module
+                        // tier owns, and ring clean containment trees —
+                        // e.g. a sibling Rust workspace crate's freshness
+                        // check or the sibling crate's config module).
+                        // Sibling hops through a parent's item and
+                        // descendant-target rows keep their row: the target
+                        // is not an ancestor of the source.
+                        let containment_hop = contains_module(&target, &source_dotted);
+                        if !containment_hop {
+                            record_file_row(&mut state, file, &target, FileFactKind::Use);
+                        }
+                    }
                 } else {
                     let normalized = normalize_crate_name(first);
                     if is_stdlib(&normalized) {
@@ -379,24 +441,47 @@ fn analyze_unit_modules(
                         // A reference to a unit of the project (self or a member),
                         // never external. A cross-unit `use` (e.g. a bin importing
                         // its own lib by crate name) is a unit edge; a reference to
-                        // the unit's OWN crate name stays internal.
+                        // the unit's OWN crate name stays internal. A cross-unit
+                        // reference addresses another unit's source tree, never a
+                        // file of THIS unit's, so it contributes no file row.
                         if *real != crate_name {
                             unit_edges.insert((crate_name.clone(), real.clone()));
                         }
                         continue;
                     }
-                    if let Some(own_path) =
-                        own_module_prefix(first, current, &crate_name, &state.known)
-                    {
-                        // A bare reference to the crate's own module.
-                        let full = resolve_bare_module(&segments, &own_path);
-                        if let Some((target, symbols)) = target_module(&full, &state.known)
-                            && target != source_dotted {
+                    // Resolution law for a bare first segment of a `use` path
+                    // (flip lane 2026-10-16): the name is in scope only if the
+                    // CURRENT FILE declares it (`mod name;` here, inline or
+                    // file-backed). Rust resolution never walks ancestors or
+                    // the crate root for a bare use segment, so the old
+                    // `own_module_prefix` probe mis-attributed `use tauri::{...}`
+                    // inside module `tauri` to the crate's own `tauri` module —
+                    // a false parent back-edge and a phantom file-tier cycle
+                    // (voice-lib, the fleet's last residual). Anything else is
+                    // a crate reference (external here). A name imported into
+                    // scope by an earlier `use` is not tracked — an
+                    // over-approximation toward `external`, never toward a
+                    // false internal edge.
+                    if let Some(own_path) = module_declared_in_file(
+                        first,
+                        current,
+                        file,
+                        &state.known,
+                        &module_files,
+                        &mod_pairs,
+                    ) {
+                        let mut full: Vec<String> =
+                            own_path.split("::").map(String::from).collect();
+                        full.extend_from_slice(&segments[1..]);
+                        if let Some((target, symbols)) = target_module(&full, &state.known) {
+                            if target != source_dotted {
                                 edge_map
-                                    .entry((source_dotted.clone(), target))
+                                    .entry((source_dotted.clone(), target.clone()))
                                     .or_default()
                                     .extend(symbols);
                             }
+                            record_file_row(&mut state, file, &target, FileFactKind::Use);
+                        }
                     } else {
                         external.insert(normalized.clone());
                         module_external
@@ -419,12 +504,20 @@ fn analyze_unit_modules(
             let first = path[0].as_str();
             if is_reserved_segment(first) {
                 let full = resolve_module_path(path, current, &crate_name);
-                if let Some((target, _)) = target_module(&full, &state.known)
-                    && target != source_dotted {
+                if let Some((target, _)) = target_module(&full, &state.known) {
+                    if target != source_dotted {
                         edge_map
-                            .entry((source_dotted.clone(), target))
+                            .entry((source_dotted.clone(), target.clone()))
                             .or_default();
                     }
+                    // The containment-hop law of the `use` walk above: a
+                    // path expression that lands on an ancestor module
+                    // contributes no file row, whatever spelling it uses.
+                    let containment_hop = contains_module(&target, &source_dotted);
+                    if !containment_hop {
+                        record_file_row(&mut state, file, &target, FileFactKind::Path);
+                    }
+                }
             } else {
                 let normalized = normalize_crate_name(first);
                 if is_stdlib(&normalized) {
@@ -433,6 +526,8 @@ fn analyze_unit_modules(
                 if let Some(real) = normalized_units.get(&normalized) {
                     if *real != crate_name {
                         // Qualified call into another unit -> a unit edge (B24).
+                        // A cross-unit call addresses another unit's tree, never
+                        // a file of THIS unit's, so it contributes no file row.
                         unit_edges.insert((crate_name.clone(), real.clone()));
                     }
                 } else if let Some(own_path) =
@@ -440,8 +535,11 @@ fn analyze_unit_modules(
                 {
                     let target = own_path;
                     if target != source_dotted {
-                        edge_map.entry((source_dotted.clone(), target)).or_default();
+                        edge_map
+                            .entry((source_dotted.clone(), target.clone()))
+                            .or_default();
                     }
+                    record_file_row(&mut state, file, &target, FileFactKind::Path);
                 } else if manifest_deps.is_some_and(|deps| deps.contains(&normalized)) {
                     // A qualified path whose first segment is a real declared
                     // runtime dependency (e.g. `toml::from_str` with no `use`) is
@@ -459,6 +557,57 @@ fn analyze_unit_modules(
                 // `use` imports and the manifest, not from type/expr paths.
             }
         }
+
+        // Trait- and type-position references (impl-header trait paths,
+        // trait-object `dyn` bounds, type paths nested in generic arguments —
+        // the accepted extraction arms of the dyn-edge adjudication §7 item 2,
+        // invisible to the `paths` set because `PathVisitor`'s law prunes them).
+        // Resolution mirrors the two cited laws: the unit tier resolves the
+        // first segment against `normalized_units` like the cross-unit `use`
+        // branch above, and the module tier resolves a reserved-segment path
+        // against the module set with the containment-hop law like the
+        // qualified-path walk above. Two absences are law, not omission: trait
+        // positions never contribute an `external` row (external facts come
+        // from `use` and the manifest), and a bare first segment is probed
+        // against neither own modules nor `manifest_deps` here — non-unit
+        // trait paths state nothing. Single-segment trait paths (a self impl
+        // `impl Foo for Bar`, a generic self type, `dyn Fn()`) fall under the
+        // same lenient single-segment law.
+        for path in trait_refs {
+            if path.len() < 2 {
+                continue;
+            }
+            let first = path[0].as_str();
+            if is_reserved_segment(first) {
+                let full = resolve_module_path(path, current, &crate_name);
+                if let Some((target, _)) = target_module(&full, &state.known) {
+                    if target != source_dotted {
+                        edge_map
+                            .entry((source_dotted.clone(), target.clone()))
+                            .or_default();
+                    }
+                    let containment_hop = contains_module(&target, &source_dotted);
+                    if !containment_hop {
+                        record_file_row(&mut state, file, &target, FileFactKind::Path);
+                    }
+                }
+            } else {
+                let normalized = normalize_crate_name(first);
+                if is_stdlib(&normalized) {
+                    continue;
+                }
+                if let Some(real) = normalized_units.get(&normalized) {
+                    // Cross-unit trait reference -> a unit edge, exactly like a
+                    // cross-unit `use` or qualified call. A reference through
+                    // the unit's OWN crate name stays internal. Like the other
+                    // cross-unit branches, it addresses another unit's source
+                    // tree, so it contributes no file row.
+                    if *real != crate_name {
+                        unit_edges.insert((crate_name.clone(), real.clone()));
+                    }
+                }
+            }
+        }
     }
 
     let mut edges: Vec<ModuleEdge> = edge_map
@@ -467,6 +616,7 @@ fn analyze_unit_modules(
             let mut symbols: Vec<String> = symbols.into_iter().collect();
             symbols.sort();
             ModuleEdge {
+                type_only: false,
                 unit: unit.name.clone(),
                 from,
                 to,
@@ -517,6 +667,8 @@ fn analyze_unit_modules(
             crate_ids: &crate_ids,
             root_file: root_file.as_str(),
             root_rel_dir,
+            module_files: &module_files,
+            mod_pairs: &mod_pairs,
         };
         classify_root_globs(
             &ctx,
@@ -542,6 +694,30 @@ fn analyze_unit_modules(
     module_declarations.dedup_by(|left, right| left.name == right.name);
     let root_module_declarations = module_declarations;
 
+    // File-grained facts serialize repo-relative — the same file identity the
+    // diagram's file vertices and the file-tier findings name. A row whose
+    // endpoints spell to the same repo-relative path (the same src file seen
+    // twice) is not an adjacency fact and is dropped here, not at a consumer.
+    let src_prefix = match unit_dir.strip_prefix(root) {
+        Ok(prefix) if !prefix.as_os_str().is_empty() => prefix.join("src"),
+        _ => PathBuf::from("src"),
+    };
+    let mut file_edges: Vec<FileEdge> = state
+        .file_rows
+        .iter()
+        .filter(|(from, to, _)| from != to)
+        .map(|(from, to, kind)| FileEdge {
+            unit: unit.name.clone(),
+            from: spell_repo_file(&src_prefix, from),
+            to: spell_repo_file(&src_prefix, to),
+            kind: *kind,
+        })
+        .collect();
+    file_edges.sort_by(|left, right| {
+        (&left.from, &left.to, left.kind.as_str())
+            .cmp(&(&right.from, &right.to, right.kind.as_str()))
+    });
+
     Ok(UnitModuleInfo {
         soft: soft_sorted,
         edges,
@@ -554,8 +730,30 @@ fn analyze_unit_modules(
         unit_edges,
         unresolved: state.unresolved.into_iter().collect(),
         test_gated: state.test_gated.into_iter().collect(),
+        file_edges,
         root_defines_items,
     })
+}
+
+/// Record a file-grained fact for a resolved module target: the referring
+/// file -> the file DEFINING the target module, when those are two distinct
+/// files. A target the walk never located (a cross-unit path, or a module
+/// path assembled outside the walk) states no file identity and contributes
+/// no row — the fact is absent, never invented.
+fn record_file_row(state: &mut WalkState, from_file: &Path, target: &str, kind: FileFactKind) {
+    if let Some(target_file) = state.module_files.get(target)
+        && target_file != from_file
+    {
+        state
+            .file_rows
+            .insert((from_file.to_path_buf(), target_file.clone(), kind));
+    }
+}
+
+/// Spell a `src/`-relative file as the repo-relative path the file identity
+/// uses ("/" separators — the ts driver's `spell` law).
+fn spell_repo_file(src_prefix: &Path, rel: &Path) -> String {
+    src_prefix.join(rel).to_string_lossy().replace('\\', "/")
 }
 
 /// True when a crate-root file DEFINES anything at the top level: a
@@ -649,6 +847,8 @@ struct GlobCtx<'a> {
     crate_ids: &'a BTreeSet<String>,
     root_file: &'a str,
     root_rel_dir: &'a Path,
+    module_files: &'a BTreeMap<String, PathBuf>,
+    mod_pairs: &'a BTreeSet<(PathBuf, PathBuf)>,
 }
 
 /// A located module: its items and whether any `cfg` sat on a declaration along
@@ -872,8 +1072,8 @@ fn walk_surface<'a>(
 /// Resolve a glob prefix found in module `current` to a crate-prefixed module
 /// path, or `None` when it does not name a module of this crate. `self`/`crate`
 /// and the crate-name prefix behave as at the root; `super::` walks up from the
-/// current module; a bare first segment resolves against the current module and
-/// its ancestors, exactly like a plain path in that module.
+/// current module; a bare first segment names a CRATE (Rust 2018+ `use` law),
+/// never an in-scope module, so it resolves only via the crate-name prefix.
 fn glob_target_path(prefix: &[String], current: &[String], ctx: &GlobCtx) -> Option<Vec<String>> {
     let (first, rest) = prefix.split_first()?;
     match first.as_str() {
@@ -905,7 +1105,23 @@ fn glob_target_path(prefix: &[String], current: &[String], ctx: &GlobCtx) -> Opt
                 out.extend(rest.iter().cloned());
                 return Some(out);
             }
-            let owner = own_module_prefix(first, current, ctx.crate_name, ctx.known)?;
+            // In-scope law (mirrors the `use`-fact branch above): a bare
+            // segment resolves only to a module the walking surface's file
+            // declares — never an ancestor or crate-root module. Otherwise it
+            // names a crate, not a module of this crate.
+            let here = ctx
+                .module_files
+                .get(&current.join("::"))
+                .cloned()
+                .unwrap_or_default();
+            let owner = module_declared_in_file(
+                first,
+                current,
+                &here,
+                ctx.known,
+                ctx.module_files,
+                ctx.mod_pairs,
+            )?;
             let mut out: Vec<String> = owner.split("::").map(String::from).collect();
             out.extend(rest.iter().cloned());
             Some(out)
@@ -963,32 +1179,78 @@ struct WalkState<'a> {
     uses: Vec<ModuleRefs>,
     unresolved: BTreeSet<String>,
     test_gated: BTreeSet<String>,
+    /// Dotted module path -> the source file DEFINING that module (relative to
+    /// the unit's `src/`). A file-backed module maps to its resolved file; an
+    /// inline `mod x { ... }` maps to the file carrying it — its items live
+    /// there, so facts sourced from the inline module are facts of that file.
+    module_files: BTreeMap<String, PathBuf>,
+    /// File-grained adjacency rows collected lexically during the walk:
+    /// `(declaring file, declared file)` mod-declaration pairs, relative to
+    /// the unit's `src/`. Resolved `use`/path rows join later, in the second
+    /// pass that resolves imports against `known`/`module_files`.
+    file_rows: BTreeSet<(PathBuf, PathBuf, FileFactKind)>,
 }
 
 /// Recursively walk a module's items: record each declared sub-module (inline or
 /// file-backed) in `state.soft`/`state.known`, collect its `use` trees and
 /// qualified-path references for later resolution, and record file-backed
 /// declarations that resolve to no parsed file in `state.unresolved`.
+/// `file` is the parsed file whose items are walked (relative to the unit's
+/// `src/`): every module defined here — file-backed or inline — is registered
+/// in `state.module_files` against it, and a file-backed declaration that
+/// resolves contributes a `mod` row to `state.file_rows`.
 fn walk_module(
     path: &[String],
     mod_dir: &Path,
     file_dir: &Path,
+    file: &Path,
     items: &[syn::Item],
     state: &mut WalkState,
+    in_test_module: bool,
 ) {
+    state
+        .module_files
+        .entry(path.join("::"))
+        .or_insert_with(|| file.to_path_buf());
     let mut use_trees = Vec::new();
     let mut paths = BTreeSet::new();
+    let mut trait_refs = BTreeSet::new();
     for item in items {
         if let syn::Item::Use(use_item) = item {
-            use_trees.push(use_item.tree.clone());
+            // Test-gated imports are scaffolding, not production dependency:
+            // a `use` inside a `#[cfg(test)]` module contributes no file row
+            // and no reference (the module tier's one-case-one-verdict law,
+            // carried to file grain — a production file whose `mod tests`
+            // block imports its own module is a declaration pair, not a ring).
+            // Nested items below an `Item::Mod` are walked by the recursive
+            // call below, which re-enters this function with the gate known.
+            if !in_test_module {
+                use_trees.push(use_item.tree.clone());
+            }
         }
     }
     // Walk every item body (fn/impl/type positions) for path references.
+    // The visitor recurses into modules too, so test-gated subtrees are
+    // excluded by the same law: their references are collected only when the
+    // walk reaches them from outside a `#[cfg(test)]` gate — never here.
     let mut visitor = PathVisitor { out: &mut paths };
+    let mut trait_visitor = TraitRefVisitor { out: &mut trait_refs };
     for item in items {
+        if in_test_module && matches!(item, syn::Item::Mod(_)) {
+            continue;
+        }
         visitor.visit_item(item);
+        trait_visitor.visit_item(item);
     }
-    state.uses.push((path.to_vec(), use_trees, paths));
+    if !in_test_module {
+        state.uses.push((
+            path.to_vec(),
+            use_trees,
+            paths,
+            trait_refs,
+            file.to_path_buf(),
+        ));
+    }
 
     for item in items {
         let syn::Item::Mod(module) = item else {
@@ -1011,21 +1273,44 @@ fn walk_module(
 
         if let Some((_, inline_items)) = &module.content {
             // Inline `mod X { ... }` — no file; declarations keep resolving
-            // against the current file's module directory.
-            walk_module(&child_path, mod_dir, file_dir, inline_items, state);
+            // against the current file's module directory. The module's items
+            // live in the declaring file, so it contributes no `mod` row.
+            let child_test = in_test_module || is_cfg_test(&module.attrs);
+            walk_module(
+                &child_path,
+                mod_dir,
+                file_dir,
+                file,
+                inline_items,
+                state,
+                child_test,
+            );
             continue;
         }
         // File-backed `mod X;` — resolve an attributed target when declared,
         // else the conventional `<dir>/X.rs` / `<dir>/X/mod.rs` variants.
         // A declaration resolving to no parsed file is recorded in
         // `unresolved`: silently skipping it would hide its contents from
-        // every check.
+        // every check. A resolved declaration is a file-grained `mod` fact:
+        // declaring file -> declared module's file.
         let mut resolved = false;
         for (candidate, next_dir, next_file_dir) in
             module_file_candidates(&module.attrs, mod_dir, file_dir, &name)
         {
             if let Some(ast) = state.files.get(&candidate) {
-                walk_module(&child_path, &next_dir, &next_file_dir, &ast.items, state);
+                state
+                    .file_rows
+                    .insert((file.to_path_buf(), candidate.clone(), FileFactKind::Mod));
+                let child_test = in_test_module || is_cfg_test(&module.attrs);
+                walk_module(
+                    &child_path,
+                    &next_dir,
+                    &next_file_dir,
+                    &candidate,
+                    &ast.items,
+                    state,
+                    child_test,
+                );
                 resolved = true;
                 break;
             }
@@ -1183,6 +1468,50 @@ impl<'a> Visit<'a> for PathVisitor<'a> {
     }
 }
 
+/// Collects references from the positions `PathVisitor`'s law prunes away:
+/// the trait path of an `impl Trait for Type` header, the trait bounds of a
+/// `dyn` trait object, and type paths nested inside generic arguments (the
+/// default `visit_type_path` recursion never runs in `PathVisitor`, so the
+/// whole subtree below the outermost path segment is invisible there). This
+/// feeds a set kept separate from `paths` — the existing set's single-segment
+/// law and stdlib drops stay byte-stable, and resolution runs in its own
+/// second-pass branch. Sub-modules (`syn::Item::Mod`) are deliberately not
+/// descended into: their references belong to the child module and are walked
+/// separately by `walk_module`, so test-gated subtrees stay behind the same
+/// gate as every other reference.
+struct TraitRefVisitor<'a> {
+    out: &'a mut BTreeSet<Vec<String>>,
+}
+
+impl<'a> Visit<'a> for TraitRefVisitor<'a> {
+    fn visit_item_mod(&mut self, _node: &'a syn::ItemMod) {}
+
+    fn visit_item_impl(&mut self, node: &'a syn::ItemImpl) {
+        if let Some((_, path, _)) = &node.trait_ {
+            self.out.insert(path_segments(path));
+        }
+        // Continue with the default recursion: the impl's self type, generic
+        // arguments and item bodies hold further type-position references.
+        syn::visit::visit_item_impl(self, node);
+    }
+
+    fn visit_type_path(&mut self, node: &'a syn::TypePath) {
+        self.out.insert(path_segments(&node.path));
+        // Unlike `PathVisitor`, recursion continues into the path's generic
+        // arguments — the nested type paths there are a fact of this visitor.
+        syn::visit::visit_type_path(self, node);
+    }
+
+    fn visit_type_trait_object(&mut self, node: &'a syn::TypeTraitObject) {
+        for bound in &node.bounds {
+            if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                self.out.insert(path_segments(&trait_bound.path));
+            }
+        }
+        syn::visit::visit_type_trait_object(self, node);
+    }
+}
+
 /// Resolve a `crate`/`self`/`super`-led path to the unit's dotted module path
 /// space (crate-name-prefixed).
 fn resolve_module_path(segments: &[String], current: &[String], crate_name: &str) -> Vec<String> {
@@ -1213,14 +1542,70 @@ fn resolve_module_path(segments: &[String], current: &[String], crate_name: &str
     out
 }
 
-/// Resolve a bare (non `crate`/`self`/`super`) path whose first segment is an own
-/// module of the crate into the crate-prefixed dotted space. `prefix` is the
-/// dotted path of the own module resolved by `own_module_prefix` (crate-name
-/// included), e.g. `acme-lib::core::client`.
-fn resolve_bare_module(segments: &[String], prefix: &str) -> Vec<String> {
-    let mut out: Vec<String> = prefix.split("::").map(String::from).collect();
-    out.extend_from_slice(segments);
-    out
+/// Find the dotted path of the module named `name` DECLARED BY `file`: a child
+/// `current::name` (the conventional layout — the path can only exist because
+/// this module declares it), or any known module whose last segment is `name`
+/// and whose defining file is `file` itself (an inline `mod name { ... }`) or
+/// is backed by a mod-declaration pair from `file` (covers declarations whose
+/// dotted path skips a segment, e.g. `mod store;` in a bin's `main.rs` yielding
+/// `tool::store`). Rust resolution puts only the declaring file's own names in
+/// scope for a bare `use`/path segment; ancestors and the crate root are NOT
+/// walked. Returns `None` when no declaration in this file matches, so the
+/// caller treats the segment as a crate reference.
+/// True when `target` is a STRICT ANCESTOR module of `source` — it contains
+/// `source` as a descendant, or `target` is the crate root module and `source`
+/// sits below it. Containment is the `mod`-tree relation, not a dependency:
+/// the containment-hop law that keeps ancestor-target rows out of the file
+/// tier rests on this predicate.
+fn contains_module(target: &str, source: &str) -> bool {
+    if target.is_empty() {
+        return !source.is_empty();
+    }
+    source
+        .strip_prefix(&format!("{target}::"))
+        .is_some_and(|rest| !rest.is_empty())
+}
+
+fn module_declared_in_file(
+    name: &str,
+    current: &[String],
+    file: &Path,
+    known: &BTreeSet<String>,
+    module_files: &BTreeMap<String, PathBuf>,
+    mod_pairs: &BTreeSet<(PathBuf, PathBuf)>,
+) -> Option<String> {
+    // A module that CONTAINS the using file is never a name-match candidate:
+    // inside module `config` the bare name `config` resolves to the containing
+    // module itself (an import from the parent module), not to a same-named
+    // sibling elsewhere in the tree. The old find_map walked `known` by name
+    // and hit a sibling first — a false back-edge from child to parent's
+    // declaring file and a phantom parent cycle (the sibling crate's
+    // config module).
+    let current_joined = current.join("::");
+    let contained = |path: &str| {
+        path == current_joined
+            || current_joined
+                .strip_prefix(&format!("{path}::"))
+                .is_some_and(|rest| !rest.is_empty())
+    };
+    let direct = format!("{}::{name}", current.join("::"));
+    if known.contains(&direct) {
+        return Some(direct);
+    }
+    known.iter().find_map(|x| {
+        let last = x.rsplit("::").next()?;
+        if last != name || contained(x) {
+            return None;
+        }
+        let backing = module_files.get(x)?;
+        if backing == file
+            || mod_pairs.contains(&(file.to_path_buf(), backing.clone()))
+        {
+            Some(x.clone())
+        } else {
+            None
+        }
+    })
 }
 
 /// Given a bare first segment `name`, find the crate-prefixed dotted path of the

@@ -181,6 +181,28 @@ fn verify_unknown_constraint_type_names_field_and_why() {
     assert!(stdout(&output).is_empty(), "no report on operational error");
 }
 
+/// Round-8 P-FW1: the `[project] framework` registry is per-driver, and a
+/// name outside the declared driver's registry is fail-closed at spec
+/// load — rust registers nothing, so the alternatives read `none`.
+#[test]
+fn verify_framework_declared_for_registry_less_driver_fails_closed() {
+    let fixture = common::Fixture::new();
+    fixture.write("Cargo.toml", "[workspace]\nmembers = []\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\nframework = \"sveltekit\"\n\n[[constraint]]\ntype = \"no_cycles\"\n",
+    );
+    let output = fixture.run(&["verify"]);
+
+    assert_ne!(output.status.code(), Some(0));
+    let err = stderr(&output);
+    assert!(
+        err.contains("invalid spec:")
+            && err.contains("unknown framework \"sveltekit\" — registered: none"),
+        "the red must name the file and the empty registry:\n{err}"
+    );
+}
+
 #[test]
 fn verify_divergent_spec_reports_on_stdout_with_empty_stderr() {
     let fixture = common::Fixture::new();
@@ -1033,6 +1055,74 @@ fn verify_invalid_severity_is_a_schema_error() {
         "must reject unknown severity:\n{err}"
     );
     assert!(stdout(&output).is_empty(), "no report on operational error");
+}
+
+/// Spec Surface of the ts-driver design record (D5): `scope` parses on
+/// `no_cycles` rows with the values `claims` and `both` only. A bad or
+/// deleted value (the round-1 `files` value is deleted — R3/B1) is the
+/// shipped invalid-spec message class naming the supported values; a
+/// `scope` on any other row kind is an invalid-spec error naming the
+/// field and the row kind. The schema gains the enum beside `severity`.
+#[test]
+fn verify_scope_values_and_row_kind_are_validated_at_spec_load() {
+    let base = "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"auth\"] }\n\n";
+
+    let fixture = common::Fixture::new();
+    fixture.write("Cargo.toml", "[workspace]\nmembers = [\"crates/auth\"]\n");
+    fixture.write(
+        "crates/auth/Cargo.toml",
+        "[package]\nname = \"auth\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("crates/auth/src/lib.rs", "pub fn auth() {}\n");
+
+    // Both shipped values load.
+    for scope in ["claims", "both"] {
+        fixture.write(
+            "architecture.spec.toml",
+            &format!("{base}[[constraint]]\ntype = \"no_cycles\"\nscope = \"{scope}\"\n"),
+        );
+        let output = fixture.run(&["verify"]);
+        let err = stderr(&output);
+        assert!(
+            !err.contains("invalid spec:"),
+            "scope \"{scope}\" must load on a no_cycles row:\n{err}"
+        );
+    }
+
+    // The deleted `files` value and an unknown value name the supported set.
+    for scope in ["files", "claimz", ""] {
+        fixture.write(
+            "architecture.spec.toml",
+            &format!("{base}[[constraint]]\ntype = \"no_cycles\"\nscope = \"{scope}\"\n"),
+        );
+        let output = fixture.run(&["verify"]);
+        assert_ne!(
+            output.status.code(),
+            Some(0),
+            "scope \"{scope}\" must be rejected"
+        );
+        let err = stderr(&output);
+        assert!(
+            err.contains("invalid spec:")
+                && err.contains("scope")
+                && err.contains("claims")
+                && err.contains("both"),
+            "invalid scope {scope:?} must name the supported values:\n{err}"
+        );
+    }
+
+    // A scope on a foreign row kind names field and row kind (D5).
+    fixture.write(
+        "architecture.spec.toml",
+        &format!("{base}[[constraint]]\ntype = \"external_free\"\nfrom = [\"auth\"]\nscope = \"claims\"\n"),
+    );
+    let output = fixture.run(&["verify"]);
+    assert_ne!(output.status.code(), Some(0), "scope on external_free must be rejected");
+    let err = stderr(&output);
+    assert!(
+        err.contains("invalid spec:") && err.contains("scope") && err.contains("external_free"),
+        "must name the field and the row kind:\n{err}"
+    );
 }
 
 #[test]

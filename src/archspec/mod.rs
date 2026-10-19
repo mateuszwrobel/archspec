@@ -18,13 +18,8 @@ pub mod init;
 pub mod inspect;
 
 use cli::EX_USAGE;
+use commands::registry::CommandInfo;
 use commands::*;
-
-pub struct CommandInfo {
-    pub name: &'static str,
-    pub summary: &'static str,
-    pub help: &'static str,
-}
 
 pub(crate) const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
@@ -102,7 +97,7 @@ fn print_tool_help() {
     }
     out.push_str("\nrun 'archspec <command> --help' for details on a command\n");
     out.push_str("run 'archspec --version' for the tool version\n");
-    out.push_str("run 'archspec help' for topics: commands, glob, spec, constraints, languages, roles, workflow, diagnostics\n");
+    out.push_str("run 'archspec help' for topics: commands, glob, spec, constraints, languages, roles, workflow, capabilities, diagnostics\n");
     print!("{out}");
 }
 
@@ -138,7 +133,7 @@ pub fn dispatch(args: &[String]) -> i32 {
         "update" => commands::update::run(rest),
         "report" => commands::report::run(rest),
         "spec" => commands::spec::run(rest),
-        "help" => commands::help::run(rest),
+        "help" => commands::help::run(rest, COMMANDS),
         "capability" => commands::capability::run(rest),
         "skill" => commands::skill::run(rest),
         "doctor" => doctor::run(rest),

@@ -14,8 +14,9 @@
 //! by the grammar module's own tests and documented as the error-tolerance
 //! probe the scanners consult, but the csharp path deliberately extracts from
 //! the tree regardless (see `scan::csharp::syntax`), so that one item stays
-//! not-yet-called-from-a-command-path; the module keeps one honest
-//! `allow(dead_code)` for it while unit tests exercise every item.
-#![allow(dead_code)]
+//! not-yet-called-from-a-command-path; the allowance rides that single item
+//! ([`grammar::first_error_range`]'s `allow(dead_code, reason = ...)`,
+//! self-audit F4), so the dead-code lint keeps watching every other item in
+//! this module.
 
 pub mod grammar;

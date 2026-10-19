@@ -17,7 +17,7 @@ operational failures (no filesystem access, no toolchain probing).
 # message names the unknown topic, lists valid topics, hints at the index
 $ archspec help bogus
 error: unknown help topic: bogus
-valid topics: commands, glob, spec, constraints, languages, workflow, diagnostics
+valid topics: commands, glob, spec, constraints, languages, roles, workflow, capabilities, diagnostics
 run 'archspec help'
 
 # message says more than one topic is rejected

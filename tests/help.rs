@@ -40,42 +40,74 @@ const TOPICS: &[&str] = &[
     "languages",
     "roles",
     "workflow",
+    "capabilities",
     "diagnostics",
 ];
 
 // Every finding category the `diagnostics` catalog must name. Maintained
 // alongside `DIAGNOSTICS_HELP` in src/archspec/helptext.rs: adding a
-// finding category to verify/compare.rs requires a new entry here and a new
+// finding category to verify/compare requires a new entry here and a new
 // block in the catalog (mirrors how help_constraints lists its seven types).
 // The set below is the full emitted-category contract of both renderers —
 // compare::render_report and report::diff_items — enforced structurally by
-// `every_emitted_category_is_in_the_diagnostics_catalog` (src/archspec/report).
+// `every_emitted_category_is_in_the_diagnostics_catalog` (src/archspec/report),
+// plus run-level fail-loud classes the catalog must always name (the D14
+// language mismatch guard).
 const DIAGNOSTIC_CATEGORIES: &[&str] = &[
     "ambiguous module match",
+    "ambiguous root markers",
+    "ambiguous settings file",
+    "boundary advisory",
     "contract leak",
     "cycle",
     "cycle detected in",
     "dead reference",
     "disallowed cross-component dependency",
+    "dynamic import not modelled",
+    "dynamic import wildcard",
     "empty glob export",
+    "external not installed",
     "facade dependency",
     "feature boundary",
     "forbidden edge",
     "forbidden edge present",
     "forbidden external crate",
     "forbidden submodule dependency",
+    "framework conventions not configured",
+    "gradle catalog unreadable",
+    "java sources not indexed",
+    "generated source not built",
+    "generated tsconfig absent",
     "laundered forbidden edge",
+    "language mismatch",
     "manifest integrity",
     "missing component",
     "missing edge",
+    "nested foreign marker",
+    "no settings file",
     "no_cycles",
+    "orphan file",
+    "orphan file census",
+    "package manifest invalid",
     "public api leak",
+    "split package",
+    "tsconfig cycle (extends or reference)",
+    "tsconfig extends not installed",
+    "tsconfig load failed",
+    "tsconfig not found",
     "unassigned unit",
+    "unclassified resolver error",
+    "undeclared member import",
     "unowned module edge endpoint",
     "unexpected component",
+    "unresolvable import",
     "unresolved module file",
+    "unresolved settings include",
     "unverifiable glob export",
     "vacuous constraint",
+    "virtual specifier not modelled",
+    "workspace link missing",
+    "workspace target not built",
 ];
 
 #[test]
@@ -604,6 +636,41 @@ fn help_lists_topics_and_commands() {
 }
 
 #[test]
+fn help_capabilities_topic_prints_both_tables() {
+    // The vacuity carriers' `archspec help capabilities` pointer lands
+    // here: the topic prints the capability table and the posture rows
+    // through the same data the machine projection prints (ts-driver plan,
+    // D7/D13 fan-out owner).
+    let fixture = Fixture::new();
+    let output = fixture.run(&["help", "capabilities"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the vacuity pointer's topic must resolve: {}",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("capability ts file-grained-dependency-facts granular"),
+        "the topic must state the ts file-facts row:\n{out}"
+    );
+    assert!(
+        out.contains("posture ts both error"),
+        "the topic must state the ts posture row:\n{out}"
+    );
+    assert!(
+        out.contains("posture rust both error"),
+        "the topic must state the rust posture row (the ADR-023 flip):\n{out}"
+    );
+    for language in ["go", "csharp"] {
+        assert!(
+            out.contains(&format!("posture {language} claims error")),
+            "the topic must state the {language} posture row:\n{out}"
+        );
+    }
+}
+
+#[test]
 fn help_topics_is_byte_identical_to_help() {
     let fixture = Fixture::new();
     let help_out = stdout(&fixture.run(&["help"]));
@@ -713,10 +780,13 @@ fn help_spec_prints_share_reference_material() {
             "help spec must contain {marker}:\n{out}"
         );
     }
-    for language in ["rust", "csharp", "go"] {
+    // The annotated reference cites the COMPUTED surfaces (round-8 F11):
+    // the driver names and the framework registry live in the schema,
+    // not in a hand-maintained annotation copy.
+    for citation in ["archspec spec --schema", "framework = \"sveltekit\""] {
         assert!(
-            out.contains(language),
-            "help spec must annotate language {language}:\n{out}"
+            out.contains(citation),
+            "help spec must cite the computed surface {citation:?}:\n{out}"
         );
     }
 }
@@ -952,7 +1022,7 @@ fn help_diagnostics_lists_every_category() {
 fn help_diagnostics_carries_verbatim_wordings() {
     let fixture = Fixture::new();
     let out = stdout(&fixture.run(&["help", "diagnostics"]));
-    // Exact message fragments emitted by verify/compare.rs — the catalog must
+    // Exact message fragments emitted by verify/compare — the catalog must
     // quote them, not paraphrase (guards against drift from the f21 sync).
     for fragment in [
         "facade dependency",

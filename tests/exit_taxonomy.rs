@@ -95,7 +95,7 @@ fn help_typo_exits_64_naming_the_topic_with_unchanged_bytes() {
     assert_eq!(output.status.code(), Some(64), "probe usage:help-typo");
     assert_eq!(
         stderr(&output),
-        "error: unknown help topic: zzz-not-a-topic\nvalid topics: commands, glob, spec, constraints, languages, roles, workflow, diagnostics\nrun 'archspec help'\n",
+        "error: unknown help topic: zzz-not-a-topic\nvalid topics: commands, glob, spec, constraints, languages, roles, workflow, capabilities, diagnostics\nrun 'archspec help'\n",
         "the help-typo bytes must not move — only the code did"
     );
 }
