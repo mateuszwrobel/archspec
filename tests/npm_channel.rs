@@ -245,3 +245,69 @@ fn package_manifest_neutrality_and_files_list() {
     assert!(url.starts_with("https://") && url.contains("invalid"), "the committed manifest carries only a neutral placeholder URL: {url}");
     assert!(!Path::new(&format!("{}/npm/assets.json", manifest())).exists(), "assets.json is generated at publish time, never committed");
 }
+
+/// Scenario "npm folder arguments are path-like" (the 2026-11-06
+/// ENEEDAUTH class): npm parses a bare positional after `publish`/`pack`
+/// as the REGISTRY package name, not the staging folder — `npm publish
+/// pkg` fetched vercel/pkg, and the ENEEDAUTH was that foreign package's
+/// refusal, not our trusted publisher. The guard walks every workflow
+/// file; for each line carrying an `npm publish` or `npm pack` call it
+/// strips flag tokens (anything starting with `-`) and asserts the first
+/// positional token is path-like — starts with `./` or `/`. A bare folder
+/// name goes RED naming file and line. The guard fails closed the other
+/// way too: no `npm publish` call anywhere means the publish step
+/// vanished, and a vanished step is the same failure class as a wrong
+/// argument.
+#[test]
+fn npm_folder_arguments_in_workflows_are_path_like() {
+    let dir = format!("{}/.github/workflows", manifest());
+    let mut names: Vec<String> = fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("read dir {dir}: {e}"))
+        .map(|entry| {
+            entry
+                .unwrap_or_else(|e| panic!("read entry in {dir}: {e}"))
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    let mut saw_publish = false;
+    for name in &names {
+        let text = load(&format!(".github/workflows/{name}"));
+        for (idx, line) in text.lines().enumerate() {
+            let lineno = idx + 1;
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            for (pos, token) in tokens.iter().enumerate() {
+                if *token != "npm" {
+                    continue;
+                }
+                let next = match tokens.get(pos + 1) {
+                    Some(t) => *t,
+                    None => continue,
+                };
+                if next != "publish" && next != "pack" {
+                    continue;
+                }
+                if next == "publish" {
+                    saw_publish = true;
+                }
+                let positional = tokens[pos + 2..].iter().copied().find(|t| !t.starts_with('-'));
+                match positional {
+                    Some(arg) if arg.starts_with("./") || arg.starts_with('/') => {}
+                    Some(arg) => panic!(
+                        "{name}:{lineno}: `npm {next}` takes the positional {arg:?} — a bare \
+                         name parses as the registry package name, not the staging folder; \
+                         pass the folder as \"./{arg}\" or an absolute path"
+                    ),
+                    None => {}
+                }
+            }
+        }
+    }
+    assert!(
+        saw_publish,
+        "no `npm publish` call in any file under .github/workflows/ — the publish \
+         step vanished, so this guard would prove nothing"
+    );
+}

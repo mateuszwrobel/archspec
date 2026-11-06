@@ -6,6 +6,16 @@ only.
 
 ## [Unreleased]
 
+## [0.6.42] - 2026-11-06
+
+### Fixed
+
+- The npm publish step passed the staging folder as a bare `pkg` argument,
+  which npm parses as the registry package name `pkg`; the publish now
+  passes `./pkg`. The version bump carries the workflow fix so it rides a
+  new tag (republish-freeze law: recovery is a version bump, never a tag
+  re-push).
+
 ## [0.6.41] - 2026-11-05
 
 ### Added

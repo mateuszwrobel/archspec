@@ -127,7 +127,7 @@ jobs:
             --repository "${{ github.repository }}" \
             --assets assets.json
       - name: Publish to npm (OIDC trusted publishing, provenance auto-attached)
-        run: npm publish --provenance pkg
+        run: npm publish --provenance ./pkg
       - name: Provenance assert (green publish without attestations is a bug)
         run: |
           sh npm/scripts/assert-attestations.sh \
