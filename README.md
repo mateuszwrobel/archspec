@@ -69,6 +69,29 @@ duplicated here.
 
 ---
 
+## Install
+
+Every release tag ships per-platform archives, Debian and Arch packages, an
+npm downloader package, and a NuGet tools package.
+
+From a .NET project:
+
+```sh
+dotnet add package archspec
+```
+
+The package carries one native binary per platform under
+`runtimes/<rid>/native/` and a `build/archspec.props` that exposes the
+binary for the build machine as the `$(ArchspecPath)` MSBuild property —
+point your `Exec` tasks at it. Selection follows the .NET SDK's own runtime
+identifier: `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`.
+The `linux-x64` binary is a static musl build and runs on glibc hosts as
+well as musl ones. A runtime identifier with no binary fails loud — there is
+no silent fallback. No binary exists for Alpine on arm64 yet; that platform
+names itself until an aarch64-musl release asset lands.
+
+---
+
 ## Where to edit
 
 - CLI: `src/archspec/` — `cli.rs`, `commands/`, `config.rs`, `depgraph.rs`,

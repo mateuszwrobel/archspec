@@ -4,8 +4,8 @@ name: Build archspec binaries (reusable matrix)
 # 2026-10-19 rehearsal refactor): the publish-gate plus the five platform
 # builds. Called on every release tag by release.yml, and callable on any
 # ref by maintainers (workflow_dispatch) to rehearse a matrix without
-# publishing anything — this workflow has NO release job, NO npm job and
-# writes nothing outside its own run artifacts.
+# publishing anything — this workflow has NO release job, NO npm or NuGet
+# publishing job and writes nothing outside its own run artifacts.
 
 on:
   workflow_call:
@@ -52,6 +52,17 @@ jobs:
             exit 0
           fi
           sh npm/scripts/gate-registry.sh --pkg "@${NPM_SCOPE}/archspec" --version "${ver}"
+      - name: NuGet registry existence gate
+        env:
+          NUGET_USER: ${{ vars.NUGET_USER }}
+        run: |
+          set -euo pipefail
+          ver="${ARCHSPEC_TAG#v}"
+          if [ -z "${NUGET_USER:-}" ]; then
+            echo "publish-gate: vars.NUGET_USER is unset — the NuGet channel is not configured, no NuGet version exists to break; publish-nuget still fails closed below"
+            exit 0
+          fi
+          sh nuget/scripts/gate-nuget-registry.sh --pkg archspec --version "${ver}"
 
   build-linux-x86_64:
     needs: publish-gate

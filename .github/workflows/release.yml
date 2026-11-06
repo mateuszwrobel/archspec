@@ -7,7 +7,8 @@ on:
 
 # Republish-freeze law (ADR-051): one run per tag at a time, never cancelled.
 # The reusable matrix's publish-gate job refuses a run whose version is
-# already on npm BEFORE any build or upload touches the release page.
+# already on npm or NuGet.org BEFORE any build or upload touches the release
+# page.
 concurrency:
   group: archspec-release-${{ github.ref_name }}
   cancel-in-progress: false
@@ -18,8 +19,9 @@ permissions:
 jobs:
   # The publish-gate and the five platform builds live in the reusable
   # matrix so a rehearsal can run the identical jobs on an untagged ref
-  # without ever reaching this file's release/npm jobs. Needs graph is
-  # unchanged in order: gate → five builds → release → publish-npm.
+  # without ever reaching this file's release/npm/nuget jobs. Needs graph is
+  # unchanged in order: gate → five builds → release → publish-npm and
+  # publish-nuget (parallel).
   build-matrix:
     uses: ./.github/workflows/build-matrix.yaml
     with:
@@ -34,6 +36,21 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # The NuGet tools package is packed HERE, inside the one upload
+      # transaction below (decision-check 2026-11-06, finding B2: a late
+      # asset upload would be a release-page edit, banned by the
+      # republish-freeze law). The pinned SDK joins the pinned Rust
+      # toolchain's spirit (finding M9): a pack failure before the upload
+      # leaves no page, which is the desired atomic behavior.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x" # pinned LTS band
+      - name: Pack the NuGet tools package into the asset set
+        run: |
+          set -euo pipefail
+          sh nuget/scripts/pack-tools.sh --dist dist \
+            --version "${GITHUB_REF_NAME#v}" \
+            --repository "${{ github.repository }}"
       - name: Publish release with assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -133,3 +150,92 @@ jobs:
           sh npm/scripts/assert-attestations.sh \
             --pkg "@${{ steps.scope.outputs.scope }}/archspec" \
             --version "${GITHUB_REF_NAME#v}"
+
+  # NuGet channel (decision-check record 2026-11-06): a tools package whose
+  # bytes ARE the release assets, packed inside the release transaction
+  # above — this job is read-only toward GitHub (finding B2): download by
+  # exact name, verify the sidecar, then push with a short-lived key an OIDC
+  # token exchanged at NuGet.org. No NUGET_TOKEN anywhere — ADR-051 no-token
+  # doctrine, the npm job's posture mirrored. The version's permanence is
+  # policed by the matrix publish-gate plus the in-job existence gate below:
+  # a standalone re-run of THIS job still meets a named refusal instead of
+  # a 409 (finding M7), and the bounded poll turns the asynchronous
+  # validation into a green-or-TIMEOUT verdict, never a standing state
+  # (finding M15).
+  publish-nuget:
+    needs:
+      - build-matrix
+      - release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x" # pinned LTS band — same pin as the pack
+      - name: No token present (trusted publishing only)
+        run: |
+          set -euo pipefail
+          if [ -n "${NUGET_API_KEY:-}" ] || [ -n "${NUGET_TOKEN:-}" ]; then
+            echo "NUGET_API_KEY or NUGET_TOKEN is set in this environment — token auth would silently win over OIDC; unset it" >&2
+            exit 1
+          fi
+      - name: Resolve NuGet user (fails closed when the channel is unconfigured)
+        id: user
+        env:
+          NUGET_USER: ${{ vars.NUGET_USER }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NUGET_USER:-}" ]; then
+            echo "vars.NUGET_USER is unset — the NuGet channel is not configured; see the first-publish runbook" >&2
+            exit 1
+          fi
+          echo "user=${NUGET_USER}" >> "$GITHUB_OUTPUT"
+      - name: NuGet registry existence gate (refuses an already-published version)
+        run: |
+          set -euo pipefail
+          sh nuget/scripts/gate-nuget-registry.sh --pkg archspec --version "${GITHUB_REF_NAME#v}"
+      - name: Download the nupkg and its sidecar by exact name (fail closed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          mkdir -p assets
+          for name in "archspec-${ver}.nupkg" "archspec-${ver}.nupkg.sha256"; do
+            if ! gh release download "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" -D assets -p "$name"; then
+              echo "publish-nuget: the release carries no asset named $name — failing closed, nothing is pushed" >&2
+              exit 1
+            fi
+          done
+      - name: Verify the nupkg bytes against its sidecar
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          cd assets
+          sha256sum -c "archspec-${ver}.nupkg.sha256"
+      # Login and push sit adjacent: every slow step above ran while no key
+      # existed, and the exchanged key is valid one hour (finding M6).
+      - name: Exchange the OIDC token for a short-lived key
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ steps.user.outputs.user }}
+      - name: Push to NuGet (temporary key from the login step, never a secret)
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          dotnet nuget push "./assets/archspec-${ver}.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json
+      - name: Registration poll (a pushed package is not yet a published one)
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          sh nuget/scripts/assert-registration.sh --pkg archspec \
+            --version "${GITHUB_REF_NAME#v}" --timeout-secs 1500 --space-secs 30
+

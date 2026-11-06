@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Tools-only stub project (decision-check record 2026-11-06, finding B1):
+       dotnet pack consumes a project or solution, never a bare .nuspec, so
+       this throwaway project is the pack target and the nuspec comes out of
+       the pack target from the injected properties below.
+
+       Identity stays out of this file (repo-identity injection law, the same
+       shape npm/scripts/prepare-package.mjs follows): nuget/scripts/pack-tools.sh
+       passes ArchspecVersion and ArchspecRepositoryUrl at pack time from the
+       workflow's own github context. The committed sentinels are neutral —
+       valid enough to pack, free of identity.
+
+       The TFM is a throwaway: IncludeBuildOutput=false packs no assembly and
+       NoBuild=true skips the compile (findings R3/M4: this package ships
+       native binaries plus one props file, no managed surface).
+       NoPackageAnalysis=true kills the empty-lib NU5128 class;
+       DevelopmentDependency=true keeps a package reference from flowing as a
+       runtime dependency. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <NoBuild>true</NoBuild>
+    <NoPackageAnalysis>true</NoPackageAnalysis>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <PackageId Condition="'$(ArchspecPackageId)' != ''">$(ArchspecPackageId)</PackageId>
+    <PackageId Condition="'$(ArchspecPackageId)' == ''">archspec</PackageId>
+    <Version Condition="'$(ArchspecVersion)' != ''">$(ArchspecVersion)</Version>
+    <Version Condition="'$(ArchspecVersion)' == ''">0.0.0</Version>
+    <Description>archspec architecture conformance CLI — native binaries for linux-x64, linux-arm64, osx-x64, osx-arm64 and win-x64, selected at build time by build/archspec.props.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageTags>architecture;conformance;analysis;static-analysis;cli</PackageTags>
+    <PackageProjectUrl Condition="'$(ArchspecRepositoryUrl)' != ''">$(ArchspecRepositoryUrl)</PackageProjectUrl>
+    <PackageProjectUrl Condition="'$(ArchspecRepositoryUrl)' == ''">https://example.invalid/archspec</PackageProjectUrl>
+    <RepositoryUrl Condition="'$(ArchspecRepositoryUrl)' != ''">$(ArchspecRepositoryUrl)</RepositoryUrl>
+    <RepositoryUrl Condition="'$(ArchspecRepositoryUrl)' == ''">https://example.invalid/archspec</RepositoryUrl>
+  </PropertyGroup>
+  <!-- The staging tree pack-tools.sh assembles: runtimes/<rid>/native/
+       binaries (the documented native-files layout, finding M4) and the
+       build/archspec.props selector. PackagePath carries the package
+       DIRECTORY in trailing-slash form; dotnet pack then places each item
+       under it at its staging-relative path (live probe: a bare
+       extensionless file path nests the file under a folder of the same
+       name, and Link metadata routes items through the content/contentFiles
+       class instead). The csproj sits at the staging root, so the relative
+       paths land the members at runtimes/<rid>/native/* and build/*. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)runtimes/**/*" Pack="true" PackagePath="runtimes/" />
+    <None Include="$(MSBuildThisFileDirectory)build/archspec.props" Pack="true" PackagePath="build/" />
+  </ItemGroup>
+</Project>

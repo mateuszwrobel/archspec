@@ -6,6 +6,21 @@ only.
 
 ## [Unreleased]
 
+## [0.6.45] - 2026-11-06
+
+### Added
+
+- A NuGet tools-package channel: every release now carries
+  `archspec-<version>.nupkg` plus its `.sha256` sidecar, packed inside the
+  release's single asset transaction. The package holds one native binary
+  per platform under `runtimes/<rid>/native/` and a `build/archspec.props`
+  that exposes the matching binary as the `$(ArchspecPath)` MSBuild property;
+  the `linux-x64` entry is the static musl build and serves glibc hosts
+  alike. Publication rides NuGet.org trusted publishing (OIDC, no API
+  token), mirroring the npm channel's posture. No binary ships for Alpine
+  on arm64 yet; that runtime identifier names itself instead of picking a
+  binary that cannot run.
+
 ## [0.6.42] - 2026-11-06
 
 ### Fixed
