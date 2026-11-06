@@ -1,0 +1,6 @@
+tiedense::a	tiedense::a
+tiedense::b	tiedense::a
+tiedense::c	tiedense::c
+tiedense::d	tiedense::c
+tiedense::e	tiedense::e
+tiedense::f	tiedense::e

@@ -72,7 +72,10 @@ pub struct Diff {
     /// category label, exactly like the other error fields.
     pub dead_references: Vec<String>,
     /// Warning-level items (design §9): divergences whose constraint declared
-    /// `severity = "warning"`. Currently only `no_cycles` carries a severity.
+    /// `severity = "warning"`, and the advisory cycle entries of a spec with no
+    /// `no_cycles` constraint (visibility is constraint-independent, severity
+    /// constraint-gated — see `cycles::check_cycles`). Currently only
+    /// `no_cycles` carries a severity.
     /// Each entry is already fully rendered as `<category>: <detail>` (e.g.
     /// `cycle: A -> B -> A`); the report prefixes it with `warning: ` unless
     /// `--strict` promotes it to an error line. Listed after all error items.

@@ -68,6 +68,8 @@ The Markdown format inserts, between the metrics and the diff:
     "cycles": 1,
     "violations_components": 0,
     "violations_edges": 1,
+    "violations_undeclared_dependency": 0,
+    "violations_boundary_violation": 1,
     "violations_contracts": 0,
     "violations_cycles": 1
   },
@@ -98,9 +100,9 @@ Metrics are derived from the extracted model only — no extra computation, no s
 | units | number of units (hard boundaries) in the extracted model |
 | edges (internal) | distinct internal dependency pairs at unit tier (each dependency counted once) |
 | edges (external) | dependency edges crossing component boundaries |
-| cycles detected | distinct dependency cycles found |
+| cycles detected | distinct dependency cycles found in the extracted model — visibility is constraint-independent (a `no_cycles` constraint gates severity, not visibility) |
 
-These five numbers are the metric rows. The per-category violation counts are **not** a metric row — they form the separate **Violations by category** table (components, edges, contracts, cycles) that appears only when the total exceeds zero.
+These five numbers are the metric rows. The per-category violation counts are **not** a metric row — they form the separate **Violations by category** table (components, edges, the two edges sub-counts undeclared-dependency and boundary-violation, contracts, cycles) that appears only when the total exceeds zero; the two sub-count rows state the exact split of the edges row and always sum to it.
 
 **Reading `edges (internal)`.** `edges (internal)` is a pair-union at unit tier: a single-crate tree legitimately prints `0` here while its module graph is rich, because unit-internal module edges add no unit-tier pair. Read module-level coupling from the module-edge views (`depgraph modules`), not from this row; the acceptance contract states the same rule (`acceptance.md` #22, #25).
 
@@ -126,11 +128,11 @@ The diff reports everything that differs, not the first hit (ADR-010). Each find
 - `unassigned unit` — extracted unit matched by no declared boundary
 - `ambiguous module match` — a module path claimed by two declared boundaries at equal specificity
 - `forbidden edge present` — a banned dependency found in the source
-- `missing edge` — a required dependency missing from the source (same label verify prints)
+- `missing edge` — a required dependency missing from the source (same label verify prints; the verdict carries a reason suffix — ` (test-gated import evidence only)`, ` (import evidence exists but no module claim owns this pair)` or ` (no import evidence for this pair)`)
 - `disallowed cross-component dependency` — a dependency crossing a boundary the spec forbids
 - `facade dependency` — an internal module depends on a module carrying the `facade` role in the model's roles map (structural; no constraint declares it; emitted by the rust and csharp drivers — each derives facade roles from its own facts; the go driver derives no facade role, so the rule never fires there)
 - `contract leak` — exposed surface bleeds outside the declared contract; the submodule form needs the module tier (rust, csharp, and go — the go driver derives one from the tree's package references, takes it natively from go.work members, or takes it from spec modules claiming its packages on a tree recording none)
-- `cycle detected in` — a `no_cycles` violation; the cycle path is joined with ` -> ` and repeats the closing node (e.g. `Billing -> Portal -> Billing`); at the file tier (`scope = "both"`, the ts and rust posture) the members are repo-relative file paths and the message carries the nearest common claim ancestor as a prefix (`Billing: src/billing/a.ts -> src/billing/b.ts -> src/billing/a.ts`), or no prefix when the members sit under disjoint top-level claims
+- `cycle detected in` — a dependency cycle of the extracted model; visibility is constraint-independent, the `no_cycles` constraint gates severity: with the constraint it is a `no_cycles` violation, without any declared `no_cycles` constraint the model's cycles are listed as warning-severity advisory findings (`verify` stays green on them without `--strict`); the cycle path is joined with ` -> ` and repeats the closing node (e.g. `Billing -> Portal -> Billing`); at the file tier (`scope = "both"`, the ts and rust posture) the members are repo-relative file paths and the message carries the nearest common claim ancestor as a prefix (`Billing: src/billing/a.ts -> src/billing/b.ts -> src/billing/a.ts`), or no prefix when the members sit under disjoint top-level claims
 - `public api leak` — a public export not allowlisted by `public_api_allowlist` (a named export, or a name enumerated from a resolvable root glob)
 - `unverifiable glob export` — a root glob re-export whose exported set cannot be resolved from source, so it fails closed instead of being silently skipped
 - `empty glob export` — a glob re-export that resolves to a module with zero public items; an empty derived set would silently drop a checked surface, so it fails closed
@@ -174,6 +176,7 @@ cycles detected:     1
 Violations by category
 ----------------------
 edges:     1
+boundary-violation:  1
 cycles:    1
 
 Diff: extracted vs declared
@@ -216,6 +219,7 @@ Spec: `architecture.spec.toml` (language: rust)
 | Category | Count |
 |---|---|
 | edges | 1 |
+| boundary-violation | 1 |
 | cycles | 1 |
 
 ## Diagram

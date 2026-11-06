@@ -13,7 +13,7 @@ Running `archspec spec --schema` prints valid JSON (a draft-07 schema for `archi
 | 1 | a terminal | run `archspec spec --schema` | exit 0; stdout is valid JSON; stderr empty |
 | 2 | — | parse the S1 stdout | object with `$schema` = `http://json-schema.org/draft-07/schema#`, a `title`, `type: "object"`, `properties` containing `project`, `module`, `constraint`, `stereotype` |
 | 3 | — | inspect schema | `project.language` is required and limited to enum `["rust","csharp","go"]` |
-| 4 | — | inspect schema | `module`: `name` required; `matches` accepts `units` and `modules` (arrays of string); `contract` accepts the enforced `forbid` and rejects presence of the reserved `expose` (`not.required = ["expose"]`, empty list included); `allowed` accepts `depend_on`/`forbidden`; `submodules` recurses |
+| 4 | — | inspect schema | `module`: `name` required; `matches` accepts `names`, `paths`, `units` and `modules` (arrays of string; `names`/`paths` are the stereotype vocabulary, parsed on a module claim but not resolved there); `contract` accepts the enforced `forbid` and the enforced `expose` (the expose chain law); `allowed` accepts `depend_on`/`forbidden`; `submodules` recurses; every table shape is fail-closed, so a key the model does not define is refused by the schema exactly as the loader refuses it — naming the key and its location |
 | 5 | — | inspect schema | `constraint.type` enum covers all 7 types; per-type `required` arrays match the shared table; `severity` optional enum `["error","warning"]`; `modules` optional array of string |
 | 6 | a terminal | run `archspec spec --schema` twice, from fresh directories | both exit 0; byte-identical stdout |
 

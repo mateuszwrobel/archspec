@@ -16,7 +16,15 @@
 //! is a first-party membership edge with the report-only `undeclared
 //! member import` line when the registry root's lockfile names a hoisting
 //! family — under `pnpm-lock.yaml` or no lockfile the same miss keeps the
-//! NotFound red (R5 case (iv), round-4 linker-family gate).
+//! NotFound red (R5 case (iv), round-4 linker-family gate). The same
+//! membership law rides the Ok path (GitHub issue #7): a bare member-name
+//! import that Ok-resolves through a MATERIALIZATION of the member — a
+//! link landing inside the member dir or a hoisted copy under
+//! `node_modules` — lands the same edge onto the member's source entry,
+//! never an external fact: the same import under a different install
+//! state must not move the model or the adjudicated pair set, and the
+//! report-only line keeps the same attribution (undeclared importer,
+//! hoisting family, never a self-import).
 
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
@@ -33,7 +41,7 @@ use super::config_preload::{preload_tsconfigs, TsconfigPreloadError};
 use super::gitignore::{self, IgnoreHit};
 use crate::archspec::language;
 use super::common::{
-    exclusion_hit, is_excluded, is_virtual_spec, package_identity, relative, strip_query,
+    exclusion_verdict, is_excluded, is_virtual_spec, package_identity, relative, strip_query,
     Exclusions, Resolved,
 };
 
@@ -163,7 +171,8 @@ pub(crate) struct Engine {
     /// Bare-resolution memo per (importing dir, spelled specifier) (perf
     /// lane 2026-10-17, fix 4): the edge loop re-enters `classify_bare`
     /// for repeated (file-parent, specifier) pairs (measured 819/43652
-    /// repeats on open-mercato). The verdict is a function of the pair
+    /// repeats on a large hoisted-monorepo audit). The verdict is a
+    /// function of the pair
     /// over the committed tree, and every side-effect channel the body
     /// writes (`report_only`, `seen_faults`, `seen_manifests`, `entries`)
     /// is a deduped set — a hit replays the identical verdict and owes
@@ -172,7 +181,8 @@ pub(crate) struct Engine {
     /// The `manifest_unreadable` verdict per FULL PROBE PATH (round 9,
     /// P-PAR3): guard_g's upward walk re-probes the same manifest paths
     /// across (dir, package) keys (measured stat storm: 253,226 `stat`s
-    /// on open-mercato, 57 % guard_cache hits — the walk-answer cache
+    /// on a large hoisted-monorepo audit, 57 % guard_cache hits — the
+    /// walk-answer cache
     /// above stays, this memo caches the PER-PATH PREDICATE). The law is
     /// the `gensrc` memo's: the verdict is a function of the path alone
     /// over the committed tree, which cannot change during a scan. A
@@ -275,6 +285,70 @@ impl Engine {
         self.report_only.insert(format!(
             "workspace link missing: {identity} — resolved to {spelled} instead of the member dir"
         ));
+    }
+
+    /// The Ok-arm twin of the case-(iv) membership law (GitHub issue #7):
+    /// a BARE specifier naming a workspace member that Ok-RESOLVED through
+    /// a materialization of that member — a link landing inside the member
+    /// dir (the case-(i) realpath shape) or a hoisted copy under
+    /// `node_modules` — is the SAME first-party membership edge the
+    /// NotFound path models, never an external fact: the same import under
+    /// a different install state must not change the model or the
+    /// adjudicated pair set. The audit mirrors the NotFound law: the bare
+    /// spelling only, the hoisting family at the registry root, and an
+    /// UNDECLARED importing manifest (the declared arm keeps the case-(ii)
+    /// audit unchanged). The edge lands on the member's own SOURCE entry
+    /// (P-DIST, parity with the NotFound target), and the `undeclared
+    /// member import` line keeps the same attribution — a SELF import (the
+    /// importing file inside the member dir) rides the edge with no line,
+    /// never a crossing.
+    fn ok_membership_audit(
+        &mut self,
+        path: &Path,
+        dir: &Path,
+        importing: &Path,
+        specifier: &str,
+        identity: &str,
+    ) -> Option<Resolved> {
+        // The same shape gate as the NotFound attribution: a `#` spelling
+        // and a member subpath name no bare member identity here.
+        if specifier.starts_with('#') || specifier != identity {
+            return None;
+        }
+        let (member_dir, registry_root) = self.workspace_member_hit(identity)?;
+        if !super::workspace::root_lockfile_hoists(&registry_root) {
+            return None;
+        }
+        if self.declared_nearest_manifest(dir, identity).is_some() {
+            return None;
+        }
+        // The materialization test: the resolver's answer IS the member —
+        // inside the member dir (link) or a copy under `node_modules`
+        // (hoisted install). Any other Ok answer is no membership fact.
+        let materialized = path.starts_with(&member_dir) || path_has_node_modules(path);
+        if !materialized {
+            return None;
+        }
+        let source = match self.member_source(&member_dir) {
+            Some((source, not_built)) => {
+                if let Some(target) = not_built {
+                    let spelled = relative(&target, &self.root)
+                        .unwrap_or_else(|| target.to_string_lossy().replace('\\', "/"));
+                    self.report_only
+                        .insert(format!("workspace target not built: {identity} -> {spelled}"));
+                }
+                Some(source)
+            }
+            None => member_entry(&member_dir),
+        };
+        let edge = source.as_deref().and_then(|source| self.disk_edge(source))?;
+        if !importing.starts_with(&member_dir) {
+            let spelled = relative(importing, &self.root)
+                .unwrap_or_else(|| importing.to_string_lossy().replace('\\', "/"));
+            self.report_only
+                .insert(format!("undeclared member import: {spelled} -> {identity}"));
+        }
+        Some(edge)
     }
 
     /// The context-free member law (R5 as replaced round-6 P-CTX) plus
@@ -380,7 +454,11 @@ impl Engine {
             } else if declared_in.is_none()
                 && super::workspace::root_lockfile_hoists(registry_root)
                 && specifier == identity
+                && !importing.starts_with(member_dir)
             {
+                // Self-exclusion: a package importing its OWN name is no
+                // crossing — the edge stays unit-internal and no
+                // missing-declaration line names the unit itself.
                 let spelled = relative(importing, &self.root)
                     .unwrap_or_else(|| importing.to_string_lossy().replace('\\', "/"));
                 self.report_only
@@ -408,10 +486,15 @@ impl Engine {
         if hoisted {
             let edge = member_entry(member_dir).and_then(|target| self.disk_edge_abs(&target));
             if let Some(edge) = edge {
-            let spelled = relative(importing, &self.root)
-                .unwrap_or_else(|| importing.to_string_lossy().replace('\\', "/"));
-                self.report_only
-                    .insert(format!("undeclared member import: {spelled} -> {identity}"));
+                if !importing.starts_with(member_dir) {
+                    // Self-exclusion (mirror of the source arm above): a
+                    // package importing its OWN name stays unit-internal
+                    // and owes no missing-declaration line.
+                    let spelled = relative(importing, &self.root)
+                        .unwrap_or_else(|| importing.to_string_lossy().replace('\\', "/"));
+                    self.report_only
+                        .insert(format!("undeclared member import: {spelled} -> {identity}"));
+                }
                 return edge;
             }
         }
@@ -727,7 +810,15 @@ impl Engine {
                 // landed inside the member dir is already the first-party
                 // edge (case (i) — under-root answers reach the Edge home
                 // in classify_ok); a resolution beside it owes the case-(ii)
-                // audit when the name belongs to a declared member.
+                // audit when the name belongs to a declared member. First
+                // of all, the membership audit re-claims an UNDECLARED
+                // member name that Ok-resolved through a materialization —
+                // the case-(iv) edge the same tree spells with the install
+                // absent (GitHub issue #7: install state never moves the
+                // model or the pair set).
+                if let Some(edge) = self.ok_membership_audit(&path, &dir, importing, specifier, &identity) {
+                    return edge;
+                }
                 if matches!(verdict, Resolved::External(_)) {
                     self.workspace_link_missing(&dir, &identity, &path);
                 }
@@ -756,10 +847,17 @@ impl Engine {
                 return Resolved::External(identity.to_string());
             };
             if is_excluded(Path::new(&rel), self.declared.as_ref()) {
-                return Resolved::Unresolvable(format!(
-                    " — resolves only into excluded path {}",
-                    exclusion_hit(Path::new(&rel), self.declared.as_ref())
-                ));
+                // The dial (issue-8 phase 2): the specificity-resolved entry
+                // decides the verdict — `warn` states the hit as a
+                // warning-severity finding, `abort` keeps the shipped line.
+                let (exclusion, mode) = exclusion_verdict(Path::new(&rel), self.declared.as_ref());
+                return if mode == "warn" {
+                    Resolved::Warned(format!("resolves only into excluded path {exclusion}"))
+                } else {
+                    Resolved::Unresolvable(format!(
+                        " — resolves only into excluded path {exclusion}"
+                    ))
+                };
             }
             return Resolved::Edge(rel);
         }
@@ -791,9 +889,9 @@ impl Engine {
                 }
                 let dir = importing.parent().unwrap_or(&self.root).to_path_buf();
                 if let Some(target) = self.alias_target(&key, specifier, None) {
-                    // R12 first: a gitignored alias target (the `.mercato`
-                    // family — 107 reds on the pilot) is the generated
-                    // class, not class (a).
+                    // R12 first: a gitignored alias target (the
+                    // generated-file dot family — 107 reds on the pilot)
+                    // is the generated class, not class (a).
                     if let Some(hit) = self.gensrc_absent(&target) {
                         return self.reported_generated(&hit, specifier);
                     }

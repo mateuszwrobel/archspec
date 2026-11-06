@@ -8,6 +8,8 @@
     "cycles": 0,
     "violations_components": 0,
     "violations_edges": 0,
+    "violations_undeclared_dependency": 0,
+    "violations_boundary_violation": 0,
     "violations_contracts": 0,
     "violations_cycles": 0
   },

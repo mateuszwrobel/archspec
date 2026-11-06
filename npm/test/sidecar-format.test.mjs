@@ -1,6 +1,6 @@
 // Finding M1 (the sidecar format law): every SHIPPED sidecar passes
 // `sha256sum -c`. The legacy windows format (hash + CRLF, no filename) does
-// not — that is the defect the release.yml fix closes; this suite pins the
+// not — that is the defect the release-machinery fix closes; this suite pins the
 // target format and proves the old one fails, so the canonical verify
 // sentence is true on every platform.
 

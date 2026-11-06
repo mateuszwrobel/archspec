@@ -1053,3 +1053,167 @@ fn modules_marked_output_is_byte_identical_across_runs() {
     let second = stdout(&fixture.run(&["depgraph", "modules"]));
     assert_eq!(first, second, "marked depgraph output differs across runs");
 }
+
+// --- --aggregate + the degraded-projection guard (GitHub issue 5) ------------
+
+/// A ts workspace whose module tier is file-grained (the capability matrix's
+/// file-grained row): module identity is the file path, so the automatic
+/// projection renders one node per file. `pairs` cross-package import pairs
+/// put `2 * pairs` file nodes on the graph — above the 200-node cap once
+/// `pairs >= 101`, below it for the healthy small trees.
+fn file_grained_workspace(pairs: usize) -> Fixture {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"big\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+    );
+    tree.write(
+        "packages/a/package.json",
+        "{\n  \"name\": \"@big/a\",\n  \"dependencies\": { \"@big/b\": \"workspace:*\" }\n}\n",
+    );
+    tree.write(
+        "packages/b/package.json",
+        "{\n  \"name\": \"@big/b\"\n}\n",
+    );
+    for index in 0..pairs {
+        tree.write(
+            &format!("packages/a/src/f{index}.ts"),
+            &format!(
+                "import {{ B{index} }} from \"../../b/src/m{index}\";\nexport const A{index} = B{index};\n"
+            ),
+        );
+        tree.write(
+            &format!("packages/b/src/m{index}.ts"),
+            &format!("export const B{index} = {index};\n"),
+        );
+    }
+    tree
+}
+
+#[test]
+fn automatic_projection_above_the_cap_notes_the_degradation_once() {
+    let tree = file_grained_workspace(105); // 210 file nodes, above the 200 cap
+    let output = tree.run(&["depgraph", "modules"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let err = stderr(&output);
+    let notes: Vec<&str> = err.lines().collect();
+    assert_eq!(notes.len(), 1, "exactly one note line expected: {notes:?}");
+    assert!(
+        notes[0].starts_with("note: the automatic projection rendered 210 nodes"),
+        "{}",
+        notes[0]
+    );
+    assert!(notes[0].contains("--aggregate units"), "{}", notes[0]);
+    let out = stdout(&output);
+    assert!(out.starts_with("graph TD\n"), "the graph still renders");
+    assert!(
+        out.contains("[\"packages/a/src/f0.ts\"]"),
+        "the degraded render must stay the full file-tier graph"
+    );
+    assert!(!out.contains("note:"), "no note may leak into the body");
+    // Body purity proven at the destination: the same render written to a
+    // file carries no note bytes (the note is stderr-only).
+    let written = tree.run(&["depgraph", "modules", "--output", "deps.mmd"]);
+    assert_eq!(written.status.code(), Some(0), "{}", stderr(&written));
+    assert!(!tree.read("deps.mmd").contains("note:"), "written body pure");
+    // Exit 0 and stdout stay what they were before the guard: the same
+    // command one level coarser proves the note changed no render choice.
+    let checked = tree.run(&["depgraph", "modules", "--output", "deps.mmd", "--check"]);
+    assert_eq!(checked.status.code(), Some(0), "{}", stderr(&checked));
+}
+
+#[test]
+fn aggregate_units_forces_the_unit_tier_above_the_cap_without_note() {
+    let tree = file_grained_workspace(105); // same tree, same cap crossing
+    let output = tree.run(&["depgraph", "modules", "--aggregate", "units"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stderr(&output), "", "an explicit level is never capped");
+    let out = stdout(&output);
+    assert!(out.starts_with("graph TD\n"), "not a mermaid graph:\n{out}");
+    assert!(
+        out.contains("[\"@big/a\"]") && out.contains("[\"@big/b\"]"),
+        "the unit tier must be the node set:\n{out}"
+    );
+    assert!(
+        out.contains("-->"),
+        "the cross-package imports must project as unit edges:\n{out}"
+    );
+    assert!(
+        !out.contains("packages/a/src"),
+        "file nodes must not survive the unit projection:\n{out}"
+    );
+}
+
+#[test]
+fn aggregate_modules_pins_the_top_projection_without_descending() {
+    let tree = file_grained_workspace(4);
+    let pinned = tree.run(&["depgraph", "modules", "--aggregate", "modules"]);
+    assert_eq!(pinned.status.code(), Some(0), "{}", stderr(&pinned));
+    assert_eq!(stderr(&pinned), "");
+    let out = stdout(&pinned);
+    assert!(out.contains("root"), "the top fold of a file tier is the single top node:\n{out}");
+    assert!(!out.contains("packages"), "the pinned level must not descend:\n{out}");
+    // The same tree under the automatic rule does descend (to file nodes) —
+    // the flag alone changed the level, bypassing the fold/descend rule.
+    let automatic = tree.run(&["depgraph", "modules"]);
+    assert_eq!(automatic.status.code(), Some(0), "{}", stderr(&automatic));
+    assert!(
+        stdout(&automatic).contains("packages/a/src/f0.ts"),
+        "the automatic render of this tree keeps its file-tier bytes"
+    );
+}
+
+#[test]
+fn aggregate_rejects_an_unknown_level_with_the_usage_exit() {
+    let fixture = edge_fixture();
+    let output = fixture.run(&["depgraph", "modules", "--aggregate", "files"]);
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "a bad --aggregate level is usage-class: {}",
+        stderr(&output)
+    );
+    let err = stderr(&output);
+    assert!(
+        err.contains("invalid value \"files\" for --aggregate")
+            && err.contains("supported levels: units, modules"),
+        "{err}"
+    );
+}
+
+#[test]
+fn aggregate_is_refused_off_the_modules_view() {
+    let fixture = edge_fixture();
+    let output = fixture.run(&["depgraph", "api-usage", "--aggregate", "units"]);
+    assert_eq!(output.status.code(), Some(64), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("--aggregate is only valid for the modules view"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn aggregate_units_projects_the_model_units_of_a_rust_crate() {
+    let fixture = edge_fixture();
+    let output = fixture.run(&["depgraph", "modules", "--aggregate", "units"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.contains("app") || out.contains("[\"app\"]"),
+        "the crate is the unit tier:\n{out}"
+    );
+    assert!(
+        !out.contains("billing"),
+        "module names are not unit-tier nodes:\n{out}"
+    );
+    assert_eq!(stderr(&output), "", "a small explicit render states nothing");
+}
+
+#[test]
+fn healthy_projection_under_the_cap_is_silent() {
+    let fixture = edge_fixture();
+    let output = fixture.run(&["depgraph", "modules"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stderr(&output), "", "a healthy projection prints no note");
+}

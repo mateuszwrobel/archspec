@@ -3,23 +3,24 @@
 //! neither `ts` nor `ts::resolution` is imported here — both call down —
 //! so the `ts <-> resolution` import ring the F1 census recorded is gone.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
 use crate::archspec::{language, spec};
 use crate::archspec::spec::Spec;
 
-/// The declared exclusions: spec roots plus the mechanical set (always on).
+/// The declared exclusions: spec entries plus the mechanical set (always on).
 pub(super) struct Exclusions {
-    /// `excluded_sources` roots as paths, in spec order (the named exclusion
-    /// an unresolvable finding prints).
-    pub(super) declared: Vec<PathBuf>,
+    /// `excluded_sources` entries (trimmed root + resolved mode). Precedence
+    /// at every hit site resolves by specificity through
+    /// `spec::matching_exclusion` — never spec order (decision-check MAJOR-1).
+    pub(super) declared: Vec<spec::ExclusionEntry>,
 }
 
 
 impl Exclusions {
     pub(super) fn new(loaded: &Spec) -> Self {
         Self {
-            declared: spec::exclusion_paths(loaded),
+            declared: spec::exclusion_entries(loaded),
         }
     }
 }
@@ -43,14 +44,14 @@ pub(super) fn mechanically_excluded(rel: &Path) -> bool {
 
 /// The exclusion an excluded path hit, named exactly as the run spells it:
 /// the spec entry root first (a declared exclusion), else the mechanical
-/// directory component.
+/// directory component. The declared naming resolves by SPECIFICITY (the
+/// exact path beats the longest prefix beats shorter prefixes, ties refused
+/// at load) — TOML order decides nothing (decision-check MAJOR-1).
 pub(super) fn exclusion_hit(rel: &Path, declared: Option<&Exclusions>) -> String {
-    if let Some(exclusions) = declared {
-        for entry in &exclusions.declared {
-            if rel.starts_with(entry) {
-                return entry.to_string_lossy().replace('\\', "/");
-            }
-        }
+    if let Some(exclusions) = declared
+        && let Some(entry) = spec::matching_exclusion(&exclusions.declared, rel)
+    {
+        return entry.path.to_string_lossy().replace('\\', "/");
     }
     for component in rel.components() {
         if let Component::Normal(name) = component {
@@ -65,6 +66,25 @@ pub(super) fn exclusion_hit(rel: &Path, declared: Option<&Exclusions>) -> String
 }
 
 
+/// The specificity-resolved verdict on an excluded path: the entry (or
+/// mechanical directory) the path hits plus the mode the verdict carries.
+/// The mechanical classes always carry `abort` — the dial belongs to
+/// declared entries only. Hit sites branch on the mode: `abort` keeps the
+/// shipped unresolvable line byte-identical, `warn` routes the
+/// warning-severity finding and never aborts (decision-check BLOCKER-2).
+pub(super) fn exclusion_verdict(rel: &Path, declared: Option<&Exclusions>) -> (String, &'static str) {
+    if let Some(exclusions) = declared
+        && let Some(entry) = spec::matching_exclusion(&exclusions.declared, rel)
+    {
+        return (
+            entry.path.to_string_lossy().replace('\\', "/"),
+            entry.mode,
+        );
+    }
+    (exclusion_hit(rel, None), "abort")
+}
+
+
 #[derive(Clone)]
 pub(super) enum Resolved {
     /// A first-party target file, repo-relative git spelling.
@@ -74,6 +94,13 @@ pub(super) enum Resolved {
     /// Fails loud (D2). The payload names the exclusion when the specifier
     /// resolves ONLY into excluded paths.
     Unresolvable(String),
+    /// The warn-mode exclusion dial (GitHub issue 8 phase 2, BLOCKER-2): the
+    /// specificity-resolved entry a hit landed on declares `mode = "warn"`,
+    /// so the hit NEVER aborts. The payload is the exclusion naming sentence;
+    /// the consumer renders the warning-severity finding naming entry+target
+    /// (importing file and specifier), which rides the warnings channel —
+    /// `--strict` fails it, without `--strict` the run stays green.
+    Warned(String),
     /// The virtual-specifier law (record R7, round 4 C): the report-only
     /// line names the specifier verbatim. NO edge, NO external-tier entry,
     /// exit 0 — the seam recorded the line, the model records nothing.
@@ -127,7 +154,7 @@ pub(super) fn is_excluded(rel: &Path, declared: Option<&Exclusions>) -> bool {
             exclusions
                 .declared
                 .iter()
-                .any(|entry| rel.starts_with(entry))
+                .any(|entry| rel.starts_with(&entry.path))
         })
 }
 

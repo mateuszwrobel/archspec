@@ -43,7 +43,7 @@ const DUAL_SPELLING_POINTER: &str = "csharp section of `archspec help languages`
 /// test-gated edges, mod label).
 const OUTPUT_NONPARTICIPATION: &str =
     "depgraph does not read archspec.toml [output] — an artefact path comes only from an explicit --output";
-const TEST_GATED_EDGES: &str = "Test-gated/soft edges (test namespaces and their consumers) can appear in depgraph projections while being excluded from `depend_on` comparison";
+const TEST_GATED_EDGES: &str = "Test-gated/soft edges (test namespaces and their consumers) can appear in depgraph projections while being excluded from `depend_on` comparison exactly when the language's test gate marks them — rust `cfg(test)`; ts a test-file name in a package whose manifest declares vitest or jest — otherwise they adjudicate like any other edge";
 const MOD_LABEL: &str = "The `mod` label is a unit's root-module bucket: the namespace-less root where the composition/wiring code lives";
 
 /// The disambiguated summary lines (scenario: summary splits init from update).

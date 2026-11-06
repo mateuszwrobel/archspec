@@ -8,7 +8,7 @@ The command never reads a project tree. It is a pure output command: `archspec s
 
 - `--schema` — JSON Schema (draft-07) for `architecture.spec.toml`: `[project]`, `[[module]]` (with recursive `submodules`), `[[constraint]]` (all 7 types), `[[stereotype]]`.
 - Reference — annotated example TOML covering every section, shared with the command's `--help` text.
-- The schema's per-type `required` arrays come from the same table that drives the runtime validator (`CONSTRAINT_REQUIRED_FIELDS` in `src/archspec/spec.rs`), so the two cannot drift.
+- The schema's per-type `required` arrays come from the same table that drives the runtime validator (`CONSTRAINT_REQUIRED_FIELDS` in `src/archspec/spec.rs`), so the two cannot drift. So do the key sets: every table shape's accepted keys come from the one `SPEC_KEY_SHAPES` table the runtime unknown-key validator reads, and every table shape is fail-closed — a key the model does not define is refused by both.
 
 ## Quick usage
 

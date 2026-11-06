@@ -11,6 +11,13 @@
 //! under every family, a subpath without one stays honest red), feeds the
 //! package tier with declared package edges, and
 //! reddens package cycles the file tier cannot see (R6's union projection).
+//! The case-(iv) law also rides the RESOLVER-OK path (GitHub issue #7): a
+//! bare undeclared member import that Ok-resolves through a materialization
+//! of the member — a link inside the member dir or a hoisted copy under
+//! node_modules — lands the same membership edge onto the member's source
+//! entry with the same report-only line, so the same tree's adjudicated
+//! pair set never depends on install state; a self-import by the member's
+//! own name stays unit-internal with no line in every install state.
 
 mod common;
 
@@ -525,6 +532,306 @@ fn the_same_tree_under_pnpm_lock_stays_an_unresolvable_import() {
     assert!(
         text.contains("unresolvable import") && text.contains("@org/ui"),
         "the honest NotFound red itself is the positive carrier here: {text}"
+    );
+}
+
+/// Fixture HOISTED-MATERIALIZED (GitHub issue #7): the byte-identical
+/// `undeclared_member_tree(Some("yarn.lock"))` plus an install state —
+/// `None` (node_modules NOT materialized, the NotFound path pinned above),
+/// `"copy"` (the member hoisted under node_modules as a REAL DIRECTORY —
+/// the hoisting linker's copy install), or `"link"` (the member materialized
+/// as a symlink, the case-(i) realpath shape). The tree, the registry, the
+/// lockfile and the import are byte-identical across the three states; ONLY
+/// the install differs, so all three must model and adjudicate identically.
+fn hoisted_materialized_tree(install: Option<&str>) -> Fixture {
+    let tree = undeclared_member_tree(Some("yarn.lock"));
+    // The importer spells the member name TWICE: the report-only line is
+    // owed exactly once per (from, member) however often the import repeats.
+    tree.write(
+        "packages/loose/main.ts",
+        "import { ui } from \"@org/ui\";\nimport * as all from \"@org/ui\";\nexport const l = [ui, all];\n",
+    );
+    match install {
+        None => {}
+        Some("copy") => {
+            tree.write(
+                "node_modules/@org/ui/package.json",
+                "{\n  \"name\": \"@org/ui\"\n}\n",
+            );
+            tree.write("node_modules/@org/ui/index.ts", "export const ui = 1;\n");
+        }
+        Some("link") => link(&tree.path("node_modules/@org/ui"), &tree.path("packages/ui")),
+        Some(other) => panic!("unknown install state: {other}"),
+    }
+    tree
+}
+
+/// The membership pair the hoisting fixture adjudicates in EVERY install
+/// state: the importing file onto the member's source entry.
+fn hoisted_membership_pair() -> (String, String, String) {
+    (
+        "@org/loose".to_string(),
+        "packages/loose/main.ts".to_string(),
+        "packages/ui/index.ts".to_string(),
+    )
+}
+
+/// The verify spec that adjudicates the hoisting pair: `loose` forbidden
+/// from `ui` — red iff the membership edge reaches the adjudicated pair set.
+fn hoisted_pair_spec() -> String {
+    "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"loose\"\nmatches = { units = [\"@org/loose\"], modules = [\"packages/loose/**\"] }\n\n[module.allowed]\nforbidden = [\"ui\"]\n\n[[module]]\nname = \"ui\"\nmatches = { units = [\"@org/ui\"], modules = [\"packages/ui/**\"] }\n\n[[module]]\nname = \"root\"\nmatches = { units = [\"mono\"] }\n"
+        .to_string()
+}
+
+/// Scenario "a hoisted materialization of an undeclared member import is
+/// the same membership edge, never an external fact" (fixture
+/// HOISTED-MATERIALIZED, GitHub issue #7): the member materialized under
+/// `node_modules` as a REAL DIRECTORY makes the bare specifier Ok-RESOLVE —
+/// the hoisting-linker law then owes the SAME first-party membership edge
+/// the NotFound path models (never the external tier), the same report-only
+/// line exactly ONCE for a doubly-spelled import, and no orphan census
+/// noise over the member's entry.
+#[test]
+fn a_materialized_undeclared_member_import_is_a_membership_edge_not_an_external() {
+    let tree = hoisted_materialized_tree(Some("copy"));
+    let scan = tree.run(&["scan", "."]);
+    let stderr = common::stderr(&scan);
+    assert_eq!(
+        scan.status.code(),
+        Some(0),
+        "the materialized hoisting link is a real runtime edge, not an external miss: {stderr}"
+    );
+    let line = stderr
+        .lines()
+        .find(|line| line.starts_with("undeclared member import: "))
+        .unwrap_or_else(|| panic!("the Ok-arm membership audit owes the case-(iv) line:\n{stderr}"));
+    assert_eq!(
+        line,
+        "undeclared member import: packages/loose/main.ts -> @org/ui",
+        "the line is byte-identical to the NotFound-path twin"
+    );
+    assert_eq!(
+        stderr
+            .lines()
+            .filter(|line| line.starts_with("undeclared member import: "))
+            .count(),
+        1,
+        "one line per (from, member) however often the import repeats: {stderr}"
+    );
+    let model = json_model(&scan);
+    assert!(
+        module_edges(&model).contains(&hoisted_membership_pair()),
+        "the membership edge lands on the member's source entry, not the copy: {:?}",
+        model["module_edges"]
+    );
+    assert!(
+        model["module_external"]
+            .as_object()
+            .expect("module_external object")
+            .values()
+            .all(|names| names
+                .as_array()
+                .expect("external names")
+                .iter()
+                .all(|name| name.as_str() != Some("@org/ui"))),
+        "the specifier never lands in module_external once it became a membership edge: {:?}",
+        model["module_external"]
+    );
+    let text = format!("{}{stderr}", common::stdout(&scan));
+    assert!(
+        !text.contains("unresolvable import") && !text.contains("workspace link missing"),
+        "the Ok-arm edge leaves neither a red nor the declared-arm line behind: {text}"
+    );
+    assert!(
+        !text.contains("orphan file: packages/ui/index.ts"),
+        "the member's entry is imported by the model — no orphan census noise: {text}"
+    );
+}
+
+/// The parity law (GitHub issue #7): install state never moves the model.
+/// The byte-identical hoisting tree in all three states — node_modules NOT
+/// materialized (NotFound path), a hoisted real-dir COPY, a symlink LINK —
+/// must scan to the SAME module_edges set, and verify on the same
+/// forbidden-pair spec must adjudicate the SAME `forbidden edge: loose -> ui`
+/// finding with the SAME exit code. A resolver-shape shortcut that silently
+/// moves one pair between the edge set and the external tier flips this red.
+#[test]
+fn install_state_never_changes_the_adjudicated_membership_pair_set() {
+    let mut edge_sets: Vec<Vec<(String, String, String)>> = Vec::new();
+    for install in [None, Some("copy"), Some("link")] {
+        let tree = hoisted_materialized_tree(install);
+        tree.write("architecture.spec.toml", &hoisted_pair_spec());
+        let scan = tree.run(&["scan", "."]);
+        assert_eq!(
+            scan.status.code(),
+            Some(0),
+            "the hoisting fixture is green in install state {install:?}: {}",
+            common::stderr(&scan)
+        );
+        let edges = module_edges(&json_model(&scan));
+        assert!(
+            edges.contains(&hoisted_membership_pair()),
+            "the membership pair is in the model in install state {install:?}: {edges:?}"
+        );
+        let verify = tree.run(&["verify", "."]);
+        assert_eq!(
+            verify.status.code(),
+            Some(1),
+            "the forbidden pair adjudicates red in install state {install:?}: {}",
+            common::stderr(&verify)
+        );
+        assert!(
+            common::stdout(&verify).contains("forbidden edge: loose -> ui"),
+            "the same finding names the pair in install state {install:?}: {}",
+            common::stdout(&verify)
+        );
+        edge_sets.push(edges);
+    }
+    assert_eq!(
+        edge_sets[0], edge_sets[1],
+        "the NotFound path and the hoisted real-dir copy must yield the SAME module_edges"
+    );
+    assert_eq!(
+        edge_sets[0], edge_sets[2],
+        "the NotFound path and the symlink link must yield the SAME module_edges"
+    );
+}
+
+/// Scenario "a self-import by the member's own name is no crossing"
+/// (GitHub issue #7, the self-exclusion): a member importing its OWN name
+/// under the hoisting family stays unit-internal in EVERY install state —
+/// no cross-unit edge, no `undeclared member import` line, and the own name
+/// never launders into the external tier.
+#[test]
+fn a_self_import_by_own_package_name_is_unit_internal_in_every_install_state() {
+    for install in [None, Some("copy"), Some("link")] {
+        let tree = Fixture::new();
+        tree.write(
+            "package.json",
+            "{\n  \"name\": \"mono\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+        );
+        tree.write("yarn.lock", "");
+        tree.write(
+            "packages/ui/package.json",
+            "{\n  \"name\": \"@org/ui\"\n}\n",
+        );
+        tree.write("packages/ui/index.ts", "export const ui = 1;\n");
+        tree.write(
+            "packages/ui/own.ts",
+            "import { ui } from \"@org/ui\";\nexport const v = ui;\n",
+        );
+        match install {
+            None => {}
+            Some("copy") => {
+                tree.write(
+                    "node_modules/@org/ui/package.json",
+                    "{\n  \"name\": \"@org/ui\"\n}\n",
+                );
+                tree.write("node_modules/@org/ui/index.ts", "export const ui = 1;\n");
+            }
+            Some("link") => link(&tree.path("node_modules/@org/ui"), &tree.path("packages/ui")),
+            Some(other) => panic!("unknown install state: {other}"),
+        }
+        let scan = tree.run(&["scan", "."]);
+        let stderr = common::stderr(&scan);
+        assert_eq!(
+            scan.status.code(),
+            Some(0),
+            "a self-import is unit-internal, not a defect, in install state {install:?}: {stderr}"
+        );
+        assert!(
+            !stderr.contains("undeclared member import"),
+            "a package importing its own name owes no missing-declaration line: {stderr}"
+        );
+        let model = json_model(&scan);
+        for edge in model["module_edges"]
+            .as_array()
+            .expect("module_edges array")
+        {
+            assert_eq!(
+                edge["unit"].as_str(),
+                Some("@org/ui"),
+                "every edge stays inside the one unit in install state {install:?}: {edge:?}"
+            );
+            let to = edge["to"].as_str().expect("edge to");
+            assert!(
+                to.starts_with("packages/ui/"),
+                "no edge crosses to another unit in install state {install:?}: {edge:?}"
+            );
+        }
+        assert!(
+            model["module_external"]
+                .as_object()
+                .expect("module_external object")
+                .values()
+                .all(|names| names
+                    .as_array()
+                    .expect("external names")
+                    .iter()
+                    .all(|name| name.as_str() != Some("@org/ui"))),
+            "the own name never launders into the external tier: {:?}",
+            model["module_external"]
+        );
+    }
+}
+
+/// Scenario "the declared member on the Ok path keeps the case-(ii) audit"
+/// (GitHub issue #3 pins survive issue #7 — do not weaken): a DECLARED
+/// member import that Ok-resolves into a hoisted real-dir copy stays today's
+/// behavior — the `workspace link missing` line, the external tier, and NO
+/// `undeclared member import` line (the new audit adjudicates undeclared
+/// importers only).
+#[test]
+fn a_declared_member_import_from_a_hoisted_copy_keeps_the_case_two_audit() {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"mono\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+    );
+    tree.write("yarn.lock", "");
+    tree.write(
+        "packages/app/package.json",
+        "{\n  \"name\": \"@org/app\",\n  \"dependencies\": { \"@org/ui\": \"workspace:*\" }\n}\n",
+    );
+    tree.write(
+        "packages/app/src/main.ts",
+        "import { ui } from \"@org/ui\";\nexport const m = ui;\n",
+    );
+    tree.write(
+        "packages/ui/package.json",
+        "{\n  \"name\": \"@org/ui\"\n}\n",
+    );
+    tree.write("packages/ui/index.ts", "export const ui = 1;\n");
+    tree.write(
+        "node_modules/@org/ui/package.json",
+        "{\n  \"name\": \"@org/ui\"\n}\n",
+    );
+    tree.write("node_modules/@org/ui/index.ts", "export const ui = 1;\n");
+    let scan = tree.run(&["scan", "."]);
+    let stderr = common::stderr(&scan);
+    assert_eq!(
+        scan.status.code(),
+        Some(0),
+        "the declared Ok-path audit stays report-only: {stderr}"
+    );
+    assert!(
+        stderr.contains("workspace link missing: @org/ui"),
+        "the case-(ii) line rides the declared import: {stderr}"
+    );
+    assert!(
+        !stderr.contains("undeclared member import"),
+        "the new audit adjudicates UNDECLARED importers only: {stderr}"
+    );
+    let model = json_model(&scan);
+    assert!(
+        model["module_external"]
+            .get("packages/app/src/main.ts")
+            .and_then(Value::as_array)
+            .is_some_and(|names| names
+                .iter()
+                .any(|name| name.as_str() == Some("@org/ui"))),
+        "the declared member's copy keeps today's external tier: {:?}",
+        model["module_external"]
     );
 }
 
@@ -1116,9 +1423,10 @@ fn member_subpath_types_unique_attributes_the_edge_and_replaces_the_line() {
     );
 }
 
-/// Decision-check B2 law (the guard the fleet never exercises — mercato
-/// measures ZERO ambiguities, so the FIXTURE is the weld): an array `types`
-/// arm whose BOTH spellings exist is MULTIPLE candidates — the probe refuses,
+/// Decision-check B2 law (the guard the fleet never exercises — the pilot
+/// audit measures ZERO ambiguities, so the FIXTURE is the weld): an array
+/// `types` arm whose BOTH spellings exist is MULTIPLE candidates — the
+/// probe refuses,
 /// the gensrc line states verbatim, the model gains nothing.
 #[test]
 fn member_subpath_types_array_both_existing_refuses_attribution() {

@@ -80,6 +80,25 @@ The tree marks the special nodes with the model's own words (roles US 06): a nod
 |---|---|---|---|
 | 32 | canonical probe tree per language (rust: `facade` unit roots; c#: `composition` entrypoint root; go: `composition` main-package unit) | run `inspect tree` | exit 0; every roles entry's path renders with its marker — the node's visible label carries ` [<role>]` — and a model without roles renders byte-identical to the pre-marker era |
 
+## Clustering overlay (`--clusters`)
+
+`--clusters` appends an advisory, additive module-cluster render to the model modes: one structure line, sorted `node -> cluster` assignment lines, named cap refusals and a `--json` machine form. The overlay never rewrites bytes the run already printed and never changes the exit code.
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 33 | a project whose `inspect` renders are pinned by the pre-feature goldens | run `inspect`, `inspect tree` or `inspect scanner` without `--clusters` | exit 0; bytes equal the pinned goldens; no structure line, assignment line, skip line or `clusters` json key appears anywhere |
+| 34 | crate with modules and module edges | run `inspect tree <path>`, then the same with `--clusters`; repeat each with `--output <f>` and with `--check` | the diagram part is byte-identical with and without the flag; the overlay lines follow the diagram on stdout; the artefact bytes are equal; the `--check` verdicts are equal |
+| 35 | crate with modules | run `inspect tree <path> --clusters` | every node id in an assignment line is a module node id of the same run's model; each cluster column equals the lexicographically smallest member node id of that cluster |
+| 36 | project graph whose agglomeration ends with more than one cluster and fewer clusters than nodes | run with `--clusters` | exit 0; exactly one line `structure: <k> clusters`, `<k>` equal to the number of distinct cluster columns |
+| 37 | project with no module nodes or no module edges | run with `--clusters` | exit 0; exactly one line `structure: empty`; no assignment lines |
+| 38 | dense project graph (the K250 and star-2000 classes) ending in one cluster over more than one node | run with `--clusters` | exit 0; exactly one line `structure: none (single region)`; the assignment block names every node of that cluster |
+| 39 | project graph where agglomeration merged nothing and every cluster is a single node | run with `--clusters` | exit 0; exactly one line `structure: trivial (all singletons)`; never a bare green line without a structure line |
+| 40 | tie-dense synthetic graph (equal-predicate pairs) | run `inspect tree <path> --clusters` twice in fresh processes | the two stdout byte streams are identical; the sha256 over the sorted assignment lines (`node<TAB>cluster`, trailing newline) is identical |
+| 41 | module graph of 10 001 nodes | run with `--clusters` | exit 0; exactly one line `clusters: skipped (nodes=<n> > cap 10000)`; no structure line, no assignment lines |
+| 42 | module graph within the node cap with 130 001 symmetrized edges | run with `--clusters` | exit 0; exactly one line `clusters: skipped (edges=<M> > cap 130000)`; no structure line, no assignment lines |
+| 43 | crate with modules | run `inspect tree <path> --clusters --json` | one JSON object carrying exactly the key `clusters`; `clusters.schema` equals `archspec-clusters-v0`; `clusters.structure` states the structure (or skip) label the human render prints; `clusters.nodes` and `clusters.edges` state the counts; `clusters.assignments` lists every node with its cluster label, sorted by node id; without the flag the key never appears |
+| 44 | any supported tree | run `inspect <path> --clusters`; run `inspect tree <path> --json` without `--clusters` | each refused with exit 64 and one named usage message; nothing rendered |
+
 ## Errors
 
 | # | Given | When | Then |

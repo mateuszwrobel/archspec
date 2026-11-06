@@ -15,6 +15,7 @@ A parse failure **aborts the run** — no diff is produced for a partially extra
 | path is a regular file | the path is invalid and why | non-zero |
 | no `architecture.spec.toml` found | the expected file name and where it was expected | non-zero |
 | spec is not valid TOML | the file and the TOML parse error | non-zero |
+| spec carries a key the model does not define (`unknown key(s) "<key>" <location>`, fail-closed at load: top level, `[project]` and its `excluded_sources` entries, `[[stereotype]]` entries and their `match` tables, module claims with recursive `submodules` and their `matches`/`contract`/`allowed` tables, `[[constraint]]` entries; `allowed` array entries stay owned by the entry-level refusal) | the file, the unexpected key(s), and where the key sits | non-zero |
 | spec violates the schema | the file, the offending field/section, and why | non-zero |
 | module declares an empty `contract.expose` entry | the file, the module name, and the empty entry position | non-zero |
 | constraint references an undeclared module | the file, the 1-indexed constraint number, and the undeclared module name | non-zero |

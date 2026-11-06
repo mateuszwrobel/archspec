@@ -12,14 +12,27 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX \
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Stage timing (optional): when the repository-level stage helper is reachable
+# from this checkout, every leg below runs under a named stage and prints a
+# wall line; when STAGE_LOG is set, one JSONL row per stage rides with it.
+# Absent the helper (published standalone payload) the commands run exactly
+# as before — behavior identical, output unchanged.
+STAGE_TIMER="${STAGE_TIMER:-$SCRIPT_DIR/../../../scripts/stage-timer.sh}"
+if [ -f "$STAGE_TIMER" ]; then
+  # shellcheck source=/dev/null
+  . "$STAGE_TIMER"
+else
+  stage() { shift 3; "$@"; }
+fi
+
 echo "Running rust-arch-test-kit tests..."
 # nextest (hardening lane A): per-test timeouts (see .config/nextest.toml).
 # Doctest parity: doc tests stay on cargo test (nextest does not run them).
-cargo nextest run --no-tests=pass --config-file "$SCRIPT_DIR/.config/nextest.toml" --manifest-path "$SCRIPT_DIR/Cargo.toml" "$@"
-cargo test --doc --manifest-path "$SCRIPT_DIR/Cargo.toml"
+stage unit nextest -- cargo nextest run --no-tests=pass --config-file "$SCRIPT_DIR/.config/nextest.toml" --manifest-path "$SCRIPT_DIR/Cargo.toml" "$@"
+stage unit doctest -- cargo test --doc --manifest-path "$SCRIPT_DIR/Cargo.toml"
 
 echo "Running rust-arch-test-kit clippy gate..."
-cargo clippy --manifest-path "$SCRIPT_DIR/Cargo.toml" --all-targets -- -D warnings
+stage lint clippy -- cargo clippy --manifest-path "$SCRIPT_DIR/Cargo.toml" --all-targets -- -D warnings
 
 # Self-dogfood gate: archspec checks its own architecture spec and the
 # architecture artefacts it generates for this crate.
@@ -29,7 +42,7 @@ cargo clippy --manifest-path "$SCRIPT_DIR/Cargo.toml" --all-targets -- -D warnin
 # target dir externally (containerized legs run with one), else the manifest
 # -relative target/debug/archspec.
 echo "Building archspec binary for the self-dogfood gate..."
-cargo build --manifest-path "$SCRIPT_DIR/Cargo.toml" --bin archspec
+stage build build-archspec -- cargo build --manifest-path "$SCRIPT_DIR/Cargo.toml" --bin archspec
 ARCHSPEC_BIN="${ARCHSPEC:-${CARGO_TARGET_DIR:-$SCRIPT_DIR/target}/debug/archspec}"
 if [[ ! -x "$ARCHSPEC_BIN" ]]; then
   echo "archspec binary not found/executable at: $ARCHSPEC_BIN" >&2
@@ -39,7 +52,7 @@ fi
 
 # 1. Verify this crate against its own architecture.spec.toml.
 echo "Self verify: archspec verify --strict"
-"$ARCHSPEC_BIN" verify "$SCRIPT_DIR" --strict
+stage lint archspec-verify -- "$ARCHSPEC_BIN" verify "$SCRIPT_DIR" --strict
 
 # 2. Freshness of the committed architecture artefacts that archspec generates.
 #    Destinations come from archspec.toml [output]:
@@ -58,7 +71,7 @@ echo "Self verify: archspec verify --strict"
 echo "Self freshness: archspec artefact --check"
 for cmd in scan diagram inspect report; do
   echo "  --check $cmd"
-  "$ARCHSPEC_BIN" "$cmd" "$SCRIPT_DIR" --check
+  stage artifact "artefact-check-$cmd" -- "$ARCHSPEC_BIN" "$cmd" "$SCRIPT_DIR" --check
 done
 
 # 3. Freshness of the generated third-party credits listing (CREDITS.md).
@@ -66,7 +79,7 @@ done
 #    lockfile and must match the committed listing byte for byte. Fails
 #    closed — a missing cargo/jq or a stale listing is a gate failure.
 echo "Credits freshness: gen-credits --check"
-"$SCRIPT_DIR/scripts/gen-credits.sh" --check
+stage artifact credits-check -- "$SCRIPT_DIR/scripts/gen-credits.sh" --check
 
 # 4. npm-channel legs (ADR-051). The node suite exercises the package tree
 #    (shim, install path, gates, staging). The containerized build image has
@@ -76,13 +89,13 @@ echo "Credits freshness: gen-credits --check"
 #    payload) and is likewise skipped by name where absent.
 if command -v node >/dev/null 2>&1; then
   echo "npm channel: node suite (node $(node --version))"
-  bash "$SCRIPT_DIR/npm/test/run-npm-tests.sh"
+  stage other npm-suite -- bash "$SCRIPT_DIR/npm/test/run-npm-tests.sh"
 else
   echo "npm channel: node absent (containerized leg) — node suite skipped by name"
 fi
 if [[ -f "$SCRIPT_DIR/../../internal/test_npm_leak_parity.sh" ]]; then
   echo "npm channel: leak parity against the publish guard's list"
-  bash "$SCRIPT_DIR/../../internal/test_npm_leak_parity.sh"
+  stage other npm-leak-parity -- bash "$SCRIPT_DIR/../../internal/test_npm_leak_parity.sh"
 else
   echo "npm channel: internal/test_npm_leak_parity.sh absent — parity leg skipped by name"
 fi

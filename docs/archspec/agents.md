@@ -80,7 +80,7 @@ map below is a pointer, not the full catalog.
 |---|---|---|
 | `forbidden edge` | code imports something its boundary bans | code-fix |
 | `disallowed cross-component dependency` | real cross-boundary dep, undeclared | spec-fix (declare `depend_on`) or code-fix |
-| `missing edge` | declared `depend_on` with no code edge | spec-fix (drop stale edge) |
+| `missing edge` | declared `depend_on` with no exercised pair; the verdict names the reason class — test-gated evidence only, unowned import evidence, or no import evidence at all | spec-fix (drop stale edge) |
 | `facade dependency` | internal module imports through a root facade (f21); rust and csharp derive facade roles into the model — go derives none | code-fix (canonicalize import) |
 | `contract leak` | a forbidden stereotype is exposed (submodule enforcement: rust, csharp, and go when the tree carries a module tier — go.work members, the derived tier (`archspec help languages`), or spec-declared grouping; on go the stereotype must glob the full import path — a bare name matches no go unit — and the parent must claim the packages, else the contract is inert and verify green) | code-fix or spec-fix |
 | `cycle` / `no_cycles` | strongly connected components | code-fix or architecture-rework |

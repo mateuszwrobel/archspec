@@ -4,6 +4,7 @@ use crate::archspec::language;
 use crate::archspec::scan;
 use std::path::Path;
 
+mod clusters;
 mod csharp;
 mod file_graph;
 mod go;
@@ -24,7 +25,7 @@ const FORMATS: &[&str] = &["mermaid", "plantuml"];
 /// the refusal states a model fact, not a language verdict.
 pub const TREE_MODULE_TIER_REQUIREMENT: &str = "inspect tree needs the module tier, which this model has none of; the module tier is derived from the tree's package references, which this tree records none of, 'inspect scanner' renders the unit-tier model";
 
-pub const HELP: &str = "usage: archspec inspect [tree|scanner] [path] [--format <mermaid|plantuml>] [--output <path>] [--check]\nzero-config file-level import map of a project\n\n  tree|scanner      structural model mode (default: file-level graph)\n  path              directory to scan (default: current directory)\n  --format <fmt>    mermaid or plantuml (default: mermaid)\n  --output <path>   write the diagram to that file (default: stdout unless archspec.toml [output] sets a destination); `--output -` writes to stdout and creates no file — never a path positional\n  --check           compare the diagram to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n";
+pub const HELP: &str = "usage: archspec inspect [tree|scanner] [path] [--format <mermaid|plantuml>] [--output <path>] [--check] [--clusters] [--json]\nzero-config file-level import map of a project\n\n  tree|scanner      structural model mode (default: file-level graph)\n  path              directory to scan (default: current directory)\n  --format <fmt>    mermaid or plantuml (default: mermaid)\n  --output <path>   write the diagram to that file (default: stdout unless archspec.toml [output] sets a destination); `--output -` writes to stdout and creates no file — never a path positional\n  --check           compare the diagram to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n  --clusters        append the deterministic clustering overlay on the model modes: one structure line, then sorted `node -> cluster` assignment lines (advisory render, never a verdict)\n  --json            machine form of the overlay: one JSON object carrying the `clusters` key; valid only alongside --clusters\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -42,6 +43,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 name: "check",
                 takes_value: false,
             },
+            FlagSpec {
+                name: "clusters",
+                takes_value: false,
+            },
+            FlagSpec {
+                name: "json",
+                takes_value: false,
+            },
         ],
     )?;
 
@@ -56,11 +65,30 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
     }
     let check = parsed.switches.contains("check");
+    let clusters = parsed.switches.contains("clusters");
+    let json = parsed.switches.contains("json");
+    // Flag refusals parse before anything renders (workplan §CLI exit 64):
+    // `--json` is the overlay's machine form, never a standalone switch.
+    if json && !clusters {
+        return Err(cli::usage_error(
+            "--json renders the clustering overlay only: pass it alongside --clusters",
+        ));
+    }
 
     match parsed.positionals.first().map(String::as_str) {
-        Some("tree") => run_structural(false, &parsed, format, check),
-        Some("scanner") => run_structural(true, &parsed, format, check),
-        _ => run_file_level(&parsed, format, check),
+        Some("tree") => run_structural(false, &parsed, format, check, clusters, json),
+        Some("scanner") => run_structural(true, &parsed, format, check, clusters, json),
+        _ => {
+            // The clustering inputs (module_edges) exist only in the
+            // extracted model; the file-level map is model-free by decision,
+            // so `--clusters` there is a refused ambiguity, never a no-op.
+            if clusters {
+                return Err(cli::usage_error(
+                    "--clusters is only valid on the model modes: archspec inspect tree|scanner",
+                ));
+            }
+            run_file_level(&parsed, format, check)
+        }
     }
 }
 
@@ -86,15 +114,14 @@ fn run_structural(
     parsed: &cli::Args,
     format: &str,
     check: bool,
+    clusters: bool,
+    json: bool,
 ) -> Result<(), String> {
     let positionals: Vec<&String> = parsed.positionals.iter().skip(1).collect();
     if positionals.len() > 1 {
         return Err("expected at most one path argument".to_string());
     }
-    let root = positionals
-        .first()
-        .map(|path| path.as_str())
-        .unwrap_or(".");
+    let root = positionals.first().map(|path| path.as_str()).unwrap_or(".");
     let root_path = Path::new(root);
     if !root_path.exists() {
         return Err(format!("path does not exist: {root}"));
@@ -141,7 +168,61 @@ fn run_structural(
         root_path,
         config::is_human(format),
     );
-    config::emit(&diagram, route, check, "diagram", "inspect", None)
+    // The overlay is a render, never an artefact: the diagram bytes route
+    // exactly as without the flag (destination write, `--check` verdict,
+    // stdout body). With `--json` and no destination, the diagram body does
+    // not enter stdout — stdout then carries the one JSON object alone.
+    if json && !check && route.destination.is_none() {
+        // Nothing to write, nothing printed: the machine form owns stdout.
+    } else {
+        config::emit(&diagram, route, check, "diagram", "inspect", None)?;
+    }
+    if clusters {
+        render_clusters_overlay(&model, json);
+    }
+    Ok(())
+}
+
+/// The clustering overlay render: the graph is the model's own node ids —
+/// `module_edges` endpoints plus soft-structure members — and its directed
+/// `module_edges` list; the computation itself is the pure `clusters`
+/// submodule. Human form: one structure (or cap-skip) line, then sorted
+/// assignment lines. Machine form: one JSON object with the `clusters` key
+/// (schema `archspec-clusters-v0`), additive — it never appears without the
+/// flag. The overlay never changes the exit code.
+fn render_clusters_overlay(model: &crate::archspec::model::Model, json: bool) {
+    use std::collections::BTreeSet;
+    let mut nodes: BTreeSet<String> = BTreeSet::new();
+    let mut directed = Vec::new();
+    for edge in &model.module_edges {
+        nodes.insert(edge.from.clone());
+        nodes.insert(edge.to.clone());
+        directed.push((edge.from.clone(), edge.to.clone()));
+    }
+    for paths in model.soft_structure.values() {
+        nodes.extend(paths.iter().cloned());
+    }
+    let outcome = clusters::cluster(nodes, directed);
+    if json {
+        let value = serde_json::json!({
+            "clusters": {
+                "schema": clusters::SCHEMA,
+                "structure": outcome.structure_label(),
+                "nodes": outcome.counts().0,
+                "edges": outcome.counts().1,
+                "assignments": outcome
+                    .assignments()
+                    .iter()
+                    .map(|(node, cluster)| {
+                        serde_json::json!({ "node": node, "cluster": cluster })
+                    })
+                    .collect::<Vec<_>>(),
+            }
+        });
+        println!("{value}");
+    } else {
+        print!("{}", clusters::render_human(&outcome));
+    }
 }
 
 fn run_file_level(parsed: &cli::Args, format: &str, check: bool) -> Result<(), String> {
@@ -180,9 +261,7 @@ fn run_file_level(parsed: &cli::Args, format: &str, check: bool) -> Result<(), S
                 // The ts C5 vacuity carrier shape (python driver record
                 // P2 fan-out): the empty-evidence verdict is a named
                 // non-silent line, never a green render of nothing.
-                eprintln!(
-                    "vacuous constraint: inspect.file_level: no file-level edges resolved"
-                );
+                eprintln!("vacuous constraint: inspect.file_level: no file-level edges resolved");
             }
             graph
         }
@@ -191,9 +270,7 @@ fn run_file_level(parsed: &cli::Args, format: &str, check: bool) -> Result<(), S
             // file identity; the C5 vacuity carrier mirrors the python arm.
             let graph = kotlin::scan(root_path)?;
             if graph.edges.is_empty() {
-                eprintln!(
-                    "vacuous constraint: inspect.file_level: no file-level edges resolved"
-                );
+                eprintln!("vacuous constraint: inspect.file_level: no file-level edges resolved");
             }
             graph
         }
@@ -204,9 +281,7 @@ fn run_file_level(parsed: &cli::Args, format: &str, check: bool) -> Result<(), S
                 // named non-silent line on the report surface — never a
                 // green render that claims a graph it does not have. The
                 // carrier keys on the facts, not on the capability row.
-                eprintln!(
-                    "vacuous constraint: inspect.file_level: no file-level edges resolved"
-                );
+                eprintln!("vacuous constraint: inspect.file_level: no file-level edges resolved");
             }
             graph
         }

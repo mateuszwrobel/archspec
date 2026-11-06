@@ -53,6 +53,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let loaded = spec::load_scan(root_path)?;
     if let Some(spec) = &loaded {
         eprint!("{}", spec::excluded_sources_report(spec));
+        // A dead entry (zero matches under the mechanical set) is stated on
+        // the same surface right after the active-entry lines (issue-8
+        // phase 2, decision-check MAJOR-2): once per entry per run.
+        eprint!("{}", spec::exclusion_liveness_report(root_path, spec));
     }
 
     // Root-marker selection (detection record GC): with a spec at the root
@@ -93,6 +97,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // The `external not installed` lines are report-only the same way
     // (ts-resolution record R7b).
     eprint!("{}", report_only_report(&model));
+    // The warn-mode exclusion findings (issue-8 phase 2, BLOCKER-2): one
+    // `warning:` line per finding on the report surface — stated, never a
+    // verdict, never the machine body (verify fails the same finding under
+    // `--strict`; scan carries no verdict).
+    for warning in &model.warnings {
+        eprintln!("warning: {warning}");
+    }
     // `--pretty` is a serialization switch only: same facts, indented layout
     // for readers and diffs; the default bytes are untouched (blind4 D03).
     let json = if parsed.switches.contains("pretty") {

@@ -1,5 +1,14 @@
 # archspec (npm downloader package)
 
+## What is archspec
+
+`archspec` is an architecture test & diagram CLI for Rust projects. It
+extracts an architecture model from a project tree, compares it against
+`architecture.spec.toml`, and renders diagrams, dependency views and diff
+reports. `archspec verify --strict` exits nonzero on any diff against the
+spec — module boundaries, `no_cycles` guards and the other declared
+constraints — so it runs as a gate in CI.
+
 Runs the `archspec` architecture conformance CLI on your machine. This
 package is a downloader: it does not contain the binary. It pins the release
 assets of the matching version, downloads the one built for your platform and

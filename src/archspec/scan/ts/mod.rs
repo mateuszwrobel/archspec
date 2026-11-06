@@ -31,7 +31,7 @@ mod syntax;
 mod workspace;
 
 mod common;
-use common::{Exclusions, Resolved, exclusion_hit, is_excluded, mechanically_excluded, relative, spell, strip_query};
+use common::{Exclusions, Resolved, exclusion_verdict, is_excluded, mechanically_excluded, relative, spell, strip_query};
 
 use crate::archspec::language;
 use crate::archspec::model::{ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
@@ -72,6 +72,12 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     let mut wildcards: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut exports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut findings: Vec<String> = Vec::new();
+    // The warn-mode exclusion findings (issue-8 phase 2): deduped and sorted
+    // (a BTreeSet) so the warning bytes are run-order free, like every other
+    // collected report channel. They never join the findings error below —
+    // a warn hit never aborts (BLOCKER-2) — and never enter the machine body:
+    // they ride the transient warnings channel on the model.
+    let mut warnings: BTreeSet<String> = BTreeSet::new();
     // C4 root-barrel candidates: files whose every resolvable row is an
     // export-from republication and whose every exported name is backed by
     // such a row — the ts counterpart of the rust "root defines nothing but
@@ -179,6 +185,19 @@ pub fn extract(root: &Path) -> Result<Model, String> {
                 Resolved::Unresolvable(why) => {
                     findings.push(format!("unresolvable import: {file} -> \"{}\"{why}", edge.specifier));
                 }
+                // The warn-mode dial (issue-8 phase 2): the hit is stated,
+                // never aborted. The finding is pre-rendered in the warnings
+                // channel's `<category>: <detail>` form, naming entry AND
+                // target (BLOCKER-2): the importing file, the specifier and
+                // the specificity-resolved entry. verify folds these into
+                // the diff's warnings (--strict fails, else green); scan and
+                // the report verbs print them on the report surface.
+                Resolved::Warned(detail) => {
+                    warnings.insert(format!(
+                        "excluded source: {file} -> \"{}\" — {detail}",
+                        edge.specifier
+                    ));
+                }
                 Resolved::Reported => {
                     // The virtual-specifier law: the line was recorded by
                     // the seam; the model stays untouched — no edge, no
@@ -206,6 +225,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         !wildcards.is_empty(),
         !external.is_empty(),
         !report_only.is_empty(),
+        !warnings.is_empty(),
     ) {
         return Err(tripwire);
     }
@@ -435,6 +455,12 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         // The `external not installed` lines ride the transient channel
         // (R7b): stderr via the report renderer, never the machine body.
         report_only_lines: report_only,
+        // The warn-mode exclusion findings ride their own transient channel
+        // (issue-8 phase 2): warnings-severity, never the machine body,
+        // never the findings error — the record forbids the report-only
+        // route precisely because that route can never go red under
+        // `--strict`.
+        warnings: warnings.into_iter().collect(),
         ..Model::new("ts")
     };
     Ok(model)
@@ -455,6 +481,7 @@ fn tripwire_error(
     has_wildcards: bool,
     has_external: bool,
     has_report_only: bool,
+    has_warnings: bool,
 ) -> Option<String> {
     if files > 0
         && import_statements > 0
@@ -462,6 +489,7 @@ fn tripwire_error(
         && !has_wildcards
         && !has_external
         && !has_report_only
+        && !has_warnings
     {
         return Some(format!(
             "ts driver tripwire: {files} scanned files carry {import_statements} import statements, yet the model states no edge, wildcard or external fact"
@@ -542,7 +570,10 @@ fn excluded_walk(path: &Path, root: &Path, declared: Option<&Exclusions>) -> boo
             let rel = Path::new(&rel);
             mechanically_excluded(rel)
                 || declared.is_some_and(|exclusions| {
-                    exclusions.declared.iter().any(|entry| rel.starts_with(entry))
+                    exclusions
+                        .declared
+                        .iter()
+                        .any(|entry| rel.starts_with(&entry.path))
                 })
         })
         .unwrap_or(false)
@@ -609,7 +640,7 @@ fn resolve(
         None => return Resolved::Unresolvable(String::new()),
     };
     // Ordinary resolution first: a candidate outside the exclusions wins.
-    let mut excluded_hit: Option<String> = None;
+    let mut excluded_hit: Option<(String, &'static str)> = None;
     for candidate in candidates(&base) {
         if !root.join(&candidate).is_file() {
             continue;
@@ -617,10 +648,15 @@ fn resolve(
         if !is_excluded(Path::new(&candidate), declared) {
             return Resolved::Edge(candidate);
         }
-        excluded_hit.get_or_insert_with(|| exclusion_hit(Path::new(&candidate), declared));
+        excluded_hit.get_or_insert_with(|| exclusion_verdict(Path::new(&candidate), declared));
     }
     match excluded_hit {
-        Some(exclusion) => Resolved::Unresolvable(format!(
+        // The dial (issue-8 phase 2): `warn` states the hit, never aborts;
+        // `abort` — the default — keeps the shipped line byte-identical.
+        Some((exclusion, "warn")) => {
+            Resolved::Warned(format!("resolves only into excluded path {exclusion}"))
+        }
+        Some((exclusion, _)) => Resolved::Unresolvable(format!(
             " — resolves only into excluded path {exclusion}"
         )),
         None => engine
@@ -816,6 +852,7 @@ fn declares_test_framework(dependencies: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::common::exclusion_hit;
     use super::common::package_identity;
     use super::*;
 
@@ -823,17 +860,20 @@ mod tests {
     fn tripwire_fires_only_on_total_silence() {
         // Files with imports, no stated fact of any kind — the outlawed
         // silent parser (D2).
-        assert!(tripwire_error(3, 5, false, false, false, false).is_some());
+        assert!(tripwire_error(3, 5, false, false, false, false, false).is_some());
         // Every stated fact keeps the run green: edges, wildcards (R2-6),
         // externals (an honest npm-only tree states a fact) or report-only
         // lines (round 4 C: the virtual arm states an outcome, not silence).
-        assert!(tripwire_error(3, 5, true, false, false, false).is_none());
-        assert!(tripwire_error(3, 5, false, true, false, false).is_none());
-        assert!(tripwire_error(3, 5, false, false, true, false).is_none());
-        assert!(tripwire_error(3, 5, false, false, false, true).is_none());
+        assert!(tripwire_error(3, 5, true, false, false, false, false).is_none());
+        assert!(tripwire_error(3, 5, false, true, false, false, false).is_none());
+        assert!(tripwire_error(3, 5, false, false, true, false, false).is_none());
+        assert!(tripwire_error(3, 5, false, false, false, true, false).is_none());
+        // A warn-mode exclusion finding is a STATED outcome too (issue-8
+        // phase 2): the seam recorded the hit, so silence did not happen.
+        assert!(tripwire_error(3, 5, false, false, false, false, true).is_none());
         // No imports at all: nothing to state, nothing to trip.
-        assert!(tripwire_error(3, 0, false, false, false, false).is_none());
-        assert!(tripwire_error(0, 0, false, false, false, false).is_none());
+        assert!(tripwire_error(3, 0, false, false, false, false, false).is_none());
+        assert!(tripwire_error(0, 0, false, false, false, false, false).is_none());
     }
 
     /// D7 (the N1 adopted fix): require sites are import statements — the
@@ -849,7 +889,7 @@ mod tests {
         )
         .expect("the grammar parses the fixture");
         assert_eq!(facts.import_statements, 2, "both require sites count (literal and computed)");
-        let trip = tripwire_error(1, facts.import_statements, false, false, false, false)
+        let trip = tripwire_error(1, facts.import_statements, false, false, false, false, false)
             .expect("a broken extraction on a require-only tree must trip (N1/D7)");
         assert!(
             trip.contains("2 import statements"),
@@ -879,7 +919,7 @@ mod tests {
             vec!["orphan file: a.ts", "orphan file: b.ts"],
             "the census lists every zero-fact file, sorted (D1)"
         );
-        let trip = tripwire_error(2, 2, false, false, false, false)
+        let trip = tripwire_error(2, 2, false, false, false, false, false)
             .expect("census lines are not a stated fact: the tripwire still fires");
         assert!(trip.contains("ts driver tripwire"), "named tripwire: {trip}");
     }
@@ -932,7 +972,10 @@ mod tests {
     #[test]
     fn exclusion_hit_names_the_declared_entry_before_the_mechanical_dir() {
         let declared = Exclusions {
-            declared: vec![PathBuf::from("src/vendor")],
+            declared: vec![crate::archspec::spec::ExclusionEntry {
+                path: PathBuf::from("src/vendor"),
+                mode: "abort",
+            }],
         };
         assert_eq!(
             exclusion_hit(Path::new("src/vendor/legacy.ts"), Some(&declared)),

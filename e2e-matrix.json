@@ -2,8 +2,8 @@
   "schema": "archspec-e2e-matrix-v0",
   "generated_by": "tests/e2e_matrix.rs (generated, never hand-edited)",
   "denominator": {
-    "mode_cells": 59,
-    "exit_class_cells": 4,
+    "mode_cells": 64,
+    "exit_class_cells": 8,
     "line_class_rows": 19,
     "note": "the proposal heading says 58 verb-mode cells; the registry enumerates the table rows, which is the honest denominator"
   },
@@ -500,6 +500,66 @@
       "status": "pass"
     },
     {
+      "id": "inspect/clusters",
+      "verb": "inspect",
+      "mode": "--clusters",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect",
+        "tree",
+        "--clusters"
+      ],
+      "exit_class": 0,
+      "witness": "clustering overlay appends one structure line",
+      "status": "pass"
+    },
+    {
+      "id": "inspect/clusters-json",
+      "verb": "inspect",
+      "mode": "--json",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect",
+        "tree",
+        "--clusters",
+        "--json"
+      ],
+      "exit_class": 0,
+      "witness": "machine form carries exactly the additive clusters key",
+      "status": "pass"
+    },
+    {
+      "id": "inspect/clusters-mode-refusal",
+      "verb": "inspect",
+      "mode": "--clusters",
+      "kind": "exit-class",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect",
+        "--clusters"
+      ],
+      "exit_class": 64,
+      "witness": "the overlay is refused off the model modes",
+      "status": "pass"
+    },
+    {
+      "id": "inspect/json-requires-clusters",
+      "verb": "inspect",
+      "mode": "--json",
+      "kind": "exit-class",
+      "corpus": "rust-probe",
+      "args": [
+        "inspect",
+        "tree",
+        "--json"
+      ],
+      "exit_class": 64,
+      "witness": "the machine form is refused without --clusters",
+      "status": "pass"
+    },
+    {
       "id": "depgraph/modules",
       "verb": "depgraph",
       "mode": "modules",
@@ -940,6 +1000,86 @@
       ],
       "exit_class": 0,
       "witness": "wildcard report line on stderr; never in the machine body",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/aggregate-units",
+      "verb": "depgraph",
+      "mode": "modules --aggregate units",
+      "kind": "mode",
+      "corpus": "ts-agg",
+      "args": [
+        "depgraph",
+        "modules",
+        "--aggregate",
+        "units"
+      ],
+      "exit_class": 0,
+      "witness": "--aggregate units renders the 21 unit nodes and the unit-tier edges; the degraded-projection note never appears",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/aggregate-modules",
+      "verb": "depgraph",
+      "mode": "modules --aggregate modules",
+      "kind": "mode",
+      "corpus": "ts-agg",
+      "args": [
+        "depgraph",
+        "modules",
+        "--aggregate",
+        "modules"
+      ],
+      "exit_class": 0,
+      "witness": "--aggregate modules pins the single top-level node: no file-level nodes, no unit edges, no note",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/aggregate-invalid",
+      "verb": "depgraph",
+      "mode": "modules --aggregate invalid value",
+      "kind": "exit-class",
+      "corpus": "empty",
+      "args": [
+        "depgraph",
+        "modules",
+        "--aggregate",
+        "top"
+      ],
+      "exit_class": 64,
+      "witness": "E64 invalid aggregate level",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/aggregate-wrong-view",
+      "verb": "depgraph",
+      "mode": "submodules --aggregate refused",
+      "kind": "exit-class",
+      "corpus": "empty",
+      "args": [
+        "depgraph",
+        "submodules",
+        "--parent",
+        "x",
+        "--aggregate",
+        "units"
+      ],
+      "exit_class": 64,
+      "witness": "E64 --aggregate outside the modules view",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/automatic-under-cap-silent",
+      "verb": "depgraph",
+      "mode": "modules automatic under cap",
+      "kind": "mode",
+      "corpus": "ts-agg",
+      "args": [
+        "depgraph",
+        "modules"
+      ],
+      "exit_class": 0,
+      "witness": "the automatic file-level render under the 200-node cap prints no degraded-projection note",
       "status": "pass"
     }
   ],

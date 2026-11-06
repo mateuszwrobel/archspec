@@ -105,7 +105,7 @@ pub fn compare(
     }
     check_facade_roots(model, &mut diff);
     check_allowed_edges(&graph.pairs, &graph.value_pairs, model, modules, &claims, &mut diff);
-    check_missing_edges(&graph.pairs, &claims, &mut diff);
+    check_missing_edges(&graph.pairs, model, &mapping, &claims, &mut diff);
     let missing_components: BTreeSet<String> = diff.missing_components.iter().cloned().collect();
     check_claim_engagement(model, &claims, &missing_components, &mut diff.warnings);
     check_forbidden_laundering(

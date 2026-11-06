@@ -133,6 +133,16 @@ pub struct Model {
     /// serialized model ever carries it.
     #[serde(skip, default)]
     pub report_only_lines: Vec<String>,
+    /// ts-only fact site (GitHub issue 8 phase 2, decision-check BLOCKER-2):
+    /// the warning-severity findings of `mode = "warn"` excluded-source
+    /// hits, pre-rendered in the `<category>: <detail>` form the diff's
+    /// warnings channel consumes. Never red without `--strict`, never part
+    /// of the machine body — and never persisted: transient like
+    /// `report_only_lines`, skipped in both serde directions, and NEVER
+    /// routed through it: a report-only line can never go red, a warning
+    /// must.
+    #[serde(skip, default)]
+    pub warnings: Vec<String>,
 }
 
 /// The closed structural-role vocabulary of the model's `roles` map (ADR-017
@@ -326,6 +336,7 @@ impl Model {
             file_edges: Vec::new(),
             roles: BTreeMap::new(),
             report_only_lines: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 

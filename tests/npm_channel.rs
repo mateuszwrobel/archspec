@@ -20,8 +20,34 @@ fn load(rel: &str) -> String {
     fs::read_to_string(format!("{}/{rel}", manifest())).unwrap_or_else(|e| panic!("read {rel}: {e}"))
 }
 
+/// The release machinery as the SET of workflow files under
+/// `.github/workflows/` (sorted): since the 2026-10-19 rehearsal refactor
+/// the publish-gate and the five build jobs live in the reusable
+/// `build-matrix.yaml` that `release.yml` calls, so the emitted-bytes
+/// welds read the whole set while the release/npm-only structure keeps
+/// reading `release.yml` itself.
+fn load_workflows() -> String {
+    let dir = format!("{}/.github/workflows", manifest());
+    let mut names: Vec<String> = fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("read dir {dir}: {e}"))
+        .map(|entry| {
+            entry
+                .unwrap_or_else(|e| panic!("read entry in {dir}: {e}"))
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+        .iter()
+        .map(|name| load(&format!(".github/workflows/{name}")))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The five matrix asset names as `npm/lib/matrix.mjs` spells them, paired
-/// with the token form the payload's `release.yml` uses to emit them (the
+/// with the token form the payload's release machinery uses to emit them (the
 /// same pairing law `tests/blind5_release_prep.rs` pins for the doc surface).
 const MATRIX_PAIRS: &[(&str, &str)] = &[
     (
@@ -49,13 +75,13 @@ const MATRIX_PAIRS: &[(&str, &str)] = &[
 #[test]
 fn matrix_names_pair_with_the_release_machinery() {
     let matrix_src = load("npm/lib/matrix.mjs");
-    let release = load(".github/workflows/release.yml");
+    let release = load_workflows();
     for (matrix_form, release_suffix) in MATRIX_PAIRS {
         let ver_underbrace = matrix_form.replace("${version}", "${ver}");
         let ver_dollar = matrix_form.replace("${version}", "$ver");
         assert!(
             release.contains(ver_underbrace.as_str()) || release.contains(ver_dollar.as_str()),
-            "release.yml must emit {matrix_form} — doc, matrix and workflow cite the same bytes"
+            "the release machinery must emit {matrix_form} — doc, matrix and workflow cite the same bytes"
         );
         assert!(
             matrix_src.contains(matrix_form),
@@ -74,10 +100,22 @@ fn matrix_names_pair_with_the_release_machinery() {
 #[test]
 fn workflow_carries_the_freeze_gate_and_the_publish_job() {
     let release = load(".github/workflows/release.yml");
+    let mach = load_workflows();
     // Per-tag serialization without cancellation (republish-freeze law).
     assert!(release.contains("group: archspec-release-${{ github.ref_name }}"));
     assert!(release.contains("cancel-in-progress: false"));
-    // The gate job and every gated job.
+    // The release path reaches the gate through the reusable matrix:
+    // release.yml must call it, and the release/npm jobs must need it.
+    assert!(
+        release.contains("uses: ./.github/workflows/build-matrix.yaml"),
+        "release.yml must call the reusable build matrix"
+    );
+    assert!(
+        release.contains("needs: build-matrix"),
+        "the release job gates transitively on the matrix (gate + builds)"
+    );
+    // The gate job and every gated job — inside the reusable the matrix
+    // calls, which the release path and any rehearsal run identically.
     for job in [
         "build-linux-x86_64",
         "build-linux-aarch64",
@@ -86,20 +124,19 @@ fn workflow_carries_the_freeze_gate_and_the_publish_job() {
         "build-windows-x86_64",
     ] {
         assert!(
-            release.contains(&format!("{job}:\n    needs: publish-gate")),
+            mach.contains(&format!("{job}:\n    needs: publish-gate")),
             "job {job} must gate on publish-gate"
         );
     }
-    assert!(release.contains("      - publish-gate"), "the release job gates too");
-    assert!(release.contains("sh npm/scripts/gate-tag.sh"));
-    assert!(release.contains("sh npm/scripts/gate-registry.sh"));
+    assert!(mach.contains("sh npm/scripts/gate-tag.sh"));
+    assert!(mach.contains("sh npm/scripts/gate-registry.sh"));
     // Trusted publishing: OIDC, no token, npm floor, provenance assert.
     assert!(release.contains("id-token: write"));
     // A YAML-wired token is forbidden; the in-job guard reads the variable
     // with the `:-` default form, so only the colon+space key form is a wire.
     assert!(
-        !release.contains("NODE_AUTH_TOKEN: "),
-        "the workflow must never wire a token"
+        !mach.contains("NODE_AUTH_TOKEN: "),
+        "no workflow in the set may wire a token"
     );
     assert!(release.contains("NODE_AUTH_TOKEN:-"));
     assert!(release.contains("11.5.1"), "the npm floor is asserted in-job");
@@ -107,7 +144,7 @@ fn workflow_carries_the_freeze_gate_and_the_publish_job() {
     assert!(release.contains("assert-attestations.sh"));
     // Fail-closed uploads (finding M2): five build jobs, five error settings.
     assert_eq!(
-        release.matches("if-no-files-found: error").count(),
+        mach.matches("if-no-files-found: error").count(),
         5,
         "every upload-artifact step fails closed on an empty asset dir"
     );
@@ -123,7 +160,7 @@ fn tag_gate_and_sidecar_formats_are_the_portable_shapes() {
         gate.contains("^v[0-9]+\\.[0-9]+\\.[0-9]+$"),
         "the publish-gate refuses suffix tags with the exact shape regex"
     );
-    let release = load(".github/workflows/release.yml");
+    let release = load_workflows();
     assert!(
         release.contains("\"$hash  $zip`n\""),
         "the windows sidecar is written as hash␣␣filename LF — the portable `sha256sum -c` shape (finding M1)"

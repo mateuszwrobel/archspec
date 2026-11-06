@@ -1839,8 +1839,8 @@ fn gen_imports_map_target_without_gitignore_evidence_stays_red() {
 }
 
 /// Fixture GEN-NOTBUILT-ALIAS (R12): the alias-target-not-found arm with a
-/// gitignored computed target (the open-mercato `.mercato` family — 107
-/// pilot reds) rides the report line. The unanchored `.mercato` pattern
+/// gitignored computed target (a generated-file dot family — 107 pilot
+/// reds) rides the report line. The unanchored `.gencache` pattern
 /// carries at ANY depth (fidelity law).
 #[test]
 fn gen_not_built_alias_target_rides_the_report_line() {
@@ -1848,15 +1848,15 @@ fn gen_not_built_alias_target_rides_the_report_line() {
     tree.write("package.json", "{\n  \"name\": \"demo-ui\"\n}\n");
     tree.write(
         "tsconfig.json",
-        "{\n  \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@mercato/*\": [\"./.mercato/*\"] } }\n}\n",
+        "{\n  \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@gencache/*\": [\"./.gencache/*\"] } }\n}\n",
     );
     tree.write(
         ".gitignore",
-        "node_modules/\n.mercato\n",
+        "node_modules/\n.gencache\n",
     );
     tree.write(
         "src/main.ts",
-        "import { map } from \"@mercato/map\";\nexport const m = map;\n",
+        "import { map } from \"@gencache/map\";\nexport const m = map;\n",
     );
     let scan = tree.run(&["scan", "."]);
     let stderr = common::stderr(&scan);
@@ -1867,7 +1867,7 @@ fn gen_not_built_alias_target_rides_the_report_line() {
     assert!(
         stderr_carries_line(
             &stderr,
-            "generated source not built: @mercato/map — gitignored .gitignore:2"
+            "generated source not built: @gencache/map — gitignored .gitignore:2"
         ),
         "the line names the verbatim specifier and the evidence file:line:\n{stderr}"
     );
@@ -1890,11 +1890,11 @@ fn gen_alias_target_without_gitignore_evidence_stays_red() {
     tree.write("package.json", "{\n  \"name\": \"demo-ui\"\n}\n");
     tree.write(
         "tsconfig.json",
-        "{\n  \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@mercato/*\": [\"./.mercato/*\"] } }\n}\n",
+        "{\n  \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@gencache/*\": [\"./.gencache/*\"] } }\n}\n",
     );
     tree.write(
         "src/main.ts",
-        "import { map } from \"@mercato/map\";\nexport const m = map;\n",
+        "import { map } from \"@gencache/map\";\nexport const m = map;\n",
     );
     let scan = tree.run(&["scan", "."]);
     let stderr = common::stderr(&scan);
@@ -2090,7 +2090,7 @@ fn gen_anchored_pattern_carries_only_its_directory() {
 
 /// Fixture GEN-RELATIVE (R12 generality law): the generated class covers
 /// RELATIVE specifiers too — an absent `./generated/...` target ignored by
-/// a committed `.gitignore` is report-only (the open-mercato storybook
+/// a committed `.gitignore` is report-only (a hoisted-monorepo story
 /// shape), and without the ignore evidence the red stands (vacuity twin).
 #[test]
 fn gen_relative_import_gitignored_is_report_only() {
@@ -2637,9 +2637,10 @@ fn mjs_importer_resolves_literal_and_mapped_targets() {
 // and `jest.requireMock` are NOT sites (D6); unresolvable literal requires
 // fail loud through the existing law (Scenario 6).
 
-/// Scenario "a literal require is an ordinary edge" (pilot shape
-/// `apps/mercato/jest.config.cjs:2`): the `.cjs` config require states one
-/// `(from, to, type_only=false)` row with an EMPTY symbols list (D1/D4).
+/// Scenario "a literal require is an ordinary edge" (pilot shape: a
+/// hoisted monorepo app's `jest.config.cjs:2`): the `.cjs` config require
+/// states one `(from, to, type_only=false)` row with an EMPTY symbols
+/// list (D1/D4).
 #[test]
 fn literal_require_in_cjs_is_an_ordinary_value_edge() {
     let tree = ts_tree(&[

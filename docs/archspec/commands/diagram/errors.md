@@ -10,6 +10,7 @@ Every failure produces a clear human message naming the cause and a **non-zero e
 | project path is a regular file | the path is invalid and why | non-zero |
 | no `architecture.spec.toml` in the project directory | that no spec was found, and where | non-zero |
 | the spec file fails to parse | the name of the failing file | non-zero |
+| the spec carries a key the model does not define (`unknown key(s) "<key>" <location>`, fail-closed at load: top level, `[project]` and its `excluded_sources` entries, `[[stereotype]]` entries and their `match` tables, module claims with recursive `submodules` and their `matches`/`contract`/`allowed` tables, `[[constraint]]` entries; `allowed` array entries stay owned by the entry-level refusal) | the file, the unexpected key(s), and where the key sits | non-zero |
 | scan artefact does not exist | the missing artefact path | non-zero |
 | scan artefact is not a valid model snapshot | the artefact path and that it is invalid | non-zero |
 | model contains nothing to render | that there is no model content | non-zero |

@@ -158,9 +158,167 @@ fn top_full_name(dotted: &str) -> Option<String> {
 /// rendered by the top-level rule byte-for-byte unchanged, and a one-node
 /// projection with nothing distinct below it keeps its single node.
 pub fn modules_graph(model: &Model) -> ModuleGraph {
-    let node = projection_node(model);
+    project_marked(model, projection_node(model))
+}
+
+/// Project through one node function and attach the markers of that same
+/// fold. The shared body of every whole-tier graph view (automatic and
+/// forced), so a forced level cannot drift from the automatic one in
+/// marker or drop-count handling.
+fn project_marked(model: &Model, node: fn(&str) -> String) -> ModuleGraph {
     let mut graph = project(model, node);
     let markers = fold_markers(model, |path| Some(node(path)), &graph.nodes);
+    graph.markers = markers
+        .0
+        .into_iter()
+        .filter(|(name, _)| graph.nodes.contains(name))
+        .collect();
+    graph.unplaced_claims = markers.1;
+    graph
+}
+
+/// The module-tier projection pinned to the top level: the automatic rule's
+/// first trial with no fold and no descent (`--aggregate modules`). A tree
+/// whose whole tier folds onto one node renders that one node honestly; the
+/// view never reads the deeper arms here.
+pub fn top_modules_graph(model: &Model) -> ModuleGraph {
+    project_marked(model, top_node)
+}
+
+/// The upper bound on what the AUTOMATIC projection may render before the
+/// view calls itself degraded. Justification of the number: the vocabulary
+/// the automatic rule aims at is a project's module list, and a module list
+/// a dependency doc can print is hundreds of entries at most; the reported
+/// incident renders 68,563 lines — one node per file. A graph over 200 nodes
+/// therefore cannot be read as a module picture (the largest healthy trees
+/// this tool's goldens and probes carry stay an order of magnitude below
+/// the cap), and the automatic rule has landed below module granularity —
+/// file-level nodes wherever the module tier is file-grained. The cap is a
+/// note threshold, not a render limit: the graph still prints in full. It
+/// guards the automatic path only; an explicit `--aggregate` level is never
+/// capped.
+pub const AUTOMATIC_PROJECTION_NODE_CAP: usize = 200;
+
+/// The one degraded-render note (stderr, automatic path only): names the
+/// degradation and the count, stays honest about the condition (file-level
+/// nodes WHERE the module tier is file-grained), and points at the flag
+/// that forces a coarser level. It never replaces or trims the render.
+pub fn degraded_projection_note(count: usize) -> String {
+    format!("note: the automatic projection rendered {count} nodes below module granularity (file-level nodes where the module tier is one module per file) — pass --aggregate units to force the unit tier or --aggregate modules to pin the top level")
+}
+
+/// The unit a module path or file path belongs to, as a pure function of the
+/// serialized model facts — the scan-side directory-ownership rule read
+/// backwards from `units` (name and path) with no driver, no filesystem,
+/// and no language branch. A dotted module path (`unit::a::b`) addresses
+/// its unit by name prefix: the path equals the unit name or continues it
+/// with one more segment (rust/csharp/go units, whose names carry the whole
+/// dotted prefix). A file-path endpoint (`dir/file.ts`, the ts driver's
+/// module identity) addresses its unit by the LONGEST unit-directory path
+/// that is a directory prefix — the root unit (path `.`) owns every file no
+/// member directory owns, exactly as the ts scan's own ownership rule does.
+/// A key that matches nothing (a lifted separator spelling under no member
+/// directory) attributes to no unit and contributes no edge — the rule
+/// never invents an owner.
+pub fn unit_of_path(model: &Model, path: &str) -> Option<String> {
+    if path.contains('/') {
+        return directory_owner(model, path, true)
+            .or_else(|| name_prefix_owner(model, path));
+    }
+    name_prefix_owner(model, path).or_else(|| {
+        // A native `/` key lifted to the `::` spelling by fold_markers'
+        // separator lift: retry as a directory path, but WITHOUT the root
+        // catch-all — a lifted spelling says nothing about root membership.
+        let lifted = path.replace("::", "/");
+        (lifted != *path).then(|| directory_owner(model, &lifted, false)).flatten()
+    })
+}
+
+/// The unit whose `path` is the longest directory prefix of `slashed`.
+/// `root_wins` lets the root unit (path `.`) claim files no member owns —
+/// granted only for a path spelled with real `/` separators.
+fn directory_owner(model: &Model, slashed: &str, root_wins: bool) -> Option<String> {
+    let mut best: Option<(usize, &str)> = None;
+    let mut root: Option<&str> = None;
+    for unit in &model.units {
+        let dir = unit.path.trim_end_matches('/');
+        if dir == "." {
+            root = Some(unit.name.as_str());
+            continue;
+        }
+        if (slashed == dir || slashed.starts_with(&format!("{dir}/")))
+            && best.is_none_or(|(len, _)| dir.len() > len)
+        {
+            best = Some((dir.len(), unit.name.as_str()));
+        }
+    }
+    best.map(|(_, name)| name.to_string())
+        .or_else(|| root.filter(|_| root_wins).map(String::from))
+}
+
+/// The unit whose name (or path) is the dotted prefix of `path`, longest
+/// match first. Both spellings normalize `::` and `/` to `.` — the same
+/// separator tolerance `parent_matches` applies to identity lookups.
+fn name_prefix_owner(model: &Model, path: &str) -> Option<String> {
+    let key = normalize_dotted(path);
+    let mut best: Option<(usize, &str)> = None;
+    for unit in &model.units {
+        for candidate in [unit.name.as_str(), unit.path.as_str()] {
+            let candidate = normalize_dotted(candidate);
+            if candidate.is_empty() || candidate == "." {
+                continue;
+            }
+            if (key == candidate || key.starts_with(&format!("{candidate}.")))
+                && best.is_none_or(|(len, _)| candidate.len() > len)
+            {
+                best = Some((candidate.len(), unit.name.as_str()));
+            }
+        }
+    }
+    best.map(|(_, name)| name.to_string())
+}
+
+fn normalize_dotted(path: &str) -> String {
+    path.replace("::", ".").replace('/', ".")
+}
+
+/// The unit-tier projection (`--aggregate units`): one node per model unit;
+/// unit-tier dependency edges (`edges`) appear directly, and module-tier
+/// edges (`module_edges`) appear as the edge between the two endpoint units
+/// under [`unit_of_path`] — an edge whose endpoints attribute to one unit
+/// (or to no unit) is tier-internal or unnamed and emits nothing. This is
+/// the coarser honest picture the degraded-render note points at. Roles
+/// fold through the same attribution: a key landing on a unit the graph
+/// renders carries its role, a key outside it names no node and states
+/// nothing, exactly as in the module views.
+pub fn units_graph(model: &Model) -> ModuleGraph {
+    let mut graph = ModuleGraph::default();
+    for unit in &model.units {
+        graph.add_node(&unit.name);
+    }
+    for edge in &model.edges {
+        if edge.from == edge.to {
+            continue;
+        }
+        graph.add_node(&edge.from);
+        graph.add_node(&edge.to);
+        graph.edges.insert((edge.from.clone(), edge.to.clone()));
+    }
+    for edge in &model.module_edges {
+        let (Some(from), Some(to)) = (
+            unit_of_path(model, &edge.from),
+            unit_of_path(model, &edge.to),
+        ) else {
+            continue;
+        };
+        if from == to {
+            continue;
+        }
+        graph.add_node(&from);
+        graph.add_node(&to);
+        graph.edges.insert((from, to));
+    }
+    let markers = fold_markers(model, |path| unit_of_path(model, path), &graph.nodes);
     graph.markers = markers
         .0
         .into_iter()
@@ -599,6 +757,7 @@ mod tests {
                 dynamic_import_wildcards: Default::default(),
             schema_version: 1,
             report_only_lines: Vec::new(),
+            warnings: Vec::new(),
             language: "rust".to_string(),
             units: vec![Unit {
                 name: unit.to_string(),
@@ -1392,5 +1551,209 @@ mod tests {
             graph.unplaced_claims, 2,
             "the submodules view counts the same stated drop as modules"
         );
+    }
+
+    // --- forced aggregation levels + the degraded-projection note (issue 5) --
+
+    fn unit_at(name: &str, path: &str) -> Unit {
+        Unit {
+            name: name.to_string(),
+            kind: "package".to_string(),
+            path: path.to_string(),
+            root: String::new(),
+            crate_ids: BTreeSet::new(),
+        }
+    }
+
+    /// A ts-workspace-shaped model: units carry directory paths, the module
+    /// tier IS file paths (the capability matrix's file-grained row), and the
+    /// model carries no soft tier at all — the exact shape whose automatic
+    /// projection renders one node per file.
+    fn ts_shape_model() -> Model {
+        let base = model_with("mono", Vec::new(), Vec::new());
+        Model {
+            dynamic_import_wildcards: Default::default(),
+            language: "ts".to_string(),
+            soft_structure: Default::default(),
+            units: vec![
+                unit_at("mono", "."),
+                unit_at("@mono/a", "packages/a"),
+                unit_at("@mono/b", "packages/b"),
+            ],
+            module_edges: vec![ModuleEdge {
+                unit: "@mono/a".to_string(),
+                from: "packages/a/src/index.ts".to_string(),
+                to: "packages/b/src/index.ts".to_string(),
+                symbols: Default::default(),
+                type_only: false,
+            }],
+            ..base
+        }
+    }
+
+    /// The mechanism pin (issue 5's verified code truth): on a file-grained
+    /// module tier the automatic rule reaches the identity arm — the fold
+    /// trials fold every file path onto `root`, so the identity projection IS
+    /// the file graph. This is what the degraded note guards and `--aggregate`
+    /// bypasses.
+    #[test]
+    fn identity_fold_renders_one_node_per_file_on_a_file_grained_tier() {
+        let graph = modules_graph(&ts_shape_model());
+        assert_eq!(
+            graph.nodes.iter().cloned().collect::<Vec<_>>(),
+            vec![
+                "packages/a/src/index.ts".to_string(),
+                "packages/b/src/index.ts".to_string()
+            ],
+            "the automatic rule must land on the file identities"
+        );
+        assert!(graph
+            .edges
+            .contains(&("packages/a/src/index.ts".to_string(), "packages/b/src/index.ts".to_string())));
+    }
+
+    #[test]
+    fn unit_of_path_attributes_every_driver_spelling() {
+        // Dotted module paths: the unit name is the dotted prefix.
+        let rust = model_with("app", vec!["app::core"], Vec::new());
+        assert_eq!(unit_of_path(&rust, "app::core").as_deref(), Some("app"));
+        assert_eq!(unit_of_path(&rust, "app").as_deref(), Some("app"));
+        let go = model_with("example.com::demo", Vec::new(), Vec::new());
+        assert_eq!(
+            unit_of_path(&go, "example.com::demo::app").as_deref(),
+            Some("example.com::demo")
+        );
+        let mut csharp = csharp_like_model();
+        csharp.units = vec![unit("Shop.Api"), unit("Shop.Application"), unit("Shop.Domain")];
+        assert_eq!(
+            unit_of_path(&csharp, "Shop::Api::Controllers").as_deref(),
+            Some("Shop.Api"),
+            "the namespace prefix attributes to its project"
+        );
+        // File paths: the longest owning directory; the root unit owns what
+        // no member directory claims; the `::`-lifted spelling resolves too.
+        let ts = ts_shape_model();
+        assert_eq!(
+            unit_of_path(&ts, "packages/a/src/index.ts").as_deref(),
+            Some("@mono/a")
+        );
+        assert_eq!(
+            unit_of_path(&ts, "packages::a::src::index.ts").as_deref(),
+            Some("@mono/a")
+        );
+        assert_eq!(unit_of_path(&ts, "src/x.ts").as_deref(), Some("mono"));
+        // No candidate, no claim: an unattributable dotted path invents no owner.
+        assert_eq!(unit_of_path(&ts, "ghost::thing"), None);
+    }
+
+    #[test]
+    fn units_graph_projects_file_tier_edges_onto_their_units() {
+        let graph = units_graph(&ts_shape_model());
+        assert_eq!(
+            graph.nodes.iter().cloned().collect::<Vec<_>>(),
+            vec![
+                "@mono/a".to_string(),
+                "@mono/b".to_string(),
+                "mono".to_string()
+            ],
+            "the unit tier is one node per model unit"
+        );
+        assert_eq!(
+            graph.edges.iter().cloned().collect::<Vec<_>>(),
+            vec![(
+                "@mono/a".to_string(),
+                "@mono/b".to_string()
+            )],
+            "a cross-package import edge lands on the two owning units"
+        );
+    }
+
+    #[test]
+    fn units_graph_keeps_edges_inside_one_unit_tier_internal() {
+        let base = ts_shape_model();
+        let model = Model {
+            module_edges: vec![
+                ModuleEdge {
+                    unit: "@mono/a".to_string(),
+                    from: "packages/a/src/index.ts".to_string(),
+                    to: "packages/a/src/util.ts".to_string(),
+                    symbols: Default::default(),
+                    type_only: false,
+                },
+                ModuleEdge {
+                    unit: "@mono/a".to_string(),
+                    from: "packages/a/src/index.ts".to_string(),
+                    to: "packages/b/src/index.ts".to_string(),
+                    symbols: Default::default(),
+                    type_only: false,
+                },
+            ],
+            ..base
+        };
+        let graph = units_graph(&model);
+        assert_eq!(
+            graph.edges.len(),
+            1,
+            "a same-unit file edge must not surface as a unit edge: {:?}",
+            graph.edges
+        );
+    }
+
+    #[test]
+    fn units_graph_adds_unit_edges_from_the_unit_tier_directly() {
+        let base = model_with("app", vec!["app::core"], Vec::new());
+        let mut model = Model {
+            units: vec![unit_at("app", "."), unit_at("web", "crates/web")],
+            edges: vec![Edge {
+                from: "web".to_string(),
+                to: "app".to_string(),
+            }],
+            ..base
+        };
+        model.module_edges.clear();
+        let graph = units_graph(&model);
+        assert!(graph
+            .edges
+            .contains(&("web".to_string(), "app".to_string())));
+    }
+
+    #[test]
+    fn top_modules_graph_pins_the_top_projection_past_the_fold() {
+        // The go-fold shape: the automatic rule descends to the packages
+        // below the fold; the forced top level renders the fold itself.
+        let model = model_with(
+            "example.com::demo",
+            Vec::new(),
+            vec![("example.com::demo::app", "example.com::demo::shared", &[] as &[&str])],
+        );
+        let automatic = modules_graph(&model);
+        assert_eq!(automatic.nodes.len(), 2, "the automatic rule descends");
+        let pinned = top_modules_graph(&model);
+        assert_eq!(
+            pinned.nodes.iter().cloned().collect::<Vec<_>>(),
+            vec!["demo".to_string()],
+            "the pinned top level never descends"
+        );
+        assert!(pinned.edges.is_empty(), "a one-node projection emits no edge");
+    }
+
+    #[test]
+    fn top_modules_graph_matches_the_automatic_bytes_on_a_healthy_tree() {
+        let model = model_with(
+            "app",
+            vec!["app::core", "app::ui"],
+            vec![("app::core", "app::ui", &[] as &[&str])],
+        );
+        let auto = render_mermaid(&modules_graph(&model));
+        let pinned = render_mermaid(&top_modules_graph(&model));
+        assert_eq!(auto, pinned, "a multi-node projection has nothing to bypass");
+    }
+
+    #[test]
+    fn degraded_note_names_the_count_and_the_flag() {
+        let note = degraded_projection_note(68563);
+        assert!(note.contains("68563"), "{note}");
+        assert!(note.contains("--aggregate units"), "{note}");
+        assert!(note.starts_with("note: "), "{note}");
     }
 }

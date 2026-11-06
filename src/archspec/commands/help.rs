@@ -188,6 +188,20 @@ key namespaces:
   extracted tree; bare last-segment matching there is case-sensitive. Full
   rules: 'archspec help glob'.
 
+allowed.depend_on is adjudicated on two layers. Floor: every declared entry
+must be exercised by a pair on the pair graph — the union of unit-tier
+manifest edges and module-tier import edges whose endpoints module claims
+own. Ceiling: every attributed boundary-crossing pair must be declared. A
+pair present in code but absent from depend_on fails as `disallowed
+cross-component dependency`; the same pair declared while no exercised edge
+exists fails as `missing edge`. That phantom dead-end is designed dependency
+honesty: declare all real pairs, fix the manifests, then tighten the sets.
+Per language the unit tier reads these manifest sections: ts — dependencies,
+devDependencies, peerDependencies and optionalDependencies; rust —
+[dependencies] only. Test-gated evidence neither satisfies the floor nor
+engages the ceiling: rust gates on cfg(test); ts gates on a test-file name
+in a package whose manifest declares vitest or jest.
+
 types and their keys:
   no_cycles                     keys: modules, severity
     detect cycles over the declared module groups (unit and/or module edges);

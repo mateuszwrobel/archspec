@@ -23,6 +23,11 @@
       "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
     },
     {
+      "path": "inspect-clusters/tie-dense.txt",
+      "fingerprint": "fnv1a64-c0ee7b89e565d84e",
+      "derivation_event": "recorded from the greedy-modularity clustering overlay (`inspect tree --clusters`, schema archspec-clusters-v0), lane A of workplan archspec_inspect_clusters"
+    },
+    {
       "path": "inspect-tree/csharp.mmd",
       "fingerprint": "fnv1a64-913d83e6cb57e0ef",
       "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
@@ -44,23 +49,23 @@
     },
     {
       "path": "report/csharp.json",
-      "fingerprint": "fnv1a64-68641b24e4171f70",
-      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+      "fingerprint": "fnv1a64-778f0408effbff45",
+      "derivation_event": "report edges row sub-count split (GitHub issue #10): report --format json metrics gain violations_undeclared_dependency and violations_boundary_violation"
     },
     {
       "path": "report/go-workspace.json",
-      "fingerprint": "fnv1a64-39f9f6a505b2f9f8",
-      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+      "fingerprint": "fnv1a64-45e977403f43106f",
+      "derivation_event": "report edges row sub-count split (GitHub issue #10): report --format json metrics gain violations_undeclared_dependency and violations_boundary_violation"
     },
     {
       "path": "report/go.json",
-      "fingerprint": "fnv1a64-deefffb00b097b82",
-      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+      "fingerprint": "fnv1a64-564f27079dc0b159",
+      "derivation_event": "report edges row sub-count split (GitHub issue #10): report --format json metrics gain violations_undeclared_dependency and violations_boundary_violation"
     },
     {
       "path": "report/rust.json",
-      "fingerprint": "fnv1a64-bb16f7befd70077c",
-      "derivation_event": "recorded from the grammar-based extraction (extraction_freeze baseline, archspec <=0.6.27)"
+      "fingerprint": "fnv1a64-f34e2bde04225cd1",
+      "derivation_event": "report edges row sub-count split (GitHub issue #10): report --format json metrics gain violations_undeclared_dependency and violations_boundary_violation"
     },
     {
       "path": "scan/csharp.json",

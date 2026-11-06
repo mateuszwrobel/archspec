@@ -2,8 +2,8 @@
 
 ## Destination
 
-- **`spec --schema`:** a JSON Schema (draft-07) written to **stdout**, exit code `0`.
-- **`spec`:** the annotated reference TOML written to **stdout**, exit code `0`.
+- **`spec --schema`:** a JSON Schema (draft-07) written to **stdout**, exit code `0`. Every table shape carries `additionalProperties: false`; the accepted keys come from the one shared key table the runtime unknown-key validator reads, so a key the model does not define is refused by the schema exactly as the loader refuses it — naming the key and where it sits. The schema matches the runtime validator (one shared key table, welded by a test).
+- **`spec`:** the annotated reference TOML written to **stdout**, exit code `0`. The reference lists every accepted `[project]` key, including `excluded_sources` (the declared source exclusion: `path` + `reason` mandatory per entry, optional `mode` dial `abort` | `warn`, every entry printed in every run's report).
 - Stderr is empty on success. Errors go to stderr (see `errors.md`).
 
 ## Schema output (`--schema`)
@@ -15,12 +15,13 @@ A JSON object (pretty-printed, newline-terminated) with:
 | `$schema` | `http://json-schema.org/draft-07/schema#` |
 | `title` | a human-readable title |
 | `type` | `"object"` |
+| `additionalProperties` | `false` |
 | `properties` | `project`, `module`, `constraint`, `stereotype` |
 
-- `project`: object with `language` **required**, enumerated by the ONE driver-name table the schema renders (the enum is computed, never a hand-maintained copy); optional `framework`, enumerated by the driver-side framework registry the schema computes.
-- `module`: array of objects — `name` **required**; `matches` accepts `units` and `modules` (arrays of strings); `contract` accepts the enforced `forbid`, while `expose` is reserved and rejected on presence (`"not": { "required": ["expose"] }` — an empty list is rejected too); `allowed` accepts `depend_on`/`forbidden`; `submodules` recurses to the same module shape — with `matches.units` declarable only on top-level modules: a submodule declares the module tier only, so `matches.units` on a submodule is rejected at parse.
-- `constraint`: array of objects — `type` enumerated over all 7 types; per-type `required` arrays match the shared required-field table exactly (see `../../spec.md`); `severity` is optional and enumerated as `["error", "warning"]`; `modules` is an optional array of strings.
-- `stereotype`: array of objects with a string `name`.
+- `project`: object with `language` **required**, enumerated by the ONE driver-name table the schema renders (the enum is computed, never a hand-maintained copy); optional `framework`, enumerated by the driver-side framework registry the schema computes; optional `excluded_sources`, an array of `{ path, reason, mode }` tables — `path` and `reason` **required** and non-empty, `mode` optional and enumerated as `["abort", "warn"]` (the default is `abort`), no other key accepted (the declared source exclusion, D14).
+- `module`: array of objects — `name` **required**; `matches` accepts `names`, `paths`, `units` and `modules` (arrays of strings; `names`/`paths` are the stereotype vocabulary, parsed on a module claim but not resolved there); `contract` accepts the enforced `forbid` and the enforced `expose` (the expose chain law); `allowed` accepts `depend_on`/`forbidden`; `submodules` recurses to the same module shape — with `matches.units` declarable only on top-level modules: a submodule declares the module tier only, so `matches.units` on a submodule is rejected at parse. An entry key outside these is an unknown-key refusal (see `errors.md`).
+- `constraint`: array of objects — `type` enumerated over all 7 types; per-type `required` arrays match the shared required-field table exactly (see `../../spec.md`); the entry shape lists every key any type accepts (`severity`, `scope`, `modules`, `allowed`, `from`, `forbid`, `require_publish`, `forbidden_dependencies`, `required_features`, `feature`, `gated_modules`, `allowed_from`, `parent`); the shape is fail-closed, so a key outside it is refused at load naming the key and its location; `severity` is optional and enumerated as `["error", "warning"]`.
+- `stereotype`: array of objects with a string `name` and an optional `match` table.
 
 ## Reference output
 
@@ -37,7 +38,7 @@ language = "rust"   # the computed enum — rust | csharp | go | ts | python
 [[module]]
 name = "domain"                                   # required
 matches = { units = ["core"], modules = ["Billing::domain"] }
-contract = { forbid = ["entity"] }                 # expose is reserved: declaring it is a schema error
+contract = { forbid = ["entity"] }                 # forbid and expose are both enforced (the expose chain law)
 [module.allowed]
 depend_on = ["domain", "ports"]
 forbidden = ["infrastructure"]

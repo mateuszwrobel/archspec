@@ -443,7 +443,7 @@ impl<'a> Adjudicator<'a> {
                 }
             }
             for (path, _members) in
-                file_tier_report_cycles(constraint, &self.derived, &group, &claim_cycle_edges, &self.claims)
+                file_tier_report_cycles(&constraint.modules, &self.derived, &group, &claim_cycle_edges, &self.claims)
             {
                 for pair in path.windows(2) {
                     marks.insert((pair[0].clone(), pair[1].clone()));

@@ -16,10 +16,11 @@ The first positional selects the view and is required. `path` is the second posi
 | `--parent <module>` | parent top-level module to expand | required for `submodules` |
 | `--output <path>` | write the body to that file; `-` prints it on stdout and creates no file | stdout |
 | `--check` | compare the body to its destination without writing | off |
+| `--aggregate <units\|modules>` | force the projection level in the modules view, bypassing the automatic rule | automatic rule |
 
 ## Views
 
-- `modules` — top-level module dependency graph; when that projection folds the whole tier onto a single node, the view renders one level deeper (the paths below the fold become the nodes). `--format mermaid` (default) or `plantuml`.
+- `modules` — top-level module dependency graph; when that projection folds the whole tier onto a single node, the view renders one level deeper (the paths below the fold become the nodes). `--aggregate units` renders the model's units and their edges instead; `--aggregate modules` pins the top level with no descent. An automatic render above 200 nodes adds one stderr note naming the degraded projection — stdout and exit are unchanged. `--format mermaid` (default) or `plantuml`.
 - `api-usage` — Markdown table of used APIs grouped by target module. `markdown` only.
 - `submodules` — graph of one parent module's immediate children. `--parent <module>` required; `--format mermaid` (default) or `plantuml`.
 

@@ -29,13 +29,24 @@ pub struct Metrics {
     pub edges_internal: usize,
     /// External dependency edges (unit→external targets).
     pub edges_external: usize,
-    /// Distinct dependency cycles found (error- and warning-severity).
+    /// Distinct dependency cycles found (error- and warning-severity), stated
+    /// from the extracted model whether or not a `no_cycles` constraint is
+    /// declared — visibility is constraint-independent.
     pub cycles: usize,
     /// Violations in the components category (missing, unexpected, unassigned).
     pub violations_components: usize,
-    /// Violations in the edges category (forbidden, missing, disallowed,
-    /// facade).
+    /// Violations in the edges category: the exact sum of the two sub-counts
+    /// below (undeclared dependencies plus boundary violations).
     pub violations_edges: usize,
+    /// Undeclared-dependency findings inside the edges category: `missing
+    /// edge` plus `disallowed cross-component dependency` — pairs the spec
+    /// and the code disagree about in the declaration direction (GitHub
+    /// issue #10 splits the edges row into these two sub-counts).
+    pub violations_undeclared_dependency: usize,
+    /// Boundary-violation findings inside the edges category: `forbidden edge
+    /// present` plus `facade dependency` — edges the boundary rules ban
+    /// outright.
+    pub violations_boundary_violation: usize,
     /// Violations in the contracts category (contract leaks).
     pub violations_contracts: usize,
     /// Violations in the cycles category.
@@ -74,16 +85,19 @@ pub fn compute_metrics(model: &Model, mapping: &Mapping, modules: &[Module], dif
     // the renderers consume) so no counted violation can miss the metrics.
     // An unknown category lands in `contracts` — fail closed, never invisible.
     let mut components_violations = 0usize;
-    let mut edges_violations = 0usize;
+    let mut undeclared_violations = 0usize;
+    let mut boundary_violations = 0usize;
     let mut contracts_violations = 0usize;
     for (category, entries) in diff.error_fields() {
         match category {
             "missing component" | "unexpected component" | "unassigned unit" | "ambiguous module match" => {
                 components_violations += entries.len();
             }
-            "forbidden edge present" | "missing edge" | "disallowed cross-component dependency"
-            | "facade dependency" => {
-                edges_violations += entries.len();
+            "forbidden edge present" | "facade dependency" => {
+                boundary_violations += entries.len();
+            }
+            "missing edge" | "disallowed cross-component dependency" => {
+                undeclared_violations += entries.len();
             }
             "cycle detected in" => {}
             _ => contracts_violations += entries.len(),
@@ -96,7 +110,9 @@ pub fn compute_metrics(model: &Model, mapping: &Mapping, modules: &[Module], dif
         edges_external: external,
         cycles,
         violations_components: components_violations,
-        violations_edges: edges_violations,
+        violations_edges: undeclared_violations + boundary_violations,
+        violations_undeclared_dependency: undeclared_violations,
+        violations_boundary_violation: boundary_violations,
         violations_contracts: contracts_violations,
         violations_cycles: cycles,
     }
@@ -390,11 +406,16 @@ fn metric_rows(metrics: &Metrics) -> Vec<(&'static str, usize)> {
     ]
 }
 
-/// Category rows in canonical order (components, edges, contracts, cycles).
+/// Category rows in canonical order (components, edges with its two
+/// sub-counts, contracts, cycles). The sub-count rows state the exact split
+/// of the edges row (GitHub issue #10): undeclared dependencies plus boundary
+/// violations sum to it.
 fn category_rows(metrics: &Metrics) -> Vec<(&'static str, usize)> {
     vec![
         ("components", metrics.violations_components),
         ("edges", metrics.violations_edges),
+        ("undeclared-dependency", metrics.violations_undeclared_dependency),
+        ("boundary-violation", metrics.violations_boundary_violation),
         ("contracts", metrics.violations_contracts),
         ("cycles", metrics.violations_cycles),
     ]

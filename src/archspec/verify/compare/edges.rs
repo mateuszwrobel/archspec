@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use super::adjudicate::{Verdict, pair_verdict};
-use super::claims::{Claim, claim_unit_named};
+use super::claims::{Claim, claim_unit_fallback, claim_unit_named};
 use super::cycles::{submodule_identity, ts_submodule_identity};
 use super::diff::Diff;
 use super::mapping::{Mapping, is_test_module};
@@ -14,6 +14,14 @@ use super::claims::subtree_names;
 
 use crate::archspec::model::{Model, ModuleEdge, Role};
 use crate::archspec::spec::{Constraint, Module};
+
+/// The reason a `missing edge` verdict names, appended to the stored
+/// `"X -> Y"` text before the diff renderer's `missing edge: ` prefix. The
+/// three suffixes are falsifiable surfaces: the docs rows and the diagnostics
+/// catalog name them byte-for-byte (GitHub issue #10).
+const REASON_TEST_GATED: &str = " (test-gated import evidence only)";
+const REASON_UNOWNED: &str = " (import evidence exists but no module claim owns this pair)";
+const REASON_NO_EVIDENCE: &str = " (no import evidence for this pair)";
 
 /// Claim-named dependency edges for `forbid_submodule_dependency`. Trees with
 /// a native module tier already carry real module edges. A single go.mod tree
@@ -179,7 +187,13 @@ pub(super) fn check_allowed_edges(
 /// policy-free nested claim adds no obligation of its own (D2): its
 /// inherited rule fires at the declaring ancestor, so nested and flat
 /// equivalents list the same pair with the same text.
-pub(super) fn check_missing_edges(pairs: &BTreeSet<(String, String)>, claims: &[Claim<'_>], diff: &mut Diff) {
+pub(super) fn check_missing_edges(
+    pairs: &BTreeSet<(String, String)>,
+    model: &Model,
+    mapping: &Mapping,
+    claims: &[Claim<'_>],
+    diff: &mut Diff,
+) {
     for (index, claim) in claims.iter().enumerate() {
         if !claim.allowed.declared {
             continue;
@@ -192,10 +206,89 @@ pub(super) fn check_missing_edges(pairs: &BTreeSet<(String, String)>, claims: &[
                 .iter()
                 .any(|(from, to)| to == target && territory.contains(from.as_str()));
             if target_declared && !exercised {
+                let suffix = missing_edge_reason(model, mapping, claims, &territory, target);
                 diff.missing_edges
-                    .push(format!("{} -> {target}", claim.name));
+                    .push(format!("{} -> {target}{suffix}", claim.name));
             }
         }
+    }
+}
+
+/// The reason class a `missing edge` verdict names (GitHub issue #10): the
+/// pair is exercised by no attributed edge, so the verdict says WHY. Module-
+/// tier import edges are classified with the SAME attribution ladder as
+/// `place_module_edge`: an endpoint pair both owned by claims is evidence —
+/// test-gated when either endpoint's module path is test-gated, otherwise
+/// "other" (containment or the composition artefact collapsed to bare); an
+/// endpoint no claim owns is UNOWNED evidence whenever the owned endpoint
+/// lands on the target or inside the claim subtree. Unit-tier manifest edges
+/// into a unit mapped to the target whose source unit is mapped nowhere are
+/// UNOWNED evidence too; a source mapped elsewhere evidences a different
+/// pair. Precedence: any unowned evidence names arm 2; otherwise evidence
+/// that is all test-gated names arm 1; otherwise other evidence stays bare;
+/// zero evidence names arm 3.
+fn missing_edge_reason(
+    model: &Model,
+    mapping: &Mapping,
+    claims: &[Claim<'_>],
+    territory: &BTreeSet<&str>,
+    target: &str,
+) -> &'static str {
+    let owner = |path: &str, unit: &str| -> Option<usize> {
+        claim_owner(path, claims)
+            .or_else(|| claim_unit_fallback(path, claims))
+            .or_else(|| claim_unit_named(unit, claims))
+    };
+    let mut unowned_seen = false;
+    let mut evidence = false;
+    let mut all_test_gated = true;
+    for edge in &model.module_edges {
+        let from_owner = owner(&edge.from, &edge.unit);
+        let to_owner = owner(&edge.to, &edge.unit);
+        match (from_owner, to_owner) {
+            (Some(from), Some(to)) => {
+                if !territory.contains(claims[from].name) || claims[to].name != target {
+                    continue;
+                }
+                evidence = true;
+                if !(is_test_module(model, &edge.from) || is_test_module(model, &edge.to)) {
+                    all_test_gated = false;
+                }
+            }
+            (None, Some(to)) => {
+                if claims[to].name == target {
+                    unowned_seen = true;
+                }
+            }
+            (Some(from), None) => {
+                if territory.contains(claims[from].name) {
+                    unowned_seen = true;
+                }
+            }
+            (None, None) => {}
+        }
+    }
+    if !unowned_seen {
+        for edge in &model.edges {
+            if mapping.unit_module.get(&edge.to).map(String::as_str) != Some(target) {
+                continue;
+            }
+            // A source mapped into the subtree would be exercised (no
+            // verdict); a source mapped elsewhere evidences a different
+            // pair, never this one (issue #10 D2 unit-tier rule).
+            if !mapping.unit_module.contains_key(&edge.from) {
+                unowned_seen = true;
+            }
+        }
+    }
+    if unowned_seen {
+        REASON_UNOWNED
+    } else if evidence && all_test_gated {
+        REASON_TEST_GATED
+    } else if evidence {
+        ""
+    } else {
+        REASON_NO_EVIDENCE
     }
 }
 

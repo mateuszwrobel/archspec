@@ -1791,12 +1791,15 @@ fn verify_use_based_bin_to_lib_edge_is_modeled_and_enforceable() {
     );
 }
 
-/// Absence of the constraint must stay silent about cycles (no implicit
-/// engine-level cycle check). Cyclic crates whose edges are all declared in
-/// `allowed.depend_on` verify clean when the spec has no `no_cycles`
-/// constraint anywhere. Pins the "existing specs unchanged" guarantee.
+/// Absence of the `no_cycles` constraint never mutes the cycle FACT: the
+/// model's cycle is listed as a warning-severity advisory line (visibility is
+/// constraint-independent), while the verdict stays constraint-gated —
+/// `verify` exits 0 because no constraint declares the cycle an error, and
+/// `--strict` promotes the advisory warning exactly like a
+/// `severity = "warning"` constraint (GitHub issue #6; supersedes the former
+/// "unmonitored means silent" pin).
 #[test]
-fn cycle_without_no_cycles_constraint_verifies_clean() {
+fn cycle_without_no_cycles_constraint_verifies_clean_but_is_stated() {
     let fixture = common::Fixture::new();
     fixture.write(
         "Cargo.toml",
@@ -1821,11 +1824,27 @@ fn cycle_without_no_cycles_constraint_verifies_clean() {
     assert_eq!(
         output.status.code(),
         Some(0),
-        "no constraint must mean cycles are unmonitored: {}",
+        "no constraint must keep the cycle verdict-gated (green): {}",
         stdout(&output)
     );
     let out = stdout(&output);
-    assert!(!out.contains("cycle"), "no cycle finding allowed:\n{out}");
+    assert!(
+        out.contains("warning: cycle: auth -> billing -> auth"),
+        "the model's cycle must be stated as an advisory warning:\n{out}"
+    );
+
+    let strict = fixture.run(&["verify", "--strict"]);
+    assert_ne!(
+        strict.status.code(),
+        Some(0),
+        "--strict promotes the advisory cycle warning like any warning: {}",
+        stdout(&strict)
+    );
+    assert!(
+        stdout(&strict).contains("cycle: auth -> billing -> auth"),
+        "promoted line renders without the warning prefix:\n{}",
+        stdout(&strict)
+    );
 }
 
 // ---------------------------------------------------------------------------

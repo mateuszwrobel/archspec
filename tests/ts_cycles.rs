@@ -347,9 +347,11 @@ fn a_self_import_states_an_edge_and_no_cycle() {
 }
 
 /// Scenario "file-level cycles inside one claim go red", last cell: a spec
-/// with no `no_cycles` constraint stays verdict-neutral.
+/// with no `no_cycles` constraint stays verdict-neutral but not silent — the
+/// model's cycle is listed as an advisory warning line (visibility is
+/// constraint-independent, the constraint gates severity, GitHub issue #6).
 #[test]
-fn a_spec_without_no_cycles_reports_no_cycles() {
+fn a_spec_without_no_cycles_reports_advisory_cycles_and_stays_green() {
     let tree = ts_tree(
         "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"ui\"\nmatches = { units = [\"demo-ui\"], modules = [\"src/**\"] }\n",
         &[
@@ -367,10 +369,21 @@ fn a_spec_without_no_cycles_reports_no_cycles() {
     let verify = tree.run(&["verify", "."]);
     assert!(
         verify.status.success(),
-        "verdict-neutral as today: {}",
+        "verdict-neutral without a constraint: {}",
         common::stdout(&verify)
     );
-    assert!(cycle_lines(&verify).is_empty());
+    let lines = cycle_lines(&verify);
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.starts_with("warning: cycle: ")),
+        "constraintless cycles are advisory warnings only: {lines:?}"
+    );
+    assert!(
+        !lines.is_empty(),
+        "the model's file-level cycle must be stated, never a silent pass:\n{}",
+        common::stdout(&verify)
+    );
 }
 
 /// Scenario "an empty file adjacency prints the honest vacuity carrier" (D7):

@@ -275,13 +275,15 @@ fn check_missing_prints_no_ok_line() {
 
 #[test]
 fn check_ok_line_and_violation_exit_compose_fresh_report_with_violations() {
-    // A model with a forbidden edge: report exits 1 on findings, and a fresh
-    // artefact of it passes --check. The two verdicts are orthogonal: stdout
-    // states the freshness, the exit code states the rules.
+    // A model with an undeclared boundary-crossing edge: report exits 1 on
+    // findings, and a fresh artefact of it passes --check. The two verdicts
+    // are orthogonal: stdout states the freshness, the exit code states the
+    // rules. (The dead `[[module.depends_on]]` key this fixture carried was
+    // removed by the issue-8 fail-closed law: the model defines no such key.)
     let fixture = model_tree_fixture();
     fixture.write(
         "architecture.spec.toml",
-        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"app::auth\"] }\n[[module.depends_on]]\nto = \"app::billing\"\nstereotype = \"forbidden\"\n\n[[module]]\nname = \"billing\"\nmatches = { units = [\"app::billing\"] }\n",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"app::auth\"] }\n\n[[module]]\nname = \"billing\"\nmatches = { units = [\"app::billing\"] }\n",
     );
     let make = fixture.run(&["report", "--format", "markdown", "--output", "r.md"]);
     assert_eq!(

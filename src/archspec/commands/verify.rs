@@ -43,6 +43,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // before the verdict prints — an exclusion can never shrink the analyzed
     // set in silence (D13/R3-7).
     eprint!("{}", spec::excluded_sources_report(&loaded));
+    // A dead entry — one that matched nothing under the mechanical set —
+    // is stated on the same surface right after the active-entry lines
+    // (issue-8 phase 2, decision-check MAJOR-2): once per entry per run,
+    // never a silent pass.
+    eprint!("{}", spec::exclusion_liveness_report(root_path, &loaded));
     let language = language_from_str(&loaded.project.language)?;
 
     // Root-marker selection (detection record GC): the pin SELECTS the
@@ -72,21 +77,31 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
     }
 
-    let model = scan::extract_checked(language, root_path)?;
+    let mut model = scan::extract_checked(language, root_path)?;
     // The scan report surface covers both verbs (D13): wildcard facts print
     // here exactly as they do on `scan`, report-only (R2-6), and so do the
     // `external not installed` lines (ts-resolution record R7b).
     eprint!("{}", scan::wildcard_report(&model));
     eprint!("{}", scan::report_only_report(&model));
+    // The warn-mode exclusion findings (issue-8 phase 2, decision-check
+    // BLOCKER-2) fold into the diff's warnings channel below — never the
+    // report-only channel, which can never go red under `--strict`.
+    let mut scan_warnings = std::mem::take(&mut model.warnings);
 
     let mapping = compare::map_units(&model.units, &loaded.modules);
-    let diff = compare::compare(
+    let mut diff = compare::compare(
         &mapping,
         &model,
         &loaded.modules,
         &loaded.stereotype,
         &loaded.constraint,
     );
+    // The fold (issue-8 phase 2): scan-side warn-mode findings join the
+    // spec-side warnings in the diff's warnings channel, listed after all
+    // error items and gated by `--strict` exactly like every other warning.
+    diff.warnings.append(&mut scan_warnings);
+    diff.warnings.sort();
+    diff.warnings.dedup();
     // `--strict` promotes every warning-level divergence to an error so any
     // finding fails the run (design §9, cli.md: the CI gate).
     let strict = parsed.switches.contains("strict");

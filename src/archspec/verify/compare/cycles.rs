@@ -10,7 +10,7 @@ use crate::archspec::model::{Model, Unit};
 use crate::archspec::spec::{Constraint, Module};
 
 /// `no_cycles` check (#9, severity #12-#14) with the D5 scope selector: the
-/// The file-tier cycles one constraint REPORTS (D5/D6): the file-grained
+/// The file-tier cycles one adjudication REPORTS (D5/D6): the file-grained
 /// adjacency, kind-collapsed (a type-only edge is an edge in the cycle
 /// graph; rust `mod` declaration rows are the one exclusion — composition is
 /// not a dependency, see `file_grained_rows`), with same-file edges dropped
@@ -23,7 +23,7 @@ use crate::archspec::spec::{Constraint, Module};
 /// seam's cycle-membership query (the diagram's marks) — one resolver, never
 /// two (M13).
 pub(super) fn file_tier_report_cycles(
-    constraint: &Constraint,
+    constraint_modules: &[String],
     model: &Model,
     group: &BTreeSet<String>,
     claim_cycle_edges: &BTreeSet<(String, String)>,
@@ -61,7 +61,7 @@ pub(super) fn file_tier_report_cycles(
         .iter()
         .flat_map(|(from, to)| [from.clone(), to.clone()])
         .filter(|file| {
-            constraint.modules.is_empty()
+            constraint_modules.is_empty()
                 || file_claim_index(model, file, claims)
                     .is_some_and(|index| group.contains(claims[index].name))
         })
@@ -114,6 +114,13 @@ pub(super) fn file_tier_report_cycles(
 /// tier — one violation one finding, coarsest tier first (D6, R3-4). A cycle
 /// found by a constraint whose `severity` is `"warning"` goes to the warning
 /// bucket (rendered as `<category>: <detail>`); anything else is an error.
+/// A spec declaring NO `no_cycles` constraint still gets the model's cycle
+/// facts (GitHub issue #6): the same adjudication runs once over all declared
+/// modules at the posture-derived scope, forced into the warning bucket —
+/// visibility is constraint-independent, the constraint gates severity, not
+/// visibility. `verify` without the constraint therefore stays green on
+/// cycles (only `--strict` promotes the advisory warnings like any other
+/// warning), and `report` never states a lying zero for a cyclic tree.
 /// Returns `(error_cycles, warning_cycles)`.
 pub(super) fn check_cycles(
     module_edges: &BTreeSet<(String, String)>,
@@ -131,16 +138,17 @@ pub(super) fn check_cycles(
     let mut error_cycles: BTreeSet<String> = BTreeSet::new();
     let mut warning_cycles: BTreeSet<String> = BTreeSet::new();
 
+    let mut declared = false;
     for constraint in constraints
         .iter()
         .filter(|constraint| constraint.kind == "no_cycles")
     {
+        declared = true;
         let scope = constraint
             .scope
             .as_deref()
             .or(posture.map(|(scope, _)| scope))
             .unwrap_or(capability::SCOPE_CLAIMS);
-        let severity_is_warning = constraint.severity == "warning";
         let group: BTreeSet<String> = if constraint.modules.is_empty() {
             all_modules.clone()
         } else {
@@ -151,48 +159,45 @@ pub(super) fn check_cycles(
                 .cloned()
                 .collect()
         };
-        let induced: BTreeSet<(String, String)> = module_edges
-            .iter()
-            .filter(|(from, to)| group.contains(from) && group.contains(to))
-            .cloned()
-            .collect();
-        // The edges of the cycles this constraint actually REPORTS at the
-        // claim tier — the only story the files tier may be deduped against
-        // (R3-4/R3-7: an adjacency the claim report never printed cannot
-        // stand in for a file cycle, even when it exists).
-        let mut claim_cycle_edges: BTreeSet<(String, String)> = BTreeSet::new();
+        adjudicate_cycles(
+            &CycleContext {
+                module_edges,
+                model,
+                claims,
+                file_facts_granular,
+            },
+            &group,
+            &constraint.modules,
+            scope,
+            constraint.severity == "warning",
+            &mut error_cycles,
+            &mut warning_cycles,
+        );
+    }
 
-        for scc in strongly_connected_components(&group, &induced) {
-            if let Some(path) = find_cycle(&scc, &induced) {
-                for pair in path.windows(2) {
-                    claim_cycle_edges.insert((pair[0].clone(), pair[1].clone()));
-                }
-                if severity_is_warning {
-                    warning_cycles.insert(path.join(" -> "));
-                } else {
-                    error_cycles.insert(path.join(" -> "));
-                }
-            }
-        }
-
-        if scope != capability::SCOPE_BOTH {
-            continue;
-        }
-        // The file tier (D5/D6): the shared extractor `file_tier_report_cycles`
-        // — the same cycle set the diagram's files tier marks from (M13).
-        if !file_facts_granular {
-            continue;
-        }
-        for (path, members) in
-            file_tier_report_cycles(constraint, model, &group, &claim_cycle_edges, claims)
-        {
-            let finding = file_cycle_finding(model, &members, &path, claims);
-            if severity_is_warning {
-                warning_cycles.insert(finding);
-            } else {
-                error_cycles.insert(finding);
-            }
-        }
+    if !declared {
+        // Advisory visibility tier (GitHub issue #6): no `no_cycles` constraint
+        // was declared, so the model's cycles — the same set the seeded default
+        // guard would adjudicate — are reported with warning severity. The
+        // verdict machinery is untouched: warnings never gate without
+        // `--strict`, exactly like a `severity = "warning"` constraint.
+        let scope = posture
+            .map(|(scope, _)| scope)
+            .unwrap_or(capability::SCOPE_CLAIMS);
+        adjudicate_cycles(
+            &CycleContext {
+                module_edges,
+                model,
+                claims,
+                file_facts_granular,
+            },
+            &all_modules,
+            &[],
+            scope,
+            true,
+            &mut error_cycles,
+            &mut warning_cycles,
+        );
     }
 
     // A cycle covered by both a warning and an error constraint must fail: an
@@ -205,6 +210,84 @@ pub(super) fn check_cycles(
     let mut errors: Vec<String> = error_cycles.into_iter().collect();
     errors.sort();
     (errors, warnings)
+}
+
+/// The read-only context one cycle adjudication needs: the extracted model,
+/// its claim views, the module-pair edges, and the language-derived facts.
+/// Grouping them keeps `adjudicate_cycles` inside the argument budget (the
+/// D5 scope and granular-file-facts flags are computed once for the whole
+/// `check_cycles` run).
+struct CycleContext<'a> {
+    module_edges: &'a BTreeSet<(String, String)>,
+    model: &'a Model,
+    claims: &'a [Claim<'a>],
+    file_facts_granular: bool,
+}
+
+/// One `no_cycles` adjudication (the constraint loop body and the shared
+/// advisory tier — one resolver, never two): the claim tier yields one
+/// representative path per SCC of the module edges induced on `group`, and at
+/// scope `both` (with granular file facts) the file tier adds its deduped
+/// findings; every path goes to the error or the warning bucket per
+/// `severity_is_warning`. `territory` is the constraint's `modules` list —
+/// empty means all files (`file_tier_report_cycles`); the advisory tier
+/// passes an empty territory over all declared modules.
+fn adjudicate_cycles(
+    context: &CycleContext<'_>,
+    group: &BTreeSet<String>,
+    territory: &[String],
+    scope: &str,
+    severity_is_warning: bool,
+    error_cycles: &mut BTreeSet<String>,
+    warning_cycles: &mut BTreeSet<String>,
+) {
+    let induced: BTreeSet<(String, String)> = context
+        .module_edges
+        .iter()
+        .filter(|(from, to)| group.contains(from) && group.contains(to))
+        .cloned()
+        .collect();
+    // The edges of the cycles this adjudication actually REPORTS at the
+    // claim tier — the only story the files tier may be deduped against
+    // (R3-4/R3-7: an adjacency the claim report never printed cannot
+    // stand in for a file cycle, even when it exists).
+    let mut claim_cycle_edges: BTreeSet<(String, String)> = BTreeSet::new();
+
+    for scc in strongly_connected_components(group, &induced) {
+        if let Some(path) = find_cycle(&scc, &induced) {
+            for pair in path.windows(2) {
+                claim_cycle_edges.insert((pair[0].clone(), pair[1].clone()));
+            }
+            if severity_is_warning {
+                warning_cycles.insert(path.join(" -> "));
+            } else {
+                error_cycles.insert(path.join(" -> "));
+            }
+        }
+    }
+
+    if scope != capability::SCOPE_BOTH {
+        return;
+    }
+    // The file tier (D5/D6): the shared extractor `file_tier_report_cycles`
+    // — the same cycle set the diagram's files tier marks from (M13).
+    if !context.file_facts_granular {
+        return;
+    }
+    for (path, members) in file_tier_report_cycles(
+        territory,
+        context.model,
+        group,
+        &claim_cycle_edges,
+        context.claims,
+    ) {
+        let finding = file_cycle_finding(context.model, &members, &path, context.claims);
+        if severity_is_warning {
+            warning_cycles.insert(finding);
+        } else {
+            error_cycles.insert(finding);
+        }
+    }
 }
 
 /// The module-path spelling of a file identity (territory spelling, ts-driver

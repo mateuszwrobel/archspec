@@ -23,6 +23,10 @@ A regenerated doc therefore legitimately differs from an old one in node list an
 
 The `modules` and `submodules` graphs mark the role carriers their projection names — the ` [facade]` / ` [composition]` label suffix or `<<facade>>` / `<<composition>>` stereotype, silent where a fold mixes roles (`output.md`, *Role markers*). `api-usage` carries no role column by decision: a role is not a usage fact.
 
+## Seeing violations
+
+`depgraph` stays a pure model view — spec-free by design, nothing rendered but current state (the doctrine sentence above is the rule; this view knows no spec to mark against). To ask which edges are wrong, render the same model with `archspec diagram --source scan <scan.json> --tiers modules` — under a governing spec that view marks spec-violating edges.
+
 ## Quick usage
 
 ```bash

@@ -11,7 +11,7 @@
 //! is one normal line with one release-marker comment (value stays 0.5.0,
 //! the tag number), and `docs/archspec/agents.md` states the binary source —
 //! build from source plus the release-tag asset names the payload's own
-//! `release.yml` emits — in URL-free, payload-neutral wording (the docs tree
+//! release machinery (`.github/workflows/`) emits — in URL-free, payload-neutral wording (the docs tree
 //! spells no URLs at all on this surface, so no owner-qualified repo URL can
 //! collide with the publish workflow's leak guard, which stays the backstop).
 //! Rule: D07 of `rust-arch-test-kit/worklog/workplan_archspec_blind5_followup/sources.md`.
@@ -25,8 +25,33 @@ fn load(path: &str) -> String {
         .unwrap_or_else(|e| panic!("read {path}: {e}"))
 }
 
+/// The release machinery as the SET of workflow files under
+/// `.github/workflows/` (sorted): since the 2026-10-19 rehearsal refactor
+/// the build jobs live in the reusable `build-matrix.yaml` that
+/// `release.yml` calls, so every emitted-bytes parity check reads the
+/// whole set — a rename must still move doc and workflow bytes together.
+fn load_workflows() -> String {
+    let dir = format!("{}/.github/workflows", manifest());
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("read dir {dir}: {e}"))
+        .map(|entry| {
+            entry
+                .unwrap_or_else(|e| panic!("read entry in {dir}: {e}"))
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+        .iter()
+        .map(|name| load(&format!(".github/workflows/{name}")))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The asset names exactly as `docs/archspec/agents.md` states them, paired
-/// with the exact bytes the payload's `release.yml` assigns them — doc line
+/// with the exact bytes the payload's release machinery assigns them — doc line
 /// and release machinery cite the same bytes (a rename must move both in one
 /// commit). `<version>` is the doc's placeholder for the `$ver` token.
 const RELEASE_ASSETS: &[(&str, &str)] = &[
@@ -70,7 +95,7 @@ const RELEASE_ASSETS: &[(&str, &str)] = &[
 
 /// The collapsed version line, pinned byte-exact: one line, the tag-number
 /// value, one short release-marker comment.
-const VERSION_LINE: &str = "version = \"0.6.30\"  # released — entry lives in CHANGELOG.md under [0.6.30]; do not bump past the tag until the release commit";
+const VERSION_LINE: &str = "version = \"0.6.41\"  # released — entry lives in CHANGELOG.md under [0.6.41]; do not bump past the tag until the release commit";
 
 /// The rollup's opening line inside the `## [0.5.0]` section.
 const ROLLUP_MARKER: &str = "Version 0.5.0 — released from this entry.";
@@ -315,7 +340,7 @@ fn binary_source_statement_states_availability_and_spells_no_urls() {
         agents.contains("`.sha256` sidecar"),
         "the sidecar convention is stated"
     );
-    let release = load(".github/workflows/release.yml");
+    let release = load_workflows();
     for (doc_name, workflow_name) in RELEASE_ASSETS {
         assert!(
             agents.contains(doc_name),
@@ -326,7 +351,7 @@ fn binary_source_statement_states_availability_and_spells_no_urls() {
         assert!(
             release.contains(from_doc_dollar_brace.as_str())
                 || release.contains(from_doc_dollar.as_str()),
-            "release.yml emits the asset the doc names — {workflow_name:?} must appear, doc and workflow cite the same bytes"
+            "the release machinery emits the asset the doc names — {workflow_name:?} must appear, doc and workflow cite the same bytes"
         );
     }
 }

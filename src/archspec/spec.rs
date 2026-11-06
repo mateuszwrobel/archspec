@@ -39,14 +39,28 @@ pub struct Project {
 /// One `[project] excluded_sources` entry: `path` and `reason` are both
 /// mandatory — serde defaults them to `None` so the schema validator can
 /// name the entry (1-indexed) and the missing key, the same message class
-/// `validate_constraint` prints.
+/// `validate_constraint` prints. `mode` is the issue-8 phase-2 dial: an
+/// optional selector over the value domain `EXCLUSION_MODE_VALUES`,
+/// defaulted at load to the shipped `abort` semantics. The value domain is
+/// refused fail-closed by `validate_unknown_keys`, so no verb can ride an
+/// out-of-domain value as a silently-ignored dial (the phase-1 sequencing
+/// law carried into the value shape).
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ExcludedSource {
     #[serde(default)]
     pub path: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
 }
+
+/// The value domain of the entry-level `mode` key (GitHub issue 8 phase 2,
+/// decision-check BLOCKER-2): `abort` is the shipped behavior — a run whose
+/// resolution hits the entry fails loud naming the entry; `warn` drops the
+/// hit and emits a warning-severity finding naming entry+target, which
+/// fails `--strict` and is green without it — never an abort.
+pub const EXCLUSION_MODE_VALUES: [&str; 2] = ["abort", "warn"];
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Stereotype {
@@ -287,6 +301,7 @@ pub fn load(dir: &Path) -> Result<Spec, String> {
     }
     let content = std::fs::read_to_string(&spec_path)
         .map_err(|err| format!("failed to read spec: {}: {err}", spec_path.display()))?;
+    validate_unknown_keys(&content, &spec_path)?;
     let spec: Spec = toml::from_str(&content)
         .map_err(|err| format!("failed to parse spec: {}: {err}", spec_path.display()))?;
     for module in &spec.modules {
@@ -299,7 +314,9 @@ pub fn load(dir: &Path) -> Result<Spec, String> {
 /// the errors differently from diagram's (`load` above). Missing spec names the
 /// expected file and location; TOML/schema failures are `invalid spec: <file>`.
 /// Schema validation is applied after parsing so a malformed but parseable
-/// spec is rejected before extraction.
+/// spec is rejected before extraction; the unknown-key refusal
+/// (`validate_unknown_keys`) runs before deserialization in every loader, so
+/// an undefined key is refused by all verbs that read a spec.
 pub fn load_verify(dir: &Path) -> Result<Spec, String> {
     let spec_path = dir.join(SPEC_FILE);
     if !spec_path.exists() {
@@ -310,6 +327,7 @@ pub fn load_verify(dir: &Path) -> Result<Spec, String> {
     }
     let content = std::fs::read_to_string(&spec_path)
         .map_err(|err| format!("invalid spec: {}: {err}", spec_path.display()))?;
+    validate_unknown_keys(&content, &spec_path)?;
     let spec: Spec = toml::from_str(&content)
         .map_err(|err| format!("invalid spec: {}: {err}", spec_path.display()))?;
     validate_schema(&spec_path, &spec)?;
@@ -330,6 +348,7 @@ pub fn load_report(dir: &Path) -> Result<Spec, String> {
     }
     let content = std::fs::read_to_string(&spec_path)
         .map_err(|err| format!("invalid spec: {}: {err}", spec_path.display()))?;
+    validate_unknown_keys(&content, &spec_path)?;
     let spec: Spec = toml::from_str(&content)
         .map_err(|_| format!("invalid spec: {} (malformed TOML)", spec_path.display()))?;
     validate_schema(&spec_path, &spec)?;
@@ -349,6 +368,7 @@ pub fn load_scan(dir: &Path) -> Result<Option<Spec>, String> {
     }
     let content = std::fs::read_to_string(&spec_path)
         .map_err(|err| format!("invalid spec: {}: {err}", spec_path.display()))?;
+    validate_unknown_keys(&content, &spec_path)?;
     let spec: Spec = toml::from_str(&content)
         .map_err(|err| format!("invalid spec: {}: {err}", spec_path.display()))?;
     validate_schema(&spec_path, &spec)?;
@@ -374,18 +394,368 @@ pub fn excluded_sources_report(spec: &Spec) -> String {
     out
 }
 
-/// The declared exclusion roots as paths, for the counted walks (D14: the
-/// agreement check consumes the entries the report line prints). The schema
-/// validator has admitted only non-empty paths by the time this runs;
-/// entries without a path contribute nothing.
-pub fn exclusion_paths(spec: &Spec) -> Vec<std::path::PathBuf> {
+/// The declared exclusions as entries (path + mode) for the consumers that
+/// adjudicate per hit: the ts driver's exclusion naming and mode lookup.
+/// Precedence is by specificity, never spec order (decision-check MAJOR-1)
+/// — see [`matching_exclusion`]. The schema validator has admitted only
+/// non-empty paths by the time this runs; the value-domain validator has
+/// admitted only the two `EXCLUSION_MODE_VALUES`, so the mode here is
+/// total: an absent key takes the shipped `abort` default.
+pub fn exclusion_entries(spec: &Spec) -> Vec<ExclusionEntry> {
     spec.project
         .excluded_sources
         .iter()
-        .filter_map(|entry| entry.path.as_deref())
-        .map(|path| std::path::PathBuf::from(path.trim()))
-        .filter(|path| !path.as_os_str().is_empty())
+        .filter_map(|entry| {
+            let path = entry.path.as_deref()?.trim();
+            (!path.is_empty()).then(|| ExclusionEntry {
+                path: std::path::PathBuf::from(path),
+                mode: match entry.mode.as_deref() {
+                    Some("warn") => "warn",
+                    // `validate_unknown_keys` refuses every other value; the
+                    // absent key (and any caller that skipped validation)
+                    // keeps the shipped semantics.
+                    _ => "abort",
+                },
+            })
+        })
         .collect()
+}
+
+/// One consumed exclusion entry: the trimmed root plus the resolved mode.
+#[derive(Debug, Clone)]
+pub struct ExclusionEntry {
+    pub path: std::path::PathBuf,
+    pub mode: &'static str,
+}
+
+/// The specificity of one entry's match on a repo-relative path (decision-
+/// check MAJOR-1): `Some((exact, components))` when the entry matches —
+/// the entry path equal to the file path is the `exact` match, the entry
+/// path a component-wise ancestor of the file path is the prefix match
+/// (`Path::starts_with`, so the entry `web` matches `web` and `web/app.ts`,
+/// never `webapp/app.ts`). Ordering follows the tuple: an exact match beats
+/// any prefix match, and among prefix matches the entry with the most
+/// components — the most specific prefix — wins. Declaration order
+/// contributes nothing.
+pub fn exclusion_specificity(entry: &Path, rel: &Path) -> Option<(bool, usize)> {
+    if entry == rel {
+        Some((true, entry.components().count()))
+    } else if rel.starts_with(entry) {
+        Some((false, entry.components().count()))
+    } else {
+        None
+    }
+}
+
+/// The entry a path hits, resolved by specificity over all entries (never
+/// the first in spec order). A tie — two entries of equal specificity on
+/// one path — cannot exist for distinct entries: any two different prefixes
+/// of the same path differ in component count, and equal paths are refused
+/// at load by the duplicate-entry arm of `validate_schema`. The string
+/// tie-break keeps the choice deterministic even for callers that skipped
+/// validation.
+pub fn matching_exclusion<'a>(
+    entries: &'a [ExclusionEntry],
+    rel: &Path,
+) -> Option<&'a ExclusionEntry> {
+    entries
+        .iter()
+        .filter_map(|entry| {
+            exclusion_specificity(&entry.path, rel)
+                .map(|score| (score, entry.path.as_path(), entry))
+        })
+        .max_by(|(left_score, left_path, _), (right_score, right_path, _)| {
+            left_score
+                .cmp(right_score)
+                .then_with(|| left_path.cmp(right_path))
+        })
+        .map(|(_, _, entry)| entry)
+}
+
+/// The zero-match liveness report (decision-check MAJOR-2): one line per
+/// entry that matched NOTHING the run would have analyzed, exact bytes
+/// `excluded source matched nothing: <path> — <reason>`, printed on the
+/// report surface right after the active-entry lines, once per entry per
+/// run. An entry counts as matched when at least one file sits at or under
+/// its path, behind the mechanical exclusion set (a subtree the walk never
+/// visits cannot keep a dead entry alive). The walk is driver-independent:
+/// any file counts, so a source-extension narrowing can never declare a
+/// populated entry dead.
+pub fn exclusion_liveness_report(root: &std::path::Path, spec: &Spec) -> String {
+    // Liveness reads paths and reasons; the mode plays no part. The pairing
+    // mirrors `exclusion_entries` (trim, non-empty) so the two agree.
+    let entries: Vec<(std::path::PathBuf, &str)> = spec
+        .project
+        .excluded_sources
+        .iter()
+        .filter_map(|entry| {
+            let path = entry.path.as_deref()?.trim();
+            (!path.is_empty()).then(|| {
+                (
+                    std::path::PathBuf::from(path),
+                    entry.reason.as_deref().unwrap_or_default(),
+                )
+            })
+        })
+        .collect();
+    if entries.is_empty() {
+        return String::new();
+    }
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let mut matched = vec![false; entries.len()];
+    for entry in walkdir::WalkDir::new(&root)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.path() == root
+                || !entry
+                    .path()
+                    .strip_prefix(&root)
+                    .map(|rel| {
+                        rel.components().any(|component| {
+                            matches!(component, std::path::Component::Normal(name)
+                                if crate::archspec::language::is_excluded_dir(&name.to_string_lossy()))
+                        })
+                    })
+                    .unwrap_or(false)
+        })
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let Ok(rel) = entry.path().strip_prefix(&root) else {
+            continue;
+        };
+        for (index, (declared, _)) in entries.iter().enumerate() {
+            if !matched[index] && exclusion_specificity(declared, rel).is_some() {
+                matched[index] = true;
+            }
+        }
+    }
+    let mut out = String::new();
+    for (index, (path, reason)) in entries.iter().enumerate() {
+        if !matched[index] {
+            out.push_str(&format!(
+                "excluded source matched nothing: {} — {reason}\n",
+                path.display()
+            ));
+        }
+    }
+    out
+}
+
+/// The declared exclusion roots as paths, for the counted walks (D14: the
+/// agreement check consumes the entries the report line prints). The schema
+/// validator has admitted only non-empty paths by the time this runs;
+/// entries without a path contribute nothing. Consumers that adjudicate a
+/// per-hit mode read [`exclusion_entries`] instead.
+pub fn exclusion_paths(spec: &Spec) -> Vec<std::path::PathBuf> {
+    exclusion_entries(spec)
+        .into_iter()
+        .map(|entry| entry.path)
+        .collect()
+}
+
+/// The known keys of every spec shape (GitHub issue 8 phase 1, decision-check
+/// BLOCKER-3): the SINGLE source of truth consumed by both the runtime
+/// unknown-key validator (`validate_unknown_keys`) and the JSON Schema
+/// generator (`commands::spec`), so the two cannot drift — the same role
+/// `CONSTRAINT_REQUIRED_FIELDS` plays for per-type required fields. Each
+/// shape's keys are sorted: refusal messages and schema properties stay
+/// byte-stable. The boundary is the whole surface the model deserializes:
+/// the top-level tables, `[project]` and its `excluded_sources` entries,
+/// stereotype entries and their `match` tables, module claims (submodules
+/// recursively) and their `matches`/`contract`/`allowed` tables, and
+/// constraint entries. The `{ target, type_only }` entry tables under
+/// `allowed` are refused by `parse_allowed_entry`, already, from inside
+/// deserialization.
+pub const SPEC_KEY_SHAPES: &[(&str, &[&str])] = &[
+    ("allowed", &["depend_on", "forbidden"]),
+    (
+        "constraint",
+        &[
+            "allowed",
+            "allowed_from",
+            "feature",
+            "forbid",
+            "forbidden_dependencies",
+            "from",
+            "gated_modules",
+            "modules",
+            "parent",
+            "require_publish",
+            "required_features",
+            "scope",
+            "severity",
+            "type",
+        ],
+    ),
+    ("contract", &["expose", "forbid"]),
+    ("excluded_sources", &["mode", "path", "reason"]),
+    ("match", &["modules", "names", "paths", "units"]),
+    ("module", &["allowed", "contract", "matches", "name", "submodules"]),
+    ("project", &["excluded_sources", "framework", "language"]),
+    ("stereotype", &["match", "name"]),
+    ("top", &["constraint", "module", "project", "stereotype"]),
+];
+
+/// The declared keys of one shape. Panics on an unknown shape name — the
+/// walker and the schema generator address only the shapes above.
+pub fn shape_keys(shape: &str) -> &'static [&'static str] {
+    SPEC_KEY_SHAPES
+        .iter()
+        .find(|(name, _)| *name == shape)
+        .unwrap_or_else(|| panic!("undeclared spec key shape {shape}"))
+        .1
+}
+
+/// Fail-closed unknown-key refusal (GitHub issue 8 phase 1, BLOCKER-3): a key
+/// the model does not define is an `invalid spec` error naming the unexpected
+/// key(s) and where the key sits. Every spec loader calls this before
+/// deserialization, so `verify`, `report`, `scan` and `diagram` all refuse a
+/// stale-key spec — the loudness is the point: a typo'd key can never ride a
+/// silently-ignored future semantic (the sequencing law of the decision-check).
+/// Phase 2 extends the same fail-closed law to the dial's VALUES: an
+/// `excluded_sources` entry whose `mode` is outside `EXCLUSION_MODE_VALUES`
+/// is refused in the same class (`check_exclusion_mode`). Malformed TOML
+/// stays silent here — each loader's own parse-error class owns
+/// a file that does not parse. Reporting order is deterministic: the top
+/// level, then `[project]` (its keys, then entries in order), then stereotypes,
+/// then module claims depth-first, then constraints.
+fn validate_unknown_keys(content: &str, spec_path: &std::path::Path) -> Result<(), String> {
+    let Ok(value) = content.parse::<toml::Value>() else {
+        return Ok(());
+    };
+    let Some(root) = value.as_table() else {
+        return Ok(());
+    };
+    check_spec_keys(root, "top", "at the top level", spec_path)?;
+    if let Some(project) = root.get("project").and_then(toml::Value::as_table) {
+        check_spec_keys(project, "project", "in [project]", spec_path)?;
+        for (index, entry) in array_items(project.get("excluded_sources")).iter().enumerate() {
+            if let Some(table) = entry.as_table() {
+                let location = format!("in [project] excluded_sources entry #{}", index + 1);
+                check_spec_keys(table, "excluded_sources", &location, spec_path)?;
+                check_exclusion_mode(table, index, spec_path)?;
+            }
+        }
+    }
+    for (index, entry) in array_items(root.get("stereotype")).iter().enumerate() {
+        let location = format!("in [stereotype] #{}", index + 1);
+        let Some(table) = entry.as_table() else { continue };
+        check_spec_keys(table, "stereotype", &location, spec_path)?;
+        if let Some(matched) = table.get("match").and_then(toml::Value::as_table) {
+            check_spec_keys(matched, "match", &format!("{location} match"), spec_path)?;
+        }
+    }
+    validate_module_keys(array_items(root.get("module")), "in [module]", spec_path)?;
+    for (index, entry) in array_items(root.get("constraint")).iter().enumerate() {
+        let location = format!("in [constraint] #{}", index + 1);
+        if let Some(table) = entry.as_table() {
+            check_spec_keys(table, "constraint", &location, spec_path)?;
+        }
+    }
+    Ok(())
+}
+
+/// The table entries of an optional array value; a non-array (or absent)
+/// value contributes nothing — deserialization owns that type error.
+fn array_items(value: Option<&toml::Value>) -> &[toml::Value] {
+    value
+        .and_then(toml::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+/// One table against one shape: any key outside the shape's declared keys is
+/// refused, naming the keys (sorted) and the location, with the supported
+/// keys listed — the message class `parse_allowed_entry` ships.
+fn check_spec_keys(
+    table: &toml::map::Map<String, toml::Value>,
+    shape: &str,
+    location: &str,
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    let keys = shape_keys(shape);
+    let mut unknown: Vec<&String> = table
+        .keys()
+        .filter(|key| !keys.contains(&key.as_str()))
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    unknown.sort();
+    Err(format!(
+        "invalid spec: {}: unknown key(s) {} {location} — supported keys are {}",
+        spec_path.display(),
+        unknown
+            .iter()
+            .map(|key| format!("\"{key}\""))
+            .collect::<Vec<_>>()
+            .join(", "),
+        keys.iter()
+            .map(|key| format!("\"{key}\""))
+            .collect::<Vec<_>>()
+            .join(", "),
+    ))
+}
+
+/// The `mode` value domain of one `excluded_sources` entry (issue-8 phase 2,
+/// BLOCKER-2): a value outside [`EXCLUSION_MODE_VALUES`] is the shipped
+/// invalid-spec class naming the entry, the value and the supported values —
+/// the message class `parse_allowed_entry` ships for `type_only`. The check
+/// rides the walker (not deserialization) on purpose: every loader calls the
+/// walker first, so the fail-closed value law covers `diagram`'s `load` in
+/// the same message class as the other three verbs — an out-of-domain dial
+/// value can never ride any verb silently, the phase-1 sequencing law
+/// extended from keys to values.
+fn check_exclusion_mode(
+    table: &toml::map::Map<String, toml::Value>,
+    index: usize,
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    let Some(mode) = table.get("mode") else {
+        return Ok(());
+    };
+    if matches!(mode.as_str(), Some(value) if EXCLUSION_MODE_VALUES.contains(&value)) {
+        return Ok(());
+    }
+    Err(format!(
+        "invalid spec: {}: [project] excluded_sources entry #{}: mode value {mode} is not supported — \
+         supported values are \"abort\" and \"warn\"",
+        spec_path.display(),
+        index + 1,
+    ))
+}
+
+/// Module claims and their nested submodules, depth-first; `location` carries
+/// the walk path ("in [module] #1 submodule #2"), so a refusal states exactly
+/// where the unexpected key sits.
+fn validate_module_keys(
+    modules: &[toml::Value],
+    location: &str,
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    for (index, entry) in modules.iter().enumerate() {
+        let location = format!("{location} #{}", index + 1);
+        let Some(table) = entry.as_table() else { continue };
+        check_spec_keys(table, "module", &location, spec_path)?;
+        if let Some(matches) = table.get("matches").and_then(toml::Value::as_table) {
+            check_spec_keys(matches, "match", &format!("{location} matches"), spec_path)?;
+        }
+        if let Some(contract) = table.get("contract").and_then(toml::Value::as_table) {
+            check_spec_keys(contract, "contract", &format!("{location} contract"), spec_path)?;
+        }
+        if let Some(allowed) = table.get("allowed").and_then(toml::Value::as_table) {
+            check_spec_keys(allowed, "allowed", &format!("{location} allowed"), spec_path)?;
+        }
+        validate_module_keys(
+            array_items(table.get("submodules")),
+            &format!("{location} submodule"),
+            spec_path,
+        )?;
+    }
+    Ok(())
 }
 
 /// Per-constraint-type list of required non-empty fields. Single source of
@@ -585,6 +955,30 @@ fn validate_schema(spec_path: &std::path::Path, spec: &Spec) -> Result<(), Strin
             (_, Some(reason)) if reason.trim().is_empty() => name("reason")?,
             _ => {}
         }
+        // Precedence by specificity, no spec-order semantics (decision-check
+        // MAJOR-1): two entries whose NORMALISED paths are equal would match
+        // every shared file with EQUAL specificity — a tie, and a tie is an
+        // invalid-spec error, not a coin flip on TOML order. Path equality
+        // normalises separators (`web` and `web/` are one path), matching the
+        // component-wise matcher. Distinct paths can never tie (different
+        // prefix lengths decide), so this duplicate check is the whole tie
+        // law. The message names both entries.
+        if let Some(path) = entry.path.as_deref().map(str::trim) {
+            for other in index + 1..spec.project.excluded_sources.len() {
+                let duplicate = spec.project.excluded_sources[other]
+                    .path
+                    .as_deref()
+                    .is_some_and(|other| std::path::Path::new(other.trim()) == std::path::Path::new(path));
+                if duplicate {
+                    return Err(format!(
+                        "invalid spec: {}: [project] excluded_sources entries #{} and #{} declare the same path \"{path}\" — precedence resolves by specificity and equal specificity is a tie, which is an invalid spec: merge the entries or make one more specific",
+                        spec_path.display(),
+                        index + 1,
+                        other + 1,
+                    ));
+                }
+            }
+        }
     }
     for (index, constraint) in spec.constraint.iter().enumerate() {
         validate_constraint(spec_path, constraint, index)?;
@@ -625,6 +1019,208 @@ fn validate_schema(spec_path: &std::path::Path, spec: &Spec) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shape table drives both refusal messages and schema properties, so
+    /// its rows must be sorted (byte-stable output) and duplicate-free.
+    #[test]
+    fn spec_key_shapes_are_sorted_and_unique() {
+        for (shape, keys) in SPEC_KEY_SHAPES {
+            let mut sorted = keys.to_vec();
+            sorted.sort();
+            assert_eq!(sorted, *keys, "shape {shape} must list its keys sorted");
+            let unique: std::collections::BTreeSet<&str> = keys.iter().copied().collect();
+            assert_eq!(unique.len(), keys.len(), "shape {shape} must list each key once");
+        }
+    }
+
+    /// The walker refuses undefined keys naming key and location, stays silent
+    /// on the valid surface, and never preempts a loader's malformed-TOML
+    /// class (issue-8 phase 1, BLOCKER-3).
+    #[test]
+    fn walker_names_unknown_keys_and_their_locations() {
+        let path = std::path::Path::new("architecture.spec.toml");
+
+        let err = validate_unknown_keys(
+            "[project]\nlanguage = \"rust\"\nexcluded_sourcez = []\n",
+            path,
+        )
+        .expect_err("a typo'd excluded_sources key must be refused");
+        assert!(
+            err.contains("unknown key(s) \"excluded_sourcez\" in [project]")
+                && err.contains("supported keys are \"excluded_sources\""),
+            "{err}"
+        );
+
+        let err = validate_unknown_keys(
+            "[project]\nlanguage = \"rust\"\n\n[[project.excluded_sources]]\npath = \"web/vendor\"\nreason = \"vendored\"\nmood = \"warn\"\n",
+            path,
+        )
+        .expect_err("a typo'd dial key must be refused (phase 1 law intact)");
+        assert!(
+            err.contains("unknown key(s) \"mood\" in [project] excluded_sources entry #1")
+                && err.contains("supported keys are \"mode\", \"path\", \"reason\""),
+            "{err}"
+        );
+
+        // Phase 2: the dial key is KNOWN, the value domain is fail-closed —
+        // an out-of-domain value is refused naming entry, value and values.
+        let err = validate_unknown_keys(
+            "[project]\nlanguage = \"rust\"\n\n[[project.excluded_sources]]\npath = \"web/vendor\"\nreason = \"vendored\"\nmode = \"report-only\"\n",
+            path,
+        )
+        .expect_err("the retired report-only value must stay refused");
+        assert!(
+            err.contains("excluded_sources entry #1: mode value \"report-only\" is not supported")
+                && err.contains("supported values are \"abort\" and \"warn\""),
+            "{err}"
+        );
+        assert!(
+            validate_unknown_keys(
+                "[project]\nlanguage = \"rust\"\n\n[[project.excluded_sources]]\npath = \"web/vendor\"\nreason = \"vendored\"\nmode = \"warn\"\n",
+                path,
+            )
+            .is_ok(),
+            "the dial's accepted values must stay silent"
+        );
+
+        let err = validate_unknown_keys("[bogus]\nx = 1\n", path).expect_err("stale tables fail");
+        assert!(err.contains("unknown key(s) \"bogus\" at the top level"), "{err}");
+
+        assert!(
+            validate_unknown_keys("[project]\nlanguage = \"rust\"\n", path).is_ok(),
+            "the known surface must stay silent"
+        );
+        assert!(
+            validate_unknown_keys("[project\nlanguage", path).is_ok(),
+            "malformed TOML belongs to the loader's parse-error class"
+        );
+    }
+
+    fn entry(path: &str, mode: &'static str) -> ExclusionEntry {
+        ExclusionEntry {
+            path: std::path::PathBuf::from(path),
+            mode,
+        }
+    }
+
+    /// Specificity precedence (MAJOR-1): exact beats prefix, the longer
+    /// prefix beats the shorter one, and TOML order contributes nothing —
+    /// the same match must resolve identically under every declaration
+    /// order. Component-wise prefix law: `web` never reaches `webapp`.
+    #[test]
+    fn exclusion_precedence_resolves_by_specificity_not_order() {
+        let exact = entry("src/vendor/legacy.ts", "warn");
+        let prefix = entry("src/vendor", "abort");
+        let ancestor = entry("src", "abort");
+
+        for order in [
+            vec![&exact, &prefix, &ancestor],
+            vec![&ancestor, &prefix, &exact],
+            vec![&prefix, &ancestor, &exact],
+        ] {
+            let entries: Vec<ExclusionEntry> = order.iter().map(|e| (*e).clone()).collect();
+            let hit = matching_exclusion(&entries, Path::new("src/vendor/legacy.ts"))
+                .expect("three ancestors all match the file");
+            assert_eq!(hit.path.display().to_string(), "src/vendor/legacy.ts");
+            assert_eq!(hit.mode, "warn", "the exact match must win in every order");
+
+            let nested = matching_exclusion(&entries, Path::new("src/vendor/deep/mod.ts")).unwrap();
+            assert_eq!(nested.path.display().to_string(), "src/vendor");
+            let shallow = matching_exclusion(&entries, Path::new("src/other.ts")).unwrap();
+            assert_eq!(shallow.path.display().to_string(), "src");
+        }
+
+        let entries = vec![entry("web", "abort")];
+        assert_eq!(
+            matching_exclusion(&entries, Path::new("web")).map(|h| h.path.as_path()),
+            Some(Path::new("web")),
+            "the entry path itself matches (directory or file, exact)"
+        );
+        assert_eq!(
+            matching_exclusion(&entries, Path::new("web/app.ts")).map(|h| h.path.as_path()),
+            Some(Path::new("web")),
+            "component-wise prefix: the entry is a directory root"
+        );
+        assert!(
+            matching_exclusion(&entries, Path::new("webapp/app.ts")).is_none(),
+            "component-wise prefix: never a raw character prefix"
+        );
+    }
+
+    /// The tie law: equal specificity is an invalid-spec error, not a coin
+    /// flip on TOML order — two entries declaring the same path (the only
+    /// way to tie) are refused naming both entries.
+    #[test]
+    fn duplicate_exclusion_entries_are_refused_as_the_tie_they_would_cause() {
+        let spec: Spec = toml::from_str(
+            "[project]\nlanguage = \"rust\"\n\n[[project.excluded_sources]]\npath = \"web\"\nreason = \"one\"\n\n[[project.excluded_sources]]\npath = \"web/\"\nreason = \"two\"\n",
+        )
+        .expect("the TOML parses");
+        let err = validate_schema(std::path::Path::new("x"), &spec)
+            .expect_err("a tie must be an invalid-spec error");
+        assert!(
+            err.contains("entries #1 and #2 declare the same path \"web\""),
+            "the tie refusal must name both entries and the path: {err}"
+        );
+    }
+
+    /// The dial's default: an absent `mode` key loads as the shipped
+    /// `abort` semantics — today's behavior byte-identical for specs that
+    /// never use the key.
+    #[test]
+    fn absent_mode_defaults_to_abort() {
+        let spec: Spec = toml::from_str(
+            "[project]\nlanguage = \"rust\"\n\n[[project.excluded_sources]]\npath = \"a\"\nreason = \"r\"\n\n[[project.excluded_sources]]\npath = \"b\"\nreason = \"r\"\nmode = \"warn\"\n",
+        )
+        .expect("the TOML parses");
+        let entries = exclusion_entries(&spec);
+        assert_eq!(entries[0].mode, "abort", "the absent key takes the default");
+        assert_eq!(entries[1].mode, "warn", "the declared key is kept");
+        assert_eq!(
+            exclusion_paths(&spec),
+            entries.iter().map(|e| e.path.clone()).collect::<Vec<_>>(),
+            "exclusion_paths is the path projection of exclusion_entries"
+        );
+    }
+
+    /// The zero-match liveness line (MAJOR-2): exactly one line per dead
+    /// entry; a live entry — file at or under the path — prints none.
+    #[test]
+    fn liveness_reports_exactly_the_dead_entries_once_each() {
+        let tree = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tree.path().join("web/vendor")).expect("dir");
+        std::fs::write(tree.path().join("web/vendor/legacy.ts"), "export const x = 1;\n").expect("file");
+        let spec: Spec = toml::from_str(
+            "[project]\nlanguage = \"rust\"\n\n[[project.excluded_sources]]\npath = \"web/vendor\"\nreason = \"vendored\"\n\n[[project.excluded_sources]]\npath = \"tools/generated\"\nreason = \"generated\"\n",
+        )
+        .expect("the TOML parses");
+        let report = exclusion_liveness_report(tree.path(), &spec);
+        assert_eq!(
+            report,
+            "excluded source matched nothing: tools/generated — generated\n",
+            "the dead entry prints exactly one line, the live one prints nothing"
+        );
+    }
+
+    /// Liveness behind the mechanical exclusion set: a subtree the walk
+    /// never visits (here: a `target` directory) cannot keep a dead entry
+    /// alive — the silent-inert class stays loud.
+    #[test]
+    fn liveness_walks_behind_the_mechanical_exclusion_set() {
+        let tree = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tree.path().join("target/gen")).expect("dir");
+        std::fs::write(tree.path().join("target/gen/lib.rs"), "// generated\n").expect("file");
+        let spec: Spec = toml::from_str(
+            "[project]\nlanguage = \"rust\"\n\n[[project.excluded_sources]]\npath = \"target/gen\"\nreason = \"build output\"\n",
+        )
+        .expect("the TOML parses");
+        let report = exclusion_liveness_report(tree.path(), &spec);
+        assert_eq!(
+            report,
+            "excluded source matched nothing: target/gen — build output\n",
+            "files only inside the mechanical set must not count as matched: {report}"
+        );
+    }
 
     fn constraint(kind: &str) -> Constraint {
         Constraint {

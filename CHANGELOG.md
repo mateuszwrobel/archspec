@@ -6,6 +6,187 @@ only.
 
 ## [Unreleased]
 
+## [0.6.41] - 2026-11-05
+
+### Added
+
+- The `[[project.excluded_sources]]` dial (GitHub issue #8, phase 2): an
+  entry accepts an optional `mode` key — `abort` (the default: a resolution
+  hit on the entry fails loud, the shipped behavior, byte-identical) or
+  `warn` (the hit becomes a warning-severity finding naming the entry and
+  its target: `verify --strict` fails it, a run without `--strict` stays
+  green, and `scan` states the finding on the report surface). A value
+  outside `abort` | `warn` is refused as invalid spec in every verb that
+  reads the spec.
+- Directory-prefix matching: the entry `web` matches `web` and
+  `web/app.ts`, never `webapp/app.ts`. Overlapping entries resolve by
+  specificity — exact path over the longest prefix — never by declaration
+  order; two entries declaring the same path are refused at load as the
+  tie they would cause, naming both entries.
+- A zero-match entry is no longer a silent pass: an entry that matched
+  nothing prints one liveness line per run on the scan and verify report
+  surface — `excluded source matched nothing: <path> — <reason>`.
+
+## [0.6.40] - 2026-11-05
+
+### Added
+
+- Spec loading is now fail-closed on unknown keys (GitHub issue #8,
+  phase 1): a key the model does not define in `architecture.spec.toml` is
+  refused at load as `invalid spec`, naming the key and its location, in
+  every command that reads a spec (`verify`, `report`, `scan`, `diagram`).
+  The validated boundary is named in the docs: the top level, `[project]`
+  and its `excluded_sources` entries, `[[stereotype]]` entries and their
+  `match` tables, module claims (with recursive `submodules`) and their
+  `matches`/`contract`/`allowed` tables, and `[[constraint]]` entries. A
+  key that names a future semantic — `mode` in an `excluded_sources`
+  entry, for example — is refused, so a stale-key spec can never ride a
+  silently-ignored dial.
+- `archspec spec --schema` now emits `additionalProperties: false` at
+  every table shape and describes `project.excluded_sources` (array of
+  `{ path, reason }`, both required) plus the full accepted-key shape of
+  a `[[constraint]]` entry; the emitted key sets read the one
+  `SPEC_KEY_SHAPES` table the runtime validator reads, welded by a test.
+  The `archspec spec` reference now lists `excluded_sources`.
+
+## [0.6.39] - 2026-11-05
+
+### Changed
+
+- The `depgraph` help surfaces and `docs/archspec/commands/depgraph/` now
+  point to `archspec diagram --source scan` for violation-marked views
+  (GitHub issue 9): one pointer sentence, registered as the
+  `depgraph-violations-pointer` claim and pinned by
+  `tests/depgraph_violations_pointer.rs`, routes wrong-edge questions to
+  the diagram scan-mode view that marks spec violations through the
+  shared Adjudicator; `depgraph` itself stays a spec-free model view.
+
+## [0.6.38] - 2026-11-05
+
+### Changed
+
+- The `missing edge` verdict names its reason class (GitHub issue #10): the
+  stored verdict text now carries one of the suffixes
+  ` (test-gated import evidence only)`,
+  ` (import evidence exists but no module claim owns this pair)` or
+  ` (no import evidence for this pair)`, stating why the declared pair went
+  unexercised on the pair graph; a verdict whose only evidence is a
+  containment or composition artefact stays unsuffixed. The two-layer
+  adjudication (floor: every declared entry exercised by a pair; ceiling:
+  every attributed pair declared) is documented in `help constraints` and
+  `docs/archspec/spec.md`, naming the per-language manifest sections the
+  unit tier reads. The `depgraph --help` test-gated-edge sentence now states
+  the gate per language (rust `cfg(test)`; ts a test-file name in a package
+  declaring vitest or jest). The report edges category splits into two
+  sub-counts that sum to it — `undeclared-dependency` (missing edge plus
+  disallowed cross-component dependency) and `boundary-violation` (forbidden
+  edge present plus facade dependency) — in the text, markdown and JSON
+  renderers.
+
+## [0.6.37] - 2026-11-05
+
+### Added
+
+- `depgraph modules` gained `--aggregate units|modules`, which forces the
+  projection level and bypasses the automatic fold/descend rule (GitHub
+  issue #5): `units` renders the model's units and their edges, `modules`
+  pins the top-level projection with no descent. On the automatic path a
+  render above 200 nodes now adds one stderr note naming the degraded
+  projection — stdout bytes and the exit code are unchanged.
+
+### Changed
+
+- The hoisting-linker membership law now covers the RESOLVER-OK path
+  (GitHub issue #7): a bare import of a workspace member name that
+  Ok-resolves through a materialization of the member — a workspace link
+  inside the member dir or a hoisted copy under `node_modules` — is modeled
+  as the same first-party membership edge onto the member's source entry
+  that the resolver-miss path already emits, with the same report-only
+  `undeclared member import` line and no entry in the external tier. The
+  same tree's model and adjudicated pair set no longer depend on whether
+  the install was materialized. A package importing its own name stays
+  unit-internal with no report-only line in every install state (the miss
+  path no longer prints the line for a self-import). Declared-member
+  behavior, including the `workspace link missing` audit, is unchanged.
+
+## [0.6.36] - 2026-11-05
+
+### Changed
+
+- Payload comments genericized; the tool binary is unchanged.
+
+## [0.6.35] - 2026-11-04
+
+### Changed
+
+- Cycle visibility is constraint-independent (GitHub issue #6): a spec that
+  declares no `no_cycles` constraint no longer reports `cycles detected: 0`
+  for a cyclic tree. The model's cycles now surface in every report format —
+  the `cycles detected` metric, a `cycle detected in` finding, and the
+  markdown `## Cycles` section — as warning-severity advisory findings, and
+  `verify` lists them as `warning: cycle:` lines. Severity gating is
+  unchanged: without the constraint the cycle never fails a plain `verify`
+  run, `--strict` promotes the advisory warning like any other warning, and
+  every verdict and exit code of a spec that declares `no_cycles` is byte-
+  identical to before.
+
+## [0.6.34] - 2026-11-03
+
+### Added
+
+- `npm/README.md` now opens with a "What is archspec" section: what the CLI
+  extracts, compares and renders, before the downloader mechanics. The tool
+  binary is unchanged.
+
+## [0.6.33] - 2026-11-03
+
+### Added
+
+- The crate's own `run-unit-tests.sh` runner now reports a wall-time line per
+  stage (`stage [<category>] <name>: wall=<N>s rc=<rc>`). Stage timing comes
+  from an optional repository-level helper; when it is absent the runner
+  behaves exactly as before. When the `STAGE_LOG` environment names a file,
+  the runner appends one JSONL row per stage (timestamp, leg, stage,
+  category, wall seconds, rc). The tool binary is unchanged.
+
+## [0.6.32] - 2026-10-23
+
+### Added
+
+- `archspec inspect tree|scanner --clusters`: the clustering overlay,
+  deterministic across runs, appended after the model diagram. Exactly one
+  structure line states the partition (`structure: <k> clusters`, or
+  `structure: empty`, `structure: none (single region)`,
+  `structure: trivial (all singletons)`), then one sorted
+  `node -> cluster` assignment line per module node; the cluster label is the
+  cluster's lexicographically smallest member node id. The clusterer is greedy
+  modularity merging in the Clauset–Newman–Moore (2004) shape with an exact
+  integer merge predicate, full-pair rescan every merge and a fixed candidate
+  order, so the same model renders byte-identical output in every run.
+- Cap refusals on that overlay: above the named node or edge cap the render
+  prints one skip line — `clusters: skipped (nodes=<n> > cap 10000)` or
+  `clusters: skipped (edges=<M> > cap 130000)` — names the cap it exceeded,
+  computes nothing else and keeps exit code `0`. The overlay never changes the
+  diagram bytes, `--output` artefacts or `--check` verdicts, and never changes
+  the exit code.
+- `archspec inspect tree|scanner --clusters --json`: the machine-readable
+  overlay form — one JSON object carrying exactly the key `clusters`
+  (`schema` = `archspec-clusters-v0`, plus `structure`, `nodes`, `edges` and
+  `assignments` sorted by node id). The key never appears without the flag.
+  `--clusters` on the file-level default mode and `--json` without
+  `--clusters` are usage refusals (exit 64, one named message each).
+
+## [0.6.31] - 2026-10-19
+
+### Notes
+
+- Release infrastructure: the tag-time build jobs moved to a reusable
+  workflow (`build-matrix.yaml`) that the release workflow calls, so the
+  same publish-gate + platform matrix can be dispatched on a disposable
+  staging branch before a tag is cut when the payload lockfile changed
+  since the previous release. The published artifacts and the release
+  process are unchanged; no behaviour strings moved.
+
 ## [0.6.30] - 2026-10-19
 
 ### Fixed

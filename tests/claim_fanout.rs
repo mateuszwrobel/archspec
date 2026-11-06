@@ -30,7 +30,7 @@ mod common;
 #[allow(dead_code)]
 mod shared;
 
-use common::{stderr, stdout, Fixture};
+use common::{Fixture, stderr, stdout};
 use shared::driver::{Driver, Language};
 use shared::roles_matrix as matrix;
 use shared::scenarios::boundary_spec;
@@ -79,11 +79,19 @@ fn registry() -> Vec<Claim> {
             id: entry["id"].as_str().expect("claim id").to_string(),
             owner: entry["owner"].as_str().expect("claim owner").to_string(),
             owner_surfaces: string_list(&entry["owner_surfaces"]),
-            relations: entry.get("relations").map_or(vec!["echo".into(), "cite".into()], |v| {
-                vec_or_default(v)
-            }),
-            canonical: entry.get("canonical").and_then(|v| v.as_str()).map(str::to_string),
-            canonical_fragments: string_list_opt(&entry.get("canonical_fragments").cloned().unwrap_or(toml::Value::Array(vec![]))),
+            relations: entry
+                .get("relations")
+                .map_or(vec!["echo".into(), "cite".into()], vec_or_default),
+            canonical: entry
+                .get("canonical")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            canonical_fragments: string_list_opt(
+                &entry
+                    .get("canonical_fragments")
+                    .cloned()
+                    .unwrap_or(toml::Value::Array(vec![])),
+            ),
             template: entry
                 .get("template")
                 .and_then(toml::Value::as_bool)
@@ -123,7 +131,10 @@ fn string_list(value: &toml::Value) -> Vec<String> {
 }
 
 fn string_list_opt(value: &toml::Value) -> Vec<String> {
-    value.as_array().map(|_| string_list(value)).unwrap_or_default()
+    value
+        .as_array()
+        .map(|_| string_list(value))
+        .unwrap_or_default()
 }
 
 fn vec_or_default(value: &toml::Value) -> Vec<String> {
@@ -167,7 +178,10 @@ fn rendered_surfaces() -> Vec<(String, String)> {
         "capability",
         "skill",
     ] {
-        surfaces.push((format!("help {command}"), surface(&fixture, &["help", command])));
+        surfaces.push((
+            format!("help {command}"),
+            surface(&fixture, &["help", command]),
+        ));
         surfaces.push((
             format!("{command} --help"),
             surface(&fixture, &[command, "--help"]),
@@ -368,7 +382,10 @@ fn canonical_spans(claim: &Claim, flat: &Flat) -> Vec<(usize, usize)> {
 /// placeholder stops at whitespace and quotes on its own.
 fn token_char(ch: char) -> bool {
     ch.is_alphanumeric()
-        || matches!(ch, '/' | '.' | '-' | '_' | ':' | '<' | '>' | '$' | '@' | '~' | '\\')
+        || matches!(
+            ch,
+            '/' | '.' | '-' | '_' | ':' | '<' | '>' | '$' | '@' | '~' | '\\'
+        )
 }
 
 fn wildcard_end(text: &str, from: usize) -> usize {
@@ -419,8 +436,12 @@ fn scan(corpus: &[(String, String)], claims: &[Claim]) -> Vec<Violation> {
                     if !boundary_ok {
                         continue;
                     }
-                    let own_span = spans.iter().any(|(s, e, id)| *s <= start && end <= *e && *id == claim.id);
-                    let other_span = spans.iter().any(|(s, e, id)| *s <= start && end <= *e && *id != claim.id);
+                    let own_span = spans
+                        .iter()
+                        .any(|(s, e, id)| *s <= start && end <= *e && *id == claim.id);
+                    let other_span = spans
+                        .iter()
+                        .any(|(s, e, id)| *s <= start && end <= *e && *id != claim.id);
                     let echo_ok = own_span && claim.relations.iter().any(|r| r == "echo");
                     if owner || other_span || echo_ok {
                         continue;
@@ -432,9 +453,10 @@ fn scan(corpus: &[(String, String)], claims: &[Claim]) -> Vec<Violation> {
                         line: line_at(&flat, start),
                         excerpt: excerpt_at(&flat.text, start),
                         cite_only: !claim.relations.iter().any(|r| r == "echo"),
-                        canonical: claim.canonical.clone().unwrap_or_else(|| {
-                            claim.canonical_fragments.join(" / ")
-                        }),
+                        canonical: claim
+                            .canonical
+                            .clone()
+                            .unwrap_or_else(|| claim.canonical_fragments.join(" / ")),
                         signature: signature.clone(),
                     });
                 }
@@ -520,7 +542,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 50] = [
+    let required: [&str; 55] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -573,6 +595,20 @@ fn registry_owns_claim_identity() {
         // Registered by the npm-channel change (ADR-051): the sentence the
         // agents doc states beside the release-asset guidance.
         "npm-channel-install",
+        // Registered by the inspect --clusters overlay (Lane A, 2026-10-23):
+        // the four structure verdict labels, the cap-skip law, and the
+        // --clusters help-flag row family.
+        "clusters-structure-verdicts",
+        "clusters-cap-skip",
+        "clusters-help-flags",
+        // Registered by the issue-9 violations pointer (2026-11-05): the
+        // sentence routing wrong-edge questions from the depgraph help
+        // surfaces to the diagram scan-mode marked view.
+        "depgraph-violations-pointer",
+        // Registered by the issue-8 fail-closed law (2026-11-05): the one
+        // shared key-shape table behind the emitted schema and the runtime
+        // unknown-key refusal.
+        "spec-schema-fail-closed-shape",
     ];
     for required in required {
         assert!(
@@ -629,12 +665,14 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             }
         }
         if let Some(canonical) = &claim.canonical
-            && !claim.template && !text.contains(&flatten(canonical).to_lowercase()) {
-                errors.push(format!(
+            && !claim.template
+            && !text.contains(&flatten(canonical).to_lowercase())
+        {
+            errors.push(format!(
                     "claim `{}` drifted: `archspec {key}` does not render the registered canonical text",
                     claim.id
                 ));
-            }
+        }
     };
     for claim in claims {
         match claim.id.as_str() {
@@ -1012,6 +1050,10 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             "test-gated-edges" | "mod-label" => {
                 contains_canonical(&mut errors, claim, "depgraph --help")
             }
+            "depgraph-violations-pointer" => {
+                contains_canonical(&mut errors, claim, "depgraph --help");
+                contains_canonical(&mut errors, claim, "help depgraph");
+            }
             "init-update-summary" => {
                 contains_canonical(&mut errors, claim, "help");
                 contains_canonical(&mut errors, claim, "help commands");
@@ -1196,6 +1238,146 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                     ));
                 }
             }
+            "clusters-help-flags" => {
+                contains_canonical(&mut errors, claim, "inspect --help");
+                contains_canonical(&mut errors, claim, "help inspect");
+            }
+            "clusters-structure-verdicts" => {
+                // The three live classes: one probe per reachable verdict.
+                // The trivial class needs edges>0 with all-singletons; the
+                // greedy path merges every inspect-reachable graph's first
+                // positive pair, so that one label is welded to the labelling
+                // source (structure_label, the single labelling surface).
+                let mut emitted = String::new();
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"wide\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub mod a;\npub mod b;\npub mod c;\n");
+                fx.write("src/a.rs", "pub const A: u32 = 1;\n");
+                fx.write("src/b.rs", "pub const B: u32 = 2;\n");
+                fx.write("src/c.rs", "pub const C: u32 = 3;\n");
+                emitted.push_str(&stdout(&fx.run(&["inspect", "tree", ".", "--clusters"])));
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"pair\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub mod a;\npub mod b;\n");
+                fx.write("src/a.rs", "pub const A: u32 = 1;\n");
+                fx.write("src/b.rs", "use crate::a;\npub const B: u32 = a::A;\n");
+                emitted.push_str(&stdout(&fx.run(&["inspect", "tree", ".", "--clusters"])));
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"twopair\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub mod a;\npub mod b;\npub mod c;\npub mod d;\n");
+                fx.write("src/a.rs", "pub const A: u32 = 1;\n");
+                fx.write("src/b.rs", "use crate::a;\npub const B: u32 = a::A;\n");
+                fx.write("src/c.rs", "pub const C: u32 = 3;\n");
+                fx.write("src/d.rs", "use crate::c;\npub const D: u32 = c::C;\n");
+                let twopair = stdout(&fx.run(&["inspect", "tree", ".", "--clusters"]));
+                emitted.push_str(&twopair);
+                if !twopair.contains("structure: 2 clusters") {
+                    errors.push(format!(
+                        "claim `{}` drifted: the two-pair probe does not render the count form of the structure line: {twopair}",
+                        claim.id
+                    ));
+                }
+                let label_src = load("src/archspec/inspect/clusters.rs");
+                for fragment in &claim.canonical_fragments {
+                    let body = fragment.strip_prefix("structure: ").unwrap_or(fragment);
+                    if !emitted.contains(fragment.as_str())
+                        && !label_src.contains(&format!("\"{body}\""))
+                    {
+                        errors.push(format!(
+                            "claim `{}` drifted: neither the live verdict probes nor the labelling source render the registered label {fragment:?}",
+                            claim.id
+                        ));
+                    }
+                }
+            }
+            "clusters-cap-skip" => {
+                // The caps are deliberately large, so no cheap live probe can
+                // cross them; the weld pins the emit strings and the cap
+                // constants in the labelling source plus the concrete skip
+                // lines the dedicated guard asserts from live runs.
+                let label_src = load("src/archspec/inspect/clusters.rs");
+                for needle in [
+                    "skipped (nodes=",
+                    "skipped (edges=",
+                    "CAP_NODES: usize = 10_000",
+                    "CAP_EDGES: u64 = 130_000",
+                ] {
+                    if !label_src.contains(needle) {
+                        errors.push(format!(
+                            "claim `{}` drifted: the clustering source no longer states {needle:?}",
+                            claim.id
+                        ));
+                    }
+                }
+                let guard = load("tests/inspect_clusters.rs");
+                for needle in [
+                    "clusters: skipped (nodes=10001 > cap 10000)",
+                    "clusters: skipped (edges=260610 > cap 130000)",
+                ] {
+                    if !guard.contains(needle) {
+                        errors.push(format!(
+                            "claim `{}` drifted: the dedicated guard no longer pins the live skip line {needle:?}",
+                            claim.id
+                        ));
+                    }
+                }
+            }
+            "spec-schema-fail-closed-shape" => {
+                // Live probes, not prose echoes: the emitted schema must
+                // close every table shape it names and carry the
+                // excluded_sources block, and the loader must refuse a key
+                // outside the shape with the registered refusal string.
+                let fx = Fixture::new();
+                let schema = stdout(&fx.run(&["spec", "--schema"]));
+                if !schema.contains("\"additionalProperties\": false") {
+                    errors.push(format!(
+                        "claim `{}` drifted: the emitted schema no longer states `additionalProperties: false`",
+                        claim.id
+                    ));
+                }
+                if !schema.contains("\"excluded_sources\"") {
+                    errors.push(format!(
+                        "claim `{}` drifted: the emitted schema no longer names project.excluded_sources",
+                        claim.id
+                    ));
+                }
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"weld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub fn f() {}\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\nmode = \"report-only\"\n",
+                );
+                let probe = fx.run(&["verify", "."]);
+                let verdict = format!("{}{}", stdout(&probe), stderr(&probe));
+                if probe.status.code() == Some(0) || !verdict.contains("unknown key(s) \"mode\"") {
+                    errors.push(format!(
+                        "claim `{}` drifted: the loader no longer refuses an undefined key naming the key and its location: {verdict}",
+                        claim.id
+                    ));
+                }
+                // The probes exercise the one shared table; the weld pins its
+                // name at the single source both halves read.
+                let shape_src = load("src/archspec/spec.rs");
+                if !shape_src.contains("SPEC_KEY_SHAPES") {
+                    errors.push(format!(
+                        "claim `{}` drifted: the loader source no longer carries the shared SPEC_KEY_SHAPES table",
+                        claim.id
+                    ));
+                }
+            }
             other => errors.push(format!(
                 "claim `{other}` has no registry-to-surface weld — every registered claim must be compared against what its owner renders or emits"
             )),
@@ -1234,8 +1416,10 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                     }
                 }
                 "contained-in-canonical" => {
-                    let one = flatten(&extracted.first().cloned().unwrap_or_default()).to_lowercase();
-                    let canonical = flatten(claim.canonical.as_deref().unwrap_or("")).to_lowercase();
+                    let one =
+                        flatten(&extracted.first().cloned().unwrap_or_default()).to_lowercase();
+                    let canonical =
+                        flatten(claim.canonical.as_deref().unwrap_or("")).to_lowercase();
                     if one.is_empty() || !canonical.contains(&one) {
                         errors.push(format!(
                             "claim `{}` contradicts its dedicated guard: {} {} is no longer a phrase of the registered canonical",
@@ -1338,7 +1522,10 @@ fn extract_consts(source: &str, name: &str) -> Vec<String> {
                 if values.is_empty() || gap.contains(',') {
                     values.push(literal);
                 } else {
-                    values.last_mut().expect("a literal precedes").push_str(&literal);
+                    values
+                        .last_mut()
+                        .expect("a literal precedes")
+                        .push_str(&literal);
                 }
                 gap.clear();
             }
@@ -1393,7 +1580,10 @@ fn planted_echoes_fail_loudly_with_line_numbers() {
     // family, planted at known lines, plus a drifted error quote and a
     // paraphrase appended to a synthetic help-topic surface.
     let planted_doc = "# scratch\n\na stable line\nthe driver derives the tier from the tree's own packages, unlike a workspace\nfollow the chain scan → report → diagram → verify before the strict gate\nnote: facade dependency rule inert for go: facade roles are not derivable there\nwhen no tier exists: depgraph needs the module tier, which this model has none of, so the model is healthy\n";
-    corpus.push(("scratch/planted-guide.md".to_string(), planted_doc.to_string()));
+    corpus.push((
+        "scratch/planted-guide.md".to_string(),
+        planted_doc.to_string(),
+    ));
     let planted_line = |needle: &str| -> usize {
         planted_doc
             .lines()
@@ -1407,18 +1597,29 @@ fn planted_echoes_fail_loudly_with_line_numbers() {
         .iter_mut()
         .find(|(name, _)| name == "help constraints")
         .expect("help constraints renders");
-    help_constraints.1.push_str("\nThe quick audit runs scan -> report -> diagram -> verify, then strict.\n");
+    help_constraints
+        .1
+        .push_str("\nThe quick audit runs scan -> report -> diagram -> verify, then strict.\n");
     corpus = surfaces;
     corpus.extend(payload_docs());
-    corpus.push(("scratch/planted-guide.md".to_string(), planted_doc.to_string()));
+    corpus.push((
+        "scratch/planted-guide.md".to_string(),
+        planted_doc.to_string(),
+    ));
 
     let violations = scan(&corpus, &claims);
     let rendered = render(&violations);
     for (claim, line) in [
         ("go-module-tier", planted_line("tree's own packages")),
         ("audit-recipe", planted_line("scan → report")),
-        ("facade-inert-note", planted_line("facade dependency rule inert")),
-        ("depgraph-refusal", planted_line("depgraph needs the module tier")),
+        (
+            "facade-inert-note",
+            planted_line("facade dependency rule inert"),
+        ),
+        (
+            "depgraph-refusal",
+            planted_line("depgraph needs the module tier"),
+        ),
     ] {
         let hits: Vec<&Violation> = violations
             .iter()
@@ -1449,7 +1650,8 @@ fn planted_echoes_fail_loudly_with_line_numbers() {
         "the help-text violation carries a line of the rendered topic: {recipe_in_help:?}"
     );
     assert!(
-        rendered.contains("restore the canonical bytes") || rendered.contains("citation of the owner"),
+        rendered.contains("restore the canonical bytes")
+            || rendered.contains("citation of the owner"),
         "the message states the two allowed fixes: {rendered}"
     );
     assert!(
@@ -1460,7 +1662,10 @@ fn planted_echoes_fail_loudly_with_line_numbers() {
     // scan returns to green, proving the plants — not the machinery — failed.
     let mut clean = rendered_surfaces();
     clean.extend(payload_docs());
-    assert!(scan(&clean, &claims).is_empty(), "clean tree must stay green");
+    assert!(
+        scan(&clean, &claims).is_empty(),
+        "clean tree must stay green"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1480,7 +1685,9 @@ fn registry_drift_fails_the_weld() {
     ));
     let errors = check_weld(&claims);
     assert!(
-        errors.iter().any(|e| e.contains("go-module-tier") && e.contains("drifted")),
+        errors
+            .iter()
+            .any(|e| e.contains("go-module-tier") && e.contains("drifted")),
         "a registry canonical that the owner surface does not render must fail naming the claim: {errors:?}"
     );
 
@@ -1565,7 +1772,10 @@ fn the_four_known_families_cannot_return() {
     // registry names the guard file, and that guard's source carries the
     // family bytes (its constants are byte-compared against the registry by
     // the weld test above).
-    for claim in claims.iter().filter(|c| plants.iter().any(|(id, _)| id == &c.id)) {
+    for claim in claims
+        .iter()
+        .filter(|c| plants.iter().any(|(id, _)| id == &c.id))
+    {
         let guard = claim
             .dedicated_guard
             .clone()
@@ -1573,12 +1783,14 @@ fn the_four_known_families_cannot_return() {
         let source = std::fs::read_to_string(format!("{}/{}", manifest(), guard))
             .unwrap_or_else(|_| panic!("dedicated guard {guard} exists"));
         let haystack = flatten(&source).to_lowercase();
-        let carries = claim.canonical.as_ref().is_some_and(|canonical| {
-            haystack.contains(&flatten(canonical).to_lowercase())
-        }) || claim
-            .signatures
-            .iter()
-            .any(|signature| haystack.contains(&flatten(signature).to_lowercase()));
+        let carries = claim
+            .canonical
+            .as_ref()
+            .is_some_and(|canonical| haystack.contains(&flatten(canonical).to_lowercase()))
+            || claim
+                .signatures
+                .iter()
+                .any(|signature| haystack.contains(&flatten(signature).to_lowercase()));
         assert!(
             carries,
             "the dedicated guard {guard} for claim `{}` must state the family bytes (canonical or signature)",
@@ -1603,35 +1815,107 @@ fn the_four_known_families_cannot_return() {
 fn wave_families_cannot_drift_silently() {
     let claims = registry();
     let plants: Vec<(&str, &str)> = vec![
-        ("audit-recipe", "the agents guide orders the audit: scan → report → diagram → verify\n"),
-        ("go-module-tier", "the module tier derives from the tree's own packages on every driver\n"),
-        ("depgraph-refusal", "when no module tier exists: depgraph needs the module tier, which this model has none of, because the tree is flat\n"),
-        ("inspect-refusal", "on a flat tree, inspect tree needs the module tier, which this model has none of, so nothing renders\n"),
-        ("facade-inert-note", "note: facade dependency rule inert for go: facade roles are not derivable there\n"),
-        ("roles-in-views", "a rust bin's `<unit>::main` entry marks in `inspect tree` alone\n"),
-        ("api-usage-role-less-note", "the view prints note: this view shows no roles by decision, though the matrix still marks roles\n"),
-        ("depgraph-fold-note", "the modules view ends with a note that 3 role facts folded onto one node with different roles, so the node states nothing\n"),
-        ("rust-unit-naming", "a crate with lib.rs and main.rs yields `<pkg>` plus `<pkg>-bin` without any section\n"),
-        ("go-naming-legality", "a short package name does not resolve when `matches.units` targets a go unit\n"),
-        ("report-diagram-granularity", "the diagram embedded in a markdown report stays file-granular; the module-granular graph is a separate command\n"),
-        ("csharp-duality", "csharp projects carry two names for one project: a dotted build-unit name and a double-colon namespace name\n"),
-        ("fold-pointer", "unit ownership lives in the scan model's root module declarations, not in the folded graph labels\n"),
-        ("test-gated-edges", "test-gated/soft edges can appear in the graph because depgraph projections ignore the exclusion\n"),
-        ("mod-label", "call the root-module bucket what the graph labels mod for a unit\n"),
-        ("init-update-summary", "a newcomer runs update, which works by snapshotting the real tree, then tightens\n"),
-        ("exploratory-render", "an exploratory render keeps the committed artefact alone and prints to stdout\n"),
-        ("pretty-switch", "scan --pretty makes the model json indented while the default stays compact\n"),
-        ("check-ok-line", "a green check prints ok: build/report.md — up to date and nothing else\n"),
-        ("check-render-guidance", "a failing check compares the canonical rendering unless the artefact carries a --format header of its own\n"),
-        ("first-spec-bootstrap", "steps 1–2 create no spec: on a first capture of a fresh tree, run update once and keep the seed\n"),
-        ("destination-canonical", "the configured destination is provisioned for the default text rendering whatever the check compares\n"),
-        ("artefact-dirt-map", "freshness keys on structure: a comment dirties no artefact while a rename dirties none either\n"),
+        (
+            "audit-recipe",
+            "the agents guide orders the audit: scan → report → diagram → verify\n",
+        ),
+        (
+            "go-module-tier",
+            "the module tier derives from the tree's own packages on every driver\n",
+        ),
+        (
+            "depgraph-refusal",
+            "when no module tier exists: depgraph needs the module tier, which this model has none of, because the tree is flat\n",
+        ),
+        (
+            "inspect-refusal",
+            "on a flat tree, inspect tree needs the module tier, which this model has none of, so nothing renders\n",
+        ),
+        (
+            "facade-inert-note",
+            "note: facade dependency rule inert for go: facade roles are not derivable there\n",
+        ),
+        (
+            "roles-in-views",
+            "a rust bin's `<unit>::main` entry marks in `inspect tree` alone\n",
+        ),
+        (
+            "api-usage-role-less-note",
+            "the view prints note: this view shows no roles by decision, though the matrix still marks roles\n",
+        ),
+        (
+            "depgraph-fold-note",
+            "the modules view ends with a note that 3 role facts folded onto one node with different roles, so the node states nothing\n",
+        ),
+        (
+            "rust-unit-naming",
+            "a crate with lib.rs and main.rs yields `<pkg>` plus `<pkg>-bin` without any section\n",
+        ),
+        (
+            "go-naming-legality",
+            "a short package name does not resolve when `matches.units` targets a go unit\n",
+        ),
+        (
+            "report-diagram-granularity",
+            "the diagram embedded in a markdown report stays file-granular; the module-granular graph is a separate command\n",
+        ),
+        (
+            "csharp-duality",
+            "csharp projects carry two names for one project: a dotted build-unit name and a double-colon namespace name\n",
+        ),
+        (
+            "fold-pointer",
+            "unit ownership lives in the scan model's root module declarations, not in the folded graph labels\n",
+        ),
+        (
+            "test-gated-edges",
+            "test-gated/soft edges can appear in the graph because depgraph projections ignore the exclusion\n",
+        ),
+        (
+            "mod-label",
+            "call the root-module bucket what the graph labels mod for a unit\n",
+        ),
+        (
+            "init-update-summary",
+            "a newcomer runs update, which works by snapshotting the real tree, then tightens\n",
+        ),
+        (
+            "exploratory-render",
+            "an exploratory render keeps the committed artefact alone and prints to stdout\n",
+        ),
+        (
+            "pretty-switch",
+            "scan --pretty makes the model json indented while the default stays compact\n",
+        ),
+        (
+            "check-ok-line",
+            "a green check prints ok: build/report.md — up to date and nothing else\n",
+        ),
+        (
+            "check-render-guidance",
+            "a failing check compares the canonical rendering unless the artefact carries a --format header of its own\n",
+        ),
+        (
+            "first-spec-bootstrap",
+            "steps 1–2 create no spec: on a first capture of a fresh tree, run update once and keep the seed\n",
+        ),
+        (
+            "destination-canonical",
+            "the configured destination is provisioned for the default text rendering whatever the check compares\n",
+        ),
+        (
+            "artefact-dirt-map",
+            "freshness keys on structure: a comment dirties no artefact while a rename dirties none either\n",
+        ),
     ];
     let mut base = rendered_surfaces();
     base.extend(payload_docs());
     for (claim_id, plant) in &plants {
         let mut corpus = base.clone();
-        corpus.push(("scratch/planted-wave-family.md".to_string(), plant.to_string()));
+        corpus.push((
+            "scratch/planted-wave-family.md".to_string(),
+            plant.to_string(),
+        ));
         let violations = scan(&corpus, &claims);
         let rendered = render(&violations);
         assert!(

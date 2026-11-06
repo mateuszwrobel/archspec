@@ -81,6 +81,15 @@ listed here. Grammar crates embed their upstream grammar sources from the
 linked repository; the license stated in a grammar crate's row is also the
 license of the grammar it vendors.
 
+## Algorithm attribution
+
+The clustering behind `archspec inspect --clusters` implements greedy
+modularity merging as published in Clauset, Newman & Moore (2004),
+J. Graph Algorithms Appl. 8(4):463-486. It was written from the paper
+alone, per this repository's no-source-porting policy. NetworkX's
+`greedy_modularity_communities` is prior art of the same algorithm family.
+No code was ported into this binary from any third-party implementation.
+
 ## Dependencies
 
 | Crate | Version | License | Repository |

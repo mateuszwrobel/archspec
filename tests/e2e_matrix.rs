@@ -22,7 +22,7 @@ mod common;
 mod shared;
 
 use common::Fixture;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use shared::driver::{Driver, Language};
 use shared::matrix;
 
@@ -79,173 +79,839 @@ const NO_ARGS: &[&str] = &[];
 fn registry() -> Vec<Cell> {
     let mut cells: Vec<Cell> = vec![
         // --- version: identity, not a command (no help-verb guard row) ---
-        cell!("version/default", "version", "version", "mode", "empty", NO_PRE,
-            &["version"], 0, &["archspec "], &[], &[], None,
-            "stdout names the tool with a version"),
-        cell!("version/dashdash-version", "version", "--version", "mode", "empty", NO_PRE,
-            &["--version"], 0, &["archspec "], &[], &[], None,
-            "--version emits the same identity line shape"),
+        cell!(
+            "version/default",
+            "version",
+            "version",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["version"],
+            0,
+            &["archspec "],
+            &[],
+            &[],
+            None,
+            "stdout names the tool with a version"
+        ),
+        cell!(
+            "version/dashdash-version",
+            "version",
+            "--version",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["--version"],
+            0,
+            &["archspec "],
+            &[],
+            &[],
+            None,
+            "--version emits the same identity line shape"
+        ),
         // --- init ---
-        cell!("init/default", "init", "[path]", "mode", "rust-workspace", NO_PRE,
-            &["init"], 0, &["created architecture.spec.toml", "created archspec.toml"],
-            &[], &[], None, "init scaffolds config + starter spec"),
+        cell!(
+            "init/default",
+            "init",
+            "[path]",
+            "mode",
+            "rust-workspace",
+            NO_PRE,
+            &["init"],
+            0,
+            &["created architecture.spec.toml", "created archspec.toml"],
+            &[],
+            &[],
+            None,
+            "init scaffolds config + starter spec"
+        ),
         // --- scan ---
-        cell!("scan/default", "scan", "default", "mode", "rust-probe", NO_PRE,
-            &["scan"], 0, &["\"language\":\"rust\""], &[], &[], None,
-            "compact model JSON on stdout"),
-        cell!("scan/output", "scan", "--output", "mode", "rust-probe", NO_PRE,
-            &["scan", "--output", "model.json"], 0, &[], &[], &[], Some("model.json"),
-            "model written to the destination file"),
-        cell!("scan/check", "scan", "--check", "mode", "rust-probe",
+        cell!(
+            "scan/default",
+            "scan",
+            "default",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["scan"],
+            0,
+            &["\"language\":\"rust\""],
+            &[],
+            &[],
+            None,
+            "compact model JSON on stdout"
+        ),
+        cell!(
+            "scan/output",
+            "scan",
+            "--output",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["scan", "--output", "model.json"],
+            0,
+            &[],
+            &[],
+            &[],
+            Some("model.json"),
+            "model written to the destination file"
+        ),
+        cell!(
+            "scan/check",
+            "scan",
+            "--check",
+            "mode",
+            "rust-probe",
             &[&["scan", "--output", "model.json"]],
-            &["scan", "--check", "--output", "model.json"], 0, &["up to date"], &[], &[], None,
-            "fresh check names the destination with the ok-line"),
-        cell!("scan/pretty", "scan", "--pretty", "mode", "rust-probe", NO_PRE,
-            &["scan", "--pretty"], 0, &["{\n  \"schema_version\""], &[], &[], None,
-            "indented JSON body"),
+            &["scan", "--check", "--output", "model.json"],
+            0,
+            &["up to date"],
+            &[],
+            &[],
+            None,
+            "fresh check names the destination with the ok-line"
+        ),
+        cell!(
+            "scan/pretty",
+            "scan",
+            "--pretty",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["scan", "--pretty"],
+            0,
+            &["{\n  \"schema_version\""],
+            &[],
+            &[],
+            None,
+            "indented JSON body"
+        ),
         // --- diagram ---
-        cell!("diagram/spec-source", "diagram", "spec source", "mode", "rust-probe",
-            &[&["update"]], &["diagram"], 0, &["graph"], &[], &[], None,
-            "mermaid body from the declared spec on stdout"),
-        cell!("diagram/source-scan", "diagram", "--source scan", "mode", "rust-probe",
+        cell!(
+            "diagram/spec-source",
+            "diagram",
+            "spec source",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "mermaid body from the declared spec on stdout"
+        ),
+        cell!(
+            "diagram/source-scan",
+            "diagram",
+            "--source scan",
+            "mode",
+            "rust-probe",
             &[&["scan", "--output", "scan.json"]],
-            &["diagram", "--source", "scan", "scan.json"], 0, &["graph"], &[], &[], None,
-            "mermaid body from the scan artefact"),
-        cell!("diagram/format-plantuml", "diagram", "--format plantuml", "mode", "rust-probe",
-            &[&["update"]], &["diagram", "--format", "plantuml"], 0, &["@startuml"], &[], &[], None,
-            "plantuml body"),
-        cell!("diagram/tiers", "diagram", "--tiers", "mode", "rust-probe",
+            &["diagram", "--source", "scan", "scan.json"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "mermaid body from the scan artefact"
+        ),
+        cell!(
+            "diagram/format-plantuml",
+            "diagram",
+            "--format plantuml",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram", "--format", "plantuml"],
+            0,
+            &["@startuml"],
+            &[],
+            &[],
+            None,
+            "plantuml body"
+        ),
+        cell!(
+            "diagram/tiers",
+            "diagram",
+            "--tiers",
+            "mode",
+            "rust-probe",
             &[&["scan", "--output", "scan.json"]],
-            &["diagram", "--source", "scan", "scan.json", "--tiers", "modules"], 0, &["graph"], &[], &[], None,
-            "additive module-tier render on the scan source exits 0 with a body"),
-        cell!("diagram/module", "diagram", "--module", "mode", "rust-probe",
-            &[&["update"]], &["diagram", "--module", "app"], 0, &["graph"], &[], &[], None,
-            "single-claim territory render"),
-        cell!("diagram/modules-dir", "diagram", "--modules-dir", "mode", "rust-probe",
-            &[&["update"]], &["diagram", "--modules-dir", "diagrams"], 0, &[], &[], &[],
-            Some("diagrams/app.mmd"), "one diagram file per module claim"),
-        cell!("diagram/output", "diagram", "--output", "mode", "rust-probe",
-            &[&["update"]], &["diagram", "--output", "out.mmd"], 0, &[], &[], &[],
-            Some("out.mmd"), "diagram written to the destination file"),
-        cell!("diagram/check", "diagram", "--check", "mode", "rust-probe",
+            &[
+                "diagram",
+                "--source",
+                "scan",
+                "scan.json",
+                "--tiers",
+                "modules"
+            ],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "additive module-tier render on the scan source exits 0 with a body"
+        ),
+        cell!(
+            "diagram/module",
+            "diagram",
+            "--module",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram", "--module", "app"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "single-claim territory render"
+        ),
+        cell!(
+            "diagram/modules-dir",
+            "diagram",
+            "--modules-dir",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram", "--modules-dir", "diagrams"],
+            0,
+            &[],
+            &[],
+            &[],
+            Some("diagrams/app.mmd"),
+            "one diagram file per module claim"
+        ),
+        cell!(
+            "diagram/output",
+            "diagram",
+            "--output",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram", "--output", "out.mmd"],
+            0,
+            &[],
+            &[],
+            &[],
+            Some("out.mmd"),
+            "diagram written to the destination file"
+        ),
+        cell!(
+            "diagram/check",
+            "diagram",
+            "--check",
+            "mode",
+            "rust-probe",
             &[&["update"], &["diagram", "--output", "out.mmd"]],
-            &["diagram", "--check", "--output", "out.mmd"], 0, &["up to date"], &[], &[], None,
-            "fresh check names the destination with the ok-line"),
+            &["diagram", "--check", "--output", "out.mmd"],
+            0,
+            &["up to date"],
+            &[],
+            &[],
+            None,
+            "fresh check names the destination with the ok-line"
+        ),
         // --- verify ---
-        cell!("verify/default", "verify", "default", "mode", "rust-violating", NO_PRE,
-            &["verify"], 1, &["does not match source model"], &[], &[], None,
-            "violation diffs on stdout, exit 1"),
-        cell!("verify/strict", "verify", "--strict", "mode", "rust-violating", NO_PRE,
-            &["verify", "--strict"], 1, &["does not match source model"], &[], &[], None,
-            "--strict keeps the verdict, promotes vacuity class"),
+        cell!(
+            "verify/default",
+            "verify",
+            "default",
+            "mode",
+            "rust-violating",
+            NO_PRE,
+            &["verify"],
+            1,
+            &["does not match source model"],
+            &[],
+            &[],
+            None,
+            "violation diffs on stdout, exit 1"
+        ),
+        cell!(
+            "verify/strict",
+            "verify",
+            "--strict",
+            "mode",
+            "rust-violating",
+            NO_PRE,
+            &["verify", "--strict"],
+            1,
+            &["does not match source model"],
+            &[],
+            &[],
+            None,
+            "--strict keeps the verdict, promotes vacuity class"
+        ),
         // --- update ---
-        cell!("update/default", "update", "default", "mode", "rust-workspace", NO_PRE,
-            &["update"], 0, &["generated"], &[], &[], Some("architecture.spec.toml"),
-            "seed spec generated from the tree"),
-        cell!("update/force", "update", "--force", "mode", "rust-workspace",
-            &[&["update"]], &["update", "--force"], 0, &["generated"], &[], &[], None,
-            "--force rewrites an existing seed spec"),
+        cell!(
+            "update/default",
+            "update",
+            "default",
+            "mode",
+            "rust-workspace",
+            NO_PRE,
+            &["update"],
+            0,
+            &["generated"],
+            &[],
+            &[],
+            Some("architecture.spec.toml"),
+            "seed spec generated from the tree"
+        ),
+        cell!(
+            "update/force",
+            "update",
+            "--force",
+            "mode",
+            "rust-workspace",
+            &[&["update"]],
+            &["update", "--force"],
+            0,
+            &["generated"],
+            &[],
+            &[],
+            None,
+            "--force rewrites an existing seed spec"
+        ),
         // --- report ---
-        cell!("report/text", "report", "text", "mode", "rust-probe",
-            &[&["update"]], &["report"], 0, &["Architecture report"], &[], &[], None,
-            "text body on stdout"),
-        cell!("report/format-markdown", "report", "--format markdown", "mode", "rust-probe",
-            &[&["update"]], &["report", "--format", "markdown"], 0, &["# Architecture report"],
-            &[], &[], None, "markdown body on stdout"),
-        cell!("report/format-json", "report", "--format json", "mode", "rust-probe",
-            &[&["update"]], &["report", "--format", "json"], 0, &["\"language\": \"rust\""],
-            &[], &[], None, "already-indented JSON body"),
-        cell!("report/output", "report", "--output", "mode", "rust-probe",
-            &[&["update"]], &["report", "--output", "report.md"], 0, &[], &[], &[],
-            Some("report.md"), "report written to the destination file"),
-        cell!("report/check", "report", "--check", "mode", "rust-probe",
+        cell!(
+            "report/text",
+            "report",
+            "text",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["report"],
+            0,
+            &["Architecture report"],
+            &[],
+            &[],
+            None,
+            "text body on stdout"
+        ),
+        cell!(
+            "report/format-markdown",
+            "report",
+            "--format markdown",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["report", "--format", "markdown"],
+            0,
+            &["# Architecture report"],
+            &[],
+            &[],
+            None,
+            "markdown body on stdout"
+        ),
+        cell!(
+            "report/format-json",
+            "report",
+            "--format json",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["report", "--format", "json"],
+            0,
+            &["\"language\": \"rust\""],
+            &[],
+            &[],
+            None,
+            "already-indented JSON body"
+        ),
+        cell!(
+            "report/output",
+            "report",
+            "--output",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["report", "--output", "report.md"],
+            0,
+            &[],
+            &[],
+            &[],
+            Some("report.md"),
+            "report written to the destination file"
+        ),
+        cell!(
+            "report/check",
+            "report",
+            "--check",
+            "mode",
+            "rust-probe",
             &[&["update"], &["report", "--output", "report.md"]],
-            &["report", "--check", "--output", "report.md"], 0, &["up to date"], &[], &[], None,
-            "fresh check names the destination with the ok-line"),
-        cell!("report/pretty", "report", "--pretty", "mode", "rust-probe",
-            &[&["update"]], &["report", "--format", "json", "--pretty"], 0,
-            &["\"language\": \"rust\""], &[], &[], None,
-            "hole (b): --pretty actually runs; body bytes identical to non-pretty"),
+            &["report", "--check", "--output", "report.md"],
+            0,
+            &["up to date"],
+            &[],
+            &[],
+            None,
+            "fresh check names the destination with the ok-line"
+        ),
+        cell!(
+            "report/pretty",
+            "report",
+            "--pretty",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["report", "--format", "json", "--pretty"],
+            0,
+            &["\"language\": \"rust\""],
+            &[],
+            &[],
+            None,
+            "hole (b): --pretty actually runs; body bytes identical to non-pretty"
+        ),
         // --- spec ---
-        cell!("spec/reference", "spec", "reference", "mode", "empty", NO_PRE,
-            &["spec"], 0, &["annotated reference"], &[], &[], None,
-            "annotated spec reference on stdout"),
-        cell!("spec/schema", "spec", "--schema", "mode", "empty", NO_PRE,
-            &["spec", "--schema"], 0, &["json-schema.org"], &[], &[], None,
-            "draft-07 JSON Schema on stdout"),
+        cell!(
+            "spec/reference",
+            "spec",
+            "reference",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["spec"],
+            0,
+            &["annotated reference"],
+            &[],
+            &[],
+            None,
+            "annotated spec reference on stdout"
+        ),
+        cell!(
+            "spec/schema",
+            "spec",
+            "--schema",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["spec", "--schema"],
+            0,
+            &["json-schema.org"],
+            &[],
+            &[],
+            None,
+            "draft-07 JSON Schema on stdout"
+        ),
         // --- doctor ---
-        cell!("doctor/default", "doctor", "(zero flags)", "mode", "empty", NO_PRE,
-            &["doctor"], 0, &["driver: present"], &[], &[], None,
-            "driver/toolchain census per language"),
+        cell!(
+            "doctor/default",
+            "doctor",
+            "(zero flags)",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["doctor"],
+            0,
+            &["driver: present"],
+            &[],
+            &[],
+            None,
+            "driver/toolchain census per language"
+        ),
         // --- inspect ---
-        cell!("inspect/default", "inspect", "default", "mode", "rust-probe", NO_PRE,
-            &["inspect"], 0, &["graph"], &[], &[], None, "file-level mermaid on stdout"),
-        cell!("inspect/tree", "inspect", "tree", "mode", "rust-probe", NO_PRE,
-            &["inspect", "tree"], 0, &["graph"], &[], &[], None, "structural tree model renders"),
-        cell!("inspect/scanner", "inspect", "scanner", "mode", "rust-probe", NO_PRE,
-            &["inspect", "scanner"], 0, &["graph"], &[], &[], None, "unit-tier scanner model renders"),
-        cell!("inspect/format", "inspect", "--format", "mode", "rust-probe", NO_PRE,
-            &["inspect", "--format", "plantuml"], 0, &["@startuml"], &[], &[], None,
-            "plantuml body"),
-        cell!("inspect/output", "inspect", "--output", "mode", "rust-probe", NO_PRE,
-            &["inspect", "--output", "inspect.mmd"], 0, &[], &[], &[], Some("inspect.mmd"),
-            "diagram written to the destination file"),
-        cell!("inspect/check", "inspect", "--check", "mode", "rust-probe",
+        cell!(
+            "inspect/default",
+            "inspect",
+            "default",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["inspect"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "file-level mermaid on stdout"
+        ),
+        cell!(
+            "inspect/tree",
+            "inspect",
+            "tree",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["inspect", "tree"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "structural tree model renders"
+        ),
+        cell!(
+            "inspect/scanner",
+            "inspect",
+            "scanner",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["inspect", "scanner"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "unit-tier scanner model renders"
+        ),
+        cell!(
+            "inspect/format",
+            "inspect",
+            "--format",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["inspect", "--format", "plantuml"],
+            0,
+            &["@startuml"],
+            &[],
+            &[],
+            None,
+            "plantuml body"
+        ),
+        cell!(
+            "inspect/output",
+            "inspect",
+            "--output",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["inspect", "--output", "inspect.mmd"],
+            0,
+            &[],
+            &[],
+            &[],
+            Some("inspect.mmd"),
+            "diagram written to the destination file"
+        ),
+        cell!(
+            "inspect/check",
+            "inspect",
+            "--check",
+            "mode",
+            "rust-probe",
             &[&["inspect", "--output", "inspect.mmd"]],
-            &["inspect", "--check", "--output", "inspect.mmd"], 0, &["up to date"], &[], &[], None,
-            "fresh check names the destination with the ok-line"),
+            &["inspect", "--check", "--output", "inspect.mmd"],
+            0,
+            &["up to date"],
+            &[],
+            &[],
+            None,
+            "fresh check names the destination with the ok-line"
+        ),
+        cell!(
+            "inspect/clusters",
+            "inspect",
+            "--clusters",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["inspect", "tree", "--clusters"],
+            0,
+            &["structure:"],
+            &[],
+            &[],
+            None,
+            "clustering overlay appends one structure line"
+        ),
+        cell!(
+            "inspect/clusters-json",
+            "inspect",
+            "--json",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["inspect", "tree", "--clusters", "--json"],
+            0,
+            &["\"clusters\"", "archspec-clusters-v0"],
+            &[],
+            &[],
+            None,
+            "machine form carries exactly the additive clusters key"
+        ),
+        cell!(
+            "inspect/clusters-mode-refusal",
+            "inspect",
+            "--clusters",
+            "exit-class",
+            "rust-probe",
+            NO_PRE,
+            &["inspect", "--clusters"],
+            64,
+            &[],
+            &["--clusters is only valid on the model modes"],
+            &[],
+            None,
+            "the overlay is refused off the model modes"
+        ),
+        cell!(
+            "inspect/json-requires-clusters",
+            "inspect",
+            "--json",
+            "exit-class",
+            "rust-probe",
+            NO_PRE,
+            &["inspect", "tree", "--json"],
+            64,
+            &[],
+            &["--json renders the clustering overlay only"],
+            &[],
+            None,
+            "the machine form is refused without --clusters"
+        ),
         // --- depgraph ---
-        cell!("depgraph/modules", "depgraph", "modules", "mode", "rust-probe", NO_PRE,
-            &["depgraph", "modules"], 0, &["graph"], &[], &[], None,
-            "module-tier graph on stdout"),
-        cell!("depgraph/api-usage", "depgraph", "api-usage", "mode", "rust-probe", NO_PRE,
-            &["depgraph", "api-usage"], 0, &[], &[], &[], None,
-            "markdown usage table exits 0 (exit-class witness)"),
-        cell!("depgraph/submodules", "depgraph", "submodules", "mode", "rust-probe", NO_PRE,
-            &["depgraph", "submodules", "--parent", "app::core"], 0, &["graph"], &[], &[], None,
-            "child graph of one module"),
-        cell!("depgraph/format", "depgraph", "--format", "mode", "rust-probe", NO_PRE,
-            &["depgraph", "modules", "--format", "plantuml"], 0, &["@startuml"], &[], &[], None,
-            "plantuml body"),
-        cell!("depgraph/parent", "depgraph", "--parent", "mode", "rust-probe", NO_PRE,
-            &["depgraph", "submodules", "--parent", "app::core"], 0, &["graph"], &[], &[], None,
-            "--parent selects the expanded module"),
-        cell!("depgraph/output", "depgraph", "--output", "mode", "rust-probe", NO_PRE,
-            &["depgraph", "modules", "--output", "deps.mmd"], 0, &[], &[], &[], Some("deps.mmd"),
-            "body written to the destination file"),
-        cell!("depgraph/check", "depgraph", "--check", "mode", "rust-probe",
+        cell!(
+            "depgraph/modules",
+            "depgraph",
+            "modules",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "modules"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "module-tier graph on stdout"
+        ),
+        cell!(
+            "depgraph/api-usage",
+            "depgraph",
+            "api-usage",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "api-usage"],
+            0,
+            &[],
+            &[],
+            &[],
+            None,
+            "markdown usage table exits 0 (exit-class witness)"
+        ),
+        cell!(
+            "depgraph/submodules",
+            "depgraph",
+            "submodules",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "submodules", "--parent", "app::core"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "child graph of one module"
+        ),
+        cell!(
+            "depgraph/format",
+            "depgraph",
+            "--format",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "modules", "--format", "plantuml"],
+            0,
+            &["@startuml"],
+            &[],
+            &[],
+            None,
+            "plantuml body"
+        ),
+        cell!(
+            "depgraph/parent",
+            "depgraph",
+            "--parent",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "submodules", "--parent", "app::core"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "--parent selects the expanded module"
+        ),
+        cell!(
+            "depgraph/output",
+            "depgraph",
+            "--output",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "modules", "--output", "deps.mmd"],
+            0,
+            &[],
+            &[],
+            &[],
+            Some("deps.mmd"),
+            "body written to the destination file"
+        ),
+        cell!(
+            "depgraph/check",
+            "depgraph",
+            "--check",
+            "mode",
+            "rust-probe",
             &[&["depgraph", "modules", "--output", "deps.mmd"]],
-            &["depgraph", "modules", "--check", "--output", "deps.mmd"], 0, &["up to date"], &[], &[], None,
-            "fresh check names the destination with the ok-line"),
+            &["depgraph", "modules", "--check", "--output", "deps.mmd"],
+            0,
+            &["up to date"],
+            &[],
+            &[],
+            None,
+            "fresh check names the destination with the ok-line"
+        ),
         // --- capability ---
-        cell!("capability/matrix", "capability", "matrix", "mode", "empty", NO_PRE,
-            &["capability", "matrix"], 0, &["capability rust"], &[], &[], None,
-            "driver capability table on stdout"),
-        cell!("capability/granular", "capability", "granular", "mode", "empty", NO_PRE,
-            &["capability", "granular", "rust", "role-facade"], 0, &[], &[], &[], None,
-            "machine query exits 0 at full granularity"),
+        cell!(
+            "capability/matrix",
+            "capability",
+            "matrix",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["capability", "matrix"],
+            0,
+            &["capability rust"],
+            &[],
+            &[],
+            None,
+            "driver capability table on stdout"
+        ),
+        cell!(
+            "capability/granular",
+            "capability",
+            "granular",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["capability", "granular", "rust", "role-facade"],
+            0,
+            &[],
+            &[],
+            &[],
+            None,
+            "machine query exits 0 at full granularity"
+        ),
         // --- skill ---
-        cell!("skill/audit", "skill", "audit emit", "mode", "empty", NO_PRE,
-            &["skill"], 0, &["name: archspec"], &[], &[], None, "default audit skill on stdout"),
-        cell!("skill/print", "skill", "print", "mode", "empty", NO_PRE,
-            &["skill", "print"], 0, &["name: archspec"], &[], &[], None,
-            "print emits the audit skill"),
-        cell!("skill/install", "skill", "install", "mode", "empty", NO_PRE,
-            &["skill", "install", "."], 0, &["installed"], &[], &[],
-            Some(".agent/skills/archspec.md"), "skill installed under .agent/skills/"),
-        cell!("skill/force", "skill", "--force", "mode", "empty",
-            &[&["skill", "install", "."], &["@.agent/skills/archspec.md=drifted\n"]],
-            &["skill", "install", ".", "--force"], 0, &["overwrote"], &[], &[], None,
-            "--force overwrites drifted content; the echo names the file"),
+        cell!(
+            "skill/audit",
+            "skill",
+            "audit emit",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["skill"],
+            0,
+            &["name: archspec"],
+            &[],
+            &[],
+            None,
+            "default audit skill on stdout"
+        ),
+        cell!(
+            "skill/print",
+            "skill",
+            "print",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["skill", "print"],
+            0,
+            &["name: archspec"],
+            &[],
+            &[],
+            None,
+            "print emits the audit skill"
+        ),
+        cell!(
+            "skill/install",
+            "skill",
+            "install",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["skill", "install", "."],
+            0,
+            &["installed"],
+            &[],
+            &[],
+            Some(".agent/skills/archspec.md"),
+            "skill installed under .agent/skills/"
+        ),
+        cell!(
+            "skill/force",
+            "skill",
+            "--force",
+            "mode",
+            "empty",
+            &[
+                &["skill", "install", "."],
+                &["@.agent/skills/archspec.md=drifted\n"]
+            ],
+            &["skill", "install", ".", "--force"],
+            0,
+            &["overwrote"],
+            &[],
+            &[],
+            None,
+            "--force overwrites drifted content; the echo names the file"
+        ),
         // --- help ---
-        cell!("help/no-args", "help", "no args", "mode", "empty", NO_PRE,
-            &["help"], 0, &["usage: archspec help"], &[], &[], None, "manual index on stdout"),
-        cell!("help/per-command", "help", "per-command", "mode", "empty", NO_PRE,
-            &["scan", "--help"], 0, &["usage: archspec scan"], &[], &[], None,
-            "per-command help surfaces the usage line"),
-        cell!("help/typo", "help", "typo", "mode", "empty", NO_PRE,
-            &["help", "scanx"], 64, &[], &["unknown help topic"], &[], None,
-            "unknown topic is a usage error listing valid topics"),
+        cell!(
+            "help/no-args",
+            "help",
+            "no args",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["help"],
+            0,
+            &["usage: archspec help"],
+            &[],
+            &[],
+            None,
+            "manual index on stdout"
+        ),
+        cell!(
+            "help/per-command",
+            "help",
+            "per-command",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["scan", "--help"],
+            0,
+            &["usage: archspec scan"],
+            &[],
+            &[],
+            None,
+            "per-command help surfaces the usage line"
+        ),
+        cell!(
+            "help/typo",
+            "help",
+            "typo",
+            "mode",
+            "empty",
+            NO_PRE,
+            &["help", "scanx"],
+            64,
+            &[],
+            &["unknown help topic"],
+            &[],
+            None,
+            "unknown topic is a usage error listing valid topics"
+        ),
     ];
     for (id, topic) in [
         ("help/topic-commands", "commands"),
@@ -259,37 +925,193 @@ fn registry() -> Vec<Cell> {
         ("help/topic-diagnostics", "diagnostics"),
     ] {
         cells.push(cell!(
-            id, "help", topic, "mode", "empty", NO_PRE,
+            id,
+            "help",
+            topic,
+            "mode",
+            "empty",
+            NO_PRE,
             // args built per topic at run time below; the registry entry
             // carries NO_ARGS and the runner substitutes ["help", topic].
-            NO_ARGS, 0, &["archspec"], &[], &[], None, "manual topic prints a page"
+            NO_ARGS,
+            0,
+            &["archspec"],
+            &[],
+            &[],
+            None,
+            "manual topic prints a page"
         ));
     }
     // Exit-class cells (exit-code contract surface from the proposal table).
-    cells.push(cell!("verify/missing-spec", "verify", "(no spec)", "exit-class", "empty",
-        NO_PRE, &["verify"], 70, &[], &["no architecture.spec.toml"], &[], None,
-        "missing precondition exits 70 naming the file"));
-    cells.push(cell!("report/missing-spec", "report", "(no spec)", "exit-class", "empty",
-        NO_PRE, &["report"], 70, &[], &["spec file not found"], &[], None,
-        "missing precondition exits 70 naming the file"));
-    cells.push(cell!("cli/unknown-command", "cli", "unknown command", "exit-class", "empty",
-        NO_PRE, &["frobnicate"], 64, &[], &["unknown command"], &[], None,
-        "unknown command exits 64"));
-    cells.push(cell!("cli/unknown-flag", "cli", "unknown flag", "exit-class", "empty",
-        NO_PRE, &["scan", "--nope"], 64, &[], &["unknown flag"], &[], None,
-        "unknown flag exits 64"));
+    cells.push(cell!(
+        "verify/missing-spec",
+        "verify",
+        "(no spec)",
+        "exit-class",
+        "empty",
+        NO_PRE,
+        &["verify"],
+        70,
+        &[],
+        &["no architecture.spec.toml"],
+        &[],
+        None,
+        "missing precondition exits 70 naming the file"
+    ));
+    cells.push(cell!(
+        "report/missing-spec",
+        "report",
+        "(no spec)",
+        "exit-class",
+        "empty",
+        NO_PRE,
+        &["report"],
+        70,
+        &[],
+        &["spec file not found"],
+        &[],
+        None,
+        "missing precondition exits 70 naming the file"
+    ));
+    cells.push(cell!(
+        "cli/unknown-command",
+        "cli",
+        "unknown command",
+        "exit-class",
+        "empty",
+        NO_PRE,
+        &["frobnicate"],
+        64,
+        &[],
+        &["unknown command"],
+        &[],
+        None,
+        "unknown command exits 64"
+    ));
+    cells.push(cell!(
+        "cli/unknown-flag",
+        "cli",
+        "unknown flag",
+        "exit-class",
+        "empty",
+        NO_PRE,
+        &["scan", "--nope"],
+        64,
+        &[],
+        &["unknown flag"],
+        &[],
+        None,
+        "unknown flag exits 64"
+    ));
     // Line-class cells (binary-level witnesses for report-only classes).
-    cells.push(cell!("scan/python-not-modelled", "scan", "python dynamic sites", "line-class",
-        "python-dynamic", NO_PRE, &["scan"], 0, &[],
-        &["dynamic import not modelled: app.py:4 — importlib",
-          "dynamic import not modelled: app.py:5 — importlib"],
-        &["dynamic import not modelled"], None,
-        "hole (a): python emitter witnessed at binary level; never in the machine body"));
-    cells.push(cell!("scan/ts-dynamic-wildcard", "scan", "ts dynamic wildcard", "line-class",
-        "ts-dynamic", NO_PRE, &["scan"], 0, &[],
+    cells.push(cell!(
+        "scan/python-not-modelled",
+        "scan",
+        "python dynamic sites",
+        "line-class",
+        "python-dynamic",
+        NO_PRE,
+        &["scan"],
+        0,
+        &[],
+        &[
+            "dynamic import not modelled: app.py:4 — importlib",
+            "dynamic import not modelled: app.py:5 — importlib"
+        ],
+        &["dynamic import not modelled"],
+        None,
+        "hole (a): python emitter witnessed at binary level; never in the machine body"
+    ));
+    cells.push(cell!(
+        "scan/ts-dynamic-wildcard",
+        "scan",
+        "ts dynamic wildcard",
+        "line-class",
+        "ts-dynamic",
+        NO_PRE,
+        &["scan"],
+        0,
+        &[],
         &["dynamic import wildcard: src/a.ts"],
-        &["dynamic import wildcard"], None,
-        "wildcard report line on stderr; never in the machine body"));
+        &["dynamic import wildcard"],
+        None,
+        "wildcard report line on stderr; never in the machine body"
+    ));
+    cells.push(cell!(
+        "depgraph/aggregate-units",
+        "depgraph",
+        "modules --aggregate units",
+        "mode",
+        "ts-agg",
+        NO_PRE,
+        &["depgraph", "modules", "--aggregate", "units"],
+        0,
+        &["p00 --> p01"],
+        &[],
+        &["note: the automatic projection rendered"],
+        None,
+        "--aggregate units renders the 21 unit nodes and the unit-tier edges; the degraded-projection note never appears"
+    ));
+    cells.push(cell!(
+        "depgraph/aggregate-modules",
+        "depgraph",
+        "modules --aggregate modules",
+        "mode",
+        "ts-agg",
+        NO_PRE,
+        &["depgraph", "modules", "--aggregate", "modules"],
+        0,
+        &["root"],
+        &[],
+        &["p00 --> p01", "note: the automatic projection rendered"],
+        None,
+        "--aggregate modules pins the single top-level node: no file-level nodes, no unit edges, no note"
+    ));
+    cells.push(cell!(
+        "depgraph/aggregate-invalid",
+        "depgraph",
+        "modules --aggregate invalid value",
+        "exit-class",
+        "empty",
+        NO_PRE,
+        &["depgraph", "modules", "--aggregate", "top"],
+        64,
+        &[],
+        &["supported levels: units, modules"],
+        &[],
+        None,
+        "E64 invalid aggregate level"
+    ));
+    cells.push(cell!(
+        "depgraph/aggregate-wrong-view",
+        "depgraph",
+        "submodules --aggregate refused",
+        "exit-class",
+        "empty",
+        NO_PRE,
+        &["depgraph", "submodules", "--parent", "x", "--aggregate", "units"],
+        64,
+        &[],
+        &["only valid for the modules view"],
+        &[],
+        None,
+        "E64 --aggregate outside the modules view"
+    ));
+    cells.push(cell!(
+        "depgraph/automatic-under-cap-silent",
+        "depgraph",
+        "modules automatic under cap",
+        "mode",
+        "ts-agg",
+        NO_PRE,
+        &["depgraph", "modules"],
+        0,
+        &["graph TD"],
+        &[],
+        &["note: the automatic projection rendered"],
+        None,
+        "the automatic file-level render under the 200-node cap prints no degraded-projection note"
+    ));
     cells
 }
 
@@ -301,11 +1123,20 @@ fn build_corpus(name: &str, fx: &Fixture) -> Result<(), String> {
     match name {
         "empty" => Ok(()),
         "rust-workspace" => {
-            fx.write("Cargo.toml", "[workspace]\nmembers = [\"crates/auth\", \"crates/billing\"]\n");
-            fx.write("crates/auth/Cargo.toml", "[package]\nname = \"auth\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+            fx.write(
+                "Cargo.toml",
+                "[workspace]\nmembers = [\"crates/auth\", \"crates/billing\"]\n",
+            );
+            fx.write(
+                "crates/auth/Cargo.toml",
+                "[package]\nname = \"auth\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            );
             fx.write("crates/auth/src/lib.rs", "pub fn auth() {}\n");
             fx.write("crates/billing/Cargo.toml", "[package]\nname = \"billing\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nauth = { path = \"../auth\" }\n");
-            fx.write("crates/billing/src/lib.rs", "pub fn bill() { auth::auth(); }\n");
+            fx.write(
+                "crates/billing/src/lib.rs",
+                "pub fn bill() { auth::auth(); }\n",
+            );
             Ok(())
         }
         "rust-violating" => {
@@ -317,7 +1148,9 @@ fn build_corpus(name: &str, fx: &Fixture) -> Result<(), String> {
             Ok(())
         }
         "rust-probe" => {
-            let driver = Driver { language: Language::Rust };
+            let driver = Driver {
+                language: Language::Rust,
+            };
             driver.materialize(fx, &driver.probe_tree());
             Ok(())
         }
@@ -337,7 +1170,44 @@ fn build_corpus(name: &str, fx: &Fixture) -> Result<(), String> {
             );
             Ok(())
         }
-        other => Err(format!("unknown corpus {other:?} — a cell row names a corpus builder that does not exist")),
+        // 21 two-file packages p00..p20; pNN/src/aNN.ts imports pNN+1/src/aNN+1.ts.
+        // The module tier derives 42 one-file modules, so the automatic module
+        // projection lands on the file level with 42 nodes (under the 200-node
+        // note cap); --aggregate cells exercise the forced levels.
+        "ts-agg" => {
+            fx.write(
+                "package.json",
+                "{\n  \"name\": \"mono\",\n  \"version\": \"1.0.0\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+            );
+            for i in 0..21 {
+                let pkg = format!("p{i:02}");
+                fx.write(
+                    &format!("packages/{pkg}/package.json"),
+                    &format!("{{\"name\":\"{pkg}\",\"version\":\"1.0.0\"}}\n"),
+                );
+                fx.write(
+                    &format!("packages/{pkg}/src/a{i:02}.ts"),
+                    "export const x = 1;\n",
+                );
+                let import_line = format!(
+                    "import {{ x }} from '../../p{:02}/src/a{:02}';\nexport const y = x;\n",
+                    i + 1,
+                    i + 1
+                );
+                fx.write(
+                    &format!("packages/{pkg}/src/b{i:02}.ts"),
+                    if i + 1 < 21 {
+                        import_line.as_str()
+                    } else {
+                        "export const y = 1;\n"
+                    },
+                );
+            }
+            Ok(())
+        }
+        other => Err(format!(
+            "unknown corpus {other:?} — a cell row names a corpus builder that does not exist"
+        )),
     }
 }
 
@@ -351,7 +1221,9 @@ fn run_pre(fx: &Fixture, cmd: &[&str]) -> Result<(), String> {
     }
     let (code, out, err) = matrix::run3(&fx.root, cmd);
     if code != 0 {
-        return Err(format!("pre-command {cmd:?} exited {code}\nstdout:\n{out}\nstderr:\n{err}"));
+        return Err(format!(
+            "pre-command {cmd:?} exited {code}\nstdout:\n{out}\nstderr:\n{err}"
+        ));
     }
     Ok(())
 }
@@ -366,8 +1238,7 @@ fn run_cell(cell: &Cell) -> Result<(), String> {
     for cmd in cell.pre {
         run_pre(&fx, cmd)?;
     }
-    let args: Vec<&str> = if cell.args.is_empty() && cell.verb == "help" && cell.mode != "no args"
-    {
+    let args: Vec<&str> = if cell.args.is_empty() && cell.verb == "help" && cell.mode != "no args" {
         // topic cells: registry carries NO_ARGS, the invocation is help <topic>
         vec!["help", cell.mode]
     } else {
@@ -382,30 +1253,39 @@ fn run_cell(cell: &Cell) -> Result<(), String> {
     }
     for needle in cell.stdout {
         if !out.contains(needle) {
-            return Err(format!("stdout must contain {needle:?}\nstdout:\n{out}\nstderr:\n{err}"));
+            return Err(format!(
+                "stdout must contain {needle:?}\nstdout:\n{out}\nstderr:\n{err}"
+            ));
         }
     }
     for needle in cell.stderr {
         if !err.contains(needle) {
-            return Err(format!("stderr must contain {needle:?}\nstdout:\n{out}\nstderr:\n{err}"));
+            return Err(format!(
+                "stderr must contain {needle:?}\nstdout:\n{out}\nstderr:\n{err}"
+            ));
         }
     }
     for needle in cell.absent {
         if out.contains(needle) {
-            return Err(format!("stdout must NOT contain {needle:?} — report-only class leaked into the machine body\nstdout:\n{out}"));
+            return Err(format!(
+                "stdout must NOT contain {needle:?} — report-only class leaked into the machine body\nstdout:\n{out}"
+            ));
         }
     }
     if let Some(rel) = cell.creates
         && !fx.path(rel).exists()
     {
-        return Err(format!("cell must create {rel:?}\nstdout:\n{out}\nstderr:\n{err}"));
+        return Err(format!(
+            "cell must create {rel:?}\nstdout:\n{out}\nstderr:\n{err}"
+        ));
     }
     // Named custom witness: hole (b) byte-identity law for `report --pretty`.
     if cell.id == "report/pretty" {
-        let (ref_code, ref_out, ref_err) =
-            matrix::run3(&fx.root, &["report", "--format", "json"]);
+        let (ref_code, ref_out, ref_err) = matrix::run3(&fx.root, &["report", "--format", "json"]);
         if ref_code != 0 {
-            return Err(format!("non-pretty reference run exited {ref_code}\nstderr:\n{ref_err}"));
+            return Err(format!(
+                "non-pretty reference run exited {ref_code}\nstderr:\n{ref_err}"
+            ));
         }
         if ref_out != out {
             return Err(format!(
@@ -430,7 +1310,10 @@ fn matrix_cells_execute_and_witness() {
         match run_cell(&cell) {
             Ok(()) => {
                 if let Some((_, reason)) = KNOWN_FAILING.iter().find(|(id, _)| *id == cell.id) {
-                    failures.push(format!("{}: known-failing cell turned GREEN — promote it (reason was {reason})", cell.id));
+                    failures.push(format!(
+                        "{}: known-failing cell turned GREEN — promote it (reason was {reason})",
+                        cell.id
+                    ));
                 }
             }
             Err(e) => {
@@ -447,13 +1330,20 @@ fn matrix_cells_execute_and_witness() {
         match cell {
             Some(c) => {
                 if run_cell(&c).is_ok() {
-                    failures.push(format!("{id}: known-failing turned green — remove the entry ({reason})"));
+                    failures.push(format!(
+                        "{id}: known-failing turned green — remove the entry ({reason})"
+                    ));
                 }
             }
             None => failures.push(format!("{id}: known-failing row names no registry cell")),
         }
     }
-    assert!(failures.is_empty(), "{} cell(s) red:\n{}", failures.len(), failures.join("\n---\n"));
+    assert!(
+        failures.is_empty(),
+        "{} cell(s) red:\n{}",
+        failures.len(),
+        failures.join("\n---\n")
+    );
 }
 
 #[test]
@@ -464,18 +1354,41 @@ fn every_registry_row_is_exercised_and_unique() {
         assert!(!cell.corpus.is_empty(), "{} names no corpus", cell.id);
         assert!(
             matches!(cell.kind, "mode" | "exit-class" | "line-class"),
-            "{} has unknown kind {:?}", cell.id, cell.kind
+            "{} has unknown kind {:?}",
+            cell.id,
+            cell.kind
         );
     }
     // The registry must never silently shrink below the documented surface:
     // at least one cell per documented verb, the 2a table's modes, plus the
     // exit-class and line-class rows.
     let cells = registry();
-    assert!(cells.len() >= 58, "registry has {} cells — below the documented surface floor of 58", cells.len());
+    assert!(
+        cells.len() >= 58,
+        "registry has {} cells — below the documented surface floor of 58",
+        cells.len()
+    );
     let verbs: std::collections::BTreeSet<&str> = cells.iter().map(|c| c.verb).collect();
-    for verb in ["version", "init", "scan", "diagram", "verify", "update", "report",
-                 "spec", "doctor", "inspect", "depgraph", "capability", "skill", "help"] {
-        assert!(verbs.contains(verb), "no cell exercises verb {verb:?} — the registry went silent on it");
+    for verb in [
+        "version",
+        "init",
+        "scan",
+        "diagram",
+        "verify",
+        "update",
+        "report",
+        "spec",
+        "doctor",
+        "inspect",
+        "depgraph",
+        "capability",
+        "skill",
+        "help",
+    ] {
+        assert!(
+            verbs.contains(verb),
+            "no cell exercises verb {verb:?} — the registry went silent on it"
+        );
     }
 }
 
@@ -485,7 +1398,10 @@ fn every_registry_row_is_exercised_and_unique() {
 
 fn help_flags(verb: &str) -> Vec<String> {
     let (code, out, err) = matrix::run3(std::path::Path::new("."), &[verb, "--help"]);
-    assert_eq!(code, 0, "{verb} --help must exit 0 (usage surface is documented)");
+    assert_eq!(
+        code, 0,
+        "{verb} --help must exit 0 (usage surface is documented)"
+    );
     let text = format!("{out}{err}");
     extract_flags(&text)
 }
@@ -531,7 +1447,11 @@ fn extract_flags(text: &str) -> Vec<String> {
 #[test]
 fn registry_matches_documented_help_both_directions() {
     let binary = matrix::resolve_binary();
-    assert!(binary.is_file(), "resolved binary {} is not a file", binary.display());
+    assert!(
+        binary.is_file(),
+        "resolved binary {} is not a file",
+        binary.display()
+    );
     // Verb list from the live top-level help (the "commands:" section).
     let (code, out, _) = matrix::run3(&std::env::current_dir().unwrap_or_default(), &["--help"]);
     assert_eq!(code, 0);
@@ -552,7 +1472,10 @@ fn registry_matches_documented_help_both_directions() {
             }
         }
     }
-    assert!(help_verbs.len() >= 12, "top help must document the command list, got {help_verbs:?}");
+    assert!(
+        help_verbs.len() >= 12,
+        "top help must document the command list, got {help_verbs:?}"
+    );
 
     let cells = registry();
     let mut missing_rows = Vec::new();
@@ -590,12 +1513,16 @@ fn registry_matches_documented_help_both_directions() {
         }
         for flag in &exercised {
             if !documented.contains(flag) {
-                stray_flags.push(format!("{verb}: cell args name {flag} which the live help never documents"));
+                stray_flags.push(format!(
+                    "{verb}: cell args name {flag} which the live help never documents"
+                ));
             }
         }
         for flag in &documented {
             if !exercised.contains(flag) {
-                undocumented.push(format!("{verb}: help documents {flag} but no cell exercises it"));
+                undocumented.push(format!(
+                    "{verb}: help documents {flag} but no cell exercises it"
+                ));
             }
         }
     }
@@ -606,13 +1533,25 @@ fn registry_matches_documented_help_both_directions() {
             assert!(
                 help_verbs.iter().any(|v| v == cell.verb),
                 "cell {} names verb {:?} which the top-level help never lists",
-                cell.id, cell.verb
+                cell.id,
+                cell.verb
             );
         }
     }
-    assert!(missing_rows.is_empty(), "verbs documented but never exercised: {missing_rows:?}");
-    assert!(stray_flags.is_empty(), "cells use undocumented flags:\n{}", stray_flags.join("\n"));
-    assert!(undocumented.is_empty(), "documented flags never exercised:\n{}", undocumented.join("\n"));
+    assert!(
+        missing_rows.is_empty(),
+        "verbs documented but never exercised: {missing_rows:?}"
+    );
+    assert!(
+        stray_flags.is_empty(),
+        "cells use undocumented flags:\n{}",
+        stray_flags.join("\n")
+    );
+    assert!(
+        undocumented.is_empty(),
+        "documented flags never exercised:\n{}",
+        undocumented.join("\n")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -629,25 +1568,104 @@ struct LineClassRow {
 }
 
 const LINE_CLASS_ROWS: &[LineClassRow] = &[
-    LineClassRow { class: "dynamic import wildcard", evidence: &[("ts_driver.rs", "dynamic import wildcard")], lit_by: Some("scan/ts-dynamic-wildcard") },
-    LineClassRow { class: "dynamic import not modelled", evidence: &[("python_driver.rs", "dynamic import not modelled")], lit_by: Some("scan/python-not-modelled") },
-    LineClassRow { class: "external not installed", evidence: &[("ts_driver.rs", "external not installed")], lit_by: None },
-    LineClassRow { class: "workspace link missing", evidence: &[("ts_workspace.rs", "workspace link missing")], lit_by: None },
-    LineClassRow { class: "undeclared member import", evidence: &[("ts_workspace.rs", "undeclared member import")], lit_by: None },
-    LineClassRow { class: "workspace target not built", evidence: &[("ts_workspace.rs", "workspace target not built")], lit_by: None },
-    LineClassRow { class: "generated source not built", evidence: &[("ts_driver.rs", "generated source not built"), ("ts_workspace.rs", "generated source not built")], lit_by: None },
-    LineClassRow { class: "generated tsconfig absent", evidence: &[("ts_driver.rs", "generated tsconfig absent")], lit_by: None },
-    LineClassRow { class: "tsconfig extends not installed", evidence: &[("ts_driver.rs", "tsconfig extends not installed")], lit_by: None },
-    LineClassRow { class: "virtual specifier not modelled", evidence: &[("ts_driver.rs", "virtual specifier not modelled")], lit_by: None },
-    LineClassRow { class: "framework conventions not configured", evidence: &[("ts_driver.rs", "framework conventions not configured")], lit_by: None },
-    LineClassRow { class: "no settings file", evidence: &[("kotlin_driver.rs", "no settings file")], lit_by: None },
-    LineClassRow { class: "unresolved settings include", evidence: &[("kotlin_driver.rs", "unresolved settings include")], lit_by: None },
-    LineClassRow { class: "split package", evidence: &[("kotlin_driver.rs", "split package")], lit_by: None },
-    LineClassRow { class: "gradle catalog unreadable", evidence: &[("kotlin_driver.rs", "gradle catalog unreadable")], lit_by: None },
-    LineClassRow { class: "boundary advisory", evidence: &[("kotlin_driver.rs", "boundary advisory")], lit_by: None },
-    LineClassRow { class: "java sources not indexed", evidence: &[("kotlin_driver.rs", "java sources not indexed")], lit_by: None },
-    LineClassRow { class: "orphan file / orphan file census", evidence: &[("ts_driver.rs", "orphan file")], lit_by: None },
-    LineClassRow { class: "vacuous constraint (scan manifest)", evidence: &[("python_driver.rs", "vacuous constraint")], lit_by: Some("scan/python-not-modelled") },
+    LineClassRow {
+        class: "dynamic import wildcard",
+        evidence: &[("ts_driver.rs", "dynamic import wildcard")],
+        lit_by: Some("scan/ts-dynamic-wildcard"),
+    },
+    LineClassRow {
+        class: "dynamic import not modelled",
+        evidence: &[("python_driver.rs", "dynamic import not modelled")],
+        lit_by: Some("scan/python-not-modelled"),
+    },
+    LineClassRow {
+        class: "external not installed",
+        evidence: &[("ts_driver.rs", "external not installed")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "workspace link missing",
+        evidence: &[("ts_workspace.rs", "workspace link missing")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "undeclared member import",
+        evidence: &[("ts_workspace.rs", "undeclared member import")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "workspace target not built",
+        evidence: &[("ts_workspace.rs", "workspace target not built")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "generated source not built",
+        evidence: &[
+            ("ts_driver.rs", "generated source not built"),
+            ("ts_workspace.rs", "generated source not built"),
+        ],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "generated tsconfig absent",
+        evidence: &[("ts_driver.rs", "generated tsconfig absent")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "tsconfig extends not installed",
+        evidence: &[("ts_driver.rs", "tsconfig extends not installed")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "virtual specifier not modelled",
+        evidence: &[("ts_driver.rs", "virtual specifier not modelled")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "framework conventions not configured",
+        evidence: &[("ts_driver.rs", "framework conventions not configured")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "no settings file",
+        evidence: &[("kotlin_driver.rs", "no settings file")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "unresolved settings include",
+        evidence: &[("kotlin_driver.rs", "unresolved settings include")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "split package",
+        evidence: &[("kotlin_driver.rs", "split package")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "gradle catalog unreadable",
+        evidence: &[("kotlin_driver.rs", "gradle catalog unreadable")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "boundary advisory",
+        evidence: &[("kotlin_driver.rs", "boundary advisory")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "java sources not indexed",
+        evidence: &[("kotlin_driver.rs", "java sources not indexed")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "orphan file / orphan file census",
+        evidence: &[("ts_driver.rs", "orphan file")],
+        lit_by: None,
+    },
+    LineClassRow {
+        class: "vacuous constraint (scan manifest)",
+        evidence: &[("python_driver.rs", "vacuous constraint")],
+        lit_by: Some("scan/python-not-modelled"),
+    },
 ];
 
 #[test]
@@ -665,21 +1683,34 @@ fn line_class_rows_have_binary_level_evidence() {
                     if text.contains(needle) {
                         lit = true;
                     } else {
-                        problems.push(format!("{}: cited test {file} no longer contains {needle:?}", row.class));
+                        problems.push(format!(
+                            "{}: cited test {file} no longer contains {needle:?}",
+                            row.class
+                        ));
                     }
                 }
-                Err(e) => problems.push(format!("{}: cited test {file} unreadable: {e}", row.class)),
+                Err(e) => {
+                    problems.push(format!("{}: cited test {file} unreadable: {e}", row.class))
+                }
             }
         }
         if let Some(id) = row.lit_by {
-            assert!(cells.iter().any(|c| c.id == id), "{}: lit_by names no cell", row.class);
+            assert!(
+                cells.iter().any(|c| c.id == id),
+                "{}: lit_by names no cell",
+                row.class
+            );
             lit = true;
         }
         if !lit {
             problems.push(format!("{}: no binary-level witness", row.class));
         }
     }
-    assert!(problems.is_empty(), "line-class registry drift:\n{}", problems.join("\n"));
+    assert!(
+        problems.is_empty(),
+        "line-class registry drift:\n{}",
+        problems.join("\n")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -745,8 +1776,13 @@ fn matrix_artifact_is_fresh() {
             let mine: Value = serde_json::from_slice(&rendered).expect("rendered json parses");
             let theirs: Value = serde_json::from_slice(&existing)
                 .unwrap_or_else(|e| panic!("committed e2e-matrix.json unparseable: {e}"));
-            assert_eq!(mine, theirs, "committed e2e-matrix.json is stale — regenerate with ARCHSPEC_MATRIX_GOLDEN=1 cargo test --test e2e_matrix");
+            assert_eq!(
+                mine, theirs,
+                "committed e2e-matrix.json is stale — regenerate with ARCHSPEC_MATRIX_GOLDEN=1 cargo test --test e2e_matrix"
+            );
         }
-        Err(e) => panic!("committed e2e-matrix.json missing ({e}) — generate with ARCHSPEC_MATRIX_GOLDEN=1 cargo test --test e2e_matrix"),
+        Err(e) => panic!(
+            "committed e2e-matrix.json missing ({e}) — generate with ARCHSPEC_MATRIX_GOLDEN=1 cargo test --test e2e_matrix"
+        ),
     }
 }

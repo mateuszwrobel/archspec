@@ -50,6 +50,8 @@ Scenario 15 is the floor side of `allowed.depend_on`'s exact-set semantics (floo
 |---|---|---|---|
 | 16 | spec has `no_cycles` with `severity = "warning"`; code has the cycle | run `verify` | exit 0; report lists the cycle as a warning |
 | 17 | same project as #16 | run `verify --strict` | non-zero exit; report lists the cycle as an error |
+| 106 | spec declares no `no_cycles` constraint; code has a cycle among components whose edges are all declared | run `verify` | exit 0; the report lists the cycle as a `warning: cycle:` advisory line — visibility is constraint-independent, the constraint gates severity |
+| 107 | same project as #106 | run `verify --strict` | non-zero exit; the advisory cycle warning is promoted like any warning |
 | 18 | project with only warning-level divergences | run `verify --strict` | non-zero exit; report lists each promoted warning |
 
 ## Determinism

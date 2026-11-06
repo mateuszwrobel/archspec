@@ -327,11 +327,24 @@ const_name = "FOLD_POINTER_SENTENCE"
 relation = "contained-in-canonical"
 
 [[claim]]
+id = "depgraph-violations-pointer"
+owner = "the `depgraph --help` pointer routing wrong-edge questions to the diagram scan-mode marked view (GitHub issue 9)"
+owner_surfaces = ["depgraph --help", "help depgraph"]
+relations = ["echo", "cite"]
+canonical = "To ask which edges are wrong, render the same model with `archspec diagram --source scan <scan.json> --tiers modules` — under a governing spec that view marks spec-violating edges."
+signatures = ["which edges are wrong"]
+dedicated_guard = "tests/depgraph_violations_pointer.rs"
+[[claim.guard_pin]]
+file = "tests/depgraph_violations_pointer.rs"
+const_name = "VIOLATIONS_POINTER_SENTENCE"
+relation = "equals-canonical"
+
+[[claim]]
 id = "test-gated-edges"
 owner = "the `depgraph --help` statement of test-gated/soft-edge visibility"
 owner_surfaces = ["depgraph --help", "help depgraph"]
 relations = ["echo", "cite"]
-canonical = "Test-gated/soft edges (test namespaces and their consumers) can appear in depgraph projections while being excluded from `depend_on` comparison"
+canonical = "Test-gated/soft edges (test namespaces and their consumers) can appear in depgraph projections while being excluded from `depend_on` comparison exactly when the language's test gate marks them — rust `cfg(test)`; ts a test-file name in a package whose manifest declares vitest or jest — otherwise they adjudicate like any other edge"
 signatures = ["test-gated/soft edges"]
 dedicated_guard = "tests/blind4_oneliners.rs"
 [[claim.guard_pin]]
@@ -681,3 +694,70 @@ relations = ["echo"]
 canonical = "The npm channel carries the same bytes: one package per version tag, whose `bin` shim resolves the host platform and architecture against the asset names and hashes pinned at publish time, downloads and verifies the match, caches the binary atomically, and runs it."
 signatures = ["npm channel", "bin shim"]
 dedicated_guard = "tests/npm_channel.rs"
+
+[[claim]]
+id = "clusters-structure-verdicts"
+owner = "the single structure line `archspec inspect tree|scanner --clusters` prints above the assignment block (schema archspec-clusters-v0) — exactly one line, evaluated in the order empty, single region, trivial, n clusters"
+owner_surfaces = []
+relations = ["echo", "cite"]
+template = true
+canonical = "structure: <path> clusters"
+canonical_fragments = [
+  "structure: empty",
+  "structure: none (single region)",
+  "structure: trivial (all singletons)",
+]
+signatures = [
+  "structure: empty",
+  "none (single region)",
+  "trivial (all singletons)",
+]
+dedicated_guard = "tests/inspect_clusters.rs"
+[[claim.guard_pin]]
+file = "tests/inspect_clusters.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "clusters-cap-skip"
+owner = "the skip line `archspec inspect tree|scanner --clusters` prints when the graph is beyond the node or edge cap — the skip names itself, computes nothing else, and never fails a consumer"
+owner_surfaces = []
+relations = ["echo", "cite"]
+template = true
+canonical = "clusters: skipped (nodes=<path> > cap 10000)"
+canonical_fragments = ["clusters: skipped (edges=<M> > cap 130000)"]
+signatures = ["clusters: skipped"]
+dedicated_guard = "tests/inspect_clusters.rs"
+[[claim.guard_pin]]
+file = "tests/inspect_clusters.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "clusters-help-flags"
+owner = "the two flag lines of the inspect help — the `--clusters` overlay flag and the `--json` machine form"
+owner_surfaces = ["inspect --help", "help inspect", "help commands"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "--clusters append the deterministic clustering overlay on the model modes: one structure line, then sorted `node -> cluster` assignment lines (advisory render, never a verdict)",
+  "--json machine form of the overlay: one JSON object carrying the `clusters` key; valid only alongside --clusters",
+]
+signatures = ["deterministic clustering overlay", "machine form of the overlay"]
+dedicated_guard = "src/archspec/inspect/mod.rs"
+[[claim.guard_pin]]
+file = "src/archspec/inspect/mod.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "spec-schema-fail-closed-shape"
+owner = "the `spec --schema` emission's fail-closed shape: every table shape carries `additionalProperties: false`, the accepted-key sets come from the one `SPEC_KEY_SHAPES` table the runtime unknown-key validator reads, and a key outside them is refused at load as invalid spec naming the key and its location"
+owner_surfaces = ["spec --help", "help spec", "help commands"]
+relations = ["echo", "cite"]
+canonical = "Every table shape carries `additionalProperties: false`; the accepted keys come from the one shared key table the runtime unknown-key validator reads, so a key the model does not define is refused by the schema exactly as the loader refuses it — naming the key and where it sits."
+canonical_fragments = ["unknown key(s) \"<key>\" <location>"]
+signatures = ["additionalProperties: false", "unknown key(s)"]
+dedicated_guard = "tests/spec_unknown_keys.rs"
+[[claim.guard_pin]]
+file = "tests/spec_unknown_keys.rs"
+relation = "named-in-file"
+[[claim.guard_pin]]
+file = "src/archspec/spec.rs"
+relation = "named-in-file"

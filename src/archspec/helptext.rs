@@ -72,7 +72,11 @@ disallowed cross-component dependency
 
 missing edge
   pattern:    missing edge: <from> -> <to>
-  meaning:    <from> declares allowed.depend_on <to> but no extracted edge exists.
+  meaning:    <from> declares allowed.depend_on <to> but no exercised pair
+              exists. The verdict names the reason class:
+              ` (test-gated import evidence only)`,
+              ` (import evidence exists but no module claim owns this pair)` or
+              ` (no import evidence for this pair)`.
   origin:     spec (a dependency the code dropped)
   severity:   error (exit 1)
   follow-up:  archspec scan      (check module_edges for the pair)
@@ -108,8 +112,9 @@ contract leak
               stereotype the module was always meant to publish.
 
 cycle / no_cycles violation
-  pattern:    cycle: <A -> B -> A>   (report label 'cycle detected in'; the
-              check is the no_cycles constraint)
+  pattern:    cycle: <A -> B -> A>   (report label 'cycle detected in';
+              visibility is the model's, the no_cycles constraint gates
+              severity)
               file tier (constraint scope = "both", the ts and rust posture):
               cycle: <claim>: <file> -> <file> -> <file> — the ring of
               source files, attributed to the nearest common claim ancestor
@@ -123,12 +128,18 @@ cycle / no_cycles violation
               facts and the rust posture derives both); go and csharp
               emit none
               [capability file-grained-dependency-facts ts="granular" rust="granular" go="not-emitted" csharp="not-emitted" python="granular" kotlin="granular"]
-  meaning:    a no_cycles constraint found a strongly connected component —
-              over the claim graph, and at the file tier over file edges
-              (a type-only import is an edge; an asset import never is).
+  meaning:    the model contains a strongly connected component — over the
+              claim graph, and at the file tier over file edges (a type-only
+              import is an edge; an asset import never is). A declared
+              no_cycles constraint adjudicates it; a spec without the
+              constraint lists the same cycles as advisory warnings —
+              visibility is constraint-independent.
   origin:     code, or intent when the cycle is the honest shape of the design
-  severity:   error (exit 1); a no_cycles constraint with severity = "warning"
-              makes it a warning (exit 0 without --strict, exit 1 under it).
+  severity:   error (exit 1) under a no_cycles constraint; a constraint with
+              severity = "warning" makes it a warning (exit 0 without
+              --strict, exit 1 under it). With no no_cycles constraint
+              declared the cycle is advisory — warning-severity, exit 0
+              without --strict, exit 1 under it.
   follow-up:  archspec depgraph  (see the ring), archspec scan for raw edges
   decision:   code-fix — invert or extract one edge; architecture-rework when no
               single cut breaks the ring without contradicting the model.
@@ -506,19 +517,27 @@ undeclared member import (report-only, never a verdict — exit 0):
                target member declares no resolvable entry — imported by a
                manifest that does not declare it, where the workspace
                registry root carries a hoisting-family lockfile — yarn.lock
-               or npm-shrinkwrap.json; a target member that carries its own
-               answer resolves first-party under EVERY family with no line;
-               under pnpm-lock.yaml or no lockfile an answer-less import is
-               an `unresolvable import` error instead; the other drivers
-               never print this line)
+               or npm-shrinkwrap.json; the same law rides the resolved
+               path: a bare undeclared member import that Ok-resolves
+               through a materialization of the member — a workspace link
+               inside the member dir or a hoisted copy under node_modules —
+               prints this same line and lands the same edge; a target
+               member that carries its own answer resolves first-party
+               under EVERY family with no line; under pnpm-lock.yaml or no
+               lockfile an answer-less import is an `unresolvable import`
+               error instead; a member importing its own name stays
+               unit-internal and prints no line; the other drivers never
+               print this line)
   meaning:    under a hoisting linker an undeclared member-name import is
                a real runtime edge, so the run honors the linker: the
                import is a first-party membership edge onto the first
-               registered member for that name (nearest scan root first)
-               and this line states the missing declaration without
-               changing any verdict. The lockfile is read as a linker-
-               family signal only — file names, never content, never a
-               membership registry.
+               registered member for that name (nearest scan root first),
+               whether the install on disk carried the resolution or no
+               link existed — the same tree's model and adjudicated pair
+               set never depend on install state — and this line states
+               the missing declaration without changing any verdict. The
+               lockfile is read as a linker-family signal only — file
+               names, never content, never a membership registry.
    origin:     code
    severity:   report-only (exit 0)
    follow-up:  archspec scan      (stderr carries the line; the model
@@ -802,7 +821,9 @@ orphan file (report-only, never a verdict — exit 0):
 
 cycle (warning severity)
   pattern:    cycle: <A -> B -> A>   (rendered 'warning: cycle: ...')
-  meaning:    a no_cycles constraint with severity = "warning" found a ring.
+  meaning:    a no_cycles constraint with severity = "warning" found a ring,
+              or the spec declares no no_cycles constraint and the model
+              contains a ring (advisory — visibility is constraint-independent).
   decision:   as the error cycle above, tolerated without --strict; promoted to
               an error line (exit 1) under --strict.
 

@@ -310,7 +310,7 @@ mod tests {
         fs::write(
             root.join(".gitignore"),
             "generated/\n\
-             .mercato\n\
+             .gencache\n\
              *.log\n\
              !keep.log\n\
              build/\n\
@@ -333,7 +333,7 @@ mod tests {
             "packages/e/generated",
             "packages/f/dist",
             "src/deep/nested",
-            ".mercato",
+            ".gencache",
         ] {
             fs::create_dir_all(root.join(dir)).expect("mkdir");
         }
@@ -342,7 +342,7 @@ mod tests {
         fs::write(root.join("packages/f/.gitignore"), "!dist/important.js\n").expect("nested f");
         for file in [
             "packages/a/generated/x.ts",
-            ".mercato/map.js",
+            ".gencache/map.js",
             "src/deep/rootonly.txt",
             "build/keep.ts",
             "app.log",
@@ -379,7 +379,7 @@ mod tests {
         // line pinned from the oracle capture:
         let cases: [(&str, &str, usize); 10] = [
             ("packages/a/generated/x.ts", ".gitignore", 1),
-            (".mercato/map.js", ".gitignore", 2),
+            (".gencache/map.js", ".gitignore", 2),
             ("src/deep/rootonly.txt", ".gitignore", 8),
             ("build/keep.ts", ".gitignore", 5),
             ("app.log", ".gitignore", 3),

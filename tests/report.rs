@@ -508,6 +508,11 @@ fn report_scenario_three_forbidden_edge_is_listed_and_counted() {
     assert!(out.contains("Violations by category"), "categories:\n{out}");
     assert_eq!(category_value(&out, "edges"), "1");
     assert!(
+        category_value(&out, "undeclared-dependency").is_empty(),
+        "a forbidden edge is no undeclared dependency:\n{out}"
+    );
+    assert_eq!(category_value(&out, "boundary-violation"), "1");
+    assert!(
         out.contains("Result: 1 violation (1 edge, 0 cycles)"),
         "summary:\n{out}"
     );
@@ -561,6 +566,11 @@ fn report_scenario_five_several_violations_exit_nonzero() {
     );
     assert_eq!(category_value(&out, "components"), "2");
     assert_eq!(category_value(&out, "edges"), "1");
+    assert!(
+        category_value(&out, "undeclared-dependency").is_empty(),
+        "the single edge violation is the forbidden pair — no undeclared class:\n{out}"
+    );
+    assert_eq!(category_value(&out, "boundary-violation"), "1");
     assert!(
         out.contains("Result: 3 violations (1 edge, 0 cycles)"),
         "summary:\n{out}"
@@ -709,6 +719,111 @@ fn report_scenario_eleven_cycle_is_listed_and_counted() {
         out.contains("Result: 1 violation (0 edges, 1 cycle)"),
         "summary:\n{out}"
     );
+}
+
+/// The same mutual auth <-> billing cycle as `cycle_fixture`, but the spec
+/// declares NO `no_cycles` constraint anywhere. The cycle is a model fact:
+/// `report` must state it (metric, finding, markdown section) while the
+/// verdict machinery stays constraint-gated — `verify` exits 0 on the advisory
+/// warning (GitHub issue #6: visibility is constraint-independent, the
+/// constraint gates severity, never a lying zero).
+fn constraintless_cycle_fixture() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/auth\", \"crates/billing\"]\n",
+    );
+    fixture.write(
+        "crates/auth/Cargo.toml",
+        "[package]\nname = \"auth\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nbilling = { path = \"../billing\" }\n",
+    );
+    fixture.write("crates/auth/src/lib.rs", "pub fn auth() {}\n");
+    fixture.write(
+        "crates/billing/Cargo.toml",
+        "[package]\nname = \"billing\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nauth = { path = \"../auth\" }\n",
+    );
+    fixture.write("crates/billing/src/lib.rs", "pub fn bill() {}\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"auth\"] }\n\n[module.allowed]\ndepend_on = [\"billing\"]\n\n[[module]]\nname = \"billing\"\nmatches = { units = [\"billing\"] }\n\n[module.allowed]\ndepend_on = [\"auth\"]\n",
+    );
+    fixture
+}
+
+/// Report acceptance row 43: a cyclic tree whose spec declares no `no_cycles`
+/// constraint reports the cycle — metric 1, `cycle detected in` finding at
+/// warning severity, markdown `## Cycles` section — and `verify` on the same
+/// tree stays green: the constraint gates severity, not visibility.
+#[test]
+fn report_constraintless_cycle_is_stated_as_advisory_and_verify_stays_green() {
+    let fixture = constraintless_cycle_fixture();
+    let output = fixture.run(&["report"]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "an advisory cycle does not fail the informational report (stderr: {})",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("cycle detected in: auth -> billing -> auth"),
+        "the cycle must be stated, never a silent zero:\n{out}"
+    );
+    assert_eq!(
+        metric_value(&out, "cycles detected"),
+        "1",
+        "the model's cycle counts into the metric without a constraint:\n{out}"
+    );
+
+    let json = fixture.run(&["report", "--format", "json"]);
+    assert_eq!(json.status.code(), Some(0), "report is informational");
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout(&json)).expect("report json parses");
+    let cycle = value["findings"]
+        .as_array()
+        .expect("findings array")
+        .iter()
+        .find(|finding| finding["category"] == "cycle detected in")
+        .expect("the cycle finding is present in the json");
+    assert_eq!(
+        cycle["severity"].as_str(),
+        Some("warning"),
+        "without a constraint the cycle is advisory (warning severity)"
+    );
+
+    let md = fixture.run(&["report", "--format", "markdown"]);
+    assert_eq!(md.status.code(), Some(0), "report is informational");
+    assert!(
+        stdout(&md).contains("## Cycles"),
+        "markdown carries the cycle section:\n{}",
+        stdout(&md)
+    );
+
+    let verify = fixture.run(&["verify"]);
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "verify without the constraint stays green on cycles (severity is constraint-gated): {}",
+        stdout(&verify)
+    );
+}
+
+/// Report acceptance row 44: an acyclic tree with no `no_cycles` constraint
+/// shows 0 cycles and a clean result — the advisory tier never cries wolf.
+#[test]
+fn report_constraintless_acyclic_tree_reports_zero_cycles() {
+    let fixture = matching_fixture();
+    let output = fixture.run(&["report"]);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    assert_eq!(metric_value(&out, "cycles detected"), "0");
+    assert!(
+        !out.contains("cycle detected in:"),
+        "no cycle => no cycle finding:\n{out}"
+    );
+    assert!(out.contains("Result: clean"), "summary:\n{out}");
 }
 
 #[test]
@@ -949,6 +1064,15 @@ fn report_missing_edge_is_listed_and_counted() {
     );
     let edge_count = category_value(&out, "edges");
     assert!(edge_count != "0", "missing edge must be counted:\n{out}");
+    assert_eq!(
+        category_value(&out, "undeclared-dependency"),
+        edge_count,
+        "a missing edge is an undeclared-dependency finding:\n{out}"
+    );
+    assert!(
+        category_value(&out, "boundary-violation").is_empty(),
+        "a missing edge is no boundary violation:\n{out}"
+    );
 }
 
 // The missing-edge finding has one canonical name (`missing edge`, as verify

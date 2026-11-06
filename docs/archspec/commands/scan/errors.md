@@ -17,6 +17,8 @@ A parse failure **aborts the run** — the model is not produced from a partiall
 | a foreign root-marker file sits below the scan root (`nested foreign marker: <path> (<language>) — not modelled`) | that the tree below that marker is not modelled — report-only, one line per marker file, exit 0 | 0 |
 | a scanned ts source file carries no model fact (`orphan file: <path>`, closed by one `orphan file census: <n> of <m> scanned files — the model lists no fact for any of them` summary, never at zero) | that the import-graph fact sets list no fact for the file (the census names its blind spots in `help diagnostics`) — report-only, one line per file, exit 0 | 0 |
 | a ts specifier resolves to no file (`unresolvable import`) — or only into an excluded tree, where the line names the exclusion | the importing file, the specifier verbatim, and the exclusion remedy | non-zero |
+| the spec file fails to parse | the name of the failing file | non-zero |
+| the spec carries a key the model does not define (`unknown key(s) "<key>" <location>`, fail-closed at load: top level, `[project]` and its `excluded_sources` entries, `[[stereotype]]` entries and their `match` tables, module claims with recursive `submodules` and their `matches`/`contract`/`allowed` tables, `[[constraint]]` entries; `allowed` array entries stay owned by the entry-level refusal) | the file, the unexpected key(s), and where the key sits | non-zero |
 | a source file fails to parse | the name of the failing file | non-zero |
 | language detected but no driver/toolchain present | the detected language, that its toolchain is missing, and to run `archspec doctor` | non-zero |
 | more than one positional argument | that only one path is accepted | non-zero |

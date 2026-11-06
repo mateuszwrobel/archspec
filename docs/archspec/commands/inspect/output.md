@@ -50,6 +50,34 @@ The scan never descends into generated, vendored, or hidden directories; their s
 
 The same input always produces **byte-identical output**. Node and edge ordering is canonical, independent of filesystem traversal order. Output is safe to commit to version control.
 
+## Clustering overlay (`--clusters`)
+
+On the model modes (`tree`, `scanner`) only, `--clusters` appends the clustering overlay to stdout after the diagram. The overlay is a render, never an artefact: the diagram bytes, the `--output` file and the `--check` verdict are identical to the run without the flag, and the overlay never changes the exit code. It reads the model's own module tier — the `module_edges` endpoints plus the soft-structure members — so the assignment ids are the same module node ids the diagram carries.
+
+**Human form.** Exactly one structure line opens the overlay, evaluated in the order empty → single region → trivial → count:
+
+| Line | Rendered when |
+|---|---|
+| `structure: <k> clusters` | the partition has more than one cluster and fewer clusters than nodes |
+| `structure: empty` | the graph carries no node or no edge |
+| `structure: none (single region)` | the partition is one cluster over more than one node |
+| `structure: trivial (all singletons)` | no merge happened and every cluster is a single node |
+
+After the structure line, one assignment line per node, sorted by node id: `<node> -> <cluster>`. Every `<node>` is a module node id of the same run's model; `<cluster>` is the lexicographically smallest member node id of that cluster. The agglomeration is greedy modularity merging with a fixed merge order, so the same model renders byte-identical overlay bytes in every run.
+
+**Cap refusals.** Above the named caps the overlay computes nothing and prints exactly one skip line instead of the structure and assignment lines — checked in this order:
+
+| Line | Rendered when |
+|---|---|
+| `clusters: skipped (nodes=<n> > cap 10000)` | the graph carries more than 10 000 nodes |
+| `clusters: skipped (edges=<M> > cap 130000)` | the symmetrized, self-loop-free graph carries more than 130 000 edges |
+
+The skip line names the cap it exceeded; the exit code stays `0` — the overlay never fails a consumer.
+
+**Machine form.** `--clusters --json` prints one JSON object carrying exactly the key `clusters`; with no destination and no `--check` the diagram body does not enter stdout. The object's keys: `schema` (always `archspec-clusters-v0`), `structure` (the same structure or skip label the human render prints), `nodes` and `edges` (the node count and the symmetrized, self-loop-free edge count), and `assignments` — one `{"node": <id>, "cluster": <id>}` entry per node, sorted by node id. The `clusters` key never appears without the flag.
+
+**Refusals.** `--clusters` on the file-level default mode and `--json` without `--clusters` are usage refusals: exit `64`, one named message, nothing rendered. The flag lines of `archspec inspect --help` own the exact wording.
+
 ## Example
 
 Source tree:

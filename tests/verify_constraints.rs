@@ -238,7 +238,9 @@ fn verify_scenario_74_multiple_globs_and_duplicates_are_deterministic() {
 }
 
 // #75: a recursive glob chain that cycles terminates; the union of the public
-// items reachable through the chain is checked against `allowed`.
+// items reachable through the chain is checked against `allowed`. The chain's
+// cycle is stated as an advisory warning with no no_cycles constraint (issue
+// #6); the verdict stays green.
 #[test]
 fn verify_scenario_75_recursive_glob_chain_resolves_with_cycle_protection() {
     let fixture = glob_fixture(
@@ -250,11 +252,20 @@ fn verify_scenario_75_recursive_glob_chain_resolves_with_cycle_protection() {
         &["InA", "InB"],
     );
     let output = fixture.run(&["verify"]);
-    assert_pass(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the re-export cycle is advisory without a no_cycles constraint (stderr: {})",
+        stderr(&output)
+    );
+    let out = stdout(&output);
     assert!(
-        !stdout(&output).contains("glob"),
-        "a cycling chain resolves, no glob finding:\n{}",
-        stdout(&output)
+        !out.contains("glob"),
+        "a cycling chain resolves, no glob finding:\n{out}"
+    );
+    assert!(
+        out.contains("warning: cycle:"),
+        "the model's cycle is stated as an advisory warning (issue #6):\n{out}"
     );
 }
 
@@ -1760,7 +1771,9 @@ fn verify_scenario_98_internal_import_of_facade_root_reexport_is_violation() {
 }
 
 /// #98b (fixture B): the root DEFINES an item used internally -> rule
-/// inactive -> identical edge shape passes.
+/// inactive -> identical edge shape passes. The root <-> engine cycle is
+/// advisory without a no_cycles constraint (issue #6): it is stated as a
+/// warning, the verdict stays green.
 #[test]
 fn verify_scenario_98b_root_defining_items_deactivates_facade_rule() {
     let sources = vec![
@@ -1777,11 +1790,20 @@ fn verify_scenario_98b_root_defining_items_deactivates_facade_rule() {
         "\n[[module]]\nname = \"engine\"\nmatches = { modules = [\"app::engine\"] }\n\n[module.allowed]\ndepend_on = [\"umbrella\"]\n";
     let fixture = facade_fixture(&sources, &["engine"], engine_module);
     let output = fixture.run(&["verify"]);
-    assert_pass(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the root <-> engine cycle is advisory without a no_cycles constraint (stderr: {})",
+        stderr(&output)
+    );
+    let out = stdout(&output);
     assert!(
-        !stdout(&output).contains("facade"),
-        "a defining root is not a facade:\n{}",
-        stdout(&output)
+        !out.contains("facade"),
+        "a defining root is not a facade:\n{out}"
+    );
+    assert!(
+        out.contains("warning: cycle:"),
+        "the model's cycle is stated as an advisory warning (issue #6):\n{out}"
     );
 }
 
@@ -1813,7 +1835,10 @@ fn verify_scenario_98c_canonical_import_stays_clean_under_active_facade_rule() {
 
 /// #98d (fixture D): `--strict` parity (error-level, byte-identical verdict)
 /// and composition with the laundering check: a ban can no longer be routed
-/// through the umbrella without an always-visible facade error.
+/// through the umbrella without an always-visible facade error. The fixture
+/// also cycles engine <-> umbrella with no `no_cycles` constraint: that cycle
+/// is an advisory warning in the plain run and an error line under `--strict`
+/// (visibility is constraint-independent, issue #6).
 #[test]
 fn verify_scenario_98d_strict_parity_and_laundering_composition() {
     let engine_module =
@@ -1823,10 +1848,30 @@ fn verify_scenario_98d_strict_parity_and_laundering_composition() {
     let strict = fixture.run(&["verify", "--strict"]);
     assert_fail(&plain, &["facade dependency: app::engine -> app"]);
     assert_fail(&strict, &["facade dependency: app::engine -> app"]);
+    let plain_out = stdout(&plain);
+    let strict_out = stdout(&strict);
+    let without_cycle_lines = |out: &str| -> String {
+        out.lines()
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                !trimmed.starts_with("cycle:") && !trimmed.starts_with("warning: cycle:")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     assert_eq!(
-        stdout(&plain),
-        stdout(&strict),
-        "an error-level category is unaffected by --strict"
+        without_cycle_lines(&plain_out),
+        without_cycle_lines(&strict_out),
+        "the error-level output is unaffected by --strict"
+    );
+    assert!(
+        plain_out.contains("warning: cycle: engine -> umbrella -> engine"),
+        "the constraintless cycle is advisory in the plain run:\n{plain_out}"
+    );
+    assert!(
+        strict_out.contains("cycle: engine -> umbrella -> engine")
+            && !strict_out.contains("warning:"),
+        "--strict promotes the advisory cycle to an error line:\n{strict_out}"
     );
 
     // Laundering composition: ban a -> b; a imports b's item THROUGH the

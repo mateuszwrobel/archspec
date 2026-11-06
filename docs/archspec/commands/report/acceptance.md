@@ -42,6 +42,8 @@ Running `report` on a fixture project with a valid `architecture.spec.toml` writ
 | 25 | single-crate project with internal module edges and N true external crates | run `report` | exit 0; `edges_internal` is the unit-tier pair count (unit-internal module edges add nothing); `edges_external` reflects the true external-crate edges, and the two are distinguishable (not conflated) |
 | 36 | project with a vacuous constraint (empty effective domain) | run `report` | exit 0; report lists the vacuous constraint line as content |
 | 37 | project with a dead reference (`allowed.depend_on` target names no declared module) | run `report` | exit 0; report lists the dead reference line as content |
+| 43 | project with a cycle among components; the spec declares no `no_cycles` constraint | run `report` | exit 0; the report lists the cycle under `cycle detected in` and the `cycles detected` metric counts it — visibility is constraint-independent; `verify` on the same tree stays green (advisory warning severity) |
+| 44 | acyclic project; the spec declares no `no_cycles` constraint | run `report` | exit 0; `cycles detected` is 0 — no false alarm |
 
 ## Markdown report enrichment
 
