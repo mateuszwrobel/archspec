@@ -2,7 +2,7 @@
   "schema": "archspec-e2e-matrix-v0",
   "generated_by": "tests/e2e_matrix.rs (generated, never hand-edited)",
   "denominator": {
-    "mode_cells": 64,
+    "mode_cells": 68,
     "exit_class_cells": 8,
     "line_class_rows": 19,
     "note": "the proposal heading says 58 verb-mode cells; the registry enumerates the table rows, which is the honest denominator"
@@ -253,6 +253,62 @@
       ],
       "exit_class": 1,
       "witness": "--strict keeps the verdict, promotes vacuity class",
+      "status": "pass"
+    },
+    {
+      "id": "verify/json",
+      "verb": "verify",
+      "mode": "--json",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "verify",
+        "--json"
+      ],
+      "exit_class": 1,
+      "witness": "machine verdict: same findings, same exit, json body",
+      "status": "pass"
+    },
+    {
+      "id": "verify/coverage",
+      "verb": "verify",
+      "mode": "--coverage",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "verify",
+        "--coverage"
+      ],
+      "exit_class": 1,
+      "witness": "--coverage prints the census after the verdict, on the failing path too",
+      "status": "pass"
+    },
+    {
+      "id": "verify/environment-declared",
+      "verb": "verify",
+      "mode": "environment-declared",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "verify"
+      ],
+      "exit_class": 1,
+      "witness": "the verdict declares the build state it was adjudicated against",
+      "status": "pass"
+    },
+    {
+      "id": "verify/only-class",
+      "verb": "verify",
+      "mode": "--only <class>",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "verify",
+        "--only",
+        "workspace target not built"
+      ],
+      "exit_class": 1,
+      "witness": "--only echoes the excluded class, changes nothing else",
       "status": "pass"
     },
     {

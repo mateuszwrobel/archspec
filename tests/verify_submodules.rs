@@ -622,6 +622,95 @@ fn nested_claim_fully_shadowed_by_more_specific_claim_warns() {
 }
 
 // ---------------------------------------------------------------------------
+// Scenario: the shadowed-claim warning states its consequence and the
+// coverage census enumerates the silenced guards (GitHub issue #23)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shadowed_claim_warning_names_the_guards_it_silences() {
+    let fixture = Fixture::new();
+    app_tree(&fixture, &[("billing", &[]), ("legacy", &[])]);
+    write_spec(
+        &fixture,
+        &spec(
+            "[[module]]\nname = \"app\"\nmatches = { units = [\"app\"], modules = [\"app\", \"app::billing\", \"app::legacy\"] }\n\n\
+             [[module]]\nname = \"wide\"\nmatches = { modules = [\"app::*\"] }\n",
+            "[[constraint]]\ntype = \"no_cycles\"\nmodules = [\"wide\"]\n",
+        ),
+    );
+    let output = fixture.run(&["verify"]);
+    let out = stdout(&output);
+    assert!(
+        out.contains(
+            "shadowed claim: wide is fully claimed by app — no_cycles[0] sees 0 files unless they also list 'app'"
+        ),
+        "the warning names the consequence and the silenced guard:\n{out}"
+    );
+}
+
+#[test]
+fn coverage_census_enumerates_the_shadowed_packages_guards() {
+    let fixture = Fixture::new();
+    app_tree(&fixture, &[("billing", &[]), ("legacy", &[])]);
+    write_spec(
+        &fixture,
+        &spec(
+            "[[module]]\nname = \"app\"\nmatches = { units = [\"app\"], modules = [\"app\", \"app::billing\", \"app::legacy\"] }\n\n\
+             [[module]]\nname = \"wide\"\nmatches = { modules = [\"app::*\"] }\n",
+            "[[constraint]]\ntype = \"no_cycles\"\nmodules = [\"wide\"]\n\n\
+             [[constraint]]\ntype = \"no_cycles\"\nmodules = [\"app\"]\n",
+        ),
+    );
+    let output = fixture.run(&["verify", "--coverage"]);
+    assert_pass(&output);
+    let out = stdout(&output);
+    assert!(
+        out.contains("coverage census"),
+        "the census header prints after the verdict:\n{out}"
+    );
+    let silenced = out
+        .lines()
+        .find(|line| line.starts_with("coverage: no_cycles[0]"))
+        .unwrap_or_else(|| panic!("the shadowed guard row is missing:\n{out}"));
+    assert!(
+        silenced.contains("modules=[wide]"),
+        "the row names its territory:\n{silenced}"
+    );
+    assert!(
+        silenced.contains("0/"),
+        "the shadowed guard adjudicates zero files:\n{silenced}"
+    );
+    let engaged = out
+        .lines()
+        .find(|line| line.starts_with("coverage: no_cycles[1]"))
+        .unwrap_or_else(|| panic!("the engaged guard row is missing:\n{out}"));
+    assert!(
+        engaged.contains("modules=[app]") && !engaged.contains("— 0/"),
+        "the guard listing the repo-root claim sees files:\n{engaged}"
+    );
+}
+
+#[test]
+fn coverage_census_states_a_spec_without_constraints() {
+    let fixture = Fixture::new();
+    app_tree(&fixture, &[("billing", &[])]);
+    write_spec(
+        &fixture,
+        &spec(
+            "[[module]]\nname = \"app\"\nmatches = { units = [\"app\"], modules = [\"app\", \"app::*\"] }\n",
+            "",
+        ),
+    );
+    let output = fixture.run(&["verify", "--coverage"]);
+    assert_pass(&output);
+    let out = stdout(&output);
+    assert!(
+        out.contains("coverage: no constraints declared"),
+        "the census states the empty domain:\n{out}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Scenario: a dead target inside a submodule's allowed list fails like flat
 // (phase B promotion, D10/R3-11: the `does not exist` class is an error at
 // any claim depth — the nested and flat runs agree byte-for-byte)

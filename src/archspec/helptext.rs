@@ -127,22 +127,33 @@ contract leak
               stereotype the module was always meant to publish.
 
 cycle / no_cycles violation
-  pattern:    cycle: <A -> B -> A>   (report label 'cycle detected in';
+  pattern:    cycle: <A -> B -> A> (runtime)   (report label 'cycle detected in';
               visibility is the model's, the no_cycles constraint gates
-              severity)
+              severity; the trailing label is the ring class — '(runtime)'
+              when every leg carries a value edge, '(type-assisted)' when
+              some leg is backed only by type-only rows; a kinds = [...]
+              list on the constraint reports only the named classes,
+              absent = all)
               file tier (constraint scope = "both", the ts and rust posture):
-              cycle: <claim>: <file> -> <file> -> <file> — the ring of
+              cycle: <claim>: <file> -> <file> -> <file> (runtime) — the ring of
               source files, attributed to the nearest common claim ancestor
               of its members;
-              cycle: <file> -> <file> -> <file> — members under disjoint
-              top-level claims: no claiming segment, every member named.
+              cycle: <file> -> <file> -> <file> (type-assisted) — members under
+              disjoint top-level claims: no claiming segment, every member named.
               A file ring whose claim projection is a cycle the claim tier
               already printed is not repeated (dedup by projection).
+              When cycles are reported, the findings end with one census line:
+              '<N> cycles among <M> file facts; territory: <x>/<y> modules' —
+              adjudicated rows only, never projected ones; the noun names the
+              tier ('module facts' on a claims-only tree); absent when a
+              no_cycles vacuity entry already fired.
    emitted by: file tier by ts (dependency facts are file-grained by
               construction) and rust (the driver serializes file-grained
               facts and the rust posture derives both); go and csharp
               emit none
               [capability file-grained-dependency-facts ts="granular" rust="granular" go="not-emitted" csharp="not-emitted" python="granular" kotlin="granular"]
+              the ring-class label reads the serialized kind mark:
+              [capability type-only-dependency-facts rust="no lexical type/value split (every row a value edge)" csharp="no lexical type/value split (every row a value edge)" go="no lexical type/value split (every row a value edge)" ts="granular" python="granular" kotlin="granular"]
   meaning:    the model contains a strongly connected component — over the
               claim graph, and at the file tier over file edges (a type-only
               import is an edge; an asset import never is). A declared
@@ -595,7 +606,12 @@ workspace target not built (report-only, never a verdict — exit 0):
    follow-up:  archspec scan      (stderr carries the line; the model
                artifact stays pure and carries no report field)
    decision:   none required; build the member when the built output is
-               the artifact under test.
+               the artifact under test. The line is also what flips the
+               verdict's environment declaration to UNBUILT (GitHub issue
+               #24): the header `adjudicated against UNBUILT tree — N
+               specifiers resolved to src instead of dist` counts these
+               lines, and `--only workspace target not built` hides them
+               from the notices without touching the declaration.
 
 generated source not built (report-only, never a verdict — exit 0):
   pattern:    generated source not built: <verbatim-target> — gitignored <pattern-file>:<line>
@@ -853,7 +869,9 @@ orphan file (report-only, never a verdict — exit 0):
 ===== warning-level categories (exit 0 now, exit 1 under --strict) =====
 
 cycle (warning severity)
-  pattern:    cycle: <A -> B -> A>   (rendered 'warning: cycle: ...')
+  pattern:    cycle: <A -> B -> A> (runtime)   (rendered 'warning: cycle: ...';
+              the ring-class label is the same one the error entry above
+              carries)
   meaning:    a no_cycles constraint with severity = "warning" found a ring,
               or the spec declares no no_cycles constraint and the model
               contains a ring (advisory — visibility is constraint-independent).

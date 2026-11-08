@@ -2,12 +2,12 @@
 //! empty domain), unmatched-claim warnings, and dead-reference
 //! resolution with the nearest-name diagnostics.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use super::claims::{Claim, ModuleRef, entry_specificity};
 use super::cycles::file_claim_index;
 use super::external::{manifest_targets, present_elements};
 use super::mapping::file_grained_rows;
-use super::pattern::{common_ancestor, matches_pattern, module_listed, module_matches, module_path_matches, rel_after, strip_unit};
+use super::pattern::{common_ancestor, matches_pattern, module_listed, module_matches, module_path_matches, pattern_names_ts_unit, rel_after, strip_unit};
 use super::claims::flatten_claims;
 use crate::archspec::{capability, language};
 use crate::archspec::spec;
@@ -25,8 +25,10 @@ use crate::archspec::spec::{Constraint, Module, Stereotype};
 ///     change exists to close.
 pub(super) fn check_claim_engagement(
     model: &Model,
+    modules: &[Module],
     claims: &[Claim<'_>],
     missing_components: &BTreeSet<String>,
+    constraints: &[Constraint],
     warnings: &mut Vec<String>,
 ) {
     let mut paths: BTreeSet<&str> = BTreeSet::new();
@@ -212,14 +214,282 @@ pub(super) fn check_claim_engagement(
                 }
             });
             if covers {
+                // Issue #23: the warning states its consequence — which guard
+                // rows the shadowing silences. A guard is silenced when its
+                // selector reaches a path this claim claims and the guard's
+                // own territory adjudicates zero facts under the winning
+                // attribution. The count reuses `coverage_report`'s per-row
+                // arithmetic, so warning and census cannot disagree.
+                let mut consequence = String::new();
+                let mut kind_index: BTreeMap<&str, usize> = BTreeMap::new();
+                for constraint in constraints {
+                    let index = kind_index.entry(constraint.kind.as_str()).or_insert(0);
+                    let selectors = coverage_selectors(constraint);
+                    let lists_shadowed = selectors
+                        .iter()
+                        .any(|pattern| pattern.as_str() == first.name)
+                        || selectors.iter().any(|pattern| {
+                            claimed.iter().any(|path| module_path_matches(pattern, path))
+                        });
+                    if !selectors.is_empty()
+                        && lists_shadowed
+                        && coverage_row(model, modules, claims, constraint).files_in == 0
+                    {
+                        if !consequence.is_empty() {
+                            consequence.push_str(", ");
+                        }
+                        consequence.push_str(&format!(
+                            "{}[{index}] sees 0 {}",
+                            constraint.kind,
+                            coverage_noun(&constraint.kind)
+                        ));
+                    }
+                    *index += 1;
+                }
+                if consequence.is_empty() {
                     warnings.push(format!(
                         "shadowed claim: {} is fully claimed by {}",
                         first.name, other.name
                     ));
+                } else {
+                    warnings.push(format!(
+                        "shadowed claim: {} is fully claimed by {} — {} unless they also list '{}'",
+                        first.name, other.name, consequence, other.name
+                    ));
                 }
+            }
             }
         }
     }
+}
+
+/// The coverage census for `verify --coverage` (GitHub issue #23): one line
+/// per constraint row stating the facts its check adjudicates in the row's
+/// declared territory versus the model totals. Every count reuses the matcher
+/// and claim attribution that very check applies — the census is a view over
+/// the facts and gates already in force, never a second adjudication. A
+/// shadowed package's guards read as `0/N` rows (the issue's accept bar).
+pub(crate) fn coverage_report(model: &Model, modules: &[Module], constraints: &[Constraint]) -> String {
+    let claims = flatten_claims(modules);
+    let mut out = String::from(
+        "coverage census — facts adjudicated per constraint versus the model totals\n",
+    );
+    if constraints.is_empty() {
+        out.push_str("coverage: no constraints declared\n");
+        return out;
+    }
+    let mut kind_seen: BTreeMap<&str, usize> = BTreeMap::new();
+    for constraint in constraints {
+        let index = kind_seen.entry(constraint.kind.as_str()).or_insert(0);
+        let row = coverage_row(model, modules, &claims, constraint);
+        let summary = coverage_summary(constraint);
+        out.push_str(&format!(
+            "coverage: {}[{index}] {summary}— {}/{} {}\n",
+            constraint.kind, row.files_in, row.files_total, row.noun
+        ));
+        *index += 1;
+    }
+    out
+}
+
+/// One constraint row of the census: the check's own domain gate, mirroring
+/// the arm in its module (cycles/boundaries/external/surfaces) — the same
+/// predicate, counted instead of pushed.
+fn coverage_row(
+    model: &Model,
+    modules: &[Module],
+    claims: &[Claim<'_>],
+    constraint: &Constraint,
+) -> CoverageRow {
+    let noun = coverage_noun(&constraint.kind);
+    let (files_in, files_total) = match constraint.kind.as_str() {
+        "no_cycles" => {
+            let group: BTreeSet<&str> = if constraint.modules.is_empty() {
+                modules.iter().map(|module| module.name.as_str()).collect()
+            } else {
+                modules
+                    .iter()
+                    .filter(|module| constraint.modules.iter().any(|name| name == &module.name))
+                    .map(|module| module.name.as_str())
+                    .collect()
+            };
+            let mut files: BTreeSet<&str> = BTreeSet::new();
+            for (from, to) in file_grained_rows(model) {
+                files.insert(from);
+                files.insert(to);
+            }
+            let in_territory = files
+                .iter()
+                .filter(|file| {
+                    constraint.modules.is_empty()
+                        || file_claim_index(model, file, claims)
+                            .is_some_and(|index| group.contains(claims[index].name))
+                })
+                .count();
+            (in_territory, files.len())
+        }
+        "forbid_submodule_dependency" => {
+            let in_territory = model
+                .module_edges
+                .iter()
+                .filter(|edge| {
+                    common_ancestor(&edge.from, &edge.to).is_some_and(|ancestor| {
+                        module_path_matches(&constraint.parent, &ancestor)
+                            && constraint
+                                .from
+                                .iter()
+                                .any(|pattern| module_path_matches(pattern, &edge.from))
+                    })
+                })
+                .count();
+            (in_territory, model.module_edges.len())
+        }
+        "forbid_external_crates" => {
+            let in_territory = model
+                .module_external
+                .keys()
+                .filter(|key| {
+                    module_listed(key, &constraint.from)
+                        || constraint
+                            .from
+                            .iter()
+                            .any(|pattern| pattern_names_ts_unit(model, pattern))
+                })
+                .count();
+            (in_territory, model.module_external.len())
+        }
+        "external_free" => {
+            let in_territory = model
+                .module_external
+                .iter()
+                .filter(|(key, packages)| {
+                    !packages.is_empty()
+                        && constraint.from.iter().any(|pattern| {
+                            module_path_matches(pattern, key) || pattern_names_ts_unit(model, pattern)
+                        })
+                })
+                .count();
+            (in_territory, model.module_external.len())
+        }
+        "public_api_allowlist" => {
+            let listed = constraint.allowed.iter();
+            let in_territory: usize = model
+                .root_public_exports
+                .values()
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter(|item| {
+                            listed
+                                .clone()
+                                .any(|pattern| matches_pattern(item, pattern))
+                        })
+                        .count()
+                })
+                .sum::<usize>()
+                + model
+                    .module_public_types
+                    .iter()
+                    .filter(|(module, _)| {
+                        listed
+                            .clone()
+                            .any(|pattern| matches_pattern(module, pattern))
+                    })
+                    .map(|(_, types)| types.len())
+                    .sum::<usize>();
+            let total: usize = model
+                .root_public_exports
+                .values()
+                .map(Vec::len)
+                .sum::<usize>()
+                + model
+                    .module_public_types
+                    .values()
+                    .map(Vec::len)
+                    .sum::<usize>();
+            (in_territory, total)
+        }
+        "feature_boundary" => {
+            let declarations = model
+                .root_module_declarations
+                .iter()
+                .flat_map(|(unit, declarations)| {
+                    declarations
+                        .iter()
+                        .map(move |declaration| (unit, &declaration.name))
+                });
+            let in_territory = declarations
+                .clone()
+                .filter(|(unit, name)| {
+                    constraint.gated_modules.iter().any(|pattern| {
+                        module_matches(pattern, &format!("{unit}::{name}"))
+                            || matches_pattern(name, pattern)
+                    })
+                })
+                .count();
+            (in_territory, declarations.count())
+        }
+        "manifest_integrity" => {
+            let targets = manifest_targets(model).len();
+            (targets, targets)
+        }
+        _ => (0, 0),
+    };
+    CoverageRow {
+        noun,
+        files_in,
+        files_total,
+    }
+}
+
+/// One census row's counts and their noun.
+struct CoverageRow {
+    noun: &'static str,
+    files_in: usize,
+    files_total: usize,
+}
+
+/// The module-path selector fields a constraint row lists its territory in.
+/// Rows without a path selector answer empty (the territory is the whole
+/// model or a field the census names in its summary).
+fn coverage_selectors(constraint: &Constraint) -> &[String] {
+    match constraint.kind.as_str() {
+        "no_cycles" => &constraint.modules,
+        "public_api_allowlist" => &constraint.allowed,
+        "forbid_external_crates" | "forbid_submodule_dependency" | "external_free" => {
+            &constraint.from
+        }
+        "feature_boundary" => &constraint.gated_modules,
+        _ => &[],
+    }
+}
+
+fn coverage_noun(kind: &str) -> &'static str {
+    match kind {
+        "no_cycles" | "forbid_submodule_dependency" => "files",
+        "forbid_external_crates" | "external_free" => "attributions",
+        "public_api_allowlist" => "exports",
+        "feature_boundary" => "declarations",
+        "manifest_integrity" => "manifests",
+        _ => "facts",
+    }
+}
+
+/// The selector list a census line names, in the field the row spells:
+/// `modules=[app::collect]`; an empty list states `all`.
+fn coverage_summary(constraint: &Constraint) -> String {
+    let field = match constraint.kind.as_str() {
+        "no_cycles" => "modules",
+        "public_api_allowlist" => "allowed",
+        "forbid_external_crates" | "forbid_submodule_dependency" | "external_free" => "from",
+        "feature_boundary" => "gated_modules",
+        _ => return String::new(),
+    };
+    let selectors = coverage_selectors(constraint);
+    if selectors.is_empty() {
+        return format!("{field}=all ");
+    }
+    format!("{field}=[{}] ", selectors.join(", "))
 }
 
 /// The address forms a literal `matches.modules` pattern compares against,

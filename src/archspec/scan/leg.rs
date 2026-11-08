@@ -15,20 +15,34 @@ pub(crate) const PARALLEL_FACT_LEG_FLOOR: usize = 128;
 /// defense a parallel runtime would sell is already native here). The hidden
 /// `ARCHSPEC_THREADS` env is the serial-vs-parallel A/B lever: test control
 /// only, NOT public config, NOT documented surface — the shape follows the
-/// `ARCHSPEC_DISABLE_DRIVERS` precedent above.
+/// `ARCHSPEC_DISABLE_DRIVERS` precedent above. The env read lives in THIS
+/// function alone; the arithmetic is the pure `fact_leg_threads_from` core,
+/// so unit tests name the lever value as a parameter and never mutate the
+/// process environment (flake law, 2026-11-08: the libtest-threaded suite
+/// shape raced `set_var`/`remove_var` across the four `fact_leg_*` tests —
+/// a sibling's `remove_var` landing between this test's `set_var` and its
+/// read dropped the count to `available_parallelism`; settle on the value
+/// under test, never on global state. The env read itself stays covered by
+/// the per-child env A/B in `tests/parallel_fact_leg.rs`).
 pub(crate) fn fact_leg_threads(files_len: usize) -> usize {
-    if files_len < PARALLEL_FACT_LEG_FLOOR {
-        return 1;
-    }
     let requested = std::env::var("ARCHSPEC_THREADS")
         .ok()
         .and_then(|value| value.trim().parse::<usize>().ok())
-        .filter(|count| *count > 0)
-        .unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map(|width| width.get())
-                .unwrap_or(1)
-        });
+        .filter(|count| *count > 0);
+    fact_leg_threads_from(files_len, requested)
+}
+
+/// The pure worker-count core behind `fact_leg_threads`: `requested` is the
+/// lever value (`None` = no lever, fall back to `available_parallelism`).
+fn fact_leg_threads_from(files_len: usize, requested: Option<usize>) -> usize {
+    if files_len < PARALLEL_FACT_LEG_FLOOR {
+        return 1;
+    }
+    let requested = requested.unwrap_or_else(|| {
+        std::thread::available_parallelism()
+            .map(|width| width.get())
+            .unwrap_or(1)
+    });
     files_len.min(requested)
 }
 
@@ -76,42 +90,48 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{PARALLEL_FACT_LEG_FLOOR, fact_leg_threads};
+    use super::{PARALLEL_FACT_LEG_FLOOR, fact_leg_threads_from};
+
+    // Flake law, 2026-11-08: no test in this module touches the process
+    // environment. The lever rides as an explicit parameter — per-fixture
+    // facts only, never process-global state (the old set_var/remove_var
+    // dance raced across sibling tests in the threaded libtest shape;
+    // the env read itself is A/B'd per child process in
+    // `tests/parallel_fact_leg.rs`).
 
 #[test]
     fn fact_leg_floor_keeps_small_trees_serial() {
-        assert_eq!(fact_leg_threads(PARALLEL_FACT_LEG_FLOOR - 1), 1);
+        assert_eq!(fact_leg_threads_from(PARALLEL_FACT_LEG_FLOOR - 1, None), 1);
         // The floor wins over the lever: below it no threads are spawned.
-        unsafe { std::env::set_var("ARCHSPEC_THREADS", "8") };
-        assert_eq!(fact_leg_threads(PARALLEL_FACT_LEG_FLOOR - 1), 1);
-        unsafe { std::env::remove_var("ARCHSPEC_THREADS") };
+        assert_eq!(fact_leg_threads_from(PARALLEL_FACT_LEG_FLOOR - 1, Some(8)), 1);
     }
 
     #[test]
     fn fact_leg_threads_lever_forces_serial_and_parallel() {
-        unsafe { std::env::set_var("ARCHSPEC_THREADS", "1") };
-        assert_eq!(fact_leg_threads(4096), 1);
-        unsafe { std::env::set_var("ARCHSPEC_THREADS", "8") };
-        assert_eq!(fact_leg_threads(PARALLEL_FACT_LEG_FLOOR), 8);
-        unsafe { std::env::remove_var("ARCHSPEC_THREADS") };
+        assert_eq!(fact_leg_threads_from(4096, Some(1)), 1);
+        assert_eq!(fact_leg_threads_from(PARALLEL_FACT_LEG_FLOOR, Some(8)), 8);
     }
 
     #[test]
     fn fact_leg_threads_never_exceed_files() {
         // The lever names the worker count directly (A/B oversubscription);
         // only the file count caps it.
-        unsafe { std::env::set_var("ARCHSPEC_THREADS", "9000") };
-        assert_eq!(fact_leg_threads(PARALLEL_FACT_LEG_FLOOR), PARALLEL_FACT_LEG_FLOOR);
-        unsafe { std::env::remove_var("ARCHSPEC_THREADS") };
+        assert_eq!(
+            fact_leg_threads_from(PARALLEL_FACT_LEG_FLOOR, Some(9000)),
+            PARALLEL_FACT_LEG_FLOOR
+        );
     }
 
     #[test]
     fn fact_leg_threads_defaults_to_parallelism_at_least_floor() {
-        unsafe { std::env::remove_var("ARCHSPEC_THREADS") };
-        let threads = fact_leg_threads(PARALLEL_FACT_LEG_FLOOR);
+        // No lever: the width is a machine fact, stable inside one process,
+        // and both sides of the equality call the same source.
         let width = std::thread::available_parallelism()
             .map(|width| width.get())
             .unwrap_or(1);
-        assert_eq!(threads, width.min(PARALLEL_FACT_LEG_FLOOR));
+        assert_eq!(
+            fact_leg_threads_from(PARALLEL_FACT_LEG_FLOOR, None),
+            width.min(PARALLEL_FACT_LEG_FLOOR)
+        );
     }
 }

@@ -49,23 +49,23 @@
     },
     {
       "path": "report/csharp.json",
-      "fingerprint": "fnv1a64-778f0408effbff45",
-      "derivation_event": "report edges row sub-count split (GitHub issue #10): report --format json metrics gain violations_undeclared_dependency and violations_boundary_violation"
+      "fingerprint": "fnv1a64-102ef4546885d30f",
+      "derivation_event": "the json machine body gained the `environment` member (state, header, classes census skipped when empty) \u2014 issue #24 environment declaration, archspec 0.6.60"
     },
     {
       "path": "report/go-workspace.json",
-      "fingerprint": "fnv1a64-45e977403f43106f",
-      "derivation_event": "report edges row sub-count split (GitHub issue #10): report --format json metrics gain violations_undeclared_dependency and violations_boundary_violation"
+      "fingerprint": "fnv1a64-055044d40fcbb8e7",
+      "derivation_event": "the json machine body gained the `environment` member (state, header, classes census skipped when empty) \u2014 issue #24 environment declaration, archspec 0.6.60"
     },
     {
       "path": "report/go.json",
-      "fingerprint": "fnv1a64-564f27079dc0b159",
-      "derivation_event": "report edges row sub-count split (GitHub issue #10): report --format json metrics gain violations_undeclared_dependency and violations_boundary_violation"
+      "fingerprint": "fnv1a64-fd0dc694ad99b6c1",
+      "derivation_event": "the json machine body gained the `environment` member (state, header, classes census skipped when empty) \u2014 issue #24 environment declaration, archspec 0.6.60"
     },
     {
       "path": "report/rust.json",
-      "fingerprint": "fnv1a64-f34e2bde04225cd1",
-      "derivation_event": "report edges row sub-count split (GitHub issue #10): report --format json metrics gain violations_undeclared_dependency and violations_boundary_violation"
+      "fingerprint": "fnv1a64-aef56181662d0389",
+      "derivation_event": "the json machine body gained the `environment` member (state, header, classes census skipped when empty) \u2014 issue #24 environment declaration, archspec 0.6.60"
     },
     {
       "path": "scan/csharp.json",

@@ -181,6 +181,7 @@ fn schema_json() -> String {
                         "severity": { "enum": ["error", "warning"] },
                         "scope": { "enum": ["claims", "both"] },
                         "modules": string_array(),
+                        "kinds": { "type": "array", "items": { "enum": ["runtime", "type-assisted"] }, "description": "ring classes a no_cycles row reports; absent means every kind — runtime means every leg carries a value edge, type-assisted means some leg is backed only by type-only rows" },
                         "allowed": string_array(),
                         "from": string_array(),
                         "forbid": string_array(),

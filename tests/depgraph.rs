@@ -1439,3 +1439,146 @@ fn issue20_healthy_trees_stay_byte_silent() {
         assert_no_silent_single_node(&fixture, &["depgraph", "modules"]);
     }
 }
+
+// --- the inversion-debt ledger (GitHub issue 21) ----------------------------
+
+/// The issue's shape as a ts workspace: beta's file imports alpha's while
+/// beta's manifest omits the declaration (used but undeclared), and root
+/// declares beta with no import evidence anywhere (declared but unused).
+fn issue21_ts_debt() -> Fixture {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\"name\":\"root\",\"version\":\"1.0.0\",\"workspaces\":[\"packages/*\"],\"dependencies\":{\"beta\":\"1.0.0\"}}\n",
+    );
+    tree.write(
+        "packages/alpha/package.json",
+        "{\"name\":\"alpha\",\"version\":\"1.0.0\",\"type\":\"module\",\"main\":\"src/index.ts\"}\n",
+    );
+    tree.write(
+        "packages/beta/package.json",
+        "{\"name\":\"beta\",\"version\":\"1.0.0\",\"type\":\"module\",\"main\":\"src/index.ts\"}\n",
+    );
+    tree.write("packages/alpha/src/index.ts", "export const a = 1;\n");
+    tree.write(
+        "packages/beta/src/index.ts",
+        "import { a } from \"../../alpha/src/index.js\";\nexport const b = a;\n",
+    );
+    tree
+}
+
+/// The same workspace reconciled: beta declares the leg its file already
+/// imports, and root declares nothing.
+fn issue21_ts_clean() -> Fixture {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\"name\":\"root\",\"version\":\"1.0.0\",\"workspaces\":[\"packages/*\"]}\n",
+    );
+    tree.write(
+        "packages/alpha/package.json",
+        "{\"name\":\"alpha\",\"version\":\"1.0.0\",\"type\":\"module\",\"main\":\"src/index.ts\"}\n",
+    );
+    tree.write(
+        "packages/beta/package.json",
+        "{\"name\":\"beta\",\"version\":\"1.0.0\",\"type\":\"module\",\"main\":\"src/index.ts\",\"dependencies\":{\"alpha\":\"1.0.0\"}}\n",
+    );
+    tree.write("packages/alpha/src/index.ts", "export const a = 1;\n");
+    tree.write(
+        "packages/beta/src/index.ts",
+        "import { a } from \"../../alpha/src/index.js\";\nexport const b = a;\n",
+    );
+    tree
+}
+
+/// The rust workspace where the driver's unit-edge fold is visible: app
+/// declares and imports shared (a clean pair the fold hides), shared imports
+/// app with no declaration (used but undeclared — the code arm of the union).
+fn issue21_rust_fold() -> Fixture {
+    let tree = Fixture::new();
+    tree.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"app\", \"shared\"]\nresolver = \"2\"\n",
+    );
+    tree.write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nshared = { path = \"../shared\" }\n",
+    );
+    tree.write("app/src/lib.rs", "pub mod core;\n");
+    tree.write("app/src/core.rs", "use shared::models;\n");
+    tree.write(
+        "shared/Cargo.toml",
+        "[package]\nname = \"shared\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    tree.write("shared/src/lib.rs", "use app::core;\n");
+    tree
+}
+
+#[test]
+fn issue21_ledger_prints_both_classes_in_named_sections() {
+    let tree = issue21_ts_debt();
+    let output = tree.run(&["depgraph", "ledger"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    let used_at = out
+        .find("## used but undeclared")
+        .expect("the ledger must print its first section");
+    let unused_at = out
+        .find("## declared but unused")
+        .expect("the ledger must print its second section");
+    assert!(used_at < unused_at, "{out}");
+    let undeclared = out
+        .find("beta -> alpha (packages/beta/src/index.ts)")
+        .expect("the undeclared import must print with its evidence loc");
+    assert!(used_at < undeclared && undeclared < unused_at, "{out}");
+    let unused = out
+        .find("root -> beta")
+        .expect("the unused declaration must print as a pair");
+    assert!(unused_at < unused, "{out}");
+}
+
+#[test]
+fn issue21_ledger_clean_fixture_states_cleanliness_by_name() {
+    let tree = issue21_ts_clean();
+    let output = tree.run(&["depgraph", "ledger"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output).trim_end(),
+        "Ledger clean: no used-but-undeclared and no declared-but-unused pairs.",
+        "a clean ledger states cleanliness, never a silent nothing"
+    );
+}
+
+#[test]
+fn issue21_ledger_rust_fold_names_the_placement() {
+    let tree = issue21_rust_fold();
+    let output = tree.run(&["depgraph", "ledger"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    let debt_at = out
+        .find("shared -> app")
+        .expect("the code-only unit edge must print as used but undeclared");
+    let unused_at = out
+        .find("## declared but unused")
+        .expect("the second section still prints");
+    assert!(debt_at < unused_at, "{out}");
+    assert!(
+        out[unused_at..].contains(
+            "The model records manifest declarations and code imports in one unit-edge tier, so a declared pair's code status is not separable in this model."
+        ),
+        "the fold model states its placement instead of a false census: {out}"
+    );
+}
+
+#[test]
+fn issue21_ledger_rejects_graph_format() {
+    let tree = issue21_ts_debt();
+    let output = tree.run(&["depgraph", "ledger", "--format", "mermaid"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output)
+            .contains("unsupported format for ledger: mermaid (supported: markdown)"),
+        "{}",
+        stderr(&output)
+    );
+}

@@ -69,6 +69,17 @@ pub const FACT_PUBLIC_API_SURFACE: &str = "public-api-surface";
 /// measurement (the ts-first precedent).
 pub const FACT_ORPHAN_CENSUS: &str = "orphan-census";
 
+/// The ring-class fact of the cycle label (GitHub issue #22): a serialized
+/// `type_only` mark on dependency rows lets an adjudication tell a value edge
+/// from a type-only leg. The ts, python and kotlin drivers carry the mark on
+/// their rows; the rust, go and csharp drivers state no lexical type/value
+/// distinction at all, so every leg they adjudicate is a value edge and their
+/// rings can only ever be labelled `(runtime)`.
+pub const FACT_TYPE_ONLY_DEPENDENCY_FACTS: &str = "type-only-dependency-facts";
+/// Conditional emission: the driver carries the fact but never a type-only
+/// row — every dependency row it serializes is a value edge.
+pub const NO_LEXICAL_SPLIT: &str = "no lexical type/value split (every row a value edge)";
+
 /// The structural facade-role check of `verify` (rule name unchanged; the
 /// fact source is the model's roles map).
 pub const RULE_FACADE_DEPENDENCY: &str = "facade dependency";
@@ -206,6 +217,17 @@ pub const CAPABILITIES: &[(Language, &str, &str)] = &[
     (Language::Ts, FACT_ORPHAN_CENSUS, GRANULAR),
     (Language::Python, FACT_ORPHAN_CENSUS, NOT_EMITTED),
     (Language::Kotlin, FACT_ORPHAN_CENSUS, NOT_EMITTED),
+    // The ring-class fact (GitHub issue #22): the ts, python and kotlin
+    // drivers serialize the `type_only` mark on their dependency rows, so a
+    // `(type-assisted)` ring is reachable there; the rust, go and csharp
+    // drivers carry no lexical type/value split — their legs are value edges
+    // by construction and their rings always read `(runtime)`.
+    (Language::Rust, FACT_TYPE_ONLY_DEPENDENCY_FACTS, NO_LEXICAL_SPLIT),
+    (Language::Csharp, FACT_TYPE_ONLY_DEPENDENCY_FACTS, NO_LEXICAL_SPLIT),
+    (Language::Go, FACT_TYPE_ONLY_DEPENDENCY_FACTS, NO_LEXICAL_SPLIT),
+    (Language::Ts, FACT_TYPE_ONLY_DEPENDENCY_FACTS, GRANULAR),
+    (Language::Python, FACT_TYPE_ONLY_DEPENDENCY_FACTS, GRANULAR),
+    (Language::Kotlin, FACT_TYPE_ONLY_DEPENDENCY_FACTS, GRANULAR),
 ];
 
 /// Checks that consume a capability fact: `(rule, required fact)`. A rule is
@@ -254,7 +276,7 @@ mod tests {
                 .filter(|(row_language, _, _)| *row_language == language)
                 .map(|(_, fact, emission)| (*fact, *emission))
                 .collect();
-            assert_eq!(rows.len(), 10, "{language:?} must state all ten facts");
+            assert_eq!(rows.len(), 11, "{language:?} must state all eleven facts");
             for (fact, value) in rows {
                 assert_eq!(
                     emission(language, fact),

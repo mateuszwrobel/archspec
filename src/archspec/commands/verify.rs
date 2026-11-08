@@ -11,7 +11,7 @@ use std::path::Path;
 /// it to stderr — a rule violation is not an operational error.
 pub const RULE_VIOLATION_REPORTED: &str = "\u{1}archspec-rule-violation-reported";
 
-pub const HELP: &str = "usage: archspec verify [path] [--strict]\nextract the model and compare against architecture.spec.toml; exit 1 on violations\n\n  path          project directory to extract and compare (default: current directory)\n  --strict      promote every warning to an error (CI gate); a green run means zero\n                findings of any kind\n\nsee 'archspec help workflow' for the audit recipe and 'archspec help diagnostics'\nfor what each finding category means\n";
+pub const HELP: &str = "usage: archspec verify [path] [--strict] [--json] [--coverage] [--only <class>]\nextract the model and compare against architecture.spec.toml; exit 1 on violations\n\n  path          project directory to extract and compare (default: current directory)\n  --strict      promote every warning to an error (CI gate); a green run means zero\n                findings of any kind\n  --json        emit the verdict as machine-readable json: the metrics and findings\n                body of `archspec report --format json` — the same findings, the same\n                verdict, the same exit codes; a renderer, not a second adjudication\n  --coverage    print the coverage census after the verdict: one line per constraint\n                row stating the facts its check adjudicates in its declared territory\n                versus the model totals\n  --only <class>  hide one diagnostic class from the report-only notices; findings,\n                the verdict and the environment census are unchanged; the run echoes\n                `only: excluding class \"<class>\" — verdict unchanged`\n\nEvery verdict declares the environment it was adjudicated against: the line\n`adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N\nspecifiers resolved to src instead of dist` when the scan resolved declared\nbuild targets to source. `--json` states the same fact as the `environment`\nfield; a summary-by-class census follows the header whenever the scan\nemitted report-only lines.\n\nsee 'archspec help workflow' for the audit recipe and 'archspec help diagnostics'\nfor what each finding category means\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -20,6 +20,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
             FlagSpec {
                 name: "strict",
                 takes_value: false,
+            },
+            FlagSpec {
+                name: "json",
+                takes_value: false,
+            },
+            FlagSpec {
+                name: "coverage",
+                takes_value: false,
+            },
+            FlagSpec {
+                name: "only",
+                takes_value: true,
             },
         ],
     )?;
@@ -82,7 +94,21 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // here exactly as they do on `scan`, report-only (R2-6), and so do the
     // `external not installed` lines (ts-resolution record R7b).
     eprint!("{}", scan::wildcard_report(&model));
-    eprint!("{}", scan::report_only_report(&model));
+    // The environment declaration (GitHub issue #24): the census counts exactly
+    // the lines this run emits on the report surface — a count over facts
+    // already emitted, never a second parse of the tree. `--only <class>` hides
+    // one diagnostic class from the notices: findings, the verdict and the
+    // census are unchanged, and the exclusion is always echoed, even when the
+    // class names nothing.
+    let environment = crate::archspec::report::environment(&model);
+    let (notices, echo) = crate::archspec::report::filtered_report_only_lines(
+        &model,
+        parsed.values.get("only").map(String::as_str),
+    );
+    if let Some(echo) = &echo {
+        eprintln!("{echo}");
+    }
+    eprint!("{notices}");
     // The warn-mode exclusion findings (issue-8 phase 2, decision-check
     // BLOCKER-2) fold into the diff's warnings channel below — never the
     // report-only channel, which can never go red under `--strict`.
@@ -105,26 +131,66 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // `--strict` promotes every warning-level divergence to an error so any
     // finding fails the run (design §9, cli.md: the CI gate).
     let strict = parsed.switches.contains("strict");
+    let json = parsed.switches.contains("json");
+    let coverage = parsed.switches.contains("coverage");
     let notes = inert_rule_notes(language, &diff);
 
-    if diff.is_empty() {
+    // One adjudication, two renderers (GitHub issue #25): the verdict below is
+    // computed once from this run's diff; `--json` only replaces the stdout
+    // body with the report verb's machine form — the very
+    // `crate::archspec::report::render_json` the report command calls, over
+    // this run's own model, mapping and diff, so the findings, the verdict and
+    // the exit code are the text run's, never a second adjudication. The
+    // informational notes are text-surface output: a json run omits them so
+    // stdout stays the pure machine body (the report D02 byte-clean law), and
+    // the capability facts they state stay readable from
+    // `archspec capability matrix`.
+    if json {
+        let metrics =
+            crate::archspec::report::compute_metrics(&model, &mapping, &loaded.modules, &diff);
+        print!(
+            "{}",
+            crate::archspec::report::render_json(
+                &loaded.project.language,
+                &metrics,
+                &diff,
+                &model.roles,
+                &environment
+            )
+        );
+    } else if diff.is_empty() {
         print!(
             "{}",
             compare::pass_confirmation(&loaded.modules, loaded.constraint.len())
         );
         print_notes(&notes);
-        Ok(())
-    } else if diff.fails(strict) {
-        print!("{}", compare::render_report(&diff, strict));
-        print_notes(&notes);
-        Err(RULE_VIOLATION_REPORTED.to_string())
     } else {
-        // Warning-only run: report still listed on stdout, but warnings are
-        // tolerated without --strict, so the run passes (exit 0).
+        // Warning-only runs still print the full report on stdout; without
+        // --strict the warnings are tolerated, so such a run passes (exit 0).
         print!("{}", compare::render_report(&diff, strict));
         print_notes(&notes);
-        Ok(())
     }
+    // The environment declaration (GitHub issue #24) rides the verdict surface
+    // on every non-json path: the header states the build state the verdict was
+    // adjudicated against, the census table follows wherever the scan emitted
+    // report-only lines. A json run states the same fact in its `environment`
+    // field and keeps stdout byte-clean.
+    if !json {
+        print!("{}", crate::archspec::report::environment_block(&environment));
+    }
+    // The coverage census (GitHub issue #23) rides the verdict surface on
+    // stdout: the verdict body first, the census after it, on every verdict
+    // path.
+    if coverage {
+        print!(
+            "{}",
+            compare::coverage_report(&model, &loaded.modules, &loaded.constraint)
+        );
+    }
+    if diff.fails(strict) {
+        return Err(RULE_VIOLATION_REPORTED.to_string());
+    }
+    Ok(())
 }
 
 /// Informational notes stating which capability-table-listed rules can never

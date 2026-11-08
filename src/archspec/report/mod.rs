@@ -187,6 +187,126 @@ pub fn findings(diff: &Diff) -> Vec<Finding> {
     items
 }
 
+/// The class carrying the verdict environment: the report-only
+/// `workspace target not built` line states a specifier that resolved to
+/// SOURCE instead of the member's declared build target (GitHub issue #24).
+/// Its presence flips the declared state from BUILT to UNBUILT; the ts
+/// resolver is its only producer.
+pub const WORKSPACE_TARGET_NOT_BUILT: &str = "workspace target not built";
+
+/// The class of one diagnostic line: the prefix before the first `": "`,
+/// the same split the findings renderer performs — a count over facts
+/// already emitted, never a second parse of the tree.
+pub fn diagnostic_class(line: &str) -> &str {
+    line.split_once(": ").map_or(line, |(class, _)| class)
+}
+
+/// The environment a verdict was adjudicated against (GitHub issue #24):
+/// the build state plus the summary-by-class census of the report-only
+/// lines the scan already emitted. One adjudication, every renderer:
+/// `verify`, `verify --json` and `report` share this struct — the json
+/// field and the human header line are two renderings of these counts,
+/// never a second computation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Environment {
+    /// `"built"` or `"unbuilt"` — `unbuilt` exactly when at least one
+    /// `workspace target not built` line was emitted this run.
+    pub state: &'static str,
+    /// The exact verdict header line, e.g.
+    /// `adjudicated against UNBUILT tree — 1305 specifiers resolved to
+    /// src instead of dist`; built runs state themselves honestly as
+    /// `adjudicated against BUILT tree`.
+    pub header: String,
+    /// Report-only lines counted per diagnostic class, sorted by class
+    /// name; absent from json when empty (the roles-map skip contract).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub classes: BTreeMap<String, usize>,
+}
+
+/// Compute the environment over `model.report_only_lines` — the lines the
+/// drivers already produced. No re-scan, no second parse: the census
+/// counts the exact strings the report surface will print.
+pub fn environment(model: &Model) -> Environment {
+    let mut classes: BTreeMap<String, usize> = BTreeMap::new();
+    for line in &model.report_only_lines {
+        *classes.entry(diagnostic_class(line).to_string()).or_insert(0) += 1;
+    }
+    let not_built = classes
+        .get(WORKSPACE_TARGET_NOT_BUILT)
+        .copied()
+        .unwrap_or(0);
+    let (state, header) = if not_built == 0 {
+        ("built", "adjudicated against BUILT tree".to_string())
+    } else {
+        (
+            "unbuilt",
+            format!(
+                "adjudicated against UNBUILT tree — {} resolved to src instead of dist",
+                plural(not_built, "specifier")
+            ),
+        )
+    };
+    Environment {
+        state,
+        header,
+        classes,
+    }
+}
+
+/// The environment block for the human verdict surfaces: the header line,
+/// then — only where report-only lines exist — the summary-by-class table
+/// that makes each noise class countable. Absence prints no table, never
+/// a "no lines" theater.
+pub fn environment_block(environment: &Environment) -> String {
+    let mut out = format!("{}\n", environment.header);
+    if !environment.classes.is_empty() {
+        out.push_str("\nEnvironment lines by class\n");
+        out.push_str(&"-".repeat("Environment lines by class".len()));
+        out.push('\n');
+        let width = environment
+            .classes
+            .keys()
+            .map(String::len)
+            .max()
+            .unwrap_or(0)
+            + 2;
+        for (class, count) in &environment.classes {
+            out.push_str(&format!("{class:<width$} {count}\n"));
+        }
+    }
+    out
+}
+
+/// The report-only stderr lines of one run, with one class excluded when
+/// `--only <class>` names it (GitHub issue #24): the filter removes
+/// ENTIRE diagnostic classes from the report-only channel — never a
+/// finding, never a line of a different class, never the verdict. The
+/// echo line states the exclusion; it is report-surface output, printed
+/// whether or not any line matched, so a class that names nothing says
+/// so honestly instead of filtering in silence.
+pub fn filtered_report_only_lines(model: &Model, only: Option<&str>) -> (String, Option<String>) {
+    let mut lines = String::new();
+    let Some(class) = only else {
+        for line in &model.report_only_lines {
+            lines.push_str(line);
+            lines.push('\n');
+        }
+        return (lines, None);
+    };
+    for line in &model.report_only_lines {
+        if diagnostic_class(line) != class {
+            lines.push_str(line);
+            lines.push('\n');
+        }
+    }
+    (
+        lines,
+        Some(format!(
+            "only: excluding class \"{class}\" — verdict unchanged"
+        )),
+    )
+}
+
 /// The findings as report-style (prefix, body) lines — the shared iteration
 /// behind the text and markdown diff sections.
 fn diff_items(diff: &Diff) -> Vec<(Cow<'static, str>, String)> {
@@ -197,14 +317,18 @@ fn diff_items(diff: &Diff) -> Vec<(Cow<'static, str>, String)> {
 }
 
 /// Plain-text report (report/output.md example format). Every report contains
-/// header, metrics, diff, and summary; the category table only appears when
+/// header, environment, metrics, diff, and summary; the category table only appears when
 /// there are violations, and the roles section only where the model states
-/// roles (roles US 06 — absence prints no section noise).
+/// roles (roles US 06 — absence prints no section noise). The environment
+/// block (GitHub issue #24) states the build state the verdict was
+/// adjudicated against on every run; its census table only appears where the
+/// scan emitted report-only lines.
 pub fn render_text(
     language: &str,
     metrics: &Metrics,
     diff: &Diff,
     roles: &BTreeMap<String, Role>,
+    environment: &Environment,
 ) -> String {
     let mut out = String::new();
     out.push_str("Architecture report\n");
@@ -213,6 +337,9 @@ pub fn render_text(
     out.push_str(&format!(
         "Spec: architecture.spec.toml (language: {language})\n\n"
     ));
+
+    out.push_str(&environment_block(environment));
+    out.push('\n');
 
     out.push_str("Metrics\n");
     out.push_str(&"-".repeat("Metrics".len()));
@@ -271,12 +398,23 @@ pub fn render_markdown(
     diff: &Diff,
     roles: &BTreeMap<String, Role>,
     diagram: Option<&str>,
+    environment: &Environment,
 ) -> String {
     let mut out = String::new();
     out.push_str("# Architecture report\n\n");
     out.push_str(&format!(
         "Spec: `architecture.spec.toml` (language: {language})\n\n"
     ));
+
+    out.push_str("## Environment\n\n");
+    out.push_str(&format!("{}\n", environment.header));
+    if !environment.classes.is_empty() {
+        out.push_str("\n| Class | Lines |\n|---|---|\n");
+        for (class, count) in &environment.classes {
+            out.push_str(&format!("| {class} | {count} |\n"));
+        }
+    }
+    out.push('\n');
 
     out.push_str("## Metrics\n\n");
     out.push_str("| Metric | Value |\n");
@@ -376,10 +514,12 @@ pub fn render_json(
     metrics: &Metrics,
     diff: &Diff,
     roles: &BTreeMap<String, Role>,
+    environment: &Environment,
 ) -> String {
     #[derive(Serialize)]
     struct ReportJson<'a> {
         language: &'a str,
+        environment: &'a Environment,
         metrics: &'a Metrics,
         #[serde(skip_serializing_if = "BTreeMap::is_empty")]
         roles: &'a BTreeMap<String, Role>,
@@ -387,6 +527,7 @@ pub fn render_json(
     }
     let report = ReportJson {
         language,
+        environment,
         metrics,
         roles,
         findings: findings(diff),
@@ -475,6 +616,162 @@ mod tests {
     use super::*;
     use crate::archspec::helptext::DIAGNOSTICS_HELP;
 
+    /// A built, report-only-quiet environment — the shape every renderer
+    /// test passes when it is not testing the environment itself.
+    fn env() -> Environment {
+        environment(&Model::new("rust"))
+    }
+
+    #[test]
+    fn environment_census_counts_the_classes_already_emitted() {
+        let mut model = Model::new("ts");
+        model.report_only_lines = vec![
+            "workspace target not built: @org/beta -> packages/beta/dist/b".to_string(),
+            "workspace target not built: @org/gamma -> packages/gamma/dist/g".to_string(),
+            "undeclared member import: packages/loose/main.ts -> @org/ui".to_string(),
+        ];
+        let environment = environment(&model);
+        assert_eq!(environment.state, "unbuilt");
+        assert_eq!(
+            environment.header,
+            "adjudicated against UNBUILT tree — 2 specifiers resolved to src instead of dist"
+        );
+        assert_eq!(environment.classes[WORKSPACE_TARGET_NOT_BUILT], 2);
+        assert_eq!(environment.classes["undeclared member import"], 1);
+        let block = environment_block(&environment);
+        assert!(block.starts_with(&environment.header), "block: {block}");
+        assert!(block.contains("Environment lines by class"), "block: {block}");
+        let row = block
+            .lines()
+            .find(|line| line.starts_with(WORKSPACE_TARGET_NOT_BUILT))
+            .expect("census row");
+        assert!(row.ends_with('2'), "row: {row}");
+    }
+
+    /// The state keys on the `workspace target not built` class ONLY: a
+    /// tree whose other report-only classes are full but whose members
+    /// are built states itself BUILT — with the other classes still
+    /// countable in the census.
+    #[test]
+    fn built_state_states_itself_even_with_other_report_only_lines() {
+        let mut model = Model::new("ts");
+        model.report_only_lines =
+            vec!["undeclared member import: packages/loose/main.ts -> @org/ui".to_string()];
+        let environment = environment(&model);
+        assert_eq!(environment.state, "built");
+        assert_eq!(environment.header, "adjudicated against BUILT tree");
+        assert_eq!(environment.classes["undeclared member import"], 1);
+    }
+
+    #[test]
+    fn environment_header_pluralizes_the_single_specifier() {
+        let mut model = Model::new("ts");
+        model.report_only_lines =
+            vec!["workspace target not built: @org/beta -> packages/beta/dist/b".to_string()];
+        assert_eq!(
+            environment(&model).header,
+            "adjudicated against UNBUILT tree — 1 specifier resolved to src instead of dist"
+        );
+    }
+
+    /// `--only` hides EXACTLY the named class's report-only lines and
+    /// keeps every other line; the echo names the exclusion and states
+    /// the verdict unchanged. Without the flag the lines are byte-identical
+    /// to the unfiltered report surface.
+    #[test]
+    fn only_filter_hides_exactly_the_named_class_and_echoes() {
+        let mut model = Model::new("ts");
+        let not_built = "workspace target not built: @org/beta -> packages/beta/dist/b";
+        let undeclared = "undeclared member import: packages/loose/main.ts -> @org/ui";
+        model.report_only_lines = vec![not_built.to_string(), undeclared.to_string()];
+        let (kept, echo) = filtered_report_only_lines(&model, Some(WORKSPACE_TARGET_NOT_BUILT));
+        assert!(!kept.contains(not_built), "the named class is excluded:\n{kept}");
+        assert!(kept.contains(undeclared), "the other class is kept:\n{kept}");
+        assert_eq!(
+            echo.as_deref(),
+            Some("only: excluding class \"workspace target not built\" — verdict unchanged")
+        );
+        let (all, no_echo) = filtered_report_only_lines(&model, None);
+        assert_eq!(
+            all,
+            format!("{not_built}\n{undeclared}\n"),
+            "without the flag the surface is byte-identical"
+        );
+        assert_eq!(no_echo, None);
+        let (none, echo) = filtered_report_only_lines(&model, Some("nothing such"));
+        assert!(none.contains(not_built) && none.contains(undeclared));
+        assert_eq!(
+            echo.as_deref(),
+            Some("only: excluding class \"nothing such\" — verdict unchanged"),
+            "a class matching nothing says so honestly, never filters in silence"
+        );
+    }
+
+    /// The json environment field sits between language and metrics,
+    /// carries the state/header verbatim, and skips `classes` when empty
+    /// (the roles-map skip contract).
+    #[test]
+    fn json_environment_field_states_the_verdict_environment() {
+        let mut model = Model::new("ts");
+        model.report_only_lines =
+            vec!["workspace target not built: @org/beta -> packages/beta/dist/b".to_string()];
+        let environment = environment(&model);
+        let json = render_json(
+            "ts",
+            &Metrics::default(),
+            &Diff::default(),
+            &BTreeMap::default(),
+            &environment,
+        );
+        let value: serde_json::Value = serde_json::from_str(&json).expect("json");
+        assert_eq!(value["environment"]["state"].as_str(), Some("unbuilt"));
+        assert_eq!(
+            value["environment"]["header"].as_str(),
+            Some("adjudicated against UNBUILT tree — 1 specifier resolved to src instead of dist")
+        );
+        assert_eq!(
+            value["environment"]["classes"][WORKSPACE_TARGET_NOT_BUILT].as_u64(),
+            Some(1)
+        );
+        let environment_key = json.find("\"environment\":").expect("environment key");
+        let language_key = json.find("\"language\":").expect("language key");
+        let metrics_key = json.find("\"metrics\":").expect("metrics key");
+        assert!(language_key < environment_key && environment_key < metrics_key, "key order: {json}");
+        let clean = render_json(
+            "ts",
+            &Metrics::default(),
+            &Diff::default(),
+            &BTreeMap::default(),
+            &env(),
+        );
+        assert!(clean.contains("\"state\": \"built\""), "built body: {clean}");
+        assert!(!clean.contains("\"classes\""), "no report-only lines => no key: {clean}");
+    }
+
+    /// The markdown environment section carries the header line and the
+    /// census rows the text block renders, as a table.
+    #[test]
+    fn markdown_environment_section_carries_the_same_facts() {
+        let mut model = Model::new("ts");
+        model.report_only_lines =
+            vec!["workspace target not built: @org/beta -> packages/beta/dist/b".to_string()];
+        let environment = environment(&model);
+        let rendered = render_markdown(
+            "ts",
+            &Metrics::default(),
+            &Diff::default(),
+            &BTreeMap::default(),
+            None,
+            &environment,
+        );
+        assert!(rendered.contains("## Environment"), "section: {rendered}");
+        assert!(rendered.contains(&environment.header), "header: {rendered}");
+        assert!(
+            rendered.contains("| workspace target not built | 1 |"),
+            "census row: {rendered}"
+        );
+    }
+
     /// A diff with exactly one entry in every finding field, warnings rendered
     /// the way the producers pre-render them. The renderers iterate this shape,
     /// so the labels it yields are the full emitted-category contract.
@@ -521,6 +818,7 @@ mod tests {
             vacuous_constraints: vec![
                 "[constraint #1] forbid_external_crates: 'from' pattern matches nothing".into(),
             ],
+            cycles_census: None,
         }
     }
 
@@ -567,7 +865,9 @@ mod tests {
     /// single source of all three report renderers) renders it. A future
     /// gated field can therefore never lack a render path — the silent-red
     /// class this guard outlaws. `warnings` and `vacuous_constraints` are the
-    /// two named warning-level fields the gate never counts.
+    /// two named warning-level fields the gate never counts; `cycles_census`
+    /// is the one named informational field — a summary line, never a
+    /// finding, rendered by the verify text renderer alone.
     #[test]
     fn the_exit_gate_and_the_renderers_share_one_field_list() {
         let manifest = env!("CARGO_MANIFEST_DIR");
@@ -591,7 +891,10 @@ mod tests {
                 continue;
             };
             let name = name.trim();
-            if matches!(name, "warnings" | "vacuous_constraints") {
+            if matches!(
+                name,
+                "warnings" | "vacuous_constraints" | "cycles_census"
+            ) {
                 continue;
             }
             assert!(
@@ -697,7 +1000,7 @@ mod tests {
     fn json_findings_equal_the_text_rendered_findings() {
         let diff = populated_diff();
         let metrics = Metrics::default();
-        let rendered = render_json("rust", &metrics, &diff, &BTreeMap::default());
+        let rendered = render_json("rust", &metrics, &diff, &BTreeMap::default(), &env());
         let value: serde_json::Value = serde_json::from_str(&rendered).expect("json parses");
         let json_findings: Vec<(String, String)> = value["findings"]
             .as_array()
@@ -712,7 +1015,7 @@ mod tests {
             .collect();
         assert_eq!(
             json_findings,
-            text_findings(&render_text("rust", &metrics, &diff, &BTreeMap::default()))
+            text_findings(&render_text("rust", &metrics, &diff, &BTreeMap::default(), &env()))
         );
         assert_eq!(value["language"].as_str(), Some("rust"));
     }
@@ -759,7 +1062,7 @@ mod tests {
     /// order, with paths sorted inside each group (roles US 06).
     #[test]
     fn text_roles_section_names_facades_then_composition_roots() {
-        let rendered = render_text("rust", &Metrics::default(), &Diff::default(), &roles_map());
+        let rendered = render_text("rust", &Metrics::default(), &Diff::default(), &roles_map(), &env());
         let section: Vec<&str> = rendered
             .lines()
             .skip_while(|line| !line.starts_with("Roles"))
@@ -782,6 +1085,7 @@ mod tests {
             &Diff::default(),
             &roles_map(),
             None,
+            &env(),
         );
         assert!(rendered.contains("## Roles"), "roles section:\n{rendered}");
         assert!(rendered.contains("| facades | kit |"), "roles table:\n{rendered}");
@@ -798,15 +1102,15 @@ mod tests {
     fn empty_roles_map_prints_no_section_and_omits_the_json_key() {
         let empty = BTreeMap::default();
         for rendered in [
-            render_text("rust", &Metrics::default(), &Diff::default(), &empty),
-            render_markdown("rust", &Metrics::default(), &Diff::default(), &empty, None),
+            render_text("rust", &Metrics::default(), &Diff::default(), &empty, &env()),
+            render_markdown("rust", &Metrics::default(), &Diff::default(), &empty, None, &env()),
         ] {
             assert!(
                 !rendered.contains("Roles"),
                 "no role facts => no roles section:\n{rendered}"
             );
         }
-        let json = render_json("rust", &Metrics::default(), &Diff::default(), &empty);
+        let json = render_json("rust", &Metrics::default(), &Diff::default(), &empty, &env());
         assert!(!json.contains("\"roles\""), "no role facts => no key:\n{json}");
     }
 
@@ -815,7 +1119,7 @@ mod tests {
     /// the model JSON (`Role::as_str` guards the word).
     #[test]
     fn json_roles_map_is_path_keyed_after_metrics() {
-        let json = render_json("rust", &Metrics::default(), &Diff::default(), &roles_map());
+        let json = render_json("rust", &Metrics::default(), &Diff::default(), &roles_map(), &env());
         let value: serde_json::Value = serde_json::from_str(&json).expect("json");
         assert_eq!(value["roles"]["kit"].as_str(), Some("facade"));
         assert_eq!(

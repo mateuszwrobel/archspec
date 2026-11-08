@@ -40,11 +40,12 @@ Formats are deterministic text; no images, no timestamps.
 Every report contains, in order:
 
 1. **Header** — identifies the spec (file name and declared language).
-2. **Metrics** — model-derived numbers from the extracted model.
-3. **Roles** — the role facts carried by the extracted model, in closed-vocabulary order (`facades`, then `composition roots`), model paths sorted inside each group. The section appears **only when the model carries at least one role**; an empty roles map renders nothing at all.
-4. **Violations by category** — the per-category violation counts, in a separate table that appears **only when the run reports at least one violation** (omitted from a clean report).
-5. **Diff** — the full structural difference between the extracted and the declared model (ADR-010, `../../../archspec-design.md` §9).
-6. **Summary line** — total violations by category, or a clean-result statement.
+2. **Environment** — the build state the verdict declares: `adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N specifiers resolved to src instead of dist`. A `Environment lines by class` census table follows **only where the scan emitted report-only lines**, making each diagnostic class countable (class names: `archspec help diagnostics`).
+3. **Metrics** — model-derived numbers from the extracted model.
+4. **Roles** — the role facts carried by the extracted model, in closed-vocabulary order (`facades`, then `composition roots`), model paths sorted inside each group. The section appears **only when the model carries at least one role**; an empty roles map renders nothing at all.
+5. **Violations by category** — the per-category violation counts, in a separate table that appears **only when the run reports at least one violation** (omitted from a clean report).
+6. **Diff** — the full structural difference between the extracted and the declared model (ADR-010, `../../../archspec-design.md` §9).
+7. **Summary line** — total violations by category, or a clean-result statement.
 
 The Markdown format inserts, between the metrics and the diff:
 
@@ -60,6 +61,10 @@ The Markdown format inserts, between the metrics and the diff:
 ```json
 {
   "language": "rust",
+  "environment": {
+    "state": "built",
+    "header": "adjudicated against BUILT tree"
+  },
   "metrics": {
     "components": 2,
     "units": 5,
@@ -165,6 +170,8 @@ Architecture report
 
 Spec: architecture.spec.toml (language: rust)
 
+adjudicated against BUILT tree
+
 Metrics
 -------
 components:          2
@@ -203,6 +210,10 @@ The Markdown format carries the same content plus the marked sections:
 # Architecture report
 
 Spec: `architecture.spec.toml` (language: rust)
+
+## Environment
+
+adjudicated against BUILT tree
 
 ## Metrics
 

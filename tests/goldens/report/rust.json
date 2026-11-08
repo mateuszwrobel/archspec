@@ -1,5 +1,9 @@
 {
   "language": "rust",
+  "environment": {
+    "state": "built",
+    "header": "adjudicated against BUILT tree"
+  },
   "metrics": {
     "components": 5,
     "units": 2,

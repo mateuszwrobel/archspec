@@ -542,7 +542,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 56] = [
+    let required: [&str; 59] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -613,6 +613,11 @@ fn registry_owns_claim_identity() {
         // shared key-shape table behind the emitted schema and the runtime
         // unknown-key refusal.
         "spec-schema-fail-closed-shape",
+        // Registered by GitHub issue #25 (2026-11-08): the `--json` flag line
+        // of the verify help — the machine form of the verdict.
+        "verify-help-json-flag",
+        "verdict-environment-declared",
+        "verify-only-class-filter",
     ];
     for required in required {
         assert!(
@@ -1246,6 +1251,14 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             "clusters-help-flags" => {
                 contains_canonical(&mut errors, claim, "inspect --help");
                 contains_canonical(&mut errors, claim, "help inspect");
+            }
+            "verify-help-json-flag" => {
+                contains_canonical(&mut errors, claim, "verify --help");
+                contains_canonical(&mut errors, claim, "help verify");
+            }
+            "verdict-environment-declared" | "verify-only-class-filter" => {
+                contains_canonical(&mut errors, claim, "verify --help");
+                contains_canonical(&mut errors, claim, "help verify");
             }
             "clusters-structure-verdicts" => {
                 // The three live classes: one probe per reachable verdict.

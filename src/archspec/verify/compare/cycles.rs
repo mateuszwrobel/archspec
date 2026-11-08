@@ -2,7 +2,7 @@
 //! the declared groups, SCC computation, and cycle path rendering.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use super::claims::{Claim, claim_unit_fallback};
+use super::claims::{Claim, claim_unit_fallback, count_claims};
 use super::mapping::file_grained_rows;
 use super::claims::claim_owner;
 use crate::archspec::{capability, language};
@@ -17,18 +17,24 @@ use crate::archspec::spec::{Constraint, Module};
 /// at projection entry (R2-1), yields
 /// one deterministic representative path per SCC whose members share the
 /// constraint's territory — suppressed when its claim projection is a cycle
-/// already reported at the claim tier (R3-4). Returns `(path, members)` per
-/// reported cycle; the members are the deduplicated path nodes, the atoms of
-/// the D6 attribution. Shared by `check_cycles` (the finding lines) and the
-/// seam's cycle-membership query (the diagram's marks) — one resolver, never
-/// two (M13).
+/// already reported at the claim tier (R3-4). Returns `(path, members, kind)`
+/// per reported cycle; the members are the deduplicated path nodes, the atoms
+/// of the D6 attribution, and the kind is the GitHub issue #22 ring label:
+/// `"runtime"` when every leg carries a value edge, `"type-assisted"` when
+/// some leg is backed only by type-only rows. `rows` receives the induced
+/// adjacency the adjudication actually walked — the census's counted rows
+/// (the A3 bound of the no-cycles vacuity decision-check: adjudicated
+/// model rows, never projected ones). Shared by `check_cycles` (the finding
+/// lines) and the seam's cycle-membership query (the diagram's marks) — one
+/// resolver, never two (M13).
 pub(super) fn file_tier_report_cycles(
     constraint_modules: &[String],
     model: &Model,
     group: &BTreeSet<String>,
     claim_cycle_edges: &BTreeSet<(String, String)>,
     claims: &[Claim<'_>],
-) -> Vec<(Vec<String>, Vec<String>)> {
+    rows: &mut BTreeSet<(String, String)>,
+) -> Vec<(Vec<String>, Vec<String>, &'static str)> {
     let adjacency: BTreeSet<(String, String)> = file_grained_rows(model)
         .into_iter()
         .filter(|(from, to)| from != to)
@@ -71,6 +77,7 @@ pub(super) fn file_tier_report_cycles(
         .filter(|(from, to)| files.contains(from) && files.contains(to))
         .cloned()
         .collect();
+    rows.extend(file_induced.iter().cloned());
     let mut reports = Vec::new();
     // Issue #17: one out-edge index for the whole sweep (see adjudicate_cycles).
     let mut file_induced_out: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -96,7 +103,18 @@ pub(super) fn file_tier_report_cycles(
                 .cloned()
                 .collect()
         };
-        reports.push((path, cycle_members));
+        // Issue #22: the ring's kind from its legs' backing rows — a leg is
+        // a value edge iff at least one row backs it that is not type-only;
+        // one type-only leg makes the ring type-assisted.
+        let kind = if path
+            .windows(2)
+            .all(|leg| file_leg_is_value(model, &leg[0], &leg[1]))
+        {
+            CYCLE_KIND_RUNTIME
+        } else {
+            CYCLE_KIND_TYPE_ASSISTED
+        };
+        reports.push((path, cycle_members, kind));
     }
     reports
 }
@@ -129,14 +147,23 @@ pub(super) fn file_tier_report_cycles(
 /// visibility. `verify` without the constraint therefore stays green on
 /// cycles (only `--strict` promotes the advisory warnings like any other
 /// warning), and `report` never states a lying zero for a cyclic tree.
-/// Returns `(error_cycles, warning_cycles)`.
+/// Every finding line carries its issue #22 ring label — `(runtime)` when
+/// all legs are value edges, `(type-assisted)` when any leg is type-only —
+/// and a `kinds = [...]` list on the constraint narrows which ring classes
+/// it reports (absent = all kinds).
+/// Returns `(error_cycles, warning_cycles, census)` — the census line
+/// states the adjudicated counts behind the findings (GitHub issue #18's
+/// surviving census half, bounded by the A3 rule of the no-cycles
+/// vacuity decision-check: it counts ONLY already-adjudicated model rows,
+/// never projected edges) and is `None` when no cycle was reported.
 pub(super) fn check_cycles(
     module_edges: &BTreeSet<(String, String)>,
+    value_pairs: &BTreeSet<(String, String)>,
     model: &Model,
     constraints: &[Constraint],
     modules: &[Module],
     claims: &[Claim<'_>],
-) -> (Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, Option<String>) {
     let all_modules: BTreeSet<String> = modules.iter().map(|module| module.name.clone()).collect();
     let posture = language::from_name(&model.language).map(capability::posture);
     let file_facts_granular = language::from_name(&model.language).is_some_and(|language| {
@@ -145,6 +172,7 @@ pub(super) fn check_cycles(
     });
     let mut error_cycles: BTreeSet<String> = BTreeSet::new();
     let mut warning_cycles: BTreeSet<String> = BTreeSet::new();
+    let mut census = CycleCensus::default();
 
     let mut declared = false;
     for constraint in constraints
@@ -170,16 +198,21 @@ pub(super) fn check_cycles(
         adjudicate_cycles(
             &CycleContext {
                 module_edges,
+                value_pairs,
                 model,
                 claims,
                 file_facts_granular,
             },
-            &group,
-            &constraint.modules,
-            scope,
-            constraint.severity == "warning",
+            &CycleRow {
+                group: &group,
+                territory: &constraint.modules,
+                kinds: &constraint.kinds,
+                scope,
+                severity_is_warning: constraint.severity == "warning",
+            },
             &mut error_cycles,
             &mut warning_cycles,
+            &mut census,
         );
     }
 
@@ -195,16 +228,21 @@ pub(super) fn check_cycles(
         adjudicate_cycles(
             &CycleContext {
                 module_edges,
+                value_pairs,
                 model,
                 claims,
                 file_facts_granular,
             },
-            &all_modules,
-            &[],
-            scope,
-            true,
+            &CycleRow {
+                group: &all_modules,
+                territory: &[],
+                kinds: &[],
+                scope,
+                severity_is_warning: true,
+            },
             &mut error_cycles,
             &mut warning_cycles,
+            &mut census,
         );
     }
 
@@ -217,19 +255,119 @@ pub(super) fn check_cycles(
     warnings.sort();
     let mut errors: Vec<String> = error_cycles.into_iter().collect();
     errors.sort();
-    (errors, warnings)
+    let census = if errors.is_empty() && warnings.is_empty() {
+        None
+    } else {
+        Some(census.render(errors.len() + warnings.len(), modules))
+    };
+    (errors, warnings, census)
 }
 
 /// The read-only context one cycle adjudication needs: the extracted model,
-/// its claim views, the module-pair edges, and the language-derived facts.
-/// Grouping them keeps `adjudicate_cycles` inside the argument budget (the
-/// D5 scope and granular-file-facts flags are computed once for the whole
+/// its claim views, the module-pair edges, the value-crossing pair set
+/// (`BoundaryGraph::value_pairs` — the issue #22 kind fact at the claim
+/// tier), and the language-derived facts. Grouping them keeps
+/// `adjudicate_cycles` inside the argument budget (the D5 scope and
+/// granular-file-facts flags are computed once for the whole
 /// `check_cycles` run).
 struct CycleContext<'a> {
     module_edges: &'a BTreeSet<(String, String)>,
+    value_pairs: &'a BTreeSet<(String, String)>,
     model: &'a Model,
     claims: &'a [Claim<'a>],
     file_facts_granular: bool,
+}
+
+/// The two ring classes of the issue #22 kind label: a ring is `runtime`
+/// iff every leg carries a value edge; one type-only leg makes the ring
+/// `type-assisted`. The same two words are the `kinds = [...]` selector
+/// values on a `no_cycles` row.
+const CYCLE_KIND_RUNTIME: &str = "runtime";
+const CYCLE_KIND_TYPE_ASSISTED: &str = "type-assisted";
+
+/// True iff the `kinds` selector reports a ring of this class — an absent
+/// (empty) list is every kind, the shipped behavior (issue #22: backward
+/// compatible).
+fn kind_selected(kinds: &[String], kind: &str) -> bool {
+    kinds.is_empty() || kinds.iter().any(|candidate| candidate == kind)
+}
+
+/// The claim-tier ring kind from the value-crossing pair set (D3 law read
+/// for the label, issue #22): a leg is a value edge iff the pair carries at
+/// least one value crossing — a unit-tier edge or a non-type-only module row.
+fn claim_ring_kind(path: &[String], value_pairs: &BTreeSet<(String, String)>) -> &'static str {
+    if path
+        .windows(2)
+        .all(|leg| value_pairs.contains(&(leg[0].clone(), leg[1].clone())))
+    {
+        CYCLE_KIND_RUNTIME
+    } else {
+        CYCLE_KIND_TYPE_ASSISTED
+    }
+}
+
+/// The file-tier leg kind (issue #22): a file pair is a value edge iff at
+/// least one row backing it is not type-only. rust file rows are
+/// `mod`/`use`/path — rust carries no lexical type/value split, so every
+/// rust leg is a value edge; the go and csharp drivers never adjudicate a
+/// file tier; the ts/python/kotlin file tier reads `module_edges` rows keyed
+/// by file identity, where the serialized `type_only` fact decides.
+fn file_leg_is_value(model: &Model, from: &str, to: &str) -> bool {
+    match language::from_name(&model.language) {
+        Some(language::Language::Ts)
+        | Some(language::Language::Python)
+        | Some(language::Language::Kotlin) => model.module_edges.iter().any(|edge| {
+            edge.from == from && edge.to == to && !edge.type_only
+        }),
+        _ => true,
+    }
+}
+
+/// The adjudicated rows one `check_cycles` run counted, for the census line
+/// (GitHub issue #18's surviving half). The A3 bound of the no-cycles
+/// vacuity decision-check: only rows the adjudication actually walked —
+/// the induced adjacencies — never projected or hypothetical edges.
+#[derive(Default)]
+struct CycleCensus {
+    /// File-tier induced pairs the adjudications walked (finest tier).
+    file_rows: BTreeSet<(String, String)>,
+    /// Claim-tier induced pairs where no file tier adjudicated (the
+    /// claims-only posture — the rows there are module-tier).
+    claim_rows: BTreeSet<(String, String)>,
+    /// True when any adjudication reached the file tier.
+    file_tier: bool,
+    /// The union of the territories that adjudicated.
+    territory: BTreeSet<String>,
+}
+
+impl CycleCensus {
+    /// The census line: `<N> cycles among <M> file facts; territory: <x>/<y>
+    /// modules`. The row count names its tier honestly: `file facts` when a
+    /// file tier adjudicated, `module facts` on a claims-only tree.
+    fn render(&self, cycles: usize, modules: &[Module]) -> String {
+        let (rows, noun) = if self.file_tier {
+            (self.file_rows.len(), "file fact")
+        } else {
+            (self.claim_rows.len(), "module fact")
+        };
+        format!(
+            "{} among {}; territory: {}/{}",
+            plural(cycles, "cycle"),
+            plural(rows, noun),
+            self.territory.len(),
+            plural(count_claims(modules), "module"),
+        )
+    }
+}
+
+/// `N cycle` / `N cycles` — the census line's plurals (the report summary's
+/// `plural` helper lives behind the verdict surface).
+fn plural(count: usize, singular: &str) -> String {
+    if count == 1 {
+        format!("{count} {singular}")
+    } else {
+        format!("{count} {singular}s")
+    }
 }
 
 /// One `no_cycles` adjudication (the constraint loop body and the shared
@@ -239,22 +377,48 @@ struct CycleContext<'a> {
 /// findings; every path goes to the error or the warning bucket per
 /// `severity_is_warning`. `territory` is the constraint's `modules` list —
 /// empty means all files (`file_tier_report_cycles`); the advisory tier
-/// passes an empty territory over all declared modules.
+/// passes an empty territory over all declared modules. `kinds` is the
+/// issue #22 ring-class selector: a ring whose class is absent from the
+/// (non-empty) list is NOT reported — and, per the R3-7 law, its edges do
+/// not enter `claim_cycle_edges` either, so it can never suppress a file
+/// finding it never printed. `census` accumulates the adjudicated rows.
+/// The per-row adjudication inputs a `no_cycles` constraint (or the advisory
+/// tier) contributes: the module group to walk, the constraint's declared
+/// territory, the issue #22 `kinds` selector, the tier scope and the severity
+/// flip. Bundled per the module's small-argument-list idiom.
+#[derive(Clone, Copy)]
+struct CycleRow<'a> {
+    group: &'a BTreeSet<String>,
+    territory: &'a [String],
+    kinds: &'a [String],
+    scope: &'a str,
+    severity_is_warning: bool,
+}
+
 fn adjudicate_cycles(
     context: &CycleContext<'_>,
-    group: &BTreeSet<String>,
-    territory: &[String],
-    scope: &str,
-    severity_is_warning: bool,
+    row: &CycleRow<'_>,
     error_cycles: &mut BTreeSet<String>,
     warning_cycles: &mut BTreeSet<String>,
+    census: &mut CycleCensus,
 ) {
+    let CycleRow {
+        group,
+        territory,
+        kinds,
+        scope,
+        severity_is_warning,
+    } = *row;
+    census.territory.extend(group.iter().cloned());
     let induced: BTreeSet<(String, String)> = context
         .module_edges
         .iter()
         .filter(|(from, to)| group.contains(from) && group.contains(to))
         .cloned()
         .collect();
+    if scope != capability::SCOPE_BOTH {
+        census.claim_rows.extend(induced.iter().cloned());
+    }
     // The edges of the cycles this adjudication actually REPORTS at the
     // claim tier — the only story the files tier may be deduped against
     // (R3-4/R3-7: an adjacency the claim report never printed cannot
@@ -269,13 +433,18 @@ fn adjudicate_cycles(
 
     for scc in strongly_connected_components(group, &induced) {
         if let Some(path) = find_cycle_indexed(&scc, &induced_out) {
+            let kind = claim_ring_kind(&path, context.value_pairs);
+            if !kind_selected(kinds, kind) {
+                continue;
+            }
             for pair in path.windows(2) {
                 claim_cycle_edges.insert((pair[0].clone(), pair[1].clone()));
             }
+            let finding = format!("{} ({kind})", path.join(" -> "));
             if severity_is_warning {
-                warning_cycles.insert(path.join(" -> "));
+                warning_cycles.insert(finding);
             } else {
-                error_cycles.insert(path.join(" -> "));
+                error_cycles.insert(finding);
             }
         }
     }
@@ -288,14 +457,20 @@ fn adjudicate_cycles(
     if !context.file_facts_granular {
         return;
     }
-    for (path, members) in file_tier_report_cycles(
+    census.file_tier = true;
+    for (path, members, kind) in file_tier_report_cycles(
         territory,
         context.model,
         group,
         &claim_cycle_edges,
         context.claims,
+        &mut census.file_rows,
     ) {
-        let finding = file_cycle_finding(context.model, &members, &path, context.claims);
+        if !kind_selected(kinds, kind) {
+            continue;
+        }
+        let mut finding = file_cycle_finding(context.model, &members, &path, context.claims);
+        finding.push_str(&format!(" ({kind})"));
         if severity_is_warning {
             warning_cycles.insert(finding);
         } else {

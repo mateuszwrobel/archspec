@@ -30,10 +30,12 @@ pub enum Feature {
     VerifyForbiddenLaundering,
     VerifySubmoduleContracts,
     CliArtefactFreshness,
+    VerifyJsonVerdict,
+    VerifyEnvironmentDeclared,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 23] = [
+    pub const ALL: [Feature; 25] = [
         Feature::ScanUnits,
         Feature::ScanSoftStructure,
         Feature::ScanModuleEdges,
@@ -57,6 +59,8 @@ impl Feature {
         Feature::VerifyForbiddenLaundering,
         Feature::VerifySubmoduleContracts,
         Feature::CliArtefactFreshness,
+        Feature::VerifyJsonVerdict,
+        Feature::VerifyEnvironmentDeclared,
     ];
 
     pub fn as_str(&self) -> &'static str {
@@ -84,6 +88,8 @@ impl Feature {
             Feature::VerifyForbiddenLaundering => "verify.forbidden_laundering",
             Feature::VerifySubmoduleContracts => "verify.submodule_contracts",
             Feature::CliArtefactFreshness => "cli.artefact_freshness",
+            Feature::VerifyJsonVerdict => "verify.json_verdict",
+            Feature::VerifyEnvironmentDeclared => "verify.environment_declared",
         }
     }
 
@@ -116,6 +122,8 @@ impl Feature {
             Feature::VerifyForbiddenLaundering => probe_verify_laundering(driver),
             Feature::VerifySubmoduleContracts => probe_verify_submodule_contracts(driver),
             Feature::CliArtefactFreshness => probe_artefact_freshness(driver),
+            Feature::VerifyJsonVerdict => probe_verify_json(driver),
+            Feature::VerifyEnvironmentDeclared => probe_environment_declared(driver),
         }
     }
 }
@@ -587,4 +595,36 @@ fn probe_artefact_freshness(driver: &Driver) -> bool {
     fx.write("model.json", "STALE ON PURPOSE\n");
     let stale = driver.run(&fx, &["scan", "--check", "--output", "model.json"]);
     stale.status.code() != Some(0) && common::stderr(&stale).contains("out of date model")
+}
+
+/// Issue #25: `verify --json` renders the `report --format json` machine
+/// schema over the same run. The probe runs verify --json on the canonical
+/// tree with the clean boundary spec: exit 0 with a parseable json body that
+/// carries the schema's metrics and findings members proves the path exists
+/// for this driver. A driver whose verify leg never reaches the verdict
+/// (a scan error) fails the probe, same as the boundaries probe.
+fn probe_verify_json(driver: &Driver) -> bool {
+    let fx = common::Fixture::new();
+    driver.materialize(&fx, &driver.probe_tree());
+    fx.write("architecture.spec.toml", &boundary_spec(driver));
+    let output = driver.run(&fx, &["verify", "--json"]);
+    if output.status.code() != Some(0) {
+        return false;
+    }
+    let body: serde_json::Value = match serde_json::from_str(&common::stdout(&output)) {
+        Ok(body) => body,
+        Err(_) => return false,
+    };
+    body.get("metrics").is_some() && body.get("findings").is_some()
+}
+
+/// The verdict declares its adjudication environment (GitHub issue #24): a
+/// built probe tree states the BUILT header on the verdict surface for every
+/// driver — the declaration is a fact of the renderer, not of the language.
+fn probe_environment_declared(driver: &Driver) -> bool {
+    let fx = common::Fixture::new();
+    driver.materialize(&fx, &driver.probe_tree());
+    fx.write("architecture.spec.toml", &boundary_spec(driver));
+    let output = driver.run(&fx, &["verify"]);
+    common::stdout(&output).contains("adjudicated against BUILT tree")
 }

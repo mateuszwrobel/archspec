@@ -52,6 +52,14 @@ Scenario 15 is the floor side of `allowed.depend_on`'s exact-set semantics (floo
 | 17 | same project as #16 | run `verify --strict` | non-zero exit; report lists the cycle as an error |
 | 106 | spec declares no `no_cycles` constraint; code has a cycle among components whose edges are all declared | run `verify` | exit 0; the report lists the cycle as a `warning: cycle:` advisory line — visibility is constraint-independent, the constraint gates severity |
 | 107 | same project as #106 | run `verify --strict` | non-zero exit; the advisory cycle warning is promoted like any warning |
+| 108 | spec has `no_cycles`; code has a ring whose legs are all value edges | run `verify` | non-zero exit; the cycle line ends with the ring label `(runtime)` |
+| 109 | spec has `no_cycles`; code has a ring with a leg backed only by type-only rows | run `verify` | non-zero exit; the cycle line ends with the ring label `(type-assisted)` |
+| 110 | spec has `no_cycles` with `kinds = ["runtime"]`; code has ONLY a type-assisted ring | run `verify` | exit 0; the filtered ring prints no cycle line |
+| 111 | same spec as #110; code additionally has a value-edged ring | run `verify` | non-zero exit; only the `(runtime)` line prints |
+| 112 | spec has `no_cycles`; code has a cycle | run `verify` | the findings end with one census line `N cycles among M file facts; territory: x/y modules` (or `module facts` on a claims-only tree) stating the adjudicated counts; absent when no cycle was reported or a `no_cycles` vacuity entry fired |
+| 113 | spec has `no_cycles` with `kinds` on a row of another type | run `verify` | non-zero exit; the loader refuses the spec, naming `kinds` and the row |
+| 114 | ts project with a declared workspace build target resolving to source | run `verify` | stdout states the environment after the verdict body: the header names the unbuilt state with the specifier count, and an `Environment lines by class` census follows wherever the run emitted report-only notices |
+| 115 | same project as #114 | run `verify --only "<class>"` | that class drops from the stderr notices only; the run echoes the exclusion naming the class, even when the class matches nothing; findings, the environment census and the exit code are unchanged |
 | 18 | project with only warning-level divergences | run `verify --strict` | non-zero exit; report lists each promoted warning |
 
 ## Determinism
@@ -214,6 +222,15 @@ A constraint whose effective domain is empty (nothing to check) is reported as a
 | 73 | same tree without the registration calls (same usings, no composition role) | run `verify --strict` | exit 1; `laundered forbidden edge` names the ban and the intermediate |
 | 74 | go tree whose `package main` wiring carries the ban route | run `verify --strict` | exit 0; the main package's composition role sanctions the wiring hop |
 | 75 | lib module named `main` imports an item through the root re-export | run `verify` | exit 1; `facade dependency: app::main -> app` — the exemption is the composition role, never the name |
+
+## Machine verdict (`--json`)
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 108 | project with divergences | run `verify --json` | same non-zero exit as the text run; stdout is the `report --format json` machine body whose findings equal the text report's item set finding for finding |
+| 109 | project whose code satisfies its spec | run `verify --json` | exit 0; stdout parses as the machine body with an empty `findings` array — no `ok:` confirmation line on stdout |
+| 110 | same violating project | run `verify` then `verify --json` | both exit the same code; `--json` changes the renderer, never the verdict |
+| 111 | project with divergences | run `verify --json` | the machine body carries an `environment` member (the state, the same header text, a census map skipped when empty) beside `findings`; the verdict and exit code equal the text run's |
 
 ## Errors
 

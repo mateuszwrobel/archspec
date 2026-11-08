@@ -3,6 +3,8 @@ Architecture report
 
 Spec: architecture.spec.toml (language: rust)
 
+adjudicated against BUILT tree
+
 Metrics
 -------
 components:          11

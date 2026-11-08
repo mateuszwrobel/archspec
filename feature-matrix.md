@@ -704,6 +704,13 @@
   - ts: skipped (project shape not applicable)
   - python: pass
   - kotlin: pass
+- **ledger_view_prints_named_sections** — depgraph ledger prints the two named inversion-debt sections over the model's own facts and never a silent nothing
+  - rust: pass
+  - csharp: pass
+  - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
 
 ## diagram
 **Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
@@ -879,4 +886,44 @@
   - ts: pass
   - python: pass
   - kotlin: pass
+
+## verify.json_verdict
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
+
+**Behaviors:**
+
+- **verify_json_verdict_matches_text_verdict** — verify --json exits the text run's code and carries exactly the text verdict's findings in the machine schema — finding for finding
+  - rust: pass
+  - csharp: pass
+  - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
+- **verify_json_clean_project_exits_zero_with_empty_findings** — verify --json on a matching spec exits 0 and renders the machine schema with an empty findings array — a json body, never the ok confirmation
+  - rust: pass
+  - csharp: pass
+  - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
+
+## verify.environment_declared
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
+
+**Behaviors:**
+
+- **verify_declares_the_built_tree_by_header** — a built probe tree states itself honestly: the verdict surface carries `adjudicated against BUILT tree`
+  - rust: pass
+  - csharp: pass
+  - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
+- **verify_declares_unbuilt_environment_with_census_and_only** — an unbuilt ts member states UNBUILT with a summary-by-class census; --only hides that class from the notices, echoes it, and changes the verdict and the census by nothing
+  - rust: skipped (project shape not applicable)
+  - csharp: skipped (project shape not applicable)
+  - go: skipped (project shape not applicable)
+  - ts: pass
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 

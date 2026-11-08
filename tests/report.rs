@@ -1309,8 +1309,8 @@ fn report_markdown_marks_cycles() {
     let out = stdout(&output);
     assert!(out.contains("## Cycles"), "cycles section:\n{out}");
     assert!(
-        out.contains("- `auth -> billing -> auth`"),
-        "cycle bullet:\n{out}"
+        out.contains("- `auth -> billing -> auth (runtime)`"),
+        "cycle bullet (issue #22 ring label rides the finding text):\n{out}"
     );
     assert!(stderr(&output).is_empty(), "no stderr on violation run");
 }

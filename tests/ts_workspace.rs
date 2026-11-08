@@ -1740,3 +1740,158 @@ fn member_subpath_without_any_matching_entry_keeps_the_generated_line() {
         "the base-join gensrc line states verbatim:\n{text}"
     );
 }
+
+/// The environment fixture for the issue-#24 verdict declarations: mono with
+/// alpha (source main) and beta (build-output main, source elsewhere), loose
+/// importing both — one `workspace target not built` line by construction.
+fn environment_declaration_tree() -> Fixture {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"mono\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+    );
+    tree.write("yarn.lock", "");
+    tree.write(
+        "packages/alpha/package.json",
+        "{\n  \"name\": \"@org/alpha\",\n  \"main\": \"src/a.ts\"\n}\n",
+    );
+    tree.write("packages/alpha/src/a.ts", "export const a = 1;\n");
+    tree.write(
+        "packages/beta/package.json",
+        "{\n  \"name\": \"@org/beta\",\n  \"main\": \"dist/b\"\n}\n",
+    );
+    tree.write("packages/beta/b.ts", "export const b = 1;\n");
+    tree.write(
+        "packages/loose/package.json",
+        "{\n  \"name\": \"@org/loose\",\n  \"dependencies\": { \"@org/alpha\": \"*\", \"@org/beta\": \"*\" }\n}\n",
+    );
+    tree.write(
+        "packages/loose/main.ts",
+        "import { a } from \"@org/alpha\";\nimport { b } from \"@org/beta\";\nexport const v = [a, b];\n",
+    );
+    tree.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"all\"\nmatches = { units = [\"mono\", \"@org/alpha\", \"@org/beta\", \"@org/loose\"], modules = [\"packages/**\"] }\n",
+    );
+    tree
+}
+
+/// Issue #24 (unbuilt arm): the verdict declares UNBUILT with the specifier
+/// count, the summary-by-class census makes each noise class countable, and
+/// the machine body states the same fact as the human header — one
+/// adjudication, every renderer.
+#[test]
+fn the_verdict_declares_the_unbuilt_environment_with_a_class_census() {
+    let tree = environment_declaration_tree();
+    let verify = tree.run(&["verify", "."]);
+    let stdout = common::stdout(&verify);
+    let stderr = common::stderr(&verify);
+    assert!(
+        stdout.contains(
+            "adjudicated against UNBUILT tree — 1 specifier resolved to src instead of dist"
+        ),
+        "the verdict header declares the unbuilt environment (GitHub issue #24):\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Environment lines by class"),
+        "the census table rides wherever report-only lines exist:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("workspace target not built   1"),
+        "the census row counts the class already emitted:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("workspace target not built: @org/beta -> packages/beta/dist/b"),
+        "the notice itself stays on stderr:\n{stderr}"
+    );
+    let json = tree.run(&["verify", "--json"]);
+    let body: Value =
+        serde_json::from_str(&common::stdout(&json)).expect("verify --json parses");
+    assert_eq!(
+        body["environment"]["state"].as_str(),
+        Some("unbuilt"),
+        "the machine field states the same state:\n{body}"
+    );
+    assert_eq!(
+        body["environment"]["classes"]["workspace target not built"].as_u64(),
+        Some(1),
+        "the json census equals the printed one:\n{body}"
+    );
+}
+
+/// Issue #24 (`--only` arm): hiding one diagnostic class removes it from the
+/// notices only — the verdict, the exit code, the header and the census stay
+/// byte-the-same, and the exclusion is echoed even where it matches nothing.
+#[test]
+fn only_excludes_one_class_from_the_notices_and_echoes_it() {
+    let tree = environment_declaration_tree();
+    let plain = tree.run(&["verify", "."]);
+    let filtered = tree.run(&["verify", ".", "--only", "workspace target not built"]);
+    assert_eq!(
+        filtered.status.code(),
+        plain.status.code(),
+        "--only never changes the verdict"
+    );
+    let filtered_stdout = common::stdout(&filtered);
+    let filtered_stderr = common::stderr(&filtered);
+    assert!(
+        !filtered_stderr.contains("workspace target not built:"),
+        "the named class is gone from the notices:\n{filtered_stderr}"
+    );
+    assert!(
+        filtered_stderr
+            .contains("only: excluding class \"workspace target not built\" — verdict unchanged"),
+        "the exclusion is echoed verbatim:\n{filtered_stderr}"
+    );
+    assert!(
+        filtered_stdout
+            .contains("adjudicated against UNBUILT tree — 1 specifier resolved to src instead of dist"),
+        "the environment census is unchanged by the filter:\n{filtered_stdout}"
+    );
+    let unknown = tree.run(&["verify", ".", "--only", "no such class"]);
+    assert_eq!(
+        unknown.status.code(),
+        plain.status.code(),
+        "an unknown class changes nothing either"
+    );
+    assert!(
+        common::stderr(&unknown)
+            .contains("only: excluding class \"no such class\" — verdict unchanged"),
+        "an empty filter still says so honestly, never filters in silence:\n{}",
+        common::stderr(&unknown)
+    );
+    assert!(
+        common::stderr(&unknown).contains("workspace target not built:"),
+        "the unknown class removes no notice:\n{}",
+        common::stderr(&unknown)
+    );
+}
+
+/// Issue #24 (built arm): with the declared target present the verdict states
+/// the BUILT tree itself — absence of the line is never the declaration —
+/// while the other classes keep their census rows.
+#[test]
+fn a_built_tree_states_itself_as_built_in_the_verdict() {
+    let tree = environment_declaration_tree();
+    tree.write("packages/beta/dist/b", "export const b = 1;\n");
+    let verify = tree.run(&["verify", "."]);
+    let stdout = common::stdout(&verify);
+    let stderr = common::stderr(&verify);
+    assert!(
+        stdout.contains("adjudicated against BUILT tree"),
+        "the built state states itself honestly:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("UNBUILT"),
+        "no unbuilt fact means no unbuilt header:\n{stdout}"
+    );
+    assert!(
+        !stderr.contains("workspace target not built:"),
+        "the built tree emits no not-built notice:\n{stderr}"
+    );
+    assert!(
+        !stdout.contains("Environment lines by class")
+            || stdout.contains("workspace link missing"),
+        "a census that appears counts the classes that exist:\n{stdout}"
+    );
+}

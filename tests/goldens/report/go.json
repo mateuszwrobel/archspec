@@ -1,5 +1,9 @@
 {
   "language": "go",
+  "environment": {
+    "state": "built",
+    "header": "adjudicated against BUILT tree"
+  },
   "metrics": {
     "components": 2,
     "units": 2,

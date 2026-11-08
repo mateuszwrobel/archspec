@@ -62,7 +62,7 @@ promotion as the CI gate.
 
 | Type | Keys |
 |---|---|
-| `no_cycles` | `modules`, `severity` |
+| `no_cycles` | `modules`, `severity`, `kinds` |
 | `public_api_allowlist` | `allowed` |
 | `forbid_external_crates` | `from`, `forbid` |
 | `manifest_integrity` | `require_publish`, `forbidden_dependencies`, `required_features` |

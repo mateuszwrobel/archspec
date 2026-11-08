@@ -112,6 +112,13 @@ fn files_tier_marks_agree_verdict_for_verdict_with_verify() {
         .expect("verify reports the file cycle")
         .trim()
         .to_string();
+    // The issue #22 ring-class label rides at the line's end; the path walk
+    // reads the arrow chain only.
+    let line = line
+        .strip_suffix(" (runtime)")
+        .or_else(|| line.strip_suffix(" (type-assisted)"))
+        .unwrap_or(&line)
+        .to_string();
     let path = line
         .trim_start_matches("cycle: ")
         .split_once(": ")

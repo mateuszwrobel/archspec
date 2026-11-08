@@ -23,6 +23,7 @@ pub use contracts::adjudicate_expose;
 pub use mapping::file_grained_rows;
 pub use pattern::matches_pattern;
 pub use diff::{Diff, pass_confirmation, render_report};
+pub(crate) use engagement::coverage_report;
 pub use mapping::{count_model_edges};
 
 use boundaries::check_feature_boundary;
@@ -127,7 +128,7 @@ pub fn compare(
     );
     check_used_but_undeclared(&graph.pairs, &file_evidence, &mut diff);
     let missing_components: BTreeSet<String> = diff.missing_components.iter().cloned().collect();
-    check_claim_engagement(model, &claims, &missing_components, &mut diff.warnings);
+    check_claim_engagement(model, modules, &claims, &missing_components, constraints, &mut diff.warnings);
     check_forbidden_laundering(
         &graph.pairs,
         &graph.fallback_pairs,
@@ -135,8 +136,10 @@ pub fn compare(
         &mut diff.warnings,
     );
     diff.contract_leaks = check_contract_leaks(&mapping, model, modules, stereotypes);
-    let (cycles, mut warnings) = check_cycles(&graph.pairs, model, constraints, modules, &claims);
+    let (cycles, mut warnings, cycles_census) =
+        check_cycles(&graph.pairs, &graph.value_pairs, model, constraints, modules, &claims);
     diff.cycles = cycles;
+    diff.cycles_census = cycles_census;
     diff.warnings.append(&mut warnings);
 
     let (leaks, glob_leaks, empty_globs, mut warning_leaks) =
@@ -234,6 +237,18 @@ pub fn compare(
         }
     }
     diff.vacuous_constraints.sort();
+
+    // Census and vacuity state the adjudication's engagement — the census
+    // must not double-print what the vacuity channel already said
+    // (GitHub issue #18: the vacuity channel stays, the census rides the
+    // findings). A `no_cycles` vacuity entry silences the census line.
+    if diff.vacuous_constraints.iter().any(|entry| {
+        entry
+            .split_once(": ")
+            .is_some_and(|(head, _)| head.ends_with("no_cycles"))
+    }) {
+        diff.cycles_census = None;
+    }
 
     diff.warnings.sort();
     diff.forbidden_edges.sort();

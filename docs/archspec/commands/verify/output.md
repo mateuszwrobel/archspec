@@ -6,6 +6,7 @@
 - **Fail:** the full diff report written to **stdout**, exit code non-zero.
 - **Warning findings** print on **stdout**, as part of the diff report (each `warning:`-prefixed unless `--strict` promotes it) — a warning-only run lists them on stdout and exits `0`.
 - **stderr** carries **operational errors only** (see `errors.md`); warnings never go there.
+- **`--json`:** the verdict renders as the `report --format json` machine body on **stdout** — the same metrics and findings members, the same finding set, the same exit codes as the text run. `--json` renders, it never re-adjudicates; the informational notes below are a text-surface output and a json run prints none, so stdout stays the pure machine body.
 
 ## Boundaries across both tiers
 
@@ -15,13 +16,32 @@ Go trees carry a module tier whenever the tree offers package references, and ev
 
 ## Pass output
 
-A short confirmation naming the verified spec and what was checked. Representative example:
+A short confirmation naming the verified spec and what was checked, followed by the environment declaration (below). Representative example:
 
 ```
 ok: architecture.spec.toml matches source model (4 modules, 3 constraints checked)
+adjudicated against BUILT tree
 ```
 
-The exact wording is not a contract; that a short confirmation appears on stdout and the exit code is `0` is.
+The exact wording of the confirmation is not a contract; that a short confirmation appears on stdout and the exit code is `0` is.
+
+## Environment declaration
+
+Every verdict declares the environment it reports on, on stdout, after the verdict body and before a `--coverage` census:
+
+- `adjudicated against BUILT tree` — the run emitted no report-only notice that resolves a declared workspace build target to source. The built state states itself; absence is never the declaration.
+- `adjudicated against UNBUILT tree — N specifiers resolved to src instead of dist` — at least one workspace member's declared build target resolved to its source; the verdict is still one adjudication over the source facts.
+
+Where the scan emitted report-only lines, an `Environment lines by class` census table follows the header — one row per diagnostic class with the count of lines already emitted, so each noise class stays countable without re-reading the tree (class names: `archspec help diagnostics`):
+
+```
+adjudicated against UNBUILT tree — 1 specifier resolved to src instead of dist
+
+Environment lines by class
+--------------------------
+```
+
+The census counts facts already emitted; it is a view, and it never changes the verdict. `--only <class>` removes one class from the stderr notices only — the header, the census, the findings and the exit code are unchanged, and the run echoes `only: excluding class "<class>" — verdict unchanged`. `verify --json` and `report --format json` state the same facts in the `environment` field (`state`, `header`, and a `classes` map skipped when empty) — see `../report/output.md`.
 
 ## Capability notes
 
@@ -56,7 +76,7 @@ On failure, the report lists **every** difference across all checks — not the 
 | disallowed cross-component dep | dependency crossing a boundary the spec forbids | `disallowed cross-component dependency: Portal -> Billing.Data` |
 | facade dependency | structural (no constraint declares it): an internal module depends on a module carrying the `facade` role in the model's roles map — in rust a crate root whose file defines nothing but `mod` declarations and re-exports, in csharp a using-only umbrella root module; declaring the root in `depend_on` does not legalize it, the fix is canonicalizing the import; emitted by rust, csharp and ts — each driver derives facade roles into the model from its own facts; the go driver derives no facade role, so the rule is inert there | `facade dependency: app::engine -> app` |
 | contract leak | exposed surface bleeds outside the declared contract; on a submodule the contract is enforced over the surface crossing the submodule's boundary path (submodule form emitted by rust, csharp, and go — needs the module tier, which the go driver derives from the tree's package references, takes natively from go.work members, or — on a tree with no references — takes from spec modules claiming its packages); on go the surface is claimed membership over full import paths — the parent module must claim the submodule's packages (a module claiming none is a `missing component`) and a stereotype pattern must glob the whole import path (`example.com/demo/**/entity`), because the bare-segment concession addresses `::` paths only: a bare-name stereotype matches no go unit and the contract leaks nothing, verify green, no warning | `contract leak: Billing exposes entity (forbidden)` |
-| cycle | `no_cycles` constraint violated over the declared groups; at the file tier (`scope = "both"`) over file edges too — the line then carries the nearest common claim ancestor as a prefix (`cycle: <claim>: <file> -> <file> -> <file>`; members under disjoint top-level claims print every member without a prefix), and a file ring whose claim projection the claim tier already printed is not repeated. A spec declaring no `no_cycles` constraint still lists the model's cycles, as warning-severity advisory lines that never fail the run without `--strict` — the constraint gates severity, not visibility | `cycle: Billing -> Portal -> Billing`; file tier `cycle: Billing: src/billing/a.ts -> src/billing/b.ts -> src/billing/a.ts` |
+| cycle | `no_cycles` constraint violated over the declared groups; at the file tier (`scope = "both"`) over file edges too — the line then carries the nearest common claim ancestor as a prefix (`cycle: <claim>: <file> -> <file> -> <file>`; members under disjoint top-level claims print every member without a prefix), and a file ring whose claim projection the claim tier already printed is not repeated. Every line ends with its ring-class label: `(runtime)` when every leg carries a value edge, `(type-assisted)` when some leg is backed only by type-only rows; a `kinds` list on the constraint narrows which classes it reports (absent = all kinds). A spec declaring no `no_cycles` constraint still lists the model's cycles, as warning-severity advisory lines that never fail the run without `--strict` — the constraint gates severity, not visibility | `cycle: Billing -> Portal -> Billing (runtime)`; file tier `cycle: Billing: src/billing/a.ts -> src/billing/b.ts -> src/billing/a.ts (type-assisted)` |
 | public api leak | public export not allowlisted by `public_api_allowlist` — a named export or a name enumerated from a resolvable root glob on rust, a module's public type on C# (attributed to the module the type lives in, not to a boundary declaration); also the expose chain law's crossing: a public symbol the deepest claiming claim omits from its `contract.expose` set, attributed to that deepest claim | `public api leak: Billing exposes X (not allowlisted)`; on C# `public api leak: Sample::Implementation exposes LeakedImplementation (not allowlisted)`; on an expose boundary `public api leak: App::Billing::Payments exposes PaymentLedger (not exposed)` |
 | unverifiable glob export | root glob re-export the scan cannot resolve from source (external crate, unknown path, cfg-gated declaration or chain link, poisoned chain), so `public_api_allowlist` cannot prove its set against `allowed` | `unverifiable glob export: Billing exposes core::types::*` |
 | empty glob export | root glob re-export that resolves to a same-crate module exporting zero public items — a checked surface that would silently vanish | `empty glob export: Billing exposes empty_mod::* (resolves to no public items)` |
@@ -69,7 +89,7 @@ On failure, the report lists **every** difference across all checks — not the 
 | stale contract export | a `contract.expose` entry that globs zero across the declaring claim's whole territory — own files union descendant exports — judged per entry, so a live entry never masks a stale one (warning severity; `--strict` red) | `stale contract export: App declares Ghost* (never exported across its territory)` |
 | ambiguous expose entry | a `contract.expose` entry that names a declared stereotype AND matches symbols — the stereotype arm adjudicates and the entry is flagged, never a silent symbol pass (warning severity; `--strict` red) | `ambiguous expose entry: App entry entity names stereotype entity and matches symbols` |
 | unmatched claim | a declared top-level module claim whose `matches.modules` paths matched nothing in the model and which declares no units — engagement surface that never named a unit-tier component; submodule paths addressing nothing are reported through the dead-reference and missing-edge paths instead | `unmatched claim: Billing` |
-| shadowed claim | a declared claim whose entire territory is already covered by a more specific claim, so its own rules can never adjudicate | `shadowed claim: Billing::domain is fully claimed by Billing::domain::entities` |
+| shadowed claim | a declared claim whose entire territory is already covered by a more specific claim, so its own rules can never adjudicate; when any constraint row lists the shadowed claim (by name or by a pattern addressing its claimed paths) and that row's territory adjudicates zero facts, the warning names the silenced rows and the territory they lost | `shadowed claim: Billing::domain is fully claimed by Billing::domain::entities`; with a silenced guard `shadowed claim: wide is fully claimed by app — no_cycles[0] sees 0 files unless they also list 'app'` |
 | vacuous constraint | a constraint whose effective domain is empty (no module, edge, manifest, or export to check) | `vacuous constraint: [constraint #2] forbid_external_crates: 'from' pattern "app::persistnce" matches no module with external dependencies` |
 | unresolved module file | a file-backed `mod x;` resolves to no parsed file (conventional variants, any `#[path]` target, and any `#[cfg_attr(.., path = "..")]` candidate missed), so its contents would be invisible to every check; emitted by rust only — mod-file resolution is a rust-driver fact | `unresolved module file: app::ghost` |
 | unowned module edge endpoint | a soft module-edge endpoint claimed by no boundary (`matches.modules` and unit fallback both miss), so it cannot appear on the boundary graph; emitted by rust, csharp, and go when a module tier exists (go.work members, the tree's own package references, or spec modules on a tree that records none) — a tier-less tree has no soft edges to own | `unowned module edge endpoint: app::hidden` |
@@ -108,6 +128,24 @@ architecture.spec.toml has vacuous constraints: [constraint #1] forbid_external_
 
 Like every warning-level finding, `--strict` promotes a vacuous constraint to an error: the `warning: ` prefix is dropped and the run exits `1`. A genuinely clean run — where every constraint's domain is non-empty and no finding is produced — still prints the `ok: … matches source model` confirmation.
 
+## Cycles census
+
+When the run reports at least one cycle, one indented summary line follows the
+findings. It states what the cycle adjudication counted:
+
+```
+  2 cycles among 41 file facts; territory: 6/9 modules
+```
+
+The first number counts the reported cycles. The second counts the model rows
+the adjudications actually walked — the induced adjacencies, never projected or
+hypothetical edges. The noun names the tier: `file facts` when a file tier
+adjudicated, `module facts` on a claims-only tree. The `territory:` field names
+the modules the adjudications covered over all declared modules. The line is
+absent when no cycle was reported, and absent when a `no_cycles` vacuity entry
+already fired — the vacuity channel speaks instead. The line is a summary,
+never a finding: it carries no severity and never changes the verdict.
+
 ## Dead references
 
 An `allowed.depend_on`/`allowed.forbidden` target is resolved by exact declared claim name at any nesting depth (a submodule name is addressable), and a `contract.forbid` target by exact declared stereotype name. A reference that names neither is inert — the rule that carries it verifies nothing. `contract.forbid` targets are collected recursively from submodules too — submodule contracts are enforced, so their targets are checked and reported under the submodule's full path, never skipped. Such references are reported as **dead reference** entries, classified by source existence where the driver's visibility facts allow:
@@ -132,7 +170,8 @@ architecture.spec.toml does not match source model
   unexpected component: Portal
   unassigned unit: Billing.Data.Orders
   forbidden edge: Billing -> Portal
-  cycle: Billing -> Portal -> Billing
+  cycle: Billing -> Portal -> Billing (runtime)
+  1 cycle among 2 module facts; territory: 2/2 modules
 ```
 
 Pass and fail outputs are both deterministic: the same input, unchanged, always yields the same bytes.

@@ -10,6 +10,8 @@ The tool reads `architecture.spec.toml` (see `../../spec.md`), extracts the mode
 - The public-API surface check (`public_api_allowlist`, over named exports and root globs) and the structural facade-role rule (an internal module importing through a module the model carries as a publication-only facade) ship on the same machinery as the edge and cycle checks.
 - Every reported difference is a distinct check result; all differences are reported in a single pass.
 - `--strict` promotes all warnings (e.g. `no_cycles` severity=`warning`) to errors for CI gates.
+- `--json` renders the verdict through `report`'s machine emitter (`report --format json`'s schema): the same findings, the same verdict, the same exit codes — see `verify --help` for the flag contract.
+- Every verdict states the environment it reports on — the header line named in `verify --help` — followed by an `Environment lines by class` census where the run emitted report-only notices; `--only <class>` drops one class from those notices only, echoes the exclusion, and leaves the verdict unchanged.
 - Remaining phase-2 checks (API-symbol contract leaks, composition-root placement) extend the same machinery.
 - Per-language capability and skip reasons for every check above: [feature-matrix.md](../../../../feature-matrix.md).
 

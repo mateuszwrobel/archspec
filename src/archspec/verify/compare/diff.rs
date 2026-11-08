@@ -44,6 +44,15 @@ pub struct Diff {
     pub contract_leaks: Vec<String>,
     /// `no_cycles` constraint violated over the declared groups.
     pub cycles: Vec<String>,
+    /// The cycles census line (GitHub issue #18, surviving census half):
+    /// one summary line stating the adjudicated counts behind the cycle
+    /// findings — `<N> cycles among <M> file facts; territory: <x>/<y>
+    /// modules`, counting only rows the adjudication walked (the A3 bound
+    /// of the no-cycles vacuity decision-check). `None` when no cycle was
+    /// reported or when a `no_cycles` vacuity already stated the tier's
+    /// engagement. Rendered by `render_report` as a plain indented line
+    /// after the findings; never a finding itself, never a verdict input.
+    pub cycles_census: Option<String>,
     /// `public_api_allowlist` violation: a public export not in `allowed`.
     pub public_api_leaks: Vec<String>,
     /// `public_api_allowlist` violation: a glob re-export at a unit root whose
@@ -285,6 +294,13 @@ pub fn render_report(diff: &Diff, strict: bool) -> String {
         } else {
             out.push_str(&format!("  warning: vacuous constraint: {vacuous}\n"));
         }
+    }
+    // The cycles census (GitHub issue #18's surviving half): one summary
+    // line stating the adjudicated counts behind the cycle findings —
+    // counted rows only, never projected ones (the A3 bound). Absent when
+    // no cycle was reported or when the vacuity channel already spoke.
+    if let Some(census) = &diff.cycles_census {
+        out.push_str(&format!("  {census}\n"));
     }
     out
 }

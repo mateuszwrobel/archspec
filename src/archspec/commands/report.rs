@@ -119,6 +119,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 
     let model = scan::extract(language, root_path)?;
+    // The environment declaration (GitHub issue #24): the census counts exactly
+    // the report-only lines this scan produced — a count over facts already
+    // emitted, never a second parse of the tree. Every renderer states it;
+    // none computes a second adjudication.
+    let environment = report::environment(&model);
 
     let mapping = compare::map_units(&model.units, &loaded.modules);
     let diff = compare::compare(
@@ -143,9 +148,22 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &diff,
             &model.roles,
             diagram.as_deref(),
+            &environment,
         ),
-        "json" => report::render_json(&loaded.project.language, &metrics, &diff, &model.roles),
-        _ => report::render_text(&loaded.project.language, &metrics, &diff, &model.roles),
+        "json" => report::render_json(
+            &loaded.project.language,
+            &metrics,
+            &diff,
+            &model.roles,
+            &environment,
+        ),
+        _ => report::render_text(
+            &loaded.project.language,
+            &metrics,
+            &diff,
+            &model.roles,
+            &environment,
+        ),
     };
 
     let output_flag = parsed.values.get("output");

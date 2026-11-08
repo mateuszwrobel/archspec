@@ -4,7 +4,7 @@
 
 ```
 flowchart LR
-  U[Developer] -->|archspec verify [path] [--strict]| C[verify command]
+  U[Developer] -->|archspec verify [path] [--strict] [--json]| C[verify command]
   C --> E[extracts model from source]
   E --> D[reads declared spec]
   D --> V[compares structurally]
@@ -55,6 +55,10 @@ flowchart TD
   E2 -- no --> PASS2[short confirmation, exit 0]
   N2 -- yes --> FAIL
   N2 -- no --> PASS2
+  PASS -. --json .-> JR[report machine body, same exit 0]
+  FAIL -. --json .-> JR2[report machine body, same non-zero exit]
+  PASS -. stdout .-> ENV[environment header + Environment lines by class census]
+  FAIL -. stdout .-> ENV
 ```
 
-The command resolves the directory, requires and validates `architecture.spec.toml`, confirms sources and driver presence, extracts the model through the language driver for the declared language, parses every source file (a single failure aborts), maps each extracted unit onto the declared components, and compares the extracted and declared models as sets. It computes the **full** diff, classifies each item by severity, promotes warnings to errors when `--strict` is given, and prints either a short confirmation (exit `0`) or the complete diff report (exit non-zero).
+The command resolves the directory, requires and validates `architecture.spec.toml`, confirms sources and driver presence, extracts the model through the language driver for the declared language, parses every source file (a single failure aborts), maps each extracted unit onto the declared components, and compares the extracted and declared models as sets. It computes the **full** diff, classifies each item by severity, promotes warnings to errors when `--strict` is given, and prints either a short confirmation (exit `0`) or the complete diff report (exit non-zero). With `--json` the same verdict renders through `report`'s machine emitter instead of the human body — one adjudication, two renderers; the exit codes are unchanged. Every text run states the environment it reports on after the verdict body — the header line, plus the `Environment lines by class` census wherever the scan emitted report-only notices; `--only <class>` hides one class of those notices and echoes the exclusion, never the verdict.

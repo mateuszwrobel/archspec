@@ -930,6 +930,275 @@ pub fn render_api_usage_markdown(
     out
 }
 
+// ---------------------------------------------------------------------------
+// Issue #21 — the inversion-debt ledger.
+//
+// The ledger is a VIEW over facts the model already carries, never a new
+// adjudication: the same file/module-tier import evidence `verify`'s
+// `used but undeclared` finding reports (issue #19, re-derived here at unit
+// territory without a spec), the same per-unit manifest declarations
+// (`unit_manifests`), and the same unit-tier edges (`edges`). The pair
+// vocabulary is unit names — the tier the manifest declares legs at.
+
+/// Section header for the class of pairs the code imports but the importer's
+/// manifest omits. The bytes are the `used but undeclared` finding category
+/// label (issue #19), reused unchanged: one word, one meaning.
+pub const LEDGER_SECTION_UNDECLARED: &str = "## used but undeclared";
+/// Section header for the class of pairs the manifest declares while the
+/// model holds no code evidence for them.
+pub const LEDGER_SECTION_UNUSED: &str = "## declared but unused";
+/// The statement the ledger prints when both sections are empty. A clean
+/// ledger says so by name — never a silent nothing (false-zero contract).
+pub const LEDGER_CLEAN_STATEMENT: &str =
+    "Ledger clean: no used-but-undeclared and no declared-but-unused pairs.";
+/// The statement the ledger prints when the model carries no per-unit
+/// manifest facts at all: without a declaration tier NEITHER class can be
+/// answered — the absence is stated, not laundered into a clean verdict.
+pub const LEDGER_NO_MANIFEST_FACTS_STATEMENT: &str =
+    "The ledger cannot answer: the model carries no per-unit manifest facts.";
+/// The placement statement for a model whose driver records the manifest
+/// declaration and the code import of a unit pair in the SAME unit-edge tier
+/// (the rust driver's law: every `[dependencies]` leg naming a member joins
+/// `edges` beside the code-derived legs). A declared pair in such a model
+/// carries an edge whatever its code says, so its code status is not
+/// separable there; the section states the placement instead of printing a
+/// census the model cannot support.
+pub const LEDGER_UNIT_EDGE_FOLD_STATEMENT: &str =
+    "The model records manifest declarations and code imports in one unit-edge tier, so a declared pair's code status is not separable in this model.";
+/// The word printed under a section header when that class is empty while
+/// the other class is not: every section of a census answers, an empty one
+/// answers `none`.
+const LEDGER_SECTION_EMPTY: &str = "none";
+
+/// Dash/underscore crate-name equivalence (the same normalization the rust
+/// scan applies when it resolves a dependency name to a member).
+fn ledger_name_key(name: &str) -> String {
+    name.replace('-', "_")
+}
+
+/// The declared legs of the model: pairs `unit -> target` where `unit`'s own
+/// manifest declares a dependency naming workspace unit `target`. Dependency
+/// names resolve to units exactly first (npm names are exact), then under
+/// the dash/underscore crate-name law.
+pub fn ledger_declared_pairs(model: &Model) -> BTreeSet<(String, String)> {
+    let units_by_key: BTreeMap<String, String> = model
+        .units
+        .iter()
+        .flat_map(|unit| {
+            std::iter::once(unit.name.clone())
+                .chain(unit.crate_ids.iter().cloned())
+                .map(move |id| (ledger_name_key(&id), unit.name.clone()))
+        })
+        .collect();
+    let mut declared = BTreeSet::new();
+    for (unit, info) in &model.unit_manifests {
+        if !model.units.iter().any(|known| &known.name == unit) {
+            continue;
+        }
+        for dependency in &info.dependencies {
+            let Some(target) = units_by_key
+                .get(dependency)
+                .or_else(|| units_by_key.get(&ledger_name_key(dependency)))
+            else {
+                continue;
+            };
+            if target != unit {
+                declared.insert((unit.clone(), target.clone()));
+            }
+        }
+    }
+    declared
+}
+
+/// The unit a module-path or repo-file path belongs to: first by path
+/// territory (a unit's directory owns its files, longest path wins — the
+/// `containing_unit` rule `verify`'s file-tier evidence attributes with),
+/// then by unit-name prefix (the dotted `unit::module` / `unit.module`
+/// spelling the dotted-tier drivers record). A root unit's territory (path
+/// `.` or empty) attributes nothing: it is the whole tree, so containment
+/// against it would swallow foreign paths (the file-tier evidence law).
+fn ledger_path_owner(model: &Model, path: &str) -> Option<String> {
+    model
+        .units
+        .iter()
+        .filter(|unit| {
+            let territory = unit.path.trim_end_matches('/');
+            !territory.is_empty()
+                && territory != "."
+                && (path == territory || path.starts_with(&format!("{territory}/")))
+        })
+        .max_by_key(|unit| unit.path.trim_end_matches('/').chars().count())
+        .map(|unit| unit.name.clone())
+        .or_else(|| {
+            model
+                .units
+                .iter()
+                .filter(|unit| {
+                    unit.name == path
+                        || path.starts_with(&format!("{}::", unit.name))
+                        || path.starts_with(&format!("{}.", unit.name))
+                })
+                .max_by_key(|unit| unit.name.chars().count())
+                .map(|unit| unit.name.clone())
+        })
+}
+
+/// Code-evidenced unit pairs with their evidence locs, folded from the
+/// model's code tiers — the same cross-unit import evidence issue #19's
+/// `file_tier_evidence` reads, attributed at unit territory without a spec:
+/// every non-self module edge whose endpoints attribute to different units
+/// contributes the pair with the importing endpoint as its evidence loc.
+/// Test-gated endpoints are excluded (the same one-case-one-verdict law).
+/// A model whose driver ALSO records code-derived imports directly as unit
+/// edges (the rust driver) contributes those legs too — an edge with no
+/// declaration can only have come from the code arm of such a model.
+fn ledger_code_evidence(model: &Model) -> BTreeMap<(String, String), BTreeSet<String>> {
+    let mut evidence: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
+    for edge in &model.module_edges {
+        if model.is_test_gated(&edge.from) || model.is_test_gated(&edge.to) {
+            continue;
+        }
+        let from = ledger_path_owner(model, &edge.from).or_else(|| {
+            model
+                .units
+                .iter()
+                .find(|unit| unit.name == edge.unit)
+                .map(|unit| unit.name.clone())
+        });
+        let (Some(from), Some(to)) = (from, ledger_path_owner(model, &edge.to)) else {
+            continue;
+        };
+        if from == to {
+            continue;
+        }
+        evidence
+            .entry((from, to))
+            .or_default()
+            .insert(edge.from.clone());
+    }
+    evidence
+}
+
+/// Unit-tier pairs the code evidences while no declaration covers them: in
+/// a model whose unit edges are the union of both provenances (the rust
+/// driver), a pair that carries an edge but no declaration can only have
+/// arrived through the code arm. In a model whose unit edges carry only
+/// declarations (every other driver), this set is empty by construction and
+/// the module-tier evidence owns the class.
+fn ledger_unit_tier_undeclared(model: &Model) -> BTreeMap<(String, String), BTreeSet<String>> {
+    if model.language != "rust" {
+        return BTreeMap::new();
+    }
+    let declared = ledger_declared_pairs(model);
+    let mut rows: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
+    for edge in &model.edges {
+        if edge.from == edge.to || declared.contains(&(edge.from.clone(), edge.to.clone())) {
+            continue;
+        }
+        if !model.units.iter().any(|unit| unit.name == edge.from)
+            || !model.units.iter().any(|unit| unit.name == edge.to)
+        {
+            continue;
+        }
+        rows.entry((edge.from.clone(), edge.to.clone())).or_default();
+    }
+    rows
+}
+
+/// The ledger's first section: code evidence without a declaration, each
+/// pair with its sorted distinct evidence locs (empty when the pair's only
+/// evidence is the model's own unit-tier edge, which carries no loc).
+pub fn ledger_used_but_undeclared(model: &Model) -> BTreeMap<(String, String), BTreeSet<String>> {
+    let declared = ledger_declared_pairs(model);
+    let mut rows = ledger_code_evidence(model);
+    for (pair, locs) in ledger_unit_tier_undeclared(model) {
+        rows.entry(pair).or_default().extend(locs);
+    }
+    rows.retain(|pair, _| !declared.contains(pair));
+    rows
+}
+
+/// The ledger's second section: declarations with no code evidence. A model
+/// that separates the tiers answers by name; a model whose driver folds the
+/// declaration leg and the code leg into one unit-edge tier cannot support a
+/// census — the emptiness is a placement fact, so the renderer prints
+/// [`LEDGER_UNIT_EDGE_FOLD_STATEMENT`] instead of these pairs (a declared
+/// pair there carries an edge whatever its code says, and listing every
+/// declared pair would call clean pairs debt).
+pub fn ledger_declared_but_unused(model: &Model) -> BTreeSet<(String, String)> {
+    if ledger_folds_unit_edges(model) {
+        return BTreeSet::new();
+    }
+    let mut used: BTreeSet<(String, String)> =
+        ledger_code_evidence(model).into_keys().collect();
+    used.extend(ledger_unit_tier_undeclared(model).into_keys());
+    ledger_declared_pairs(model)
+        .into_iter()
+        .filter(|pair| !used.contains(pair))
+        .collect()
+}
+
+/// True when the model's driver records a declared unit leg as a unit edge
+/// whatever its code says (the rust driver's union law: every manifest leg
+/// naming a member joins `edges` beside the code-derived legs). Other
+/// drivers record declared legs at the unit tier and code legs at the module
+/// tier, so a pair's two statuses stay separable there.
+fn ledger_folds_unit_edges(model: &Model) -> bool {
+    model.language == "rust"
+}
+
+/// One ledger row: `from -> to`, with the sorted evidence locs in
+/// parentheses when the model carries them — the same row shape `verify`'s
+/// `used but undeclared` finding prints (issue #19).
+fn ledger_row(from: &str, to: &str, locs: &BTreeSet<String>) -> String {
+    if locs.is_empty() {
+        format!("{from} -> {to}")
+    } else {
+        format!(
+            "{from} -> {to} ({})",
+            locs.iter().cloned().collect::<Vec<_>>().join(", ")
+        )
+    }
+}
+
+/// The inversion-debt ledger body: the two sections over the model's own
+/// facts. Both empty states cleanliness by name; a model without a
+/// declaration tier states that it cannot answer; a declared-but-unused
+/// census on a fold model prints the placement statement instead.
+pub fn ledger_markdown(model: &Model) -> String {
+    if model.unit_manifests.is_empty() {
+        return format!("{LEDGER_NO_MANIFEST_FACTS_STATEMENT}\n");
+    }
+    let used_undeclared = ledger_used_but_undeclared(model);
+    let declared_unused = ledger_declared_but_unused(model);
+    let fold_statement =
+        ledger_folds_unit_edges(model) && !ledger_declared_pairs(model).is_empty();
+    if used_undeclared.is_empty() && declared_unused.is_empty() && !fold_statement {
+        return format!("{LEDGER_CLEAN_STATEMENT}\n");
+    }
+    let mut out = String::new();
+    let _ = writeln!(out, "{LEDGER_SECTION_UNDECLARED}\n");
+    if used_undeclared.is_empty() {
+        let _ = writeln!(out, "{LEDGER_SECTION_EMPTY}");
+    } else {
+        for ((from, to), locs) in &used_undeclared {
+            let _ = writeln!(out, "{}", ledger_row(from, to, locs));
+        }
+    }
+    out.push('\n');
+    let _ = writeln!(out, "{LEDGER_SECTION_UNUSED}\n");
+    if fold_statement {
+        let _ = writeln!(out, "{LEDGER_UNIT_EDGE_FOLD_STATEMENT}");
+    } else if declared_unused.is_empty() {
+        let _ = writeln!(out, "{LEDGER_SECTION_EMPTY}");
+    } else {
+        for (from, to) in &declared_unused {
+            let _ = writeln!(out, "{from} -> {to}");
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2297,5 +2566,179 @@ mod tests {
         assert!(note.contains("68563"), "{note}");
         assert!(note.contains("--aggregate units"), "{note}");
         assert!(note.starts_with("note: "), "{note}");
+    }
+
+    // --- issue #21: the inversion-debt ledger -----------------------------
+
+    /// A unit-tier fixture model: units by (name, path territory), declared
+    /// manifest legs per unit, and module-tier edges as (unit, from, to).
+    fn ledger_model(
+        language: &str,
+        units: &[(&str, &str)],
+        declared: &[(&str, &[&str])],
+        edges: &[(&str, &str, &str)],
+    ) -> Model {
+        let mut model = Model::new(language);
+        model.units = units
+            .iter()
+            .map(|(name, path)| Unit {
+                name: (*name).to_string(),
+                kind: "package".to_string(),
+                path: (*path).to_string(),
+                root: String::new(),
+                crate_ids: BTreeSet::from([(*name).to_string()]),
+            })
+            .collect();
+        model.unit_manifests = units
+            .iter()
+            .map(|(name, _)| {
+                let dependencies = declared
+                    .iter()
+                    .find(|(unit, _)| unit == name)
+                    .map(|(_, deps)| deps.iter().map(|dep| (*dep).to_string()).collect())
+                    .unwrap_or_default();
+                (
+                    (*name).to_string(),
+                    crate::archspec::model::ManifestInfo {
+                        publish: None,
+                        dependencies,
+                        features: Vec::new(),
+                    },
+                )
+            })
+            .collect();
+        model.module_edges = edges
+            .iter()
+            .map(|(unit, from, to)| crate::archspec::model::ModuleEdge {
+                unit: (*unit).to_string(),
+                from: (*from).to_string(),
+                to: (*to).to_string(),
+                symbols: Vec::new(),
+                type_only: false,
+            })
+            .collect();
+        model
+    }
+
+    /// The both-classes fixture: `beta` imports a file of `alpha` while its
+    /// manifest omits the declaration (used but undeclared), and `root`
+    /// declares `beta` with no import evidence (declared but unused).
+    fn issue21_debt_model() -> Model {
+        ledger_model(
+            "ts",
+            &[
+                ("root", "."),
+                ("alpha", "packages/alpha"),
+                ("beta", "packages/beta"),
+            ],
+            &[("root", &["beta"]), ("alpha", &[]), ("beta", &[])],
+            &[(
+                "beta",
+                "packages/beta/src/index.ts",
+                "packages/alpha/src/index.ts",
+            )],
+        )
+    }
+
+    #[test]
+    fn issue21_ledger_names_both_classes_in_their_sections() {
+        let body = ledger_markdown(&issue21_debt_model());
+        let used_at = body
+            .find(LEDGER_SECTION_UNDECLARED)
+            .expect("the used-but-undeclared section must print");
+        let unused_at = body
+            .find(LEDGER_SECTION_UNUSED)
+            .expect("the declared-but-unused section must print");
+        let debt_at = body
+            .find("beta -> alpha (packages/beta/src/index.ts)")
+            .expect("the undeclared import must print with its evidence loc");
+        assert!(used_at < debt_at && debt_at < unused_at, "{body}");
+        let unused_pair_at = body
+            .find("root -> beta")
+            .expect("the unused declaration must print as a pair");
+        assert!(unused_at < unused_pair_at, "{body}");
+    }
+
+    #[test]
+    fn issue21_clean_ledger_states_cleanliness_by_name() {
+        // The same workspace reconciled: beta both imports and declares the
+        // alpha leg — neither class has a row, and the body says so by name.
+        let model = ledger_model(
+            "ts",
+            &[("alpha", "packages/alpha"), ("beta", "packages/beta")],
+            &[("alpha", &[]), ("beta", &["alpha"])],
+            &[(
+                "beta",
+                "packages/beta/src/index.ts",
+                "packages/alpha/src/index.ts",
+            )],
+        );
+        let body = ledger_markdown(&model);
+        assert_eq!(body, format!("{LEDGER_CLEAN_STATEMENT}\n"));
+    }
+
+    /// The rust driver's unit-edge fold (its manifest legs join `edges`
+    /// whatever the code says): the used-but-undeclared census still answers
+    /// (an edge with no declaration can only come from the code arm), while
+    /// the declared section states the fold instead of printing a census the
+    /// model cannot support.
+    #[test]
+    fn issue21_rust_ledger_answers_class_one_and_names_the_fold() {
+        let mut model = ledger_model(
+            "rust",
+            &[("app", "app"), ("shared", "shared")],
+            &[("app", &["shared"]), ("shared", &[])],
+            &[],
+        );
+        model.edges = vec![
+            crate::archspec::model::Edge {
+                from: "app".to_string(),
+                to: "shared".to_string(),
+            },
+            crate::archspec::model::Edge {
+                from: "shared".to_string(),
+                to: "app".to_string(),
+            },
+        ];
+        let body = ledger_markdown(&model);
+        let used_at = body.find(LEDGER_SECTION_UNDECLARED).expect(&body);
+        let unused_at = body.find(LEDGER_SECTION_UNUSED).expect(&body);
+        let debt_at = body
+            .find("shared -> app")
+            .expect("the code-only unit edge must print as used but undeclared");
+        assert!(used_at < debt_at && debt_at < unused_at, "{body}");
+        assert!(
+            body.contains(LEDGER_UNIT_EDGE_FOLD_STATEMENT),
+            "the fold model must state the fold, not a silent census: {body}"
+        );
+    }
+
+    #[test]
+    fn issue21_ledger_without_manifest_facts_names_its_refusal() {
+        let mut model = ledger_model("ts", &[("pkg", ".")], &[], &[]);
+        model.unit_manifests = BTreeMap::new();
+        let body = ledger_markdown(&model);
+        assert_eq!(body, format!("{LEDGER_NO_MANIFEST_FACTS_STATEMENT}\n"));
+    }
+
+    /// A pair whose only module-edge evidence is test-gated stays out of the
+    /// census (the one-case-one-verdict law `verify`'s file-tier evidence
+    /// applies), so a test-only import states no debt.
+    #[test]
+    fn issue21_test_gated_module_edge_states_no_debt() {
+        let mut model = ledger_model(
+            "ts",
+            &[("alpha", "packages/alpha"), ("beta", "packages/beta")],
+            &[("alpha", &[]), ("beta", &[])],
+            &[(
+                "beta",
+                "packages/beta/src/tests.ts",
+                "packages/alpha/src/index.ts",
+            )],
+        );
+        model.test_gated_modules =
+            BTreeSet::from(["packages/beta/src/tests.ts".to_string()]);
+        let body = ledger_markdown(&model);
+        assert_eq!(body, format!("{LEDGER_CLEAN_STATEMENT}\n"));
     }
 }

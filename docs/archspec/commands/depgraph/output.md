@@ -12,6 +12,7 @@
 | `modules` | `mermaid`, `plantuml` | `mermaid` |
 | `submodules` | `mermaid`, `plantuml` | `mermaid` |
 | `api-usage` | `markdown` | `markdown` |
+| `ledger` | `markdown` | `markdown` |
 
 ## Projections
 
@@ -48,6 +49,26 @@ Grouped by target module, then by using module, at the granularity the `modules`
 Fixed columns: `Target module | Used by module | APIs used`. Symbols are backticked, comma-separated, sorted; module and symbol cells are Markdown-escaped. When the grouping is empty the body is `No internal API usage details found.`, extended with a reason sentence when the emptiness is a fact of where the model records usage rather than an absence of usage; the routing is `api_usage_empty_reason`'s arm order — csharp arm, rust unit-tier arm, the structural symbol-carrying arm, the bare statement — first match wins, and no model with symbol facts on its module edges prints the bare statement (the csharp arm preceding the symbol check makes the csharp sentence a decision rule of that order, not a guarantee about one tree's symbol facts; the state matrix with its pin per state is the api-usage section of this command's `acceptance.md`). For csharp the body is exactly `No internal API usage details found. No symbol facts were emitted for this tree.` (symbol facts are emitted wherever the tree carries cross-boundary references, so the sentence names this tree, not the driver); for rust a tree that has cross-unit links gets exactly `No internal API usage details found. Module edges record usage between modules of a single unit; cross-target links are recorded at unit granularity.` (rust module edges are intra-unit facts; `bin -> lib` and cross-crate usage lands on the unit tier — fact placement, not an absence of symbols); for any other model that does carry symbols on module edges while the grouping still came out empty — every symbol-carrying edge lands on one rendered node, one level too deep for the fold rule to help — the body is exactly `No internal API usage details found. Module edges carry symbols, but every symbol-carrying edge stays inside one rendered module; the usage sits between modules below the granularity this view renders.` The bare sentence stands only for a model with no symbol facts on its module edges at all — genuinely no recorded cross-module usage — whatever the language.
 
 Roles are not usage facts, so this view marks nothing: the three fixed columns and the rows are unchanged by roles and the emptiness statements are untouched (acceptance row 38 records the same decision) — the roles answer for module-level questions is the `modules` graph, the report's Roles section and the `roles` map in the `scan` model.
+
+### `ledger` — inversion-debt ledger
+
+The ledger is a view over facts the model already carries, never a new adjudication. It prints two sections, each headered by name:
+
+```
+## used but undeclared
+
+<from> -> <to> (<evidence-loc>, …)
+
+## declared but unused
+
+<from> -> <to>
+```
+
+- The first section lists the unit pairs the code imports across while the importing unit's manifest declares no edge to the target — the same class `verify` reports as the `used but undeclared` finding (its category label names the header), re-derived from the model's own import evidence without a spec; the row shape carries the evidence locs in parentheses, and the loc is omitted when the pair's only evidence is a loc-less unit edge.
+- The second section lists the declared pairs the model holds no code evidence for. On a model whose driver records manifest declarations and code imports in one unit-edge tier (the rust driver's union law), a declared pair's code status is not separable in the model, so the section states that placement instead of printing a census the model cannot support.
+- An empty section under a non-empty other section prints `none`. When both sections are empty the whole body is exactly `Ledger clean: no used-but-undeclared and no declared-but-unused pairs.` — a clean ledger says so by name, never a silent nothing.
+- A model with no per-unit manifest facts at all prints exactly `The ledger cannot answer: the model carries no per-unit manifest facts.` — without a declaration tier neither class is answerable, and the absence is stated, not laundered into a clean verdict.
+- Pairs are unit names (the tier the manifests declare legs at); module-tier import evidence is attributed to units by territory (the unit directory that owns the importing path, longest path wins), test-gated endpoints are excluded, and a dependency name resolving to no workspace unit (an external package) is no pair. Ordering is canonical, so the same model always produces byte-identical output.
 
 ## Divergence from the previous generator
 

@@ -203,10 +203,13 @@ engages the ceiling: rust gates on cfg(test); ts gates on a test-file name
 in a package whose manifest declares vitest or jest.
 
 types and their keys:
-  no_cycles                     keys: modules, severity
+  no_cycles                     keys: modules, severity, kinds
     detect cycles over the declared module groups (unit and/or module edges);
     no modules list = every declared module. 'modules' is an exact
-    declared-module-name list, not globs.
+    declared-module-name list, not globs. 'kinds' narrows which ring classes
+    are reported — 'runtime' (every leg carries a value edge) and
+    'type-assisted' (some leg is backed only by type-only rows); an absent
+    list reports every kind.
   public_api_allowlist          keys: allowed
     the unit's crate-root public exports must sit in 'allowed'; a root glob
     re-export (pub use path::*) is enumerated when it names same-crate modules

@@ -7,7 +7,7 @@ use std::path::Path;
 
 const GRAPH_FORMATS: &[&str] = &["mermaid", "plantuml"];
 
-pub const HELP: &str = "usage: archspec depgraph <modules|api-usage|submodules> [path] [--format <fmt>] [--parent <module>] [--aggregate <units|modules>] [--output <path>] [--check]\ncurrent-state dependency views of a project, straight from the extracted model\n\n  modules        top-level module dependency graph; one level deeper when that projection folds to a single node (default format: mermaid); an automatic render above 200 nodes adds one stderr note naming the degraded projection — stdout and exit are unchanged\n  api-usage      Markdown table of used APIs grouped by target module (markdown only)\n  submodules     graph of one module's immediate children (requires --parent)\n  path           directory to scan (default: current directory)\n  --format <fmt> mermaid or plantuml for graphs; markdown for api-usage\n  --parent <m>   parent top-level module to expand (submodules view only)\n  --aggregate <level> modules view only: force the projection level, bypassing the automatic fold/descend rule — units renders the model's units and their edges; modules renders top-level modules with no descent\n  --output <p>   write the body to that file (default: stdout); `--output -` writes to stdout and creates no file — never a path positional\n  --check        compare the body to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n\nlanguages      rust and csharp render directly; when the model has no module tier the command refuses with: depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of\n\ndepgraph does not read archspec.toml [output] — an artefact path comes only from an explicit --output.\n\nNode labels fold units — unit ownership lives in the `root_module_declarations` map that `archspec scan` emits in its scan JSON.\n\nThe `mod` label is a unit's root-module bucket: the namespace-less root where the composition/wiring code lives.\n\nTest-gated/soft edges (test namespaces and their consumers) can appear in depgraph projections while being excluded from `depend_on` comparison exactly when the language's test gate marks them — rust `cfg(test)`; ts a test-file name in a package whose manifest declares vitest or jest — otherwise they adjudicate like any other edge.\n\nTo ask which edges are wrong, render the same model with `archspec diagram --source scan <scan.json> --tiers modules` — under a governing spec that view marks spec-violating edges.\n";
+pub const HELP: &str = "usage: archspec depgraph <modules|api-usage|submodules|ledger> [path] [--format <fmt>] [--parent <module>] [--aggregate <units|modules>] [--output <path>] [--check]\ncurrent-state dependency views of a project, straight from the extracted model\n\n  modules        top-level module dependency graph; one level deeper when that projection folds to a single node (default format: mermaid); an automatic render above 200 nodes adds one stderr note naming the degraded projection — stdout and exit are unchanged\n  api-usage      Markdown table of used APIs grouped by target module (markdown only)\n  submodules     graph of one module's immediate children (requires --parent)\n  ledger         the inversion-debt ledger: two named sections over the model's own facts — `used but undeclared` pairs (the code imports across a unit pair the importer's manifest omits, with evidence locs) and `declared but unused` pairs (the manifest declares while the model holds no code evidence); a model without a declaration tier states it cannot answer; a clean model states the ledger is clean by name (markdown only)\n  path           directory to scan (default: current directory)\n  --format <fmt> mermaid or plantuml for graphs; markdown for api-usage and ledger\n  --parent <m>   parent top-level module to expand (submodules view only)\n  --aggregate <level> modules view only: force the projection level, bypassing the automatic fold/descend rule — units renders the model's units and their edges; modules renders top-level modules with no descent\n  --output <p>   write the body to that file (default: stdout); `--output -` writes to stdout and creates no file — never a path positional\n  --check        compare the body to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n\nlanguages      rust and csharp render directly; when the model has no module tier the command refuses with: depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of\n\ndepgraph does not read archspec.toml [output] — an artefact path comes only from an explicit --output.\n\nNode labels fold units — unit ownership lives in the `root_module_declarations` map that `archspec scan` emits in its scan JSON.\n\nThe `mod` label is a unit's root-module bucket: the namespace-less root where the composition/wiring code lives.\n\nTest-gated/soft edges (test namespaces and their consumers) can appear in depgraph projections while being excluded from `depend_on` comparison exactly when the language's test gate marks them — rust `cfg(test)`; ts a test-file name in a package whose manifest declares vitest or jest — otherwise they adjudicate like any other edge.\n\nTo ask which edges are wrong, render the same model with `archspec diagram --source scan <scan.json> --tiers modules` — under a governing spec that view marks spec-violating edges.\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -41,11 +41,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .first()
         .map(String::as_str)
         .ok_or_else(|| {
-            "usage: archspec depgraph <modules|api-usage|submodules> [path] [--format <fmt>] [--parent <module>] [--output <path>]".to_string()
+            "usage: archspec depgraph <modules|api-usage|submodules|ledger> [path] [--format <fmt>] [--parent <module>] [--output <path>]".to_string()
         })?;
-    if !matches!(view, "modules" | "api-usage" | "submodules") {
+    if !matches!(view, "modules" | "api-usage" | "submodules" | "ledger") {
         return Err(format!(
-            "unknown depgraph view: {view} (supported: modules, api-usage, submodules)"
+            "unknown depgraph view: {view} (supported: modules, api-usage, submodules, ledger)"
         ));
     }
 
@@ -62,16 +62,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
         return Err(format!("path is not a directory: {root}"));
     }
 
-    let default_format = if view == "api-usage" { "markdown" } else { "mermaid" };
+    let default_format = if matches!(view, "api-usage" | "ledger") {
+        "markdown"
+    } else {
+        "mermaid"
+    };
     let format = parsed
         .values
         .get("format")
         .map(String::as_str)
         .unwrap_or(default_format);
-    if view == "api-usage" {
+    if matches!(view, "api-usage" | "ledger") {
         if format != "markdown" {
             return Err(format!(
-                "unsupported format for api-usage: {format} (supported: markdown)"
+                "unsupported format for {view}: {format} (supported: markdown)"
             ));
         }
     } else if !GRAPH_FORMATS.contains(&format) {
@@ -127,6 +131,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let body = match view {
         "api-usage" => depgraph::api_usage_markdown(&model),
+        "ledger" => depgraph::ledger_markdown(&model),
         "modules" => {
             let graph = match aggregate {
                 // An explicit level is never capped: the user chose this

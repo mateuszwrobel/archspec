@@ -800,7 +800,7 @@ fn help_constraints_names_all_seven_types_with_keys() {
     assert_eq!(output.status.code(), Some(0));
     let out = stdout(&output);
     let expected = [
-        ("no_cycles", "modules, severity"),
+        ("no_cycles", "modules, severity, kinds"),
         ("public_api_allowlist", "allowed"),
         ("forbid_external_crates", "from, forbid"),
         (

@@ -19,6 +19,7 @@ A regenerated doc therefore legitimately differs from an old one in node list an
 |---|---|---|
 | top-level modules | `depgraph modules` | Mermaid (or PlantUML) graph |
 | API usage by target | `depgraph api-usage` | Markdown table |
+| inversion-debt ledger | `depgraph ledger` | Markdown: two named sections or the named clean statement |
 | one module's submodules | `depgraph submodules --parent <m>` | Mermaid (or PlantUML) graph |
 
 The `modules` and `submodules` graphs mark the role carriers their projection names — the ` [facade]` / ` [composition]` label suffix or `<<facade>>` / `<<composition>>` stereotype, silent where a fold mixes roles (`output.md`, *Role markers*). `api-usage` carries no role column by decision: a role is not a usage fact.

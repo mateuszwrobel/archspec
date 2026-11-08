@@ -774,3 +774,40 @@ relation = "named-in-file"
 [[claim.guard_pin]]
 file = "src/archspec/spec.rs"
 relation = "named-in-file"
+
+[[claim]]
+id = "verify-help-json-flag"
+owner = "the `--json` flag line of the verify help — the machine form of the verdict"
+owner_surfaces = ["verify --help", "help verify", "help commands"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "--json emit the verdict as machine-readable json: the metrics and findings body of `archspec report --format json` — the same findings, the same verdict, the same exit codes; a renderer, not a second adjudication",
+]
+signatures = ["second adjudication"]
+dedicated_guard = "src/archspec/commands/verify.rs"
+[[claim.guard_pin]]
+file = "src/archspec/commands/verify.rs"
+relation = "named-in-file"
+[[claim]]
+id = "verdict-environment-declared"
+owner = "the environment-declaration paragraph of the verify help — the header line every verdict surface states"
+owner_surfaces = ["verify --help", "help verify"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "Every verdict declares the environment it was adjudicated against: the line `adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N specifiers resolved to src instead of dist` when the scan resolved declared build targets to source. `--json` states the same fact as the `environment` field; a summary-by-class census follows the header whenever the scan emitted report-only lines.",
+  "adjudicated against BUILT tree",
+  "adjudicated against UNBUILT tree",
+]
+signatures = ["adjudicated against"]
+dedicated_guard = "src/archspec/report/mod.rs"
+[[claim]]
+id = "verify-only-class-filter"
+owner = "the `--only` flag line of the verify help — the class filter on the report-only notices"
+owner_surfaces = ["verify --help", "help verify"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "--only <class> hide one diagnostic class from the report-only notices; findings, the verdict and the environment census are unchanged; the run echoes `only: excluding class \"<class>\" — verdict unchanged`",
+  "only: excluding class",
+]
+signatures = ["only: excluding class"]
+dedicated_guard = "src/archspec/report/mod.rs"

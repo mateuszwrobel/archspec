@@ -337,7 +337,126 @@ pub fn all() -> Vec<Scenario> {
             csharp_project_files,
             cycle_through_a_test_project_is_invisible_to_production_guard,
         ),
+        scenario(
+            Feature::VerifyJsonVerdict,
+            "verify_json_verdict_matches_text_verdict",
+            "verify --json exits the text run's code and carries exactly the text verdict's findings in the machine schema — finding for finding",
+            verify_json_verdict_matches_text_verdict,
+        ),
+        scenario(
+            Feature::VerifyJsonVerdict,
+            "verify_json_clean_project_exits_zero_with_empty_findings",
+            "verify --json on a matching spec exits 0 and renders the machine schema with an empty findings array — a json body, never the ok confirmation",
+            verify_json_clean_project_exits_zero_with_empty_findings,
+        ),
+        scenario(
+            Feature::VerifyEnvironmentDeclared,
+            "verify_declares_the_built_tree_by_header",
+            "a built probe tree states itself honestly: the verdict surface carries `adjudicated against BUILT tree`",
+            verify_declares_the_built_tree_by_header,
+        ),
+        scenario_when(
+            Feature::VerifyEnvironmentDeclared,
+            "verify_declares_unbuilt_environment_with_census_and_only",
+            "an unbuilt ts member states UNBUILT with a summary-by-class census; --only hides that class from the notices, echoes it, and changes the verdict and the census by nothing",
+            ts_driver,
+            verify_declares_unbuilt_environment_with_census_and_only,
+        ),
     ]
+}
+
+fn verify_declares_the_built_tree_by_header(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    let tree = driver.probe_tree();
+    driver.materialize(fx, &tree);
+    fx.write("architecture.spec.toml", &boundary_spec(driver));
+    let output = driver.run(fx, &["verify"]);
+    let stdout = common::stdout(&output);
+    if !stdout.contains("adjudicated against BUILT tree") {
+        return Err(format!(
+            "the verdict must declare the built state it was adjudicated against:\n{stdout}"
+        ));
+    }
+    Ok(())
+}
+
+fn verify_declares_unbuilt_environment_with_census_and_only(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    fx.write(
+        "package.json",
+        "{\n  \"name\": \"mono\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+    );
+    fx.write("yarn.lock", "");
+    fx.write(
+        "packages/alpha/package.json",
+        "{\n  \"name\": \"@org/alpha\",\n  \"main\": \"src/a.ts\"\n}\n",
+    );
+    fx.write("packages/alpha/src/a.ts", "export const a = 1;\n");
+    fx.write(
+        "packages/beta/package.json",
+        "{\n  \"name\": \"@org/beta\",\n  \"main\": \"dist/b\"\n}\n",
+    );
+    fx.write("packages/beta/b.ts", "export const b = 1;\n");
+    fx.write(
+        "packages/loose/package.json",
+        "{\n  \"name\": \"@org/loose\",\n  \"dependencies\": { \"@org/alpha\": \"*\", \"@org/beta\": \"*\" }\n}\n",
+    );
+    fx.write(
+        "packages/loose/main.ts",
+        "import { a } from \"@org/alpha\";\nimport { b } from \"@org/beta\";\nexport const v = [a, b];\n",
+    );
+    fx.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"all\"\nmatches = { units = [\"mono\", \"@org/alpha\", \"@org/beta\", \"@org/loose\"], modules = [\"packages/**\"] }\n",
+    );
+    let run = driver.run(fx, &["verify"]);
+    let stdout = common::stdout(&run);
+    let stderr = common::stderr(&run);
+    for fact in [
+        "adjudicated against UNBUILT tree — 1 specifier resolved to src instead of dist",
+        "workspace target not built",
+    ] {
+        let surface = if fact.starts_with("adjudicated") {
+            &stdout
+        } else {
+            &stderr
+        };
+        if !surface.contains(fact) {
+            return Err(format!("the unbuilt run must state {fact}:\n{stdout}\n---\n{stderr}"));
+        }
+    }
+    let filtered = driver.run(fx, &["verify", "--only", "workspace target not built"]);
+    if filtered.status.code() != run.status.code() {
+        return Err(format!(
+            "--only never changes the verdict: {:?} vs {:?}",
+            filtered.status.code(),
+            run.status.code()
+        ));
+    }
+    let filtered_stdout = common::stdout(&filtered);
+    let filtered_stderr = common::stderr(&filtered);
+    if filtered_stderr.contains("workspace target not built:") {
+        return Err(format!(
+            "--only must hide the named class from the notices:\n{filtered_stderr}"
+        ));
+    }
+    if !filtered_stderr
+        .contains("only: excluding class \"workspace target not built\" — verdict unchanged")
+    {
+        return Err(format!(
+            "--only must echo what it excluded:\n{filtered_stderr}"
+        ));
+    }
+    if !filtered_stdout.contains("adjudicated against UNBUILT tree") {
+        return Err(format!(
+            "--only leaves the environment census unchanged:\n{filtered_stdout}"
+        ));
+    }
+    Ok(())
 }
 
 fn unit_boundary_matching_tree_verifies_clean(
@@ -2835,4 +2954,143 @@ fn composition_root_wiring_sanctions_the_banned_bridge(
         }
         other => unreachable!("composition_roles_driver gates {other:?}"),
     }
+}
+
+
+/// The indented finding lines of a failing verify text run as
+/// (category, message) — `diff.rs::render_report` renders every item as
+/// `  <category>: <message>` under the verdict header, and the notes carry no
+/// leading indentation, so they never enter.
+fn verify_text_findings(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter(|line| line.starts_with("  "))
+        .filter_map(|line| {
+            line.trim()
+                .split_once(": ")
+                .map(|(category, body)| (category.to_string(), body.to_string()))
+        })
+        .collect()
+}
+
+fn verify_json_findings(value: &serde_json::Value) -> Result<Vec<(String, String)>, String> {
+    let findings = value["findings"]
+        .as_array()
+        .ok_or_else(|| "verify --json must carry a findings array".to_string())?;
+    findings
+        .iter()
+        .map(|finding| {
+            let category = finding["category"]
+                .as_str()
+                .ok_or_else(|| "finding must carry a category".to_string())?;
+            let severity = finding["severity"]
+                .as_str()
+                .ok_or_else(|| "finding must carry a severity".to_string())?;
+            if !matches!(severity, "error" | "warning") {
+                return Err(format!("unknown finding severity: {severity}"));
+            }
+            let message = finding["message"]
+                .as_str()
+                .ok_or_else(|| "finding must carry a message".to_string())?;
+            Ok((category.to_string(), message.to_string()))
+        })
+        .collect()
+}
+
+/// Issue #25 (one adjudication, two renderers): on a violating tree the text
+/// run and the `--json` run exit the same code and state the same finding
+/// set — the json body parses, names the declared language, carries the
+/// metrics object, and its findings equal the text rendering's items.
+fn verify_json_verdict_matches_text_verdict(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    // A declared ghost component missing from the tree: every driver's diff
+    // carries at least one error-level finding (same fixture the report
+    // parity scenario uses).
+    let mut tree = LogicalTree::new();
+    tree.units = vec!["app".into()];
+    if matches!(driver.language, Language::Ts) {
+        // A ts package without a single source file is not a scannable
+        // tree; one module keeps the package real and stays out of the
+        // finding set (the violation still comes from the ghost claim).
+        tree.modules.insert("app".into(), vec!["core".into()]);
+    }
+    driver.materialize(fx, &tree);
+    let ghost = driver.unit_name("ghost");
+    fx.write(
+        "architecture.spec.toml",
+        &format!(
+            "[project]\nlanguage = \"{}\"\n\n\
+             [[module]]\nname = \"ghost\"\nmatches = {{ units = [\"{ghost}\"] }}\n",
+            driver.language.as_str()
+        ),
+    );
+    let text = driver.run(fx, &["verify"]);
+    if text.status.code() == Some(0) {
+        return Err("verify with violations must exit non-zero".into());
+    }
+    let json = driver.run(fx, &["verify", "--json"]);
+    if json.status.code() != text.status.code() {
+        return Err(format!(
+            "--json must exit the text run's code, got {:?} vs {:?}",
+            json.status.code(),
+            text.status.code()
+        ));
+    }
+    let value: serde_json::Value = serde_json::from_str(&common::stdout(&json))
+        .map_err(|error| format!("verify --json must parse: {error}"))?;
+    if value["language"].as_str() != Some(driver.language.as_str()) {
+        return Err(format!(
+            "json must name the declared language:\n{}",
+            common::stdout(&json)
+        ));
+    }
+    if value["metrics"].get("components").is_none() {
+        return Err(format!(
+            "json must carry the metrics object:\n{}",
+            common::stdout(&json)
+        ));
+    }
+    let findings = verify_json_findings(&value)?;
+    if findings.is_empty() {
+        return Err("a violating tree must yield at least one finding".into());
+    }
+    let text_findings = verify_text_findings(&common::stdout(&text));
+    if findings != text_findings {
+        return Err(format!(
+            "json findings must equal the text-rendered set:\njson: {findings:?}\ntext:\n{}",
+            common::stdout(&text)
+        ));
+    }
+    Ok(())
+}
+
+/// The clean half of issue #25: exit 0 is unchanged and the stdout is the
+/// machine body — parseable json with an empty findings array, never the
+/// `ok:` confirmation line.
+fn verify_json_clean_project_exits_zero_with_empty_findings(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    let tree = driver.probe_tree();
+    driver.materialize(fx, &tree);
+    fx.write("architecture.spec.toml", &boundary_spec(driver));
+    let output = expect_success(driver, fx, &["verify", "--json"])?;
+    let stdout = common::stdout(&output);
+    if stdout.contains("matches source model") {
+        return Err(format!(
+            "a json run renders the body, not the confirmation:\n{stdout}"
+        ));
+    }
+    let value: serde_json::Value = serde_json::from_str(&stdout)
+        .map_err(|error| format!("verify --json must parse: {error}"))?;
+    let findings = value["findings"]
+        .as_array()
+        .ok_or_else(|| "verify --json must carry a findings array".to_string())?;
+    if !findings.is_empty() {
+        return Err(format!(
+            "a clean tree must report empty findings: {findings:?}"
+        ));
+    }
+    Ok(())
 }

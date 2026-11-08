@@ -1580,6 +1580,18 @@
           "skip_reasons": {
             "ts": "project shape not applicable"
           }
+        },
+        {
+          "name": "ledger_view_prints_named_sections",
+          "description": "depgraph ledger prints the two named inversion-debt sections over the model's own facts and never a silent nothing",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          }
         }
       ]
     },
@@ -1956,6 +1968,87 @@
             "python": "pass",
             "rust": "pass",
             "ts": "pass"
+          }
+        }
+      ]
+    },
+    {
+      "name": "verify.json_verdict",
+      "language_capability": {
+        "csharp": "implemented",
+        "go": "implemented",
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
+      },
+      "behaviors": [
+        {
+          "name": "verify_json_verdict_matches_text_verdict",
+          "description": "verify --json exits the text run's code and carries exactly the text verdict's findings in the machine schema — finding for finding",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          }
+        },
+        {
+          "name": "verify_json_clean_project_exits_zero_with_empty_findings",
+          "description": "verify --json on a matching spec exits 0 and renders the machine schema with an empty findings array — a json body, never the ok confirmation",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          }
+        }
+      ]
+    },
+    {
+      "name": "verify.environment_declared",
+      "language_capability": {
+        "csharp": "implemented",
+        "go": "implemented",
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
+      },
+      "behaviors": [
+        {
+          "name": "verify_declares_the_built_tree_by_header",
+          "description": "a built probe tree states itself honestly: the verdict surface carries `adjudicated against BUILT tree`",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          }
+        },
+        {
+          "name": "verify_declares_unbuilt_environment_with_census_and_only",
+          "description": "an unbuilt ts member states UNBUILT with a summary-by-class census; --only hides that class from the notices, echoes it, and changes the verdict and the census by nothing",
+          "status": {
+            "csharp": "skipped",
+            "go": "skipped",
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "csharp": "project shape not applicable",
+            "go": "project shape not applicable",
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable"
           }
         }
       ]

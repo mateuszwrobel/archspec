@@ -9,7 +9,7 @@ Every failure produces a clear human message naming the cause. Messages go to st
 | unknown flag | `unknown flag: --<name>` |
 | flag given without its value | `flag --<name> requires a value` |
 | no view given | usage line naming the views |
-| unknown view | `unknown depgraph view: <x> (supported: modules, api-usage, submodules)` |
+| unknown view | `unknown depgraph view: <x> (supported: modules, api-usage, submodules, ledger)` |
 | path does not exist | `path does not exist: <path>` |
 | path is a regular file | `path is not a directory: <path>` |
 | no supported-language sources | `no supported-language sources found under: <path>` |
@@ -19,6 +19,7 @@ Every failure produces a clear human message naming the cause. Messages go to st
 | model has no module tier (the tree's packages reference none of each other) | `depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of` |
 | unsupported `--format` (graph views) | `unsupported format: <x> (supported: mermaid, plantuml)` |
 | `--format` on `api-usage` other than markdown | `unsupported format for api-usage: <x> (supported: markdown)` |
+| `--format` on `ledger` other than markdown | `unsupported format for ledger: <x> (supported: markdown)` |
 | `submodules` without `--parent` | `submodules view requires --parent <module>` |
 | `--parent` with a non-submodules view | `--parent is only valid for the submodules view` |
 | `--parent` names no module in the model | `parent module not found in model: <x> (known top-level modules: <names>)` |
@@ -37,7 +38,7 @@ $ archspec depgraph modules --format
 error: flag --format requires a value
 
 $ archspec depgraph bogus .
-error: unknown depgraph view: bogus (supported: modules, api-usage, submodules)
+error: unknown depgraph view: bogus (supported: modules, api-usage, submodules, ledger)
 
 $ archspec depgraph submodules .
 error: submodules view requires --parent <module>

@@ -252,6 +252,15 @@ pub struct Constraint {
     /// other row kind and rejects any value outside the two above.
     #[serde(default)]
     pub scope: Option<String>,
+    /// The `no_cycles` edge-kind selector (the `no_cycles` arm of `verify`,
+    /// adjudicated in `verify/compare/cycles.rs`; GitHub issue #22): the
+    /// ring classes this constraint adjudicates — `"runtime"` (every leg
+    /// carries a value edge) and `"type-assisted"` (some leg is type-only).
+    /// Absent or empty = every kind: the shipped behavior, backward
+    /// compatible. Validation rejects the field on every other row kind and
+    /// rejects any value outside the two above.
+    #[serde(default)]
+    pub kinds: Vec<String>,
     // `public_api_allowlist`
     #[serde(default)]
     pub allowed: Vec<String>,
@@ -581,6 +590,7 @@ pub const SPEC_KEY_SHAPES: &[(&str, &[&str])] = &[
             "forbidden_dependencies",
             "from",
             "gated_modules",
+            "kinds",
             "modules",
             "parent",
             "require_publish",
@@ -855,6 +865,33 @@ fn validate_constraint(
                 spec_path.display(),
                 index + 1,
                 scope
+            ));
+        }
+    }
+    // The `kinds` field of the no_cycles arm (GitHub issue #22): the ring
+    // classes the constraint adjudicates. Accepted only on `no_cycles`
+    // rows; the two supported values are named in the invalid-value
+    // message, same shipped invalid-spec class as the `scope` check above.
+    // An absent or empty list is every kind — the shipped behavior.
+    if !constraint.kinds.is_empty() {
+        if constraint.kind != "no_cycles" {
+            return Err(format!(
+                "invalid spec: {}: [constraint] #{} declares `kinds` on a \"{}\" row; `kinds` is supported only on `no_cycles` rows",
+                spec_path.display(),
+                index + 1,
+                constraint.kind
+            ));
+        }
+        if let Some(bad) = constraint
+            .kinds
+            .iter()
+            .find(|kind| **kind != "runtime" && **kind != "type-assisted")
+        {
+            return Err(format!(
+                "invalid spec: {}: constraint #{} has invalid kinds value \"{}\" (supported: runtime, type-assisted)",
+                spec_path.display(),
+                index + 1,
+                bad
             ));
         }
     }
@@ -1228,6 +1265,7 @@ mod tests {
             modules: Vec::new(),
             severity: String::new(),
             scope: None,
+            kinds: Vec::new(),
             allowed: Vec::new(),
             from: Vec::new(),
             forbid: Vec::new(),

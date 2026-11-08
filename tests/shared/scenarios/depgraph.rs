@@ -51,6 +51,13 @@ pub fn all() -> Vec<Scenario> {
             not_ts,
             modules_mark_folded_role_carriers,
         ),
+        scenario_when_capability(
+            Feature::Depgraph,
+            "ledger_view_prints_named_sections",
+            "depgraph ledger prints the two named inversion-debt sections over the model's own facts and never a silent nothing",
+            "module-tier",
+            ledger_view_prints_named_sections,
+        ),
     ]
 }
 
@@ -331,6 +338,53 @@ fn modules_mark_folded_role_carriers(driver: &Driver, fx: &common::Fixture) -> R
             ),
             (None, None) => unreachable!("equal markers never reach this branch"),
         });
+    }
+    Ok(())
+}
+
+/// The ledger answers with its two named section headers or — when the model
+/// carries no inversion debt — states cleanliness by name; never a silent
+/// nothing. A rust model additionally states the fold placement, because its
+/// driver records declaration legs and code legs in one unit-edge tier.
+fn ledger_view_prints_named_sections(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    if driver.language == Language::Rust || driver.language == Language::Kotlin {
+        // A two-unit tree with a project dependency: the rust arm also welds
+        // the fold statement (the unit-edge union law), the kotlin arm keeps
+        // its honest shape (module tier is unit-identified, record K-P2).
+        let mut tree = LogicalTree::new();
+        tree.units = vec!["app".into(), "shared".into()];
+        tree.modules.insert("app".into(), vec!["core".into()]);
+        tree.modules.insert("shared".into(), vec!["models".into()]);
+        tree.hard_edges.push(("app".into(), "shared".into()));
+        driver.materialize(fx, &tree);
+    } else {
+        driver.materialize(fx, &soft_module_tree());
+    }
+    let output = expect_success(driver, fx, &["depgraph", "ledger"])?;
+    let stdout = common::stdout(&output);
+    let has_sections = stdout.contains("## used but undeclared")
+        && stdout.contains("## declared but unused");
+    let states_clean =
+        stdout.contains("Ledger clean: no used-but-undeclared and no declared-but-unused pairs.");
+    let states_cannot =
+        stdout.contains("The ledger cannot answer: the model carries no per-unit manifest facts.");
+    if !has_sections && !states_clean && !states_cannot {
+        return Err(format!(
+            "the ledger must print both named sections, state cleanliness by name, or state that it cannot answer — never a silent nothing:\n{stdout}"
+        ));
+    }
+    if driver.language == Language::Rust
+        && has_sections
+        && !stdout.contains(
+            "The model records manifest declarations and code imports in one unit-edge tier, so a declared pair's code status is not separable in this model.",
+        )
+    {
+        return Err(format!(
+            "a rust ledger that shows the sections must state the unit-edge fold placement:\n{stdout}"
+        ));
     }
     Ok(())
 }

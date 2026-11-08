@@ -6,6 +6,106 @@ only.
 
 ## [Unreleased]
 
+## [0.6.61] - 2026-11-08
+
+### Fixed
+
+- The `fact_leg_threads_*` unit tests no longer mutate the process environment.
+  The four tests shared the `ARCHSPEC_THREADS` lever through `set_var` /
+  `remove_var`; in the threaded libtest shape a sibling's `remove_var` could
+  land between a test's `set_var` and its read, so
+  `fact_leg_threads_never_exceed_files` saw no lever and fell back to
+  `available_parallelism` (`32 != 128` in full-suite runs, green in
+  isolation). The worker-count arithmetic now takes the lever value as a
+  parameter in a pure core; the tests name it directly. The `ARCHSPEC_THREADS`
+  A/B lever itself is unchanged — its env read stays covered per child process
+  by the `parallel_fact_leg` integration suite.
+
+## [0.6.60] - 2026-11-08
+
+### Added
+
+- Verdicts declare the environment they were adjudicated against (GitHub
+  issue #24). The text verdict surfaces state
+  `adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N
+  specifiers resolved to src instead of dist` wherever a workspace member's
+  declared build target resolved to source; a summary-by-class census table
+  follows whenever report-only lines exist. `verify --json` and
+  `report --format json` state the same facts in an `environment` field. The
+  census counts the lines the scan already emitted — a view, never a second
+  adjudication. `archspec verify --only <class>` hides one diagnostic class
+  from the report-only notices, echoes
+  `only: excluding class "<class>" — verdict unchanged`, and changes the
+  verdict, the findings and the census by nothing. The feature matrix gains
+  the `verify.environment_declared` feature and the e2e matrix the
+  `verify/environment-declared` and `verify/only-class` cells.
+
+## [0.6.59] - 2026-11-08
+
+### Added
+
+- `archspec verify --json` prints the verdict as the machine-readable metrics
+  and findings body of `archspec report --format json` (GitHub issue #25). It
+  is the same serializer over this run's own model, mapping and diff — the
+  same findings, the same verdict, the same exit codes; a renderer, never a
+  second adjudication. Text-surface notes (inert-rule notes, the cycles
+  census) stay on the text run, so a json stdout is the pure machine body.
+  The feature matrix gains the `verify.json_verdict` feature and the e2e
+  matrix the `verify/json` cell.
+
+## [0.6.57] - 2026-11-08
+
+### Added
+
+- `verify --coverage` prints a coverage census after the verdict: one line per
+  declared constraint stating the facts its territory adjudicates versus the
+  model totals (`coverage: <kind>[<i>] <field>=[<selectors>] — <n>/<total>
+  <noun>`) plus a `coverage summary` line, so a shadowed package's guards are
+  enumerable as rows with a zero territory (GitHub issue #23). The census is
+  a view over the same gates the checks adjudicate, never a new adjudication.
+- The `shadowed claim` warning states its consequence: when a constraint row
+  lists the shadowed claim (by name or by a pattern addressing its claimed
+  paths) and that row's territory adjudicates zero facts, the line names the
+  silenced rows and the territory they lost — `shadowed claim: <loser> is
+  fully claimed by <winner> — <constraint> sees 0 <noun> unless they also
+  list '<winner>'`. With nothing silenced the line stays as before.
+
+## [0.6.55] - 2026-11-08
+
+### Added
+
+- `archspec depgraph ledger` prints the inversion-debt ledger (GitHub issue #21):
+  two named sections over the model's own facts — `used but undeclared` pairs
+  (cross-unit imports the importing unit's manifest omits, with evidence locs,
+  the issue #19 class) and `declared but unused` pairs (declared while the
+  model holds no code evidence). A clean model states the ledger is clean by
+  name; a model whose driver records declarations and code imports in one
+  unit-edge tier states that placement instead of a false census; a model
+  without a declaration tier states it cannot answer.
+
+## [0.6.56] - 2026-11-08
+
+### Added
+
+- Cycle findings state their ring class (GitHub issue #22): every `cycle:`
+  line ends with `(runtime)` when each leg carries a value edge or
+  `(type-assisted)` when some leg is backed only by type-only rows. A
+  `kinds = [...]` list on a `no_cycles` row reports only the named classes
+  (`"runtime"`, `"type-assisted"`); an absent list reports every kind, the
+  shipped behavior. The new `type-only-dependency-facts` capability row states
+  per driver which labels are reachable.
+- When cycles are reported, `verify` prints one census line stating the
+  adjudicated counts behind the findings (GitHub issue #18's surviving half):
+  `N cycles among M file facts; territory: x/y modules`. It counts only rows
+  the adjudications walked, never projected ones; it stays silent when a
+  `no_cycles` vacuity entry already fired.
+
+### Changed
+
+- A cycle filtered out by `kinds` contributes no edges to the projection
+  dedup, so it can never suppress a file finding it never printed
+  (the R3-7 law, extended to the kind filter).
+
 ## [0.6.54] - 2026-11-08
 
 ### Fixed
