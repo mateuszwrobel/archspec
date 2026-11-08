@@ -705,8 +705,9 @@ fn candidates(base: &Path) -> Vec<String> {
 }
 
 /// The NodeNext extension substitutions (record R10, round 4 B): a base
-/// spelled `.js` also tries `.ts` and `.tsx`; `.mjs` tries `.mts`; `.cjs`
-/// tries `.cts`. The literal spelling stays FIRST in every row — when both
+/// spelled `.js` also tries `.ts`, `.tsx` and `.d.ts` (the tsc arm order —
+/// GitHub issue #11); `.mjs` tries `.mts`; `.cjs` tries `.cts`. The literal
+/// spelling stays FIRST in every row — when both
 /// `x.js` and `x.ts` exist, the runtime loads `x.js` and the edge lands
 /// there (the mixed-tree law). `.mjs`/`.cjs` literals carry a known
 /// extension since the indexing law, so the literal rides the exact-path
@@ -720,7 +721,7 @@ fn nodext_substitutions(base: &Path) -> Vec<String> {
     };
     let extension = extension.to_string_lossy().to_lowercase();
     let row: &[&str] = match extension.as_str() {
-        "js" => &["ts", "tsx"],
+        "js" => &["ts", "tsx", "d.ts"],
         "mjs" => &["mjs", "mts"],
         "cjs" => &["cjs", "cts"],
         _ => &[],

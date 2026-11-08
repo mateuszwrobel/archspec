@@ -1061,11 +1061,11 @@ fn registry() -> Vec<Cell> {
         NO_PRE,
         &["depgraph", "modules", "--aggregate", "modules"],
         0,
-        &["root"],
+        &["p00 --> p01"],
         &[],
-        &["p00 --> p01", "note: the automatic projection rendered"],
+        &["packages/p00", "mono", "note: the automatic projection rendered"],
         None,
-        "--aggregate modules pins the single top-level node: no file-level nodes, no unit edges, no note"
+        "--aggregate modules projects the file tier onto per-unit module roots: the 21 module-root nodes and the merged edges, no file paths, no root package node, no note"
     ));
     cells.push(cell!(
         "depgraph/aggregate-invalid",

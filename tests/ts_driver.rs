@@ -1007,6 +1007,105 @@ fn dead_alias_reddens_both_sides() {
     );
 }
 
+/// Scenario ALIAS-MISS-MANIFEST-FALLBACK (GitHub issue #12): a tsconfig
+/// `paths` alias hit whose target is gone FALLS BACK to the node/manifest
+/// rules — an alias table entry is a compile-time convenience, not a
+/// registry-membership claim. A package the nearest manifest declares lands
+/// the external fact (the bare and the subpath spelling alike), never an
+/// `alias target not found` abort; the class-(b) install line states the
+/// absent materialization. A name NOTHING declares keeps the fail-closed
+/// abort — the `dead_alias_reddens_both_sides` carrier above.
+#[test]
+fn paths_alias_miss_falls_back_to_manifest_declaration() {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"t2\",\n  \"version\": \"1.0.0\",\n  \"type\": \"module\",\n  \"dependencies\": { \"@ext/pkg\": \"1.0.0\" }\n}\n",
+    );
+    tree.write(
+        "tsconfig.json",
+        "{\n  \"compilerOptions\": { \"paths\": { \"@ext/*\": [\"./extensions/*\"] } },\n  \"include\": [\"src/**/*\"]\n}\n",
+    );
+    tree.write(
+        "src/a.ts",
+        "import { v } from \"@ext/pkg/sub.js\";\nexport const y = v;\n",
+    );
+    tree.write(
+        "src/b.ts",
+        "import { v } from \"@ext/pkg\";\nexport const z = v;\n",
+    );
+
+    let scan = tree.run(&["scan", "."]);
+    let stderr = common::stderr(&scan);
+    assert!(
+        scan.status.success(),
+        "a manifest-declared alias miss falls back, it does not abort: {stderr}"
+    );
+    assert!(
+        !stderr.contains("alias target not found"),
+        "a declared package states no alias abort:\n{stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "external not installed: @ext/pkg — declared in package.json, absent from disk"
+        ),
+        "the fallback rides the class-(b) install line:\n{stderr}"
+    );
+    let model = model(&scan);
+    assert!(
+        model["external"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("@ext/pkg")),
+        "both spellings land one external fact: {model}"
+    );
+}
+
+/// Scenario ALIAS-MISS-DECLARED-INSTALLED (GitHub issue #12, install-state
+/// honesty): the fallback states an honest install fact — a declared package
+/// WITH a `node_modules` materialization lands the plain external fact,
+/// never the `external not installed` line.
+#[test]
+fn paths_alias_miss_declared_installed_states_no_install_line() {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"t3\",\n  \"version\": \"1.0.0\",\n  \"type\": \"module\",\n  \"dependencies\": { \"@ext/pkg\": \"1.0.0\" }\n}\n",
+    );
+    tree.write(
+        "tsconfig.json",
+        "{\n  \"compilerOptions\": { \"paths\": { \"@ext/*\": [\"./extensions/*\"] } },\n  \"include\": [\"src/**/*\"]\n}\n",
+    );
+    tree.write(
+        "node_modules/@ext/pkg/package.json",
+        "{\n  \"name\": \"@ext/pkg\",\n  \"version\": \"1.0.0\",\n  \"main\": \"index.js\"\n}\n",
+    );
+    tree.write("node_modules/@ext/pkg/index.js", "module.exports = { v: 1 };\n");
+    tree.write(
+        "src/b.ts",
+        "import { v } from \"@ext/pkg\";\nexport const z = v;\n",
+    );
+
+    let scan = tree.run(&["scan", "."]);
+    let stderr = common::stderr(&scan);
+    assert!(
+        scan.status.success(),
+        "declared and installed falls back: {stderr}"
+    );
+    assert!(
+        !stderr.contains("external not installed"),
+        "an installed package states no install line:\n{stderr}"
+    );
+    let model = model(&scan);
+    assert!(
+        model["external"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("@ext/pkg")),
+        "the external fact stands: {model}"
+    );
+}
+
 /// Scenario "a require-only export map still resolves" (R3 conditions):
 /// `require` rides the active condition set, so a cjs-only package resolves
 /// through its exports map to the external tier — green, never an
@@ -1491,6 +1590,62 @@ fn nodext_js_import_maps_to_the_ts_twin() {
             ("src/a.ts".to_string(), "src/z.cts".to_string(), false),
         ],
         "the literal miss maps to the twin: .js→.ts, .mjs→.mts, .cjs→.cts"
+    );
+}
+
+/// Scenario NODEXT-JS-MAPS-TO-DTS (GitHub issue #11): with the literal and the
+/// `.ts`/`.tsx` twins absent, the `.js` import maps to the `.d.ts` declaration —
+/// the tsc arm order `.ts | .tsx | .d.ts`. The declaration file lands the edge
+/// and carries the export-symbol tier exactly like a `.ts` fact; a `.ts` twin
+/// keeps precedence over the declaration.
+#[test]
+fn nodext_js_import_maps_to_the_dts_declaration() {
+    let tree = ts_tree(&[
+        (
+            "src/types.d.ts",
+            "export declare const x: number;\nexport declare function f(a: number): number;\n",
+        ),
+        (
+            "src/a.ts",
+            "import type { x } from \"./types.js\";\nexport const a = x;\n",
+        ),
+        ("src/ctl.d.ts", "export declare const c: number;\n"),
+        ("src/ctl.ts", "export const c = 1;\n"),
+        (
+            "src/b.ts",
+            "import { c } from \"./ctl.js\";\nexport const b = c;\n",
+        ),
+    ]);
+
+    let scan = tree.run(&["scan", "."]);
+    let stderr = common::stderr(&scan);
+    assert!(
+        scan.status.success(),
+        "the .d.ts arm of the extension table must resolve: {stderr}"
+    );
+    assert!(
+        !stderr.contains("unresolvable import"),
+        "no .js -> .d.ts abort:\n{stderr}"
+    );
+    let model = model(&scan);
+    let rows = module_edge_rows(&model);
+    assert!(
+        rows.iter()
+            .any(|(from, to, _)| from == "src/a.ts" && to == "src/types.d.ts"),
+        "the .js -> .d.ts edge lands: {rows:?}"
+    );
+    assert!(
+        rows.iter()
+            .any(|(from, to, _)| from == "src/b.ts" && to == "src/ctl.ts"),
+        "the .ts arm keeps precedence over the .d.ts twin: {rows:?}"
+    );
+    let tier = model["module_public_types"]["src/types.d.ts"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        tier.contains(&serde_json::json!("x")) && tier.contains(&serde_json::json!("f")),
+        "the ambient declarations land in the export-symbol tier like a .ts fact: {model}"
     );
 }
 
@@ -2746,6 +2901,176 @@ fn require_sites_that_are_not_sites_state_nothing() {
     assert!(
         model["module_external"].get("src/a.ts").is_none(),
         "require.resolve names no external: {model}"
+    );
+}
+
+/// Scenario "assert-style `require(cond, msg)` is no module load"
+/// (issue #16): a two-argument require is an assertion helper, not a
+/// load — it states no wildcard, prints no report line and adds no
+/// tripwire increment. A two-argument `import(expr, opts)` is an invalid
+/// load arity and states nothing either. A surviving single-argument
+/// computed load spells its wildcard on ONE line — the expression's
+/// first source line — in both the artifact field and the stderr report
+/// line: no raw source newline enters either.
+#[test]
+fn assert_style_require_states_nothing_and_wildcards_stay_single_line() {
+    // The issue #16 repro verbatim: the assert-style two-argument require.
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"t7\",\n  \"version\": \"1.0.0\",\n  \"type\": \"module\"\n}\n",
+    );
+    tree.write(
+        "check.mjs",
+        "const cfg = JSON.parse(text);\nrequire(cfg.status === \"accepted\" &&\n  Boolean(cfg.runId), \"ACCEPTED\");\nexport const ok = true;\n",
+    );
+    let scan = tree.run(&["scan", "."]);
+    assert!(
+        scan.status.success(),
+        "the assert-style require never reddens a run: {}",
+        common::stderr(&scan)
+    );
+    let check_model = model(&scan);
+    assert!(
+        check_model.get("dynamic_import_wildcards").is_none(),
+        "require(cond, msg) is no module load — the census stays empty: {check_model}"
+    );
+    let stderr = common::stderr(&scan);
+    assert!(
+        !stderr.contains("dynamic import wildcard"),
+        "a non-load states no wildcard line:\n{stderr}"
+    );
+
+    // The surviving arms: exactly one non-literal argument, the expression
+    // folded to its FIRST source line — artifact value and report line
+    // agree byte-for-byte. The two-argument import stays silent.
+    let tree = ts_tree(&[(
+        "src/a.ts",
+        "export async function load(cfg: { channel: string; topic: string }, base: string, name: string) {\n  const mod = require(\n    cfg.channel === \"live\" &&\n      cfg.topic\n  );\n  const dyn = await import(\n    base +\n      name\n  );\n  const opts = await import(base, { with: { type: \"json\" } });\n  return [mod, dyn, opts];\n}\n",
+    )]);
+    let scan = tree.run(&["scan", "."]);
+    assert!(
+        scan.status.success(),
+        "computed loads stay report-only: {}",
+        common::stderr(&scan)
+    );
+    let model2 = model(&scan);
+    let wildcards: Vec<String> = model2["dynamic_import_wildcards"]["src/a.ts"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|v| v.as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(
+        wildcards,
+        vec!["base +".to_string(), "cfg.channel === \"live\" &&".to_string()],
+        "each surviving wildcard is the expression's first source line — \
+         the two-argument import states nothing: {model2}"
+    );
+    let stderr = common::stderr(&scan);
+    for line in [
+        "dynamic import wildcard: src/a.ts -> base +",
+        "dynamic import wildcard: src/a.ts -> cfg.channel === \"live\" &&",
+    ] {
+        assert!(
+            stderr.lines().any(|l| l == line),
+            "the report line carries the same single-line spelling:\n{stderr}"
+        );
+    }
+}
+
+/// Scenario "the NAPI-RS loader convention is mechanical generated
+/// evidence" (issue #13): a package-root `*.wasi.cjs` miss adjacent to
+/// an `index.js` whose content carries the `auto-generated by NAPI-RS`
+/// marker rides the report-only `generated source not built` class —
+/// exit 0, the marker file and line named, no edge and no external-tier
+/// entry (no-invention law). The fail-closed twins keep the red: the
+/// same miss with no marker in the loader, and a `*.node` miss beside
+/// the marked loader — the evidence never widens past the one named
+/// generator.
+#[test]
+fn napi_loader_wasi_miss_is_generated_absent() {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"native-pkg\",\n  \"version\": \"1.0.0\",\n  \"type\": \"commonjs\"\n}\n",
+    );
+    tree.write(
+        "index.js",
+        "/* auto-generated by NAPI-RS */\nlet native = null;\ntry { native = require(\"./native-pkg.wasi.cjs\"); } catch { native = null; }\nmodule.exports = { native };\n",
+    );
+    let scan = tree.run(&["scan", "."]);
+    let stderr = common::stderr(&scan);
+    assert!(
+        scan.status.success(),
+        "the NAPI loader miss is report-only, not a verdict: {stderr}"
+    );
+    assert!(
+        stderr_carries_line(
+            &stderr,
+            "generated source not built: ./native-pkg.wasi.cjs — NAPI-RS loader index.js:1"
+        ),
+        "the NAPI evidence names the loader file and its marker line:\n{stderr}"
+    );
+    let model = model(&scan);
+    assert!(
+        model["module_edges"].as_array().unwrap().is_empty(),
+        "the class never mints an edge: {model}"
+    );
+    assert!(
+        model["external"].as_array().is_none_or(|v| v.is_empty()),
+        "the class never adds an external-tier entry: {model}"
+    );
+
+    // Twin 1 — the repro verbatim: no marker, no evidence, the red
+    // stands (fail closed: the class never silences a genuine miss).
+    let twin = Fixture::new();
+    twin.write(
+        "package.json",
+        "{\n  \"name\": \"native-pkg\",\n  \"version\": \"1.0.0\",\n  \"type\": \"commonjs\"\n}\n",
+    );
+    twin.write(
+        "index.js",
+        "let native = null;\ntry { native = require(\"./native-pkg.wasi.cjs\"); } catch { native = null; }\nmodule.exports = { native };\n",
+    );
+    let scan = twin.run(&["scan", "."]);
+    let stderr = common::stderr(&scan);
+    assert_eq!(
+        scan.status.code(),
+        Some(1),
+        "no marker, no exemption: {stderr}"
+    );
+    assert!(
+        stderr.contains("unresolvable import"),
+        "the red stands without the evidence:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("generated source not built"),
+        "no generated-class line without the marker:\n{stderr}"
+    );
+
+    // Twin 2 — the marked loader beside a `*.node` miss stays red: the
+    // evidence covers the named `*.wasi.cjs` shape only.
+    let twin = Fixture::new();
+    twin.write(
+        "package.json",
+        "{\n  \"name\": \"native-pkg\",\n  \"version\": \"1.0.0\",\n  \"type\": \"commonjs\"\n}\n",
+    );
+    twin.write(
+        "index.js",
+        "/* auto-generated by NAPI-RS */\nlet native = null;\ntry { native = require(\"./native-pkg.node\"); } catch { native = null; }\nmodule.exports = { native };\n",
+    );
+    let scan = twin.run(&["scan", "."]);
+    let stderr = common::stderr(&scan);
+    assert_eq!(
+        scan.status.code(),
+        Some(1),
+        "the class never widens to binding names: {stderr}"
+    );
+    assert!(
+        !stderr.contains("generated source not built"),
+        "a `*.node` miss is no named generator evidence:\n{stderr}"
     );
 }
 

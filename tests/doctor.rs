@@ -1,8 +1,11 @@
 #![cfg(unix)]
 
 mod common;
+#[allow(dead_code)]
+mod shared;
 
 use common::{stderr, stdout, Fixture};
+use std::collections::BTreeSet;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -10,10 +13,14 @@ use std::process::{Command, Output};
 
 /// Version strings the stub toolchains print; the report echoes them verbatim
 /// in parentheses on the `toolchain:` line, so these doubles are also the
-/// expected detail text.
+/// expected detail text. One stub per language the capability table carries:
+/// every block probes its ecosystem's own tool (a diagnostic, never a gate).
 const RUSTC_VERSION: &str = "rustc 1.80.1 (cargo 1.80.1)";
 const DOTNET_VERSION: &str = "8.0.201";
 const GO_VERSION: &str = "go version go1.22.1 linux/amd64";
+const NODE_VERSION: &str = "v22.11.0";
+const PYTHON_VERSION: &str = "Python 3.12.6";
+const GRADLE_VERSION: &str = "Gradle 8.10.2";
 
 /// One language block: driver capability is stated FIRST and independently of
 /// the toolchain probe (commands/doctor/output.md) — the in-binary parse-only
@@ -48,6 +55,9 @@ fn stub_bin_dir(stubs: &[&str]) -> tempfile::TempDir {
             "rustc" => format!("#!/bin/sh\necho \"{RUSTC_VERSION}\"\n"),
             "dotnet" => format!("#!/bin/sh\necho \"{DOTNET_VERSION}\"\n"),
             "go" => format!("#!/bin/sh\necho \"{GO_VERSION}\"\n"),
+            "node" => format!("#!/bin/sh\necho \"{NODE_VERSION}\"\n"),
+            "python3" => format!("#!/bin/sh\necho \"{PYTHON_VERSION}\"\n"),
+            "gradle" => format!("#!/bin/sh\necho \"{GRADLE_VERSION}\"\n"),
             other => panic!("unknown stub: {other}"),
         };
         let path = dir.path().join(name);
@@ -71,11 +81,11 @@ fn run_with_path(cwd: &Path, bin_dir: &Path, args: &[&str]) -> Output {
         .expect("run archspec")
 }
 
-/// Acceptance #1: rust, csharp, and go toolchains present; both facts of
+/// Acceptance #1: every table language's ecosystem tool present; both facts of
 /// every language read present.
 #[test]
 fn doctor_all_toolchains_present() {
-    let bin = stub_bin_dir(&["rustc", "dotnet", "go"]);
+    let bin = stub_bin_dir(&["rustc", "dotnet", "go", "node", "python3", "gradle"]);
     let fixture = Fixture::new();
 
     let output = run_with_path(&fixture.root, bin.path(), &["doctor"]);
@@ -88,16 +98,19 @@ fn doctor_all_toolchains_present() {
                 block("rust", Some(RUSTC_VERSION)).as_str(),
                 block("csharp", Some(DOTNET_VERSION)).as_str(),
                 block("go", Some(GO_VERSION)).as_str(),
+                block("ts", Some(NODE_VERSION)).as_str(),
+                block("python", Some(PYTHON_VERSION)).as_str(),
+                block("kotlin", Some(GRADLE_VERSION)).as_str(),
             ],
-            "rust, csharp, go",
+            "rust, csharp, go, ts, python, kotlin",
         )
     );
     assert!(stderr(&output).is_empty(), "no stderr on success");
 }
 
 /// Acceptance #2: only the rust toolchain present. Toolchain availability is
-/// absent for csharp/go, yet the DRIVER capability and the scannable summary
-/// stay present — the two facts never lean on each other.
+/// absent for every other language, yet the DRIVER capability and the
+/// scannable summary stay present — the two facts never lean on each other.
 #[test]
 fn doctor_only_rust_present() {
     let bin = stub_bin_dir(&["rustc"]);
@@ -113,8 +126,11 @@ fn doctor_only_rust_present() {
                 block("rust", Some(RUSTC_VERSION)).as_str(),
                 block("csharp", None).as_str(),
                 block("go", None).as_str(),
+                block("ts", None).as_str(),
+                block("python", None).as_str(),
+                block("kotlin", None).as_str(),
             ],
-            "rust, csharp, go",
+            "rust, csharp, go, ts, python, kotlin",
         )
     );
     assert!(stderr(&output).is_empty(), "no stderr on success");
@@ -137,15 +153,18 @@ fn doctor_without_go() {
                 block("rust", Some(RUSTC_VERSION)).as_str(),
                 block("csharp", Some(DOTNET_VERSION)).as_str(),
                 block("go", None).as_str(),
+                block("ts", None).as_str(),
+                block("python", None).as_str(),
+                block("kotlin", None).as_str(),
             ],
-            "rust, csharp, go",
+            "rust, csharp, go, ts, python, kotlin",
         )
     );
 }
 
-/// Acceptance #4: no supported toolchain at all; every block reads driver
+/// Acceptance #4: no ecosystem tool at all; every block reads driver
 /// present / toolchain absent — scanning works from the in-binary drivers —
-/// and the summary lists all three languages.
+/// and the summary lists all six languages.
 #[test]
 fn doctor_no_toolchain() {
     let bin = stub_bin_dir(&[]);
@@ -161,8 +180,11 @@ fn doctor_no_toolchain() {
                 block("rust", None).as_str(),
                 block("csharp", None).as_str(),
                 block("go", None).as_str(),
+                block("ts", None).as_str(),
+                block("python", None).as_str(),
+                block("kotlin", None).as_str(),
             ],
-            "rust, csharp, go",
+            "rust, csharp, go, ts, python, kotlin",
         )
     );
 }
@@ -299,5 +321,46 @@ fn doctor_failing_probe_reports_absent() {
     assert!(
         !out.contains("toolchain: present"),
         "no toolchain may be reported present:\n{out}"
+    );
+}
+
+/// Acceptance #10 (issue #14): the doctor block set and the scannable summary
+/// equal the capability table's own language census — read from the binary's
+/// `capability matrix`, never from a list in this test. A language the table
+/// carries must appear in the doctor report exactly once; a language the
+/// doctor report carries must be in the table.
+#[test]
+fn doctor_language_set_matches_the_capability_matrix() {
+    let bin = stub_bin_dir(&[]);
+    let fixture = Fixture::new();
+
+    let output = run_with_path(&fixture.root, bin.path(), &["doctor"]);
+    assert_eq!(output.status.code(), Some(0));
+
+    let mut blocks = Vec::new();
+    let mut summary = String::new();
+    for line in stdout(&output).lines() {
+        if let Some(rest) = line.strip_prefix("Scannable languages: ") {
+            summary = rest.to_string();
+        } else if !line.is_empty() && !line.starts_with(' ') {
+            blocks.push(line.to_string());
+        }
+    }
+
+    let matrix = shared::capability::table().languages();
+    let reported: BTreeSet<String> = blocks.iter().cloned().collect();
+    assert_eq!(
+        reported, matrix,
+        "doctor blocks must carry exactly the languages the capability table carries"
+    );
+    assert_eq!(
+        blocks.len(),
+        reported.len(),
+        "every language must get exactly one block"
+    );
+    let summarized: BTreeSet<String> = summary.split(", ").map(str::to_string).collect();
+    assert_eq!(
+        summarized, matrix,
+        "the scannable summary must agree with the capability matrix census"
     );
 }

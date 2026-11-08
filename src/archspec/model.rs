@@ -60,10 +60,12 @@ pub struct Model {
     #[serde(default)]
     pub module_external: BTreeMap<String, Vec<String>>,
     /// ts-only fact site (ts-driver design D2/R2-6): importing file ->
-    /// verbatim spellings of the non-literal `import()` and computed
+    /// single-line spellings of the non-literal `import()` and computed
     /// `require()` specifiers it
     /// carries, the `dynamic import wildcard` facts. Report-only, never
-    /// edges, never red. Absent from JSON when empty — absence states "no
+    /// edges, never red. The load arity is one argument: the assert-style
+    /// two-argument `require(cond, msg)` states no such fact (issue #16).
+    /// Absent from JSON when empty — absence states "no
     /// such facts", so the rust, go and csharp model bytes are untouched
     /// (the same optional-collection law as above).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

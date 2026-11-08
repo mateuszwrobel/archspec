@@ -28,7 +28,7 @@ Two intents drive `doctor`:
 flowchart TD
   START[archspec doctor] --> CHK{can inspect own environment?}
   CHK -- no --> ERR[error message on stderr, non-zero exit]
-  CHK -- yes --> PROBE[probe each supported driver: rust, csharp, go]
+  CHK -- yes --> PROBE[probe each capability-table language: rust, csharp, go, ts, python, kotlin]
   PROBE --> DET[record availability and version/status detail per driver]
   DET --> CALL[call out absent drivers with guidance]
   CALL --> SUM[aggregate scannable languages]
@@ -37,4 +37,10 @@ flowchart TD
   OUT --> OK[exit 0]
 ```
 
-The command enumerates the supported language drivers (`rust`, `csharp`, `go`), probes the environment for each, records presence and version detail, marks absent drivers with guidance, aggregates the scannable set, and writes a deterministic report to stdout. A run that cannot inspect its own environment fails with a message on stderr and a non-zero exit; every successful report exits `0` regardless of how many drivers are missing.
+The command enumerates the languages the driver capability table carries
+(`rust`, `csharp`, `go`, `ts`, `python`, `kotlin`), probes the environment for
+each, records presence and version detail, marks absent drivers with guidance,
+aggregates the scannable set, and writes a deterministic report to stdout. A
+run that cannot inspect its own environment fails with a message on stderr and
+a non-zero exit; every successful report exits `0` regardless of how many
+drivers are missing.

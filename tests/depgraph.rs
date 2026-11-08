@@ -1145,14 +1145,22 @@ fn aggregate_units_forces_the_unit_tier_above_the_cap_without_note() {
 }
 
 #[test]
-fn aggregate_modules_pins_the_top_projection_without_descending() {
+fn aggregate_modules_projects_the_file_tier_onto_the_module_roots() {
     let tree = file_grained_workspace(4);
     let pinned = tree.run(&["depgraph", "modules", "--aggregate", "modules"]);
     assert_eq!(pinned.status.code(), Some(0), "{}", stderr(&pinned));
     assert_eq!(stderr(&pinned), "");
     let out = stdout(&pinned);
-    assert!(out.contains("root"), "the top fold of a file tier is the single top node:\n{out}");
-    assert!(!out.contains("packages"), "the pinned level must not descend:\n{out}");
+    assert!(
+        out.contains("[\"@big/a\"]") && out.contains("[\"@big/b\"]"),
+        "the module roots of a member-owned file tier are the owning units:\n{out}"
+    );
+    assert_eq!(
+        mermaid_census(&out),
+        (2, 1),
+        "the folded file edges merge into one module-root edge:\n{out}"
+    );
+    assert!(!out.contains("packages"), "the pinned level must not descend to file paths:\n{out}");
     // The same tree under the automatic rule does descend (to file nodes) —
     // the flag alone changed the level, bypassing the fold/descend rule.
     let automatic = tree.run(&["depgraph", "modules"]);
@@ -1160,6 +1168,100 @@ fn aggregate_modules_pins_the_top_projection_without_descending() {
     assert!(
         stdout(&automatic).contains("packages/a/src/f0.ts"),
         "the automatic render of this tree keeps its file-tier bytes"
+    );
+}
+
+// --- the file-tier modules projection (GitHub issue 15) ----------------------
+
+/// The issue's two-package workspace verbatim: a root manifest declaring the
+/// workspaces, one source file per package, beta's file importing alpha's.
+/// The automatic render shows the file edge, `--aggregate units` shows the
+/// unit tier, and `--aggregate modules` must project the file tier onto the
+/// per-unit module roots instead of collapsing it to a lone `root` node.
+fn issue15_workspace() -> Fixture {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\"name\":\"root\",\"version\":\"1.0.0\",\"workspaces\":[\"packages/*\"]}\n",
+    );
+    tree.write(
+        "packages/alpha/package.json",
+        "{\"name\":\"alpha\",\"version\":\"1.0.0\",\"type\":\"module\",\"main\":\"src/index.ts\"}\n",
+    );
+    tree.write(
+        "packages/beta/package.json",
+        "{\"name\":\"beta\",\"version\":\"1.0.0\",\"type\":\"module\",\"main\":\"src/index.ts\"}\n",
+    );
+    tree.write("packages/alpha/src/index.ts", "export const a = 1;\n");
+    tree.write(
+        "packages/beta/src/index.ts",
+        "import { a } from \"../../alpha/src/index.js\";\nexport const b = a;\n",
+    );
+    tree
+}
+
+/// (nodes, edges) of a mermaid body: declaration lines versus edge lines.
+fn mermaid_census(out: &str) -> (usize, usize) {
+    (
+        out.lines()
+            .filter(|line| !line.contains("-->") && line.trim() != "graph TD" && !line.trim().is_empty())
+            .count(),
+        out.lines().filter(|line| line.contains("-->")).count(),
+    )
+}
+
+#[test]
+fn issue15_repro_automatic_projection_shows_the_file_edge() {
+    let tree = issue15_workspace();
+    let output = tree.run(&["depgraph", "modules"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.contains("[\"packages/beta/src/index.ts\"]")
+            && out.contains("[\"packages/alpha/src/index.ts\"]"),
+        "the automatic render keeps the file nodes:\n{out}"
+    );
+    assert_eq!(
+        mermaid_census(&out),
+        (2, 1),
+        "the automatic render keeps the one file edge:\n{out}"
+    );
+}
+
+#[test]
+fn issue15_repro_units_projection_shows_units_and_the_unit_edge() {
+    let tree = issue15_workspace();
+    let output = tree.run(&["depgraph", "modules", "--aggregate", "units"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert_eq!(
+        mermaid_census(&out),
+        (3, 1),
+        "three unit nodes (alpha, beta, root) and one unit edge:\n{out}"
+    );
+    assert!(out.contains("beta --> alpha"), "{out}");
+}
+
+#[test]
+fn issue15_repro_modules_projection_projects_onto_the_module_roots() {
+    let tree = issue15_workspace();
+    let output = tree.run(&["depgraph", "modules", "--aggregate", "modules"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stderr(&output), "", "a projection this honest states no degradation");
+    let out = stdout(&output);
+    assert_eq!(
+        mermaid_census(&out),
+        (2, 1),
+        "two module-root nodes (alpha, beta) and the merged import edge:\n{out}"
+    );
+    assert!(
+        out.contains("beta --> alpha"),
+        "the cross-package import projects onto the module roots:\n{out}"
+    );
+    assert!(!out.contains("packages"), "no file path survives the projection:\n{out}");
+    assert!(
+        !out.lines().any(|line| line.trim() == "root"),
+        "the lone `root` node was the bug: {out}"
     );
 }
 

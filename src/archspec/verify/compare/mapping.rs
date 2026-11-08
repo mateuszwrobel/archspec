@@ -3,7 +3,7 @@
 //! matches into the mapping, and derive the module tier the checks read.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use super::pattern::{matches_pattern, module_path_matches};
 use super::claims::flatten_claims;
 use crate::archspec::language;
@@ -165,13 +165,59 @@ pub(super) fn is_test_module(model: &Model, module_path: &str) -> bool {
 /// Resolution is by the model's proven test-gated set (`Model::is_test_gated`),
 /// NOT by the path *name* — a module merely named `tests` without a test cfg is
 /// production and must participate in the dependency graph and cycles.
-pub fn count_model_edges(model: &Model) -> (usize, usize) {
+pub fn count_model_edges<'m>(model: &'m Model) -> (usize, usize) {
     let mut pairs: BTreeSet<(String, String)> = model
         .edges
         .iter()
         .filter(|edge| edge.from != edge.to)
         .map(|edge| (edge.from.clone(), edge.to.clone()))
         .collect();
+    let mut soft_owner: HashMap<&str, (&str, &String)> = HashMap::new();
+    for (unit, paths) in &model.soft_structure {
+        for covered in paths {
+            match soft_owner.get(covered.as_str()) {
+                // Keep the first unit that reached this path (declaration
+                // order), replacing only on a strictly longer path, exactly
+                // like the winner rule inside `owning_unit`.
+                Some((previous, _)) if previous.len() >= covered.len() => {}
+                _ => {
+                    soft_owner.insert(covered.as_str(), (covered.as_str(), unit));
+                }
+            }
+        }
+    }
+    let mut owner_memo: HashMap<&'m str, Option<String>> = HashMap::new();
+    // Issue #17: `owning_unit` scans the whole soft tier, so the per-edge
+    // calls made this loop quadratic on a file-tier model. A soft path covers
+    // `module_path` only by being the path itself or a `::`-ancestor of it,
+    // so a form -> unit index plus the ancestor walk answers the same
+    // longest-cover winner (ties stay with the first declaring unit); paths
+    // with no covering soft path fall through to the untouched `owning_unit`,
+    // memoized per path.
+    let mut owner_of = |path: &'m str| -> Option<String> {
+        if let Some(known) = owner_memo.get(path) {
+            return known.clone();
+        }
+        let mut best: Option<(usize, &String)> = None;
+        let mut current = path;
+        loop {
+            if let Some(&(covered, unit)) = soft_owner.get(current)
+                && best.is_none_or(|(len, _)| covered.len() > len)
+            {
+                best = Some((covered.len(), unit));
+            }
+            match current.rsplit_once("::") {
+                Some((parent, _)) => current = parent,
+                None => break,
+            }
+        }
+        let answer = match best {
+            Some((_, unit)) => Some(unit.clone()),
+            None => owning_unit(model, path),
+        };
+        owner_memo.insert(path, answer.clone());
+        answer
+    };
     for edge in &model.module_edges {
         if is_test_module(model, &edge.from) || is_test_module(model, &edge.to) {
             continue;
@@ -180,8 +226,8 @@ pub fn count_model_edges(model: &Model) -> (usize, usize) {
         // there; an unowned `to` keeps the module path as its identity, so a
         // dependency no unit claims still counts once instead of vanishing or
         // doubling a stated pair.
-        let from_unit = owning_unit(model, &edge.from).unwrap_or_else(|| edge.unit.clone());
-        let to_unit = owning_unit(model, &edge.to).unwrap_or_else(|| edge.to.clone());
+        let from_unit = owner_of(&edge.from).unwrap_or_else(|| edge.unit.clone());
+        let to_unit = owner_of(&edge.to).unwrap_or_else(|| edge.to.clone());
         if from_unit != to_unit {
             pairs.insert((from_unit, to_unit));
         }

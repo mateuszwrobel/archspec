@@ -1031,7 +1031,7 @@
         "modules"
       ],
       "exit_class": 0,
-      "witness": "--aggregate modules pins the single top-level node: no file-level nodes, no unit edges, no note",
+      "witness": "--aggregate modules projects the file tier onto per-unit module roots: the 21 module-root nodes and the merged edges, no file paths, no root package node, no note",
       "status": "pass"
     },
     {

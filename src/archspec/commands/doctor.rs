@@ -1,5 +1,6 @@
+use crate::archspec::capability;
 use crate::archspec::cli;
-use crate::archspec::language::Language;
+use crate::archspec::language::{self, Language};
 use crate::archspec::scan;
 
 /// Test seam: when set, `doctor` reports that it cannot inspect its own
@@ -8,18 +9,33 @@ use crate::archspec::scan;
 /// "absent" findings). Documented in docs/archspec/commands/doctor/acceptance.md.
 const INSPECT_FAIL_ENV: &str = "ARCHSPEC_DOCTOR_FAIL";
 
-pub const HELP: &str = "usage: archspec doctor\nreport driver capability and toolchain availability (rust, csharp, go) as separate facts\n\n  takes no arguments or flags\n";
+pub const HELP: &str = "usage: archspec doctor\nreport driver capability and toolchain availability as separate facts\n\n  takes no arguments or flags\n";
 
-const LANGUAGES: [Language; 3] = [Language::Rust, Language::Csharp, Language::Go];
+/// The languages of the doctor report: every language the driver capability
+/// table carries a row for (issue #14 — the table is the single source; this
+/// file keeps NO private list), in the order of the ONE driver-name table.
+/// A language added to the capability table appears in the report with no
+/// doctor change.
+fn report_languages() -> Vec<Language> {
+    language::LANGUAGES
+        .iter()
+        .map(|(_, language)| *language)
+        .filter(|language| {
+            capability::CAPABILITIES
+                .iter()
+                .any(|row| &row.0 == language)
+        })
+        .collect()
+}
 
 /// `archspec doctor` (commands/doctor/cli.md). Zero args, zero flags. Per
-/// supported language it reports two INDEPENDENT facts: driver capability
-/// (the in-binary, parse-only driver works without any toolchain — see the
-/// capability table) and toolchain availability on PATH (a diagnostic detail,
-/// never a scanning gate). The summary lists the languages whose DRIVER is
-/// present. A report is success even when every toolchain is absent; only
-/// invalid invocations and an uninspectable environment exit non-zero
-/// (commands/doctor/errors.md).
+/// language the capability table carries it reports two INDEPENDENT facts:
+/// driver capability (the in-binary, parse-only driver works without any
+/// toolchain — see the capability table) and toolchain availability on PATH
+/// (a diagnostic detail, never a scanning gate). The summary lists the
+/// languages whose DRIVER is present. A report is success even when every
+/// toolchain is absent; only invalid invocations and an uninspectable
+/// environment exit non-zero (commands/doctor/errors.md).
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(args, &[])?;
     if !parsed.positionals.is_empty() {
@@ -35,7 +51,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let mut scannable = Vec::new();
     let mut blocks = Vec::new();
-    for language in LANGUAGES {
+    for language in report_languages() {
         let mut lines = vec![language.as_str().to_string()];
         if scan::driver_available(language) {
             scannable.push(language.as_str());
@@ -89,19 +105,18 @@ fn probe(language: Language) -> Option<String> {
         Language::Rust => ("rustc", &["--version"]),
         Language::Csharp => ("dotnet", &["--version"]),
         Language::Go => ("go", &["version"]),
-        // The ts row joins the LANGUAGES list with the extraction arm; the
-        // probe is ready ahead of it (the driver itself needs no external
-        // toolchain — the grammars are compiled in).
+        // The ts driver needs no external toolchain — the grammars are
+        // compiled in; the node probe is a diagnostic of the user's
+        // environment, never a scanning gate.
         Language::Ts => ("node", &["--version"]),
         // The python driver needs NO interpreter (python driver record P3
-        // no-venv law): this arm keeps the match total. The row never
-        // enters LANGUAGES, so no probe ever runs it; nothing about python
-        // availability is a finding.
+        // no-venv law): the python3 probe is a diagnostic of the user's
+        // environment, never a finding about scanning.
         Language::Python => ("python3", &["--version"]),
         // The kotlin driver needs NO JDK and NO gradle daemon (kotlin
-        // driver record K-P3 — the python no-venv law mirrored): this arm
-        // keeps the match total. The row never enters LANGUAGES, so no
-        // probe ever runs it; nothing about java availability is a finding.
+        // driver record K-P3 — the python no-venv law mirrored): the gradle
+        // probe is a diagnostic of the user's environment, never a finding
+        // about scanning.
         Language::Kotlin => ("gradle", &["--version"]),
     };
     let output = probe_spawn(binary, args).ok()?;

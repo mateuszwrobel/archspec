@@ -629,7 +629,10 @@ owner = "the `generated source not built` catalog entry of `archspec help diagno
 owner_surfaces = ["help diagnostics"]
 relations = ["echo", "cite"]
 canonical = "generated source not built: <verbatim-target> — gitignored <pattern-file>:<line>"
-canonical_fragments = ["generated source not built: <verbatim-target> — gitignored <pattern-file>:<line>"]
+canonical_fragments = [
+  "generated source not built: <verbatim-target> — gitignored <pattern-file>:<line>",
+  "generated source not built: <verbatim-target> — NAPI-RS loader <index-file>:<line>",
+]
 signatures = ["generated source not built"]
 dedicated_guard = "tests/ts_driver.rs"
 

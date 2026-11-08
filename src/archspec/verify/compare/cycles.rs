@@ -1,7 +1,7 @@
 //! The no_cycles arm: boundary-tier and file-tier cycle detection over
 //! the declared groups, SCC computation, and cycle path rendering.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use super::claims::{Claim, claim_unit_fallback};
 use super::mapping::file_grained_rows;
 use super::claims::claim_owner;
@@ -72,8 +72,16 @@ pub(super) fn file_tier_report_cycles(
         .cloned()
         .collect();
     let mut reports = Vec::new();
+    // Issue #17: one out-edge index for the whole sweep (see adjudicate_cycles).
+    let mut file_induced_out: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (from, to) in &file_induced {
+        file_induced_out
+            .entry(from.as_str())
+            .or_default()
+            .push(to.as_str());
+    }
     for scc in strongly_connected_components(&files, &file_induced) {
-        let Some(path) = find_cycle(&scc, &file_induced) else {
+        let Some(path) = find_cycle_indexed(&scc, &file_induced_out) else {
             continue;
         };
         if projection_reports_claim_cycle(model, &scc, &file_induced, claims, claim_cycle_edges) {
@@ -252,9 +260,15 @@ fn adjudicate_cycles(
     // (R3-4/R3-7: an adjacency the claim report never printed cannot
     // stand in for a file cycle, even when it exists).
     let mut claim_cycle_edges: BTreeSet<(String, String)> = BTreeSet::new();
+    // Issue #17: one out-edge index for the whole sweep; the per-component
+    // walk in `find_cycle` used to rescan `induced` per step.
+    let mut induced_out: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (from, to) in &induced {
+        induced_out.entry(from.as_str()).or_default().push(to.as_str());
+    }
 
     for scc in strongly_connected_components(group, &induced) {
-        if let Some(path) = find_cycle(&scc, &induced) {
+        if let Some(path) = find_cycle_indexed(&scc, &induced_out) {
             for pair in path.windows(2) {
                 claim_cycle_edges.insert((pair[0].clone(), pair[1].clone()));
             }
@@ -576,27 +590,42 @@ pub(super) fn strongly_connected_components(
 /// outgoing target until a node on the path repeats; the repeated segment is
 /// the cycle. A singleton without a self-loop yields no cycle.
 pub(super) fn find_cycle(nodes: &[String], edges: &BTreeSet<(String, String)>) -> Option<Vec<String>> {
-    let start = nodes.iter().next()?;
-    let mut path = vec![start.clone()];
-    let mut position: BTreeMap<String, usize> = BTreeMap::new();
-    position.insert(start.clone(), 0);
-    let mut current = start.clone();
+    // Issue #17: the walk used to rescan the whole edge set for every path
+    // step, making one call O(path x edges). Indexing the out-edges once per
+    // call keeps the successor rule identical — the smallest `to` inside
+    // `nodes` from the current node — because iterating the set already
+    // yields pairs in (from, to) order, so the smallest candidate inside
+    // each list is its first member that lies in `nodes`.
+    let mut out: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (from, to) in edges {
+        out.entry(from.as_str()).or_default().push(to.as_str());
+    }
+    find_cycle_indexed(nodes, &out)
+}
+
+/// The walk of `find_cycle` against a prebuilt out-edge index, so callers
+/// that sweep many strongly connected components pay for the index once
+/// (issue #17).
+fn find_cycle_indexed(nodes: &[String], out: &BTreeMap<&str, Vec<&str>>) -> Option<Vec<String>> {
+    let start = nodes.iter().map(String::as_str).next()?;
+    let inside: HashSet<&str> = nodes.iter().map(String::as_str).collect();
+    let mut path: Vec<&str> = vec![start];
+    let mut position: BTreeMap<&str, usize> = BTreeMap::new();
+    position.insert(start, 0);
+    let mut current = start;
 
     loop {
-        let next = edges
-            .iter()
-            .filter(|(from, to)| *from == current && nodes.contains(to))
-            .map(|(_, to)| to)
-            .min()
-            .cloned();
+        let next = out
+            .get(current)
+            .and_then(|successors| successors.iter().copied().find(|to| inside.contains(to)));
         let next = next?;
-        if let Some(&index) = position.get(&next) {
-            let mut cycle = path[index..].to_vec();
-            cycle.push(next.clone());
+        if let Some(&index) = position.get(next) {
+            let mut cycle: Vec<String> = path[index..].iter().map(|node| node.to_string()).collect();
+            cycle.push(next.to_string());
             return Some(cycle);
         }
-        position.insert(next.clone(), path.len());
-        path.push(next.clone());
+        position.insert(next, path.len());
+        path.push(next);
         current = next;
     }
 }

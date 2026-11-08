@@ -103,7 +103,7 @@ fn workflow_bootstrap_sentence_with_the_recipe_byte_untouched() {
     for row in [
         "init scaffold a minimal base spec to start from.",
         "update snapshot the current model as a seed spec once the architecture is healthy.",
-        "doctor report driver capability and toolchain availability (rust, csharp, go) as separate facts",
+        "doctor report driver capability and toolchain availability as separate facts — drivers parse in-binary, toolchains never gate",
         "skill install the agent-facing audit skill:",
     ] {
         assert!(

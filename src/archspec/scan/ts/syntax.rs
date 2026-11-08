@@ -10,7 +10,13 @@
 //! carrying its own `type` modifier splits the statement across the two
 //! edge kinds. A `call_expression` whose function node is the grammar's
 //! `import` is a dynamic import — a single `string` argument is literal,
-//! anything else is the non-literal wildcard case named in D2.
+//! any other SINGLE argument is the non-literal wildcard case named in D2.
+//! The arity law (issue #16): a load call carries exactly one argument. A
+//! second argument is the assert-style `require(cond, msg)` non-load or an
+//! invalid `import()` arity — either states nothing, no wildcard and no
+//! counter increment. A wildcard spelling is the expression's FIRST source
+//! line: the census rides a machine-readable artifact field, so no raw
+//! source newline enters it.
 
 use crate::archspec::parse::grammar;
 use std::path::Path;
@@ -48,8 +54,8 @@ pub(crate) struct EdgeSpec {
 #[derive(Debug, Default)]
 pub(crate) struct FileFacts {
     pub edges: Vec<EdgeSpec>,
-    /// Verbatim spellings of non-literal dynamic-import and computed
-    /// require specifiers.
+    /// First-line spellings of non-literal dynamic-import and computed
+    /// require specifiers (issue #16: never a raw multi-line fragment).
     pub wildcards: Vec<String>,
     /// Names the file exports (D9 public-API facts).
     pub exports: Vec<String>,
@@ -229,15 +235,31 @@ fn collect_import_clause(clause: Node, source: &[u8], facts: &mut SpecifierFacts
 }
 
 fn collect_declaration_exports(node: Node, source: &[u8], facts: &mut FileFacts) {
+    // The declaration forms an `export` statement can carry. The
+    // signature/variable_declaration arms are the ambient (`declare`)
+    // spellings of a declaration-only module — the `*.d.ts` contracts
+    // whose names must land in the export-symbol tier exactly like the
+    // value forms (GitHub issue #11).
+    if node.kind() == "ambient_declaration" {
+        // `export declare ...` wraps the real declaration node in an
+        // `ambient_declaration`; the name lives one level deeper, so the
+        // walk recurses instead of stopping at the wrapper.
+        for child in children(&node) {
+            collect_declaration_exports(child, source, facts);
+        }
+        return;
+    }
     let named = matches!(
         node.kind(),
         "function_declaration"
             | "generator_function_declaration"
+            | "function_signature"
             | "class_declaration"
             | "interface_declaration"
             | "type_alias_declaration"
             | "enum_declaration"
             | "lexical_declaration"
+            | "variable_declaration"
     );
     if !named {
         return;
@@ -347,10 +369,14 @@ fn collect_dynamic_import(node: Node, source: &[u8], facts: &mut FileFacts) {
     let args: Vec<Node> = arguments
         .named_children(&mut arguments.walk())
         .collect();
+    // The arity law (issue #16): exactly one argument is a load. A second
+    // argument is an invalid import() arity — the call states no specifier
+    // fact and no counter increment, exactly like a non-site.
+    if args.len() != 1 {
+        return;
+    }
     facts.import_statements += 1;
-    if args.len() == 1
-        && let Some(literal) = string_text(args[0], source)
-    {
+    if let Some(literal) = string_text(args[0], source) {
         // A literal dynamic specifier is an ordinary edge (D2).
         facts.edges.push(EdgeSpec {
             specifier: literal,
@@ -361,25 +387,33 @@ fn collect_dynamic_import(node: Node, source: &[u8], facts: &mut FileFacts) {
         });
         return;
     }
-    // The non-literal case (D2): a named wildcard fact, verbatim spelling —
-    // the argument's source text, parentheses excluded.
-    let expression = args
-        .first()
-        .or(args.first().or(Some(&arguments)))
-        .map(|n| node_text(n, source))
-        .unwrap_or_default();
-    facts.wildcards.push(expression.trim().to_string());
+    // The non-literal case (D2): a named wildcard fact — the expression's
+    // source text, parentheses excluded, single-line-truncated (issue #16).
+    facts.wildcards.push(wildcard_spelling(node_text(&args[0], source)));
+}
+
+/// The census spelling of one computed specifier (issue #16): the
+/// expression's source text up to its FIRST line break, trimmed. The
+/// spelling rides the machine-readable `dynamic_import_wildcards` field
+/// and the single-line report line, so raw source newlines never enter
+/// either; a multi-line expression keeps its first line verbatim.
+fn wildcard_spelling(text: &str) -> String {
+    text.lines().next().unwrap_or_default().trim().to_string()
 }
 
 /// The require arm (workplan workplan_archspec_require_tracing D1-D4/D6/D7):
 /// the CommonJS sibling of the dynamic-import arm above. A site is the
-/// `require` identifier CALLED — a property access (`require.resolve`,
-/// `require.cache`, `require.main`) or a member call (`jest.requireActual`,
-/// `jest.requireMock`) is a different function and states nothing (D6). One
+/// `require` identifier CALLED with exactly one argument (the arity law,
+/// issue #16) — a property access (`require.resolve`, `require.cache`,
+/// `require.main`) or a member call (`jest.requireActual`,
+/// `jest.requireMock`) is a different function and states nothing (D6),
+/// and the assert-style two-argument `require(cond, msg)` is an assertion
+/// helper, not a module load: it states nothing either. One
 /// string-literal argument is an ordinary value edge with NO symbols and
-/// never republication (D1/D4); any other argument is the same wildcard
-/// census fact the dynamic arm states (D2). Every site increments the
-/// tripwire counter before the split, exactly like the dynamic arm (D7).
+/// never republication (D1/D4); any other single argument is the same
+/// wildcard census fact the dynamic arm states (D2). Every site
+/// increments the tripwire counter before the literal split, exactly like
+/// the dynamic arm (D7); a non-site never increments.
 fn collect_require_call(node: Node, source: &[u8], facts: &mut FileFacts) {
     let Some(function) = node.child_by_field_name("function") else {
         return;
@@ -393,10 +427,14 @@ fn collect_require_call(node: Node, source: &[u8], facts: &mut FileFacts) {
     let args: Vec<Node> = arguments
         .named_children(&mut arguments.walk())
         .collect();
+    // The arity law (issue #16): `require(cond, msg)` — Node's assertion
+    // form — is no module load. The call states no specifier fact and no
+    // counter increment, exactly like a non-site (D6).
+    if args.len() != 1 {
+        return;
+    }
     facts.import_statements += 1;
-    if args.len() == 1
-        && let Some(literal) = string_text(args[0], source)
-    {
+    if let Some(literal) = string_text(args[0], source) {
         // A literal require is an ordinary value edge (D1) — the resolution
         // seam below decides edge/external/fail-loud exactly as for imports.
         facts.edges.push(EdgeSpec {
@@ -408,14 +446,9 @@ fn collect_require_call(node: Node, source: &[u8], facts: &mut FileFacts) {
         });
         return;
     }
-    // The computed case (D2): the existing wildcard census, verbatim
-    // spelling — the argument's source text, parentheses excluded.
-    let expression = args
-        .first()
-        .or(Some(&arguments))
-        .map(|n| node_text(n, source))
-        .unwrap_or_default();
-    facts.wildcards.push(expression.trim().to_string());
+    // The computed case (D2): the existing wildcard census — the argument's
+    // source text, parentheses excluded, single-line-truncated (issue #16).
+    facts.wildcards.push(wildcard_spelling(node_text(&args[0], source)));
 }
 
 fn collect(node: &Node, source: &[u8], facts: &mut FileFacts) {

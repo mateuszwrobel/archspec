@@ -286,8 +286,9 @@ Supporting commands:
              healthy. The seed may emit parallel unit-tier and namespace-tier
              boundaries for one project with differing depend_on sets — treat
              it as a starting point and reconcile it against depgraph modules.
-  doctor     report driver capability and toolchain availability (rust, csharp, go)
-             as separate facts — drivers parse in-binary, toolchains never gate.
+  doctor     report driver capability and toolchain availability as separate facts
+             — drivers parse in-binary, toolchains never gate; the language set
+             is the capability matrix's own census.
   skill      install the agent-facing audit skill: `archspec skill install`
              drops it at .agent/skills/archspec.md so future agent sessions in
              the project load the extraction rules, the finding classes, and

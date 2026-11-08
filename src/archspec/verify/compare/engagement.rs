@@ -2,7 +2,7 @@
 //! empty domain), unmatched-claim warnings, and dead-reference
 //! resolution with the nearest-name diagnostics.
 
-use std::collections::{BTreeSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use super::claims::{Claim, ModuleRef, entry_specificity};
 use super::cycles::file_claim_index;
 use super::external::{manifest_targets, present_elements};
@@ -58,49 +58,134 @@ pub(super) fn check_claim_engagement(
         }
     }
     let claims_a_path = |pattern: &str, path: &str| module_path_matches(pattern, path);
+    // Issue #17: the per-claim walk over every path made engagement quadratic
+    // on a file-tier model. A pattern without a wildcard matches a path only
+    // by EQUALITY to one of the path's address forms — the path, its bare
+    // last segment, its unit-stripped form, and those forms for each proper
+    // ancestor — exactly the arms `module_path_matches` tries. Indexing the
+    // forms once turns the walk into a set lookup per literal pattern; glob
+    // patterns keep the original scan, and a claim with no patterns is
+    // answered false without a walk (the walk could only return false).
+    let go = model.language == "go";
+    let any_module_patterns = claims
+        .iter()
+        .any(|claim| !claim.matches.modules.is_empty());
+    let mut path_forms: HashSet<&str> = HashSet::new();
+    if any_module_patterns {
+        for path in &paths {
+            collect_address_forms(path, &mut path_forms);
+        }
+    }
+    let unit_names: HashSet<&str> = model.units.iter().map(|unit| unit.name.as_str()).collect();
+    let mut unit_forms: HashSet<&str> = HashSet::new();
+    if go {
+        for unit in &model.units {
+            collect_address_forms(&unit.name, &mut unit_forms);
+        }
+    }
     for claim in claims {
-        let matched = paths.iter().any(|path| {
-            claim
-                .matches
-                .modules
-                .iter()
-                .any(|pattern| claims_a_path(pattern, path))
-        }) || model.units.iter().any(|unit| {
-            claim
-                .matches
-                .units
-                .iter()
-                .any(|pattern| matches_pattern(&unit.name, pattern))
-                || (model.language == "go"
-                    && claim
-                        .matches
-                        .modules
-                        .iter()
-                        .any(|pattern| module_path_matches(pattern, &unit.name)))
-        });
+        let matched = claim.matches.modules.iter().any(|pattern| {
+            if pattern.contains('*') {
+                paths.iter().any(|path| claims_a_path(pattern, path))
+            } else {
+                any_module_patterns && path_forms.contains(pattern.as_str())
+            }
+        }) || claim.matches.units.iter().any(|pattern| {
+            if pattern.contains('*') {
+                model.units.iter().any(|unit| matches_pattern(&unit.name, pattern))
+            } else {
+                unit_names.contains(pattern.as_str())
+            }
+        }) || (go && claim.matches.modules.iter().any(|pattern| {
+            if pattern.contains('*') {
+                model.units.iter().any(|unit| module_path_matches(pattern, &unit.name))
+            } else {
+                unit_forms.contains(pattern.as_str())
+            }
+        }));
         if !matched && !missing_components.contains(claim.name) {
             warnings.push(format!("unmatched claim: {}", claim.name));
         }
     }
-    for first in claims {
-        let claimed: Vec<&str> = paths
-            .iter()
-            .copied()
-            .filter(|path| {
-                first
-                    .matches
-                    .modules
-                    .iter()
-                    .any(|pattern| claims_a_path(pattern, path))
-            })
-            .collect();
-        if claimed.is_empty() {
-            continue;
+    // Loop 2 needs the paths walk only when some claim declares module
+    // patterns; with none, every `claimed` list below is empty (issue #17).
+    if any_module_patterns {
+        // Issue #17: `claimed` used to be a filter over every path per claim,
+        // and the shadow comparison visited every other claim per first —
+        // quadratic in claims x paths and again in claims x claims. The
+        // inverted form index answers `claimed` per literal pattern by
+        // lookup, and a claim can only be shadowed on a path by a claim that
+        // also claims that path (`entry_specificity` answers `None` — and the
+        // comparison false — exactly for the claims that do not), so the
+        // candidate list is the claimers of the least-claimed claimed path,
+        // in claim order, preserving the warning order of the original scan.
+        let mut form_to_paths: HashMap<&str, Vec<&str>> = HashMap::new();
+        for path in &paths {
+            collect_path_forms(path, &mut form_to_paths);
         }
-        for other in claims {
-            if other.name == first.name {
+        let mut glob_claims: Vec<usize> = Vec::new();
+        for (index, claim) in claims.iter().enumerate() {
+            if claim
+                .matches
+                .modules
+                .iter()
+                .any(|pattern| pattern.contains('*'))
+            {
+                glob_claims.push(index);
+            }
+        }
+        let mut claimers: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (index, claim) in claims.iter().enumerate() {
+            for pattern in &claim.matches.modules {
+                if !pattern.contains('*')
+                    && let Some(claimed_paths) = form_to_paths.get(pattern.as_str())
+                {
+                    for path in claimed_paths.iter().copied() {
+                        claimers.entry(path).or_default().push(index);
+                    }
+                }
+            }
+        }
+        for first in claims {
+            let mut claimed: BTreeSet<&str> = BTreeSet::new();
+            for pattern in &first.matches.modules {
+                if pattern.contains('*') {
+                    // Glob patterns keep the scan (rare); their claims are
+                    // candidates through the glob list below.
+                    claimed
+                        .extend(paths.iter().copied().filter(|path| claims_a_path(pattern, path)));
+                } else if let Some(hits) = form_to_paths.get(pattern.as_str()) {
+                    claimed.extend(hits.iter().copied());
+                }
+            }
+            if claimed.is_empty() {
                 continue;
             }
+            let anchor = claimed
+                .iter()
+                .min_by_key(|path| claimers.get(*path).map_or(usize::MAX, Vec::len))
+                .copied()
+                .expect("claimed non-empty");
+            let mut candidates: Vec<usize> = claimers.get(anchor).cloned().unwrap_or_default();
+            candidates.extend(
+                glob_claims
+                    .iter()
+                    .copied()
+                    .filter(|index| {
+                        claims[*index]
+                            .matches
+                            .modules
+                            .iter()
+                            .any(|pattern| claims_a_path(pattern, anchor))
+                    }),
+            );
+            candidates.sort_unstable();
+            candidates.dedup();
+            for other_index in candidates {
+                let other = &claims[other_index];
+                if other.name == first.name {
+                    continue;
+                }
             let covers = claimed.iter().all(|path| {
                 let mine = first
                     .matches
@@ -127,12 +212,55 @@ pub(super) fn check_claim_engagement(
                 }
             });
             if covers {
-                warnings.push(format!(
-                    "shadowed claim: {} is fully claimed by {}",
-                    first.name, other.name
-                ));
+                    warnings.push(format!(
+                        "shadowed claim: {} is fully claimed by {}",
+                        first.name, other.name
+                    ));
+                }
             }
         }
+    }
+}
+
+/// The address forms a literal `matches.modules` pattern compares against,
+/// mirroring every arm `module_path_matches` tries: the path, its bare last
+/// segment, its unit-stripped form, and those forms for each proper
+/// ancestor (issue #17, engagement index).
+fn collect_address_forms<'a>(path: &'a str, forms: &mut HashSet<&'a str>) {
+    let mut consider = |s: &'a str| {
+        forms.insert(s);
+        forms.insert(s.rsplit("::").next().unwrap_or(s));
+        let stripped = strip_unit(s);
+        forms.insert(stripped);
+        forms.insert(stripped.rsplit("::").next().unwrap_or(stripped));
+    };
+    consider(path);
+    let mut current = path;
+    while let Some((rest, _)) = current.rsplit_once("::") {
+        current = rest;
+        consider(current);
+    }
+}
+
+/// The same address forms pointing the other way: form -> the paths carrying
+/// it, the inverted index the shadowed-claim scan reads (issue #17).
+fn collect_path_forms<'a>(path: &'a str, forms: &mut HashMap<&'a str, Vec<&'a str>>) {
+    let mut consider = |s: &'a str| {
+        let stripped = strip_unit(s);
+        for form in [
+            s,
+            s.rsplit("::").next().unwrap_or(s),
+            stripped,
+            stripped.rsplit("::").next().unwrap_or(stripped),
+        ] {
+            forms.entry(form).or_default().push(path);
+        }
+    };
+    consider(path);
+    let mut current = path;
+    while let Some((rest, _)) = current.rsplit_once("::") {
+        current = rest;
+        consider(current);
     }
 }
 

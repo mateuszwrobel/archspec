@@ -4,13 +4,12 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeSet};
-use super::claims::{Claim, claim_unit_fallback, claim_unit_named, related_by_containment};
+use super::claims::{Claim, ClaimIndex, related_by_containment};
 use super::contracts::{ExposeVerdicts, adjudicate_expose, claim_covers_path};
 use super::cycles::{file_claim_index, file_tier_report_cycles, find_cycle, strongly_connected_components};
 use super::mapping::{Mapping, augment_with_modules, is_test_module, map_units, owning_unit};
 use super::pattern::matches_pattern;
 use super::claims::claim_by_name;
-use super::claims::claim_owner;
 use super::claims::cumulative_forbidden;
 use super::claims::flatten_claims;
 use super::claims::policy_allowed;
@@ -171,6 +170,9 @@ pub struct Adjudicator<'a> {
     /// never a diagram-side re-derivation. A spec declaring no expose anywhere
     /// yields the neutral verdicts, so the coarse render carries no API marks.
     expose: ExposeVerdicts,
+    /// Indexed claim resolution for the per-edge placement calls (issue #17)
+    /// — the same answers `claim_owner` scans give, memoized across edges.
+    claims_index: ClaimIndex,
 }
 
 impl<'a> Adjudicator<'a> {
@@ -182,8 +184,15 @@ impl<'a> Adjudicator<'a> {
         let derived = effective_module_tier(model, &mapping);
         let claims = flatten_claims(modules);
         let composition_sources = composition_sources(&derived);
-        let graph =
-            resolve_module_edges(&derived, &mapping, modules, &claims, &composition_sources);
+        let claims_index = ClaimIndex::new(&claims);
+        let graph = resolve_module_edges(
+            &derived,
+            &mapping,
+            modules,
+            &claims,
+            &composition_sources,
+            Some(&claims_index),
+        );
         let violating = graph
             .pairs
             .iter()
@@ -207,6 +216,7 @@ impl<'a> Adjudicator<'a> {
             derived,
             slashed_paths,
             expose,
+            claims_index,
         }
     }
 
@@ -239,8 +249,9 @@ impl<'a> Adjudicator<'a> {
     /// or `None` when no claim owns the endpoint.
     pub fn claim_naming(&self, path: &str) -> Option<&'a str> {
         let path = self.adjudication_path(path);
-        claim_owner(&path, &self.claims)
-            .or_else(|| claim_unit_fallback(&path, &self.claims))
+        self.claims_index
+            .claim_owner(&self.claims, &path)
+            .or_else(|| self.claims_index.claim_unit_fallback(&path, &self.claims))
             .map(|index| self.claims[index].name)
     }
 
@@ -345,13 +356,15 @@ impl<'a> Adjudicator<'a> {
             to: projected_to.into_owned(),
             symbols: edge.symbols.clone(),
         };
-        match place_module_edge(
+        let placement = place_module_edge(
             &projected,
             &self.derived,
             &self.claims,
             self.modules,
             &self.composition_sources,
-        ) {
+            &self.claims_index,
+        );
+        match placement {
             EdgePlacement::Pair { from, to, .. } => ModuleRender::Arrow {
                 from,
                 from_path: &edge.from,
@@ -567,7 +580,16 @@ pub(super) fn resolve_module_edges(
     modules: &[Module],
     claims: &[Claim<'_>],
     composition_sources: &BTreeSet<String>,
+    index: Option<&ClaimIndex>,
 ) -> BoundaryGraph {
+    let owned_index;
+    let index: &ClaimIndex = match index {
+        Some(shared) => shared,
+        None => {
+            owned_index = ClaimIndex::new(claims);
+            &owned_index
+        }
+    };
     let mut pairs = BTreeSet::new();
     let mut value_pairs = BTreeSet::new();
     let mut fallback_pairs = BTreeSet::new();
@@ -587,7 +609,7 @@ pub(super) fn resolve_module_edges(
         }
     }
     for edge in &model.module_edges {
-        match place_module_edge(edge, model, claims, modules, composition_sources) {
+        match place_module_edge(edge, model, claims, modules, composition_sources, index) {
             EdgePlacement::Pair {
                 from,
                 to,
@@ -625,18 +647,37 @@ pub(super) fn place_module_edge<'a>(
     claims: &[Claim<'a>],
     modules: &[Module],
     composition_sources: &BTreeSet<String>,
+    index: &ClaimIndex,
 ) -> EdgePlacement<'a> {
     if is_test_module(model, &edge.from) || is_test_module(model, &edge.to) {
         return EdgePlacement::Composition;
     }
-    let from_owner = claim_owner(&edge.from, claims)
+    let from_owner = index
+        .claim_owner(claims, &edge.from)
         .map(|index| (index, false))
-        .or_else(|| claim_unit_fallback(&edge.from, claims).map(|index| (index, true)))
-        .or_else(|| claim_unit_named(&edge.unit, claims).map(|index| (index, true)));
-    let to_owner = claim_owner(&edge.to, claims)
+        .or_else(|| {
+            index
+                .claim_unit_fallback(&edge.from, claims)
+                .map(|index| (index, true))
+        })
+        .or_else(|| {
+            index
+                .claim_unit_named(&edge.unit, claims)
+                .map(|index| (index, true))
+        });
+    let to_owner = index
+        .claim_owner(claims, &edge.to)
         .map(|index| (index, false))
-        .or_else(|| claim_unit_fallback(&edge.to, claims).map(|index| (index, true)))
-        .or_else(|| claim_unit_named(&edge.unit, claims).map(|index| (index, true)));
+        .or_else(|| {
+            index
+                .claim_unit_fallback(&edge.to, claims)
+                .map(|index| (index, true))
+        })
+        .or_else(|| {
+            index
+                .claim_unit_named(&edge.unit, claims)
+                .map(|index| (index, true))
+        });
     let mut unowned: Vec<String> = Vec::new();
     if from_owner.is_none() {
         unowned.push(edge.from.clone());

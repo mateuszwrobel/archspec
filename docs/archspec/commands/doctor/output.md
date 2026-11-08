@@ -7,15 +7,23 @@
 
 ## Report structure
 
-The report always contains, in a canonical fixed order (`rust`, then `csharp`, then `go`):
+The report always contains, one block per language the capability table
+carries, in the driver-table order (`rust`, `csharp`, `go`, `ts`, `python`,
+`kotlin`):
 
-1. **One block per supported driver** — driver name (`rust`, `csharp`, `go`) and two INDEPENDENT facts, each on its own line:
+1. **One block per supported driver** — driver name (`rust`, `csharp`, `go`,
+   `ts`, `python`, `kotlin`) and two INDEPENDENT facts, each on its own line:
    - `driver:` the in-binary capability state — `present (in-binary, parse-only)` when the language driver can run (matching the capability table: drivers parse sources without any toolchain), `absent` only when the driver is disabled in this environment;
-   - `toolchain:` availability on PATH — `present (<version string>)` when the probe answered, `absent` otherwise. An absent toolchain is a diagnostic detail, never a scanning gate; the block then carries a `note:` line stating that scanning does not require the toolchain.
+   - `toolchain:` availability on PATH — `present (<version string>)` when the probe answered, `absent` otherwise. An absent toolchain is a diagnostic detail, never a scanning gate; the block then carries a `note:` line stating that scanning does not require the toolchain. The probe binary per language is the ecosystem's own tool (`rustc`, `dotnet`, `go`, `node`, `python3`, `gradle`); no driver needs it.
 2. **Guidance for absent drivers** — only a driver that cannot run is called out with a next step; a merely absent toolchain gets the note, not install pressure.
 3. **Summary** — the line `Scannable languages: <list>`, the languages whose DRIVER is present (`none` when every driver is disabled) — the toolchain probes never change this list.
 
-The probe is a diagnostic, not a scanning gate: every language driver ships inside the archspec binary, so the `toolchain:` line describes the user's toolchain environment, while the `driver:` line and the summary state whether the language can actually be scanned.
+The block set is derived at runtime from the driver capability table, not a
+hand-maintained list: a language the table carries appears in the report.
+The probe is a diagnostic, not a scanning gate: every language driver ships
+inside the archspec binary, so the `toolchain:` line describes the user's
+toolchain environment, while the `driver:` line and the summary state whether
+the language can actually be scanned.
 
 ## Determinism
 
@@ -23,7 +31,8 @@ The same environment always produces **byte-identical output**. Block order and 
 
 ## Example
 
-On a machine with Rust and C#/.NET toolchains present and no Go toolchain, the report is (representative):
+On a machine with the Rust and Node toolchains present and no other toolchain,
+the report is (representative):
 
 ```
 rust
@@ -32,14 +41,29 @@ rust
 
 csharp
   driver: present (in-binary, parse-only)
-  toolchain: present (8.0.201)
+  toolchain: absent
+  note: scanning csharp does not require the toolchain; the driver parses sources in-binary
 
 go
   driver: present (in-binary, parse-only)
   toolchain: absent
   note: scanning go does not require the toolchain; the driver parses sources in-binary
 
-Scannable languages: rust, csharp, go
+ts
+  driver: present (in-binary, parse-only)
+  toolchain: present (v22.11.0)
+
+python
+  driver: present (in-binary, parse-only)
+  toolchain: absent
+  note: scanning python does not require the toolchain; the driver parses sources in-binary
+
+kotlin
+  driver: present (in-binary, parse-only)
+  toolchain: absent
+  note: scanning kotlin does not require the toolchain; the driver parses sources in-binary
+
+Scannable languages: rust, csharp, go, ts, python, kotlin
 ```
 
 Driver names, block order, the two facts, and the summary line are fixed. The exact wording of the version detail depends on what each toolchain reports.

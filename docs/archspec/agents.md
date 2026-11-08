@@ -27,7 +27,7 @@ uses it identically either way.
 **Build from source** works on any commit of the published tree: from the
 crate root run `cargo build --release --bin archspec` and the binary lands
 at `target/release/archspec` (once built, `archspec doctor` reports the
-driver toolchains — rust, csharp, go — the tree can exercise).
+driver languages — rust, csharp, go, ts, python, kotlin — the binary ships).
 
 **Prebuilt release assets** are published with each version tag: each release
 attaches per-platform archives to this repository's release page for the tag,

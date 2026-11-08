@@ -2,7 +2,8 @@
 //! and `[[module.submodules]]` depth-first, resolve which claim owns a
 //! module path (specificity, unit fallback, inheritance, composition).
 
-use std::collections::{BTreeSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use super::pattern::{matches_pattern, strip_unit};
 use crate::archspec::model::Model;
 use crate::archspec::spec;
@@ -188,7 +189,10 @@ pub(super) fn related_by_containment(claims: &[Claim<'_>], a: usize, b: usize) -
     false
 }
 
-/// The claim subtree: the claim itself plus every nested descendant.
+/// The claim subtree: the claim itself plus every nested descendant. The
+/// reference walk kept for the adjacency parity test below; callers use
+/// `subtree_names_with` (issue #17).
+#[cfg(test)]
 pub(super) fn subtree_names<'a>(claims: &[Claim<'a>], index: usize) -> BTreeSet<&'a str> {
     let mut names = BTreeSet::new();
     for (at, claim) in claims.iter().enumerate() {
@@ -200,6 +204,38 @@ pub(super) fn subtree_names<'a>(claims: &[Claim<'a>], index: usize) -> BTreeSet<
             }
             current = claims[step].parent;
         }
+    }
+    names
+}
+
+/// Parent→children adjacency of the claim tree (every index listed once
+/// under its parent; roots appear in no list). Kept for the adjacency
+/// parity test; production callers fold ancestor sets instead (issue #17).
+#[cfg(test)]
+pub(super) fn claim_children(claims: &[Claim<'_>]) -> Vec<Vec<usize>> {
+    let mut children = vec![Vec::new(); claims.len()];
+    for (index, claim) in claims.iter().enumerate() {
+        if let Some(parent) = claim.parent {
+            children[parent].push(index);
+        }
+    }
+    children
+}
+
+/// `subtree_names` over a prebuilt adjacency: the same name set, visited in
+/// time linear in the subtree instead of the whole claim list. Test-only
+/// parity partner of the walk above (issue #17).
+#[cfg(test)]
+pub(super) fn subtree_names_with<'a>(
+    children: &[Vec<usize>],
+    claims: &[Claim<'a>],
+    index: usize,
+) -> BTreeSet<&'a str> {
+    let mut names = BTreeSet::new();
+    let mut stack = vec![index];
+    while let Some(at) = stack.pop() {
+        names.insert(claims[at].name);
+        stack.extend(children[at].iter().copied());
     }
     names
 }
@@ -286,6 +322,15 @@ fn pinned_prefix(pattern: &str, target: &str) -> Option<usize> {
 /// the model rather than resolved by luck; the message names the module path
 /// and both claiming entries.
 pub(super) fn check_ambiguous_module_matches(model: &Model, claims: &[Claim<'_>]) -> Vec<String> {
+    // Issue #17 fast path: with no `matches.modules` patterns declared the
+    // per-path scan below can only produce empty candidate lists, so an
+    // ambiguity is impossible and the paths need not be collected at all.
+    if claims
+        .iter()
+        .all(|claim| claim.matches.modules.is_empty())
+    {
+        return Vec::new();
+    }
     let mut paths: BTreeSet<&str> = BTreeSet::new();
     for module_paths in model.soft_structure.values() {
         paths.extend(module_paths.iter().map(String::as_str));
@@ -294,26 +339,60 @@ pub(super) fn check_ambiguous_module_matches(model: &Model, claims: &[Claim<'_>]
         paths.insert(edge.from.as_str());
         paths.insert(edge.to.as_str());
     }
+
+    // Issue #17: one indexed pass replaces the claims-per-path scan. A
+    // glob-less entry can only score a path by equaling the path, its
+    // unit-stripped form, a `::` ancestor or a bare segment of either (the
+    // `entry_specificity` arms), so those strings are the path's literal
+    // candidates, looked up once each. Entries carrying a `*` keep the
+    // per-path specificity scan; their count is what a spec declares, not
+    // what a tree holds.
+    let mut exact: HashMap<&str, Vec<(usize, usize)>> = HashMap::new();
+    let mut globs: Vec<(usize, usize)> = Vec::new();
+    for (claim, entry) in claims.iter().enumerate() {
+        for (position, pattern) in entry.matches.modules.iter().enumerate() {
+            if pattern.contains('*') {
+                globs.push((claim, position));
+            } else {
+                exact
+                    .entry(pattern.as_str())
+                    .or_default()
+                    .push((claim, position));
+            }
+        }
+    }
+
     let mut found = BTreeSet::new();
+    let mut best: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
     for path in paths {
-        let claims: Vec<(usize, &str, &str)> = claims
+        best.clear();
+        for (key, score) in literal_specificity_keys(path) {
+            if let Some(hits) = exact.get(key) {
+                for &(claim, position) in hits {
+                    merge_candidate(&mut best, claim, position, score);
+                }
+            }
+        }
+        for &(claim, position) in &globs {
+            let pattern = &claims[claim].matches.modules[position];
+            if let Some(score) = entry_specificity(pattern, path) {
+                merge_candidate(&mut best, claim, position, score);
+            }
+        }
+        let entries: Vec<(usize, &str, &str)> = best
             .iter()
-            .filter_map(|claim| {
-                claim
-                    .matches
-                    .modules
-                    .iter()
-                    .filter_map(|pattern| {
-                        entry_specificity(pattern, path).map(|score| (score, pattern.as_str()))
-                    })
-                    .max_by_key(|(score, _)| *score)
-                    .map(|(score, entry)| (score, claim.name, entry))
+            .map(|(&claim, &(score, position))| {
+                (
+                    score,
+                    claims[claim].name,
+                    claims[claim].matches.modules[position].as_str(),
+                )
             })
             .collect();
-        let Some(top) = claims.iter().map(|(score, _, _)| *score).max() else {
+        let Some(top) = entries.iter().map(|(score, _, _)| *score).max() else {
             continue;
         };
-        let tied: Vec<&(usize, &str, &str)> = claims
+        let tied: Vec<&(usize, &str, &str)> = entries
             .iter()
             .filter(|(score, _, _)| *score == top)
             .collect();
@@ -333,4 +412,329 @@ pub(super) fn check_ambiguous_module_matches(model: &Model, claims: &[Claim<'_>]
         }
     }
     found.into_iter().collect()
+}
+
+/// The literal candidate strings for one module path with their scores:
+/// exactly the targets `entry_specificity` compares a glob-less pattern
+/// against. The path itself scores `usize::MAX` (the equality early return);
+/// every other arm pins its whole comparison target, so its score is that
+/// arm's pinned length. The first occurrence of a key carries its highest
+/// score; the merge keeps the maximum anyway.
+fn literal_specificity_keys(path: &str) -> Vec<(&str, usize)> {
+    fn bare(value: &str) -> &str {
+        value.rsplit("::").next().unwrap_or(value)
+    }
+    let mut keys: Vec<(&str, usize)> = Vec::new();
+    push_key(&mut keys, path, usize::MAX);
+    let path_len = path.chars().count();
+    if bare(path) != path {
+        push_key(&mut keys, bare(path), path_len);
+    }
+    let stripped = strip_unit(path);
+    if stripped != path {
+        push_key(&mut keys, stripped, path_len);
+        if bare(stripped) != stripped {
+            push_key(&mut keys, bare(stripped), path_len);
+        }
+    }
+    let mut current = path;
+    while let Some((rest, _)) = current.rsplit_once("::") {
+        current = rest;
+        let current_len = current.chars().count();
+        push_key(&mut keys, current, current_len);
+        if bare(current) != current {
+            push_key(&mut keys, bare(current), current_len);
+        }
+        let ancestor_stripped = strip_unit(current);
+        if ancestor_stripped != current {
+            push_key(&mut keys, ancestor_stripped, current_len);
+            if bare(ancestor_stripped) != ancestor_stripped {
+                push_key(&mut keys, bare(ancestor_stripped), current_len);
+            }
+        }
+    }
+    keys
+}
+
+/// Record a literal candidate key once: the first occurrence carries the
+/// highest score, so a repeat never raises it.
+fn push_key<'a>(keys: &mut Vec<(&'a str, usize)>, key: &'a str, score: usize) {
+    if !keys.iter().any(|(seen, _)| *seen == key) {
+        keys.push((key, score));
+    }
+}
+
+/// Fold one candidate into the path's per-claim best: the highest score
+/// wins, and an equal score keeps the earlier declared entry — the same
+/// first-max law the per-claim `max_by_key` scan applied.
+fn merge_candidate(
+    best: &mut BTreeMap<usize, (usize, usize)>,
+    claim: usize,
+    position: usize,
+    score: usize,
+) {
+    match best.get_mut(&claim) {
+        Some((best_score, best_position)) => {
+            if score > *best_score || (score == *best_score && position < *best_position) {
+                *best_score = score;
+                *best_position = position;
+            }
+        }
+        None => {
+            best.insert(claim, (score, position));
+        }
+    }
+}
+
+/// Indexed claim resolution for the per-edge adjudication loops (GitHub
+/// issue #17). The scans above answer one path at a time by walking EVERY
+/// claim; on a large file-tier model that is quadratic — the openclaw repro
+/// (371k module edges, 54k claims, all claims `units`-only) burned many
+/// minutes in the edge placement while `verify` on the same tree exited
+/// early on its language precondition and never reached this code. The index
+/// restates NO matching law: it memoizes the pure scans by their input
+/// string (the answer depends only on the path or unit, never on the call
+/// order) and adds one fast path — a pattern EQUAL to the whole path scores
+/// `usize::MAX` in `entry_specificity`, the only way to reach that score,
+/// so a hash lookup of that equality replaces the full scan whenever one
+/// claim pins the path exactly; every other shape falls through to the
+/// identical scan, memoized per distinct path.
+pub(crate) struct ClaimIndex {
+    /// `claim_owner`'s answer memoized by module path.
+    owner_memo: RefCell<HashMap<String, Option<usize>>>,
+    /// pattern string → claim indices declaring it verbatim; a hit scores
+    /// `usize::MAX` and no other claim can score equal or higher.
+    exact_map: HashMap<String, Vec<usize>>,
+    /// first-declared-win memos for the unit-fallback arms (C1 law): the
+    /// answer depends only on the unit string, never on the call order.
+    /// Interior-mutable so the per-edge placement stays a `&self` call.
+    fallback_memo: RefCell<HashMap<String, Option<usize>>>,
+    named_memo: RefCell<HashMap<String, Option<usize>>>,
+}
+
+impl ClaimIndex {
+    pub(crate) fn new(claims: &[Claim<'_>]) -> Self {
+        let mut exact_map: HashMap<String, Vec<usize>> = HashMap::new();
+        for (index, claim) in claims.iter().enumerate() {
+            for pattern in claim.matches.modules.iter() {
+                let entry = exact_map.entry(pattern.clone()).or_default();
+                if entry.last() != Some(&index) {
+                    entry.push(index);
+                }
+            }
+        }
+        Self {
+            owner_memo: RefCell::new(HashMap::new()),
+            exact_map,
+            fallback_memo: RefCell::new(HashMap::new()),
+            named_memo: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// `claim_owner`'s answer — the same tie-break as the scan above, via
+    /// the exact-equality fast path or the memoized scan.
+    pub(crate) fn claim_owner(&self, claims: &[Claim<'_>], path: &str) -> Option<usize> {
+        if let Some(answer) = self.owner_memo.borrow().get(path) {
+            return *answer;
+        }
+        let answer = match self.exact_map.get(path) {
+            // Every hit scores `usize::MAX`; among equal scores the scan
+            // keeps the claim with the greatest depth (a nested claim
+            // addresses its territory more precisely, D8), then the
+            // smallest name, independent of declaration order — restate.
+            Some(indices) => indices.iter().copied().max_by(|a, b| {
+                (claims[*a].depth, std::cmp::Reverse(claims[*a].name))
+                    .cmp(&(claims[*b].depth, std::cmp::Reverse(claims[*b].name)))
+            }),
+            None => claim_owner(path, claims),
+        };
+        self.owner_memo.borrow_mut().insert(path.to_string(), answer);
+        answer
+    }
+
+    /// `claim_unit_fallback`'s answer, memoized by the path's unit.
+    pub(crate) fn claim_unit_fallback(&self, path: &str, claims: &[Claim<'_>]) -> Option<usize> {
+        let unit = path.split("::").next().unwrap_or(path);
+        if let Some(answer) = self.fallback_memo.borrow().get(unit) {
+            return *answer;
+        }
+        let answer = claim_unit_fallback(path, claims);
+        self.fallback_memo
+            .borrow_mut()
+            .insert(unit.to_string(), answer);
+        answer
+    }
+
+    /// `claim_unit_named`'s answer, memoized by the edge unit.
+    pub(crate) fn claim_unit_named(&self, unit: &str, claims: &[Claim<'_>]) -> Option<usize> {
+        if unit.is_empty() {
+            return None;
+        }
+        if let Some(answer) = self.named_memo.borrow().get(unit) {
+            return *answer;
+        }
+        let answer = claim_unit_named(unit, claims);
+        self.named_memo.borrow_mut().insert(unit.to_string(), answer);
+        answer
+    }
+}
+
+/// Ancestry closure of one claim: its own index plus every ancestor index
+/// (the claim `subtree_names` reaches, expressed as indices). The
+/// missing-edge inversion (issue #17) reads this instead of re-walking the
+/// whole pair set per declared entry.
+pub(super) fn ancestors_of(claims: &[Claim<'_>], index: usize) -> Vec<usize> {
+    let mut chain = vec![index];
+    let mut current = claims[index].parent;
+    while let Some(at) = current {
+        chain.push(at);
+        current = claims[at].parent;
+    }
+    chain
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn module(name: &str, modules: &[&str], units: &[&str], submodules: Vec<Module>) -> Module {
+        Module {
+            name: name.to_string(),
+            matches: MatchSet {
+                modules: modules.iter().map(|p| p.to_string()).collect(),
+                units: units.iter().map(|p| p.to_string()).collect(),
+                ..Default::default()
+            },
+            contract: Contract::default(),
+            allowed: Allowed::default(),
+            submodules,
+        }
+    }
+
+    /// Fixture law: every shape that separates the index arms — exact
+    /// equality (the `usize::MAX` rank), a trailing-`*` prefix, a complex
+    /// glob, an exact pattern also reached through `strip_unit`, an equal-
+    /// MAX tie across depths and names, and units-only claims for the
+    /// fallback arms.
+    fn fixture() -> Vec<Module> {
+        vec![
+            module("exact", &["a::b"], &[], vec![]),
+            // Same MAX score, deeper: the shallower claim must still win.
+            module(
+                "parent",
+                &["a"],
+                &[],
+                vec![module("nested", &["a::b"], &[], vec![])],
+            ),
+            module("prefix", &["pkg::*"], &[], vec![]),
+            module("complex", &["**::leaf"], &[], vec![]),
+            module("deep", &["a::b::C"], &[], vec![]),
+            // units-only claims (the openclaw seed shape): never a
+            // `claim_owner` answer, always a fallback candidate.
+            module("units-only", &[], &["@scope/p"], vec![]),
+            module("units-and-files", &["src/hidden.ts"], &["@scope/q"], vec![]),
+        ]
+    }
+
+    const PATHS: &[&str] = &[
+        "a::b",
+        "a",
+        "a::b::C",
+        "a::b::C::D",
+        "pkg::sub::thing",
+        "x::y::leaf",
+        "unitx::a::b",
+        "unowned::path",
+        "src/hidden.ts",
+        "@scope/p::m",
+    ];
+
+    #[test]
+    fn indexed_claim_owner_matches_the_scan_on_every_shape() {
+        let modules = fixture();
+        let claims = flatten_claims(&modules);
+        let index = ClaimIndex::new(&claims);
+        for path in PATHS {
+            let scan = claim_owner(path, &claims);
+            // Twice: the second read must come from the memo unchanged.
+            assert_eq!(index.claim_owner(&claims, path), scan, "path {path}");
+            assert_eq!(index.claim_owner(&claims, path), scan, "path {path} (memo)");
+        }
+    }
+
+    #[test]
+    fn indexed_unit_fallbacks_match_the_scans() {
+        let modules = fixture();
+        let claims = flatten_claims(&modules);
+        let index = ClaimIndex::new(&claims);
+        for path in PATHS {
+            let scan = claim_unit_fallback(path, &claims);
+            assert_eq!(index.claim_unit_fallback(path, &claims), scan, "path {path}");
+            assert_eq!(index.claim_unit_fallback(path, &claims), scan, "path {path} (memo)");
+        }
+        for unit in ["", "@scope/p", "@scope/q", "@scope/missing", "a"] {
+            let scan = claim_unit_named(unit, &claims);
+            assert_eq!(index.claim_unit_named(unit, &claims), scan, "unit {unit}");
+            assert_eq!(index.claim_unit_named(unit, &claims), scan, "unit {unit} (memo)");
+        }
+    }
+
+    /// The exact-equality fast path must order MAX ties exactly as the
+    /// scan's tie-break does: smallest depth first, then smallest name,
+    /// independent of declaration order.
+    #[test]
+    fn exact_ties_follow_the_depth_then_name_law() {
+        let modules = vec![
+            module("zeta", &["t::u"], &[], vec![]),
+            module(
+                "alpha-parent",
+                &["t"],
+                &[],
+                vec![module("alpha", &["t::u"], &[], vec![])],
+            ),
+        ];
+        let claims = flatten_claims(&modules);
+        let index = ClaimIndex::new(&claims);
+        // depth-1 "alpha" beats depth-0 "zeta" (the equal-MAX depth law),
+        // and the scan agrees.
+        assert_eq!(index.claim_owner(&claims, "t::u"), claim_owner("t::u", &claims));
+        assert_eq!(claims[index.claim_owner(&claims, "t::u").unwrap()].name, "alpha");
+    }
+
+    /// Issue #17: the adjacency subtree walk returns exactly the name set
+    /// the parent-chain scan produced, at every claim index.
+    #[test]
+    fn subtree_adjacency_matches_the_parent_walk() {
+        let modules = fixture();
+        let claims = flatten_claims(&modules);
+        let children = claim_children(&claims);
+        for index in 0..claims.len() {
+            assert_eq!(
+                subtree_names_with(&children, &claims, index),
+                subtree_names(&claims, index),
+                "index {index}"
+            );
+        }
+    }
+
+    /// Issue #17: for glob-less entries the indexed candidate keys carry
+    /// exactly the scores `entry_specificity` computes — arm by arm, for
+    /// every pattern×path pair the fixture separates.
+    #[test]
+    fn literal_specificity_keys_agree_with_entry_specificity() {
+        for path in PATHS {
+            for pattern in [
+                "a::b", "a", "a::b::C", "a::b::C::D", "b", "C", "C::D", "pkg", "leaf",
+                "unitx", "unitx::a", "unowned", "src/hidden.ts", "@scope/p", "p",
+                "missing",
+            ] {
+                let direct = entry_specificity(pattern, path);
+                let indexed = literal_specificity_keys(path)
+                    .into_iter()
+                    .find(|(key, _)| *key == pattern)
+                    .map(|(_, score)| score);
+                assert_eq!(direct, indexed, "pattern {pattern} vs path {path}");
+            }
+        }
+    }
 }

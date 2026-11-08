@@ -179,10 +179,111 @@ fn project_marked(model: &Model, node: fn(&str) -> String) -> ModuleGraph {
 
 /// The module-tier projection pinned to the top level: the automatic rule's
 /// first trial with no fold and no descent (`--aggregate modules`). A tree
-/// whose whole tier folds onto one node renders that one node honestly; the
-/// view never reads the deeper arms here.
+/// whose whole tier folds onto one node renders that one node honestly on
+/// the dotted tiers; a file-grained tier (GitHub issue 15) does not fold
+/// onto `root` at all — its module tier addresses files, so its top level is
+/// the module roots above them and the view projects there through
+/// [`file_modules_graph`]. The view never reads the deeper arms here.
 pub fn top_modules_graph(model: &Model) -> ModuleGraph {
+    if module_tier_is_file_grained(model) {
+        return file_modules_graph(model);
+    }
     project_marked(model, top_node)
+}
+
+/// True when the model's module edges name files: an endpoint carries a
+/// directory separator (the ts driver keys its `module_edges` rows by file
+/// identity — the split `Model::file_edges` documents), so the dotted fold
+/// of [`top_node`] collapses every endpoint onto `root`. The go driver
+/// lifts `/` to `::` in its paths, so no other driver's endpoints trip this.
+/// Structural, not language-keyed — the same spelling discriminator
+/// [`unit_of_path`] applies to its endpoints.
+fn module_tier_is_file_grained(model: &Model) -> bool {
+    model
+        .module_edges
+        .iter()
+        .any(|edge| edge.from.contains('/') || edge.to.contains('/'))
+}
+
+/// The module root of one file endpoint: the module-tier node above a file
+/// in a tier whose module identity IS the path. A file under a member unit's
+/// directory folds to that unit — a workspace member is its own module root,
+/// the fold [`units_graph`] already attributes to. A file the root unit owns
+/// folds to its first path segment (the root package's module root, the
+/// `src` of a single-package tree); a file with no directory below the root
+/// folds to `root`, the fold a unit-root dotted path already performs in
+/// [`top_node`]. The rule mirrors [`top_node`] across the separator spelling
+/// and never invents an owner: an endpoint no unit claims still folds by its
+/// path, because the fold states a path fact, not a membership.
+fn module_root_node(model: &Model, path: &str) -> String {
+    if let Some(unit) = unit_of_path(model, path)
+        .as_deref()
+        .and_then(|name| model.units.iter().find(|unit| unit.name == name))
+        && unit.path.trim_end_matches('/') != "."
+    {
+        return unit.name.clone();
+    }
+    match path.replace("::", "/").split_once('/') {
+        Some((head, _)) if !head.is_empty() => head.to_string(),
+        _ => ROOT_NODE.to_string(),
+    }
+}
+
+/// The module-tier projection of a file-grained tier (`--aggregate modules`
+/// where the module edges name files, GitHub issue 15): module edges fold
+/// through [`module_root_node`], an edge whose endpoints land on one module
+/// root is a self-edge and emits nothing, and unit-tier dependency edges
+/// project through the fold of their endpoint units' module roots exactly as
+/// [`project_unit_edges`] draws them on the dotted tiers — a unit without
+/// module-tier facts contributes nothing. Shared with [`units_graph`] down
+/// to the containers: the same attribution, the same `BTreeSet` merge
+/// (deduplicated, never counted), and the markers of the same fold.
+fn file_modules_graph(model: &Model) -> ModuleGraph {
+    let mut graph = ModuleGraph::default();
+    let mut unit_nodes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for edge in &model.module_edges {
+        let from = module_root_node(model, &edge.from);
+        let to = module_root_node(model, &edge.to);
+        graph.add_node(&from);
+        graph.add_node(&to);
+        if from != to {
+            graph.edges.insert((from.clone(), to.clone()));
+        }
+        for (path, node) in [(&edge.from, &from), (&edge.to, &to)] {
+            if let Some(unit) = unit_of_path(model, path) {
+                unit_nodes.entry(unit).or_default().insert(node.clone());
+            }
+        }
+    }
+    for edge in &model.edges {
+        if edge.from == edge.to {
+            continue;
+        }
+        let (Some(from_nodes), Some(to_nodes)) = (
+            unit_nodes.get(edge.from.as_str()),
+            unit_nodes.get(edge.to.as_str()),
+        ) else {
+            continue;
+        };
+        for from in from_nodes {
+            for to in to_nodes {
+                if from == to {
+                    continue;
+                }
+                graph.add_node(from);
+                graph.add_node(to);
+                graph.edges.insert((from.clone(), to.clone()));
+            }
+        }
+    }
+    let markers = fold_markers(model, |path| Some(module_root_node(model, path)), &graph.nodes);
+    graph.markers = markers
+        .0
+        .into_iter()
+        .filter(|(name, _)| graph.nodes.contains(name))
+        .collect();
+    graph.unplaced_claims = markers.1;
+    graph
 }
 
 /// The upper bound on what the AUTOMATIC projection may render before the
@@ -1747,6 +1848,169 @@ mod tests {
         let auto = render_mermaid(&modules_graph(&model));
         let pinned = render_mermaid(&top_modules_graph(&model));
         assert_eq!(auto, pinned, "a multi-node projection has nothing to bypass");
+    }
+
+    /// GitHub issue 15: the `--aggregate modules` arm of a file-grained tier
+    /// projects the file endpoints onto their per-unit module roots instead of
+    /// collapsing every endpoint onto `root`. The ts-shape model's two member
+    /// units own the two files, so the two module roots are the two units.
+    #[test]
+    fn top_modules_graph_projects_the_file_tier_onto_the_module_roots() {
+        let graph = top_modules_graph(&ts_shape_model());
+        assert_eq!(
+            graph.nodes.iter().cloned().collect::<Vec<_>>(),
+            vec!["@mono/a".to_string(), "@mono/b".to_string()],
+            "the module roots of a member-owned file tier are the owning units"
+        );
+        assert_eq!(
+            graph.edges.iter().cloned().collect::<Vec<_>>(),
+            vec![(
+                "@mono/a".to_string(),
+                "@mono/b".to_string()
+            )],
+            "the cross-package file edge survives the fold once, merged"
+        );
+    }
+
+    /// Files the root unit owns fold to their first path segment — the root
+    /// package's module root — mirroring how `top_node` takes the segment
+    /// after the unit in the dotted spelling. A file directly under the root
+    /// has no segment below it and folds to `root`, exactly as a unit-root
+    /// dotted path folds.
+    #[test]
+    fn top_modules_graph_folds_root_owned_files_onto_their_first_segment() {
+        let base = ts_shape_model();
+        let model = Model {
+            module_edges: vec![
+                ModuleEdge {
+                    unit: "mono".to_string(),
+                    from: "src/app.ts".to_string(),
+                    to: "packages/b/src/index.ts".to_string(),
+                    symbols: Default::default(),
+                    type_only: false,
+                },
+                ModuleEdge {
+                    unit: "mono".to_string(),
+                    from: "index.ts".to_string(),
+                    to: "src/app.ts".to_string(),
+                    symbols: Default::default(),
+                    type_only: false,
+                },
+            ],
+            ..base
+        };
+        let graph = top_modules_graph(&model);
+        assert_eq!(
+            graph.nodes.iter().cloned().collect::<Vec<_>>(),
+            vec![
+                "@mono/b".to_string(),
+                "root".to_string(),
+                "src".to_string()
+            ],
+            "`src/app.ts` folds to its first segment, `index.ts` folds to root"
+        );
+        assert_eq!(
+            graph.edges.iter().cloned().collect::<Vec<_>>(),
+            vec![
+                (
+                    "root".to_string(),
+                    "src".to_string()
+                ),
+                (
+                    "src".to_string(),
+                    "@mono/b".to_string()
+                )
+            ],
+            "the folds re-emit the edges at module-root granularity"
+        );
+    }
+
+    /// Mirror of `units_graph_keeps_edges_inside_one_unit_tier_internal`: two
+    /// files of one member fold onto the same module root, so their edge is a
+    /// self-edge and vanishes — multiplicity never survives the merge.
+    #[test]
+    fn top_modules_graph_merges_file_edges_inside_one_unit() {
+        let base = ts_shape_model();
+        let model = Model {
+            module_edges: vec![
+                ModuleEdge {
+                    unit: "@mono/a".to_string(),
+                    from: "packages/a/src/index.ts".to_string(),
+                    to: "packages/a/src/util.ts".to_string(),
+                    symbols: Default::default(),
+                    type_only: false,
+                },
+                ModuleEdge {
+                    unit: "@mono/a".to_string(),
+                    from: "packages/a/src/index.ts".to_string(),
+                    to: "packages/b/src/index.ts".to_string(),
+                    symbols: Default::default(),
+                    type_only: false,
+                },
+            ],
+            ..base
+        };
+        let graph = top_modules_graph(&model);
+        assert_eq!(
+            graph.edges.len(),
+            1,
+            "a same-unit file edge folds to a self-edge and emits nothing: {:?}",
+            graph.edges
+        );
+    }
+
+    /// Unit (dependency) edges project through the fold of their endpoint
+    /// units' module roots exactly as `project_unit_edges` draws them on the
+    /// dotted tiers: the cross product, self-pairs suppressed, a unit with no
+    /// module-tier facts contributing nothing.
+    #[test]
+    fn top_modules_graph_projects_unit_edges_through_the_module_roots() {
+        let base = ts_shape_model();
+        let mut model = Model {
+            edges: vec![Edge {
+                from: "@mono/b".to_string(),
+                to: "@mono/a".to_string(),
+            }],
+            ..base
+        };
+        model.edges.push(Edge {
+            from: "@mono/a".to_string(),
+            to: "@mono/a".to_string(),
+        });
+        let graph = top_modules_graph(&model);
+        assert!(
+            graph
+                .edges
+                .contains(&("@mono/b".to_string(), "@mono/a".to_string())),
+            "a declared cross-unit dependency folds onto the two module roots: {:?}",
+            graph.edges
+        );
+        assert_eq!(
+            graph.edges.len(),
+            2,
+            "the module edge plus the projected unit edge, the unit self-edge gone: {:?}",
+            graph.edges
+        );
+    }
+
+    /// The dispatch pin: `top_modules_graph` on a file-grained tier projects
+    /// instead of collapsing — the issue's one-node `root` graph is gone —
+    /// while the dotted tiers keep the pre-fix fold byte-for-byte (the
+    /// go-fold pin above stays green).
+    #[test]
+    fn top_modules_graph_projects_a_file_tier_instead_of_collapsing_it() {
+        let graph = top_modules_graph(&ts_shape_model());
+        assert_eq!(
+            graph.nodes.len(),
+            2,
+            "a file tier with two owning units never collapses to one node: {:?}",
+            graph.nodes
+        );
+        assert!(
+            !graph.nodes.contains("root"),
+            "the collapse to `root` was the bug: {:?}",
+            graph.nodes
+        );
     }
 
     #[test]

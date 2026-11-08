@@ -98,14 +98,29 @@ pub fn compare(
         }
     }
     let composition_sources = composition_sources(model);
-    let graph = resolve_module_edges(model, &mapping, modules, &claims, &composition_sources);
+    let claims_index = claims::ClaimIndex::new(&claims);
+    let graph = resolve_module_edges(
+        model,
+        &mapping,
+        modules,
+        &claims,
+        &composition_sources,
+        Some(&claims_index),
+    );
     for path in &graph.unowned_endpoints {
         diff.warnings
             .push(format!("unowned module edge endpoint: {path}"));
     }
     check_facade_roots(model, &mut diff);
     check_allowed_edges(&graph.pairs, &graph.value_pairs, model, modules, &claims, &mut diff);
-    check_missing_edges(&graph.pairs, model, &mapping, &claims, &mut diff);
+    check_missing_edges(
+        &graph.pairs,
+        model,
+        &mapping,
+        &claims,
+        Some(&claims_index),
+        &mut diff,
+    );
     let missing_components: BTreeSet<String> = diff.missing_components.iter().cloned().collect();
     check_claim_engagement(model, &claims, &missing_components, &mut diff.warnings);
     check_forbidden_laundering(
@@ -154,7 +169,7 @@ pub fn compare(
     diff.feature_boundaries = boundaries;
     diff.warnings.append(&mut warning_boundaries);
 
-    let submodule_edges = submodule_dependency_edges(model, &mapping, &claims);
+    let submodule_edges = submodule_dependency_edges(model, &mapping, &claims, Some(&claims_index));
     let restated_submodule_constraints: Vec<Constraint>;
     let submodule_constraints: &[Constraint] = if model.language == "ts" {
         restated_submodule_constraints = ts_submodule_constraints(constraints);

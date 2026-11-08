@@ -4,13 +4,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use super::adjudicate::{Verdict, pair_verdict};
-use super::claims::{Claim, claim_unit_fallback, claim_unit_named};
+use super::claims::{Claim, ClaimIndex, ancestors_of};
 use super::cycles::{submodule_identity, ts_submodule_identity};
 use super::diff::Diff;
 use super::mapping::{Mapping, is_test_module};
-use super::claims::claim_by_name;
-use super::claims::claim_owner;
-use super::claims::subtree_names;
 
 use crate::archspec::model::{Model, ModuleEdge, Role};
 use crate::archspec::spec::{Constraint, Module};
@@ -33,9 +30,18 @@ pub(super) fn submodule_dependency_edges(
     model: &Model,
     mapping: &Mapping,
     claims: &[Claim<'_>],
+    index: Option<&ClaimIndex>,
 ) -> Vec<ModuleEdge> {
     if matches!(model.language.as_str(), "ts" | "python" | "kotlin") {
-        return ts_submodule_dependency_edges(model, claims);
+        let owned_index;
+        let index: &ClaimIndex = match index {
+            Some(shared) => shared,
+            None => {
+                owned_index = ClaimIndex::new(claims);
+                &owned_index
+            }
+        };
+        return ts_submodule_dependency_edges(model, claims, index);
     }
     if model.language != "go" {
         return model.module_edges.clone();
@@ -77,9 +83,15 @@ pub(super) fn submodule_dependency_edges(
 /// identity; edges inside one owner drop out, matching the shipped
 /// derivations; a test-gated endpoint excludes the edge — the R1 tier law,
 /// read through the same `is_test_gated` channel every module-edge check uses.
-fn ts_submodule_dependency_edges(model: &Model, claims: &[Claim<'_>]) -> Vec<ModuleEdge> {
+fn ts_submodule_dependency_edges(
+    model: &Model,
+    claims: &[Claim<'_>],
+    index: &ClaimIndex,
+) -> Vec<ModuleEdge> {
     let owner = |edge: &ModuleEdge, endpoint: &str| -> Option<usize> {
-        claim_owner(endpoint, claims).or_else(|| claim_unit_named(&edge.unit, claims))
+        index
+            .claim_owner(claims, endpoint)
+            .or_else(|| index.claim_unit_named(&edge.unit, claims))
     };
     let mut projected: BTreeSet<(String, String)> = BTreeSet::new();
     for edge in &model.module_edges {
@@ -192,103 +204,150 @@ pub(super) fn check_missing_edges(
     model: &Model,
     mapping: &Mapping,
     claims: &[Claim<'_>],
+    index: Option<&ClaimIndex>,
     diff: &mut Diff,
 ) {
-    for (index, claim) in claims.iter().enumerate() {
-        if !claim.allowed.declared {
-            continue;
+    // Issue #17 inversion: the pair set scanned per declared entry made the
+    // loop quadratic (54k claims x 54k pairs in the openclaw repro), and the
+    // per-verdict reason scan re-read the whole edge list for every missing
+    // pair. Both relations are folded ONCE per pair/edge here; the per-claim
+    // loop is left with logarithmic set lookups.
+    let local_index;
+    let index = match index {
+        Some(index) => index,
+        None => {
+            local_index = ClaimIndex::new(claims);
+            &local_index
         }
-        let territory = subtree_names(claims, index);
-        for entry in &claim.allowed.depend_on {
-            let target = entry.target.as_str();
-            let target_declared = claim_by_name(claims, target).is_some();
-            let exercised = pairs
-                .iter()
-                .any(|(from, to)| to == target && territory.contains(from.as_str()));
-            if target_declared && !exercised {
-                let suffix = missing_edge_reason(model, mapping, claims, &territory, target);
-                diff.missing_edges
-                    .push(format!("{} -> {target}{suffix}", claim.name));
-            }
+    };
+    let mut name_indices: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+    for (index, claim) in claims.iter().enumerate() {
+        name_indices.entry(claim.name).or_default().push(index);
+    }
+    let ancestors: Vec<Vec<usize>> = (0..claims.len())
+        .map(|index| ancestors_of(claims, index))
+        .collect();
+    // Union of ancestor chains over every claim bearing a name: membership
+    // means "some claim named KEY sits in the subtree of INDEX" — the same
+    // quantification the per-claim subtree-name scan performed.
+    let mut name_ancestry: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+    for (name, indices) in &name_indices {
+        let ancestry = name_ancestry.entry(*name).or_default();
+        for at in indices {
+            ancestry.extend(ancestors[*at].iter().copied());
         }
     }
-}
-
-/// The reason class a `missing edge` verdict names (GitHub issue #10): the
-/// pair is exercised by no attributed edge, so the verdict says WHY. Module-
-/// tier import edges are classified with the SAME attribution ladder as
-/// `place_module_edge`: an endpoint pair both owned by claims is evidence —
-/// test-gated when either endpoint's module path is test-gated, otherwise
-/// "other" (containment or the composition artefact collapsed to bare); an
-/// endpoint no claim owns is UNOWNED evidence whenever the owned endpoint
-/// lands on the target or inside the claim subtree. Unit-tier manifest edges
-/// into a unit mapped to the target whose source unit is mapped nowhere are
-/// UNOWNED evidence too; a source mapped elsewhere evidences a different
-/// pair. Precedence: any unowned evidence names arm 2; otherwise evidence
-/// that is all test-gated names arm 1; otherwise other evidence stays bare;
-/// zero evidence names arm 3.
-fn missing_edge_reason(
-    model: &Model,
-    mapping: &Mapping,
-    claims: &[Claim<'_>],
-    territory: &BTreeSet<&str>,
-    target: &str,
-) -> &'static str {
-    let owner = |path: &str, unit: &str| -> Option<usize> {
-        claim_owner(path, claims)
-            .or_else(|| claim_unit_fallback(path, claims))
-            .or_else(|| claim_unit_named(unit, claims))
-    };
-    let mut unowned_seen = false;
-    let mut evidence = false;
-    let mut all_test_gated = true;
-    for edge in &model.module_edges {
-        let from_owner = owner(&edge.from, &edge.unit);
-        let to_owner = owner(&edge.to, &edge.unit);
+    // The exercised relation as folded ancestors: claim `index` exercised an
+    // edge into TARGET iff it is an ancestor of some claim whose name is an
+    // exercised pair source into TARGET.
+    let mut exercised_ancestors: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+    for (from, to) in pairs {
+        let Some(indices) = name_indices.get(from.as_str()) else {
+            continue;
+        };
+        let ancestry = exercised_ancestors.entry(to.as_str()).or_default();
+        for at in indices {
+            ancestry.extend(ancestors[*at].iter().copied());
+        }
+    }
+    // Endpoint ownership resolves every module edge ONCE (the index memoizes
+    // each distinct path), and the issue #10 reason classes fold over those
+    // pairs: `evidence_by_target` answers arm-1/other evidence, `ungated_by_target`
+    // subtracts the all-test-gated law, the two `unowned_*` sets name arm 2,
+    // and `unowned_unit_targets` carries the unit-tier arm-2 rule (D2: a
+    // source mapped into the subtree would be exercised, mapped elsewhere it
+    // evidences a different pair — never this one).
+    let owners: Vec<(Option<usize>, Option<usize>)> = model
+        .module_edges
+        .iter()
+        .map(|edge| {
+            let owner = |path: &str, unit: &str| -> Option<usize> {
+                index
+                    .claim_owner(claims, path)
+                    .or_else(|| index.claim_unit_fallback(path, claims))
+                    .or_else(|| index.claim_unit_named(unit, claims))
+            };
+            (owner(&edge.from, &edge.unit), owner(&edge.to, &edge.unit))
+        })
+        .collect();
+    let mut evidence_by_target: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+    let mut ungated_by_target: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+    let mut unowned_targets: BTreeSet<&str> = BTreeSet::new();
+    let mut unowned_sources: BTreeSet<usize> = BTreeSet::new();
+    for (edge, &(from_owner, to_owner)) in model.module_edges.iter().zip(&owners) {
         match (from_owner, to_owner) {
             (Some(from), Some(to)) => {
-                if !territory.contains(claims[from].name) || claims[to].name != target {
-                    continue;
-                }
-                evidence = true;
+                let ancestry = &name_ancestry[claims[from].name];
+                evidence_by_target
+                    .entry(claims[to].name)
+                    .or_default()
+                    .extend(ancestry.iter().copied());
                 if !(is_test_module(model, &edge.from) || is_test_module(model, &edge.to)) {
-                    all_test_gated = false;
+                    ungated_by_target
+                        .entry(claims[to].name)
+                        .or_default()
+                        .extend(ancestry.iter().copied());
                 }
             }
             (None, Some(to)) => {
-                if claims[to].name == target {
-                    unowned_seen = true;
-                }
+                unowned_targets.insert(claims[to].name);
             }
             (Some(from), None) => {
-                if territory.contains(claims[from].name) {
-                    unowned_seen = true;
-                }
+                unowned_sources.extend(name_ancestry[claims[from].name].iter().copied());
             }
             (None, None) => {}
         }
     }
-    if !unowned_seen {
-        for edge in &model.edges {
-            if mapping.unit_module.get(&edge.to).map(String::as_str) != Some(target) {
-                continue;
-            }
-            // A source mapped into the subtree would be exercised (no
-            // verdict); a source mapped elsewhere evidences a different
-            // pair, never this one (issue #10 D2 unit-tier rule).
-            if !mapping.unit_module.contains_key(&edge.from) {
-                unowned_seen = true;
-            }
+    let mut unowned_unit_targets: BTreeSet<&str> = BTreeSet::new();
+    for edge in &model.edges {
+        if let Some(target) = mapping.unit_module.get(&edge.to).map(String::as_str)
+            && !mapping.unit_module.contains_key(&edge.from)
+        {
+            unowned_unit_targets.insert(target);
         }
     }
-    if unowned_seen {
-        REASON_UNOWNED
-    } else if evidence && all_test_gated {
-        REASON_TEST_GATED
-    } else if evidence {
-        ""
-    } else {
-        REASON_NO_EVIDENCE
+    for (index, claim) in claims.iter().enumerate() {
+        if !claim.allowed.declared {
+            continue;
+        }
+        for entry in &claim.allowed.depend_on {
+            let target = entry.target.as_str();
+            let target_declared = name_indices.contains_key(target);
+            let exercised = exercised_ancestors
+                .get(target)
+                .is_some_and(|ancestry| ancestry.contains(&index));
+            if target_declared && !exercised {
+                // The reason classes fold over the resolved edge owners above;
+                // the precedence the fold encodes is the issue #10 law: any
+                // unowned evidence names arm 2; otherwise evidence that is all
+                // test-gated names arm 1; otherwise other evidence stays
+                // bare; zero evidence names arm 3. The three suffixes stay
+                // falsifiable surfaces: the docs rows and the diagnostics
+                // catalog name them byte-for-byte.
+                let unowned = unowned_sources.contains(&index)
+                    || unowned_targets.contains(target)
+                    || unowned_unit_targets.contains(target);
+                let suffix = if unowned {
+                    REASON_UNOWNED
+                } else if evidence_by_target
+                    .get(target)
+                    .is_some_and(|ancestry| ancestry.contains(&index))
+                {
+                    if !ungated_by_target
+                        .get(target)
+                        .is_some_and(|ancestry| ancestry.contains(&index))
+                    {
+                        REASON_TEST_GATED
+                    } else {
+                        ""
+                    }
+                } else {
+                    REASON_NO_EVIDENCE
+                };
+                diff.missing_edges
+                    .push(format!("{} -> {target}{suffix}", claim.name));
+            }
+        }
     }
 }
 
