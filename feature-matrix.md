@@ -300,6 +300,13 @@
   - ts: pass
   - python: pass
   - kotlin: pass
+- **used_but_undeclared_import_reports_error** — a package whose code imports a sibling it declares no dependency on fails with the canonical used but undeclared label naming the importing file, never the zero-evidence reason
+  - rust: skipped (project shape not applicable)
+  - csharp: skipped (project shape not applicable)
+  - go: skipped (project shape not applicable)
+  - ts: pass
+  - python: skipped (project shape not applicable)
+  - kotlin: skipped (project shape not applicable)
 - **facade_rule_note_announces_facade_tierless_driver** — on a driver whose table marks role-facade not-emitted verify states the facade rule inert instead of staying silent, with the verdict and exit status unchanged
   - rust: skipped (role-facade: granular)
   - csharp: skipped (role-facade: granular)

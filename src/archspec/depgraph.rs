@@ -157,8 +157,28 @@ fn top_full_name(dotted: &str) -> Option<String> {
 /// language: a rust or csharp tree whose projection has more than one node is
 /// rendered by the top-level rule byte-for-byte unchanged, and a one-node
 /// projection with nothing distinct below it keeps its single node.
+///
+/// **Collapse drop** (GitHub issue #20): when EVERY module-tier fold — top,
+/// deeper, identity — still projects the whole tier onto ONE node while the
+/// model's units tier renders more than one node (a monorepo whose packages
+/// address each other at the module tier through their bare unit names, so
+/// every endpoint folds to `root` and every merged self-edge is suppressed),
+/// the one node is a contentless render of a model that demonstrably carries a
+/// graph. The view then drops to the units tier — the projection
+/// `--aggregate units` draws, node set and edges identical — so a single-node
+/// render never escapes while the units tier shows more. Structural, keyed on
+/// the two projections' node counts, not on a language. Where the units tier
+/// also carries one node, the single node IS the honest render, and the
+/// automatic path states the collapse loudly (see [`automatic_projection_note`]).
 pub fn modules_graph(model: &Model) -> ModuleGraph {
-    project_marked(model, projection_node(model))
+    let graph = project_marked(model, projection_node(model));
+    if graph.nodes.len() <= 1 {
+        let units = units_graph(model);
+        if units.nodes.len() > 1 {
+            return units;
+        }
+    }
+    graph
 }
 
 /// Project through one node function and attach the markers of that same
@@ -308,6 +328,62 @@ pub fn degraded_projection_note(count: usize) -> String {
     format!("note: the automatic projection rendered {count} nodes below module granularity (file-level nodes where the module tier is one module per file) — pass --aggregate units to force the unit tier or --aggregate modules to pin the top level")
 }
 
+/// The single-node collapse note (stderr, automatic path only, GitHub issue
+/// #20): the same mechanism as [`degraded_projection_note`] — it names the
+/// degradation and the count, states the condition honestly (no projection
+/// level separates the paths AND the units tier names no more), points at the
+/// flag, and never replaces or trims the render. It fires exactly where the
+/// [`modules_graph`] collapse drop could not: the fold projected one node and
+/// the units tier shows one node too, so no coarser render exists to drop to
+/// — the render keeps its one node and says so.
+pub fn collapsed_projection_note(count: usize) -> String {
+    format!("note: the automatic projection folded {count} module paths onto one node (no projection level separates them and the units tier names no more) — pass --aggregate units to force the unit tier or --aggregate modules to pin the top level")
+}
+
+/// The note the AUTOMATIC modules path owes its render, if any (stderr only,
+/// an explicit `--aggregate` level is never noted):
+/// * above the node cap and the render IS the module-tier projection → the
+///   degraded-render note, bytes unchanged; a units-tier collapse-drop render
+///   is not a below-module-granularity render, so the cap note stays silent
+///   on it (its file-grained claim would be false there);
+/// * a single node whose tier holds more than one distinct module path → the
+///   collapse note (the drop to the units tier already replaced every render
+///   the units tier could draw honestly, so reaching this arm means no
+///   coarser level separates the paths);
+/// * anything else → nothing, and the render keeps its exact bytes.
+pub fn automatic_projection_note(model: &Model, graph: &ModuleGraph) -> Option<String> {
+    if graph.nodes.len() > AUTOMATIC_PROJECTION_NODE_CAP {
+        if project_marked(model, projection_node(model)).nodes.len() > 1 {
+            return Some(degraded_projection_note(graph.nodes.len()));
+        }
+        return None;
+    }
+    if graph.nodes.len() <= 1 {
+        let paths = distinct_module_paths(model);
+        if paths > 1 {
+            return Some(collapsed_projection_note(paths));
+        }
+    }
+    None
+}
+
+/// How many distinct module paths the model's module tier names (soft paths
+/// and module-edge endpoints, deduplicated): more than one with a one-node
+/// render is the fold losing every distinction the tier states.
+fn distinct_module_paths(model: &Model) -> usize {
+    let mut paths: BTreeSet<&str> = BTreeSet::new();
+    for unit_paths in model.soft_structure.values() {
+        for path in unit_paths {
+            paths.insert(path.as_str());
+        }
+    }
+    for edge in &model.module_edges {
+        paths.insert(edge.from.as_str());
+        paths.insert(edge.to.as_str());
+    }
+    paths.len()
+}
+
 /// The unit a module path or file path belongs to, as a pure function of the
 /// serialized model facts — the scan-side directory-ownership rule read
 /// backwards from `units` (name and path) with no driver, no filesystem,
@@ -435,6 +511,12 @@ pub fn units_graph(model: &Model) -> ModuleGraph {
 /// (the rule [`modules_graph`] renders by, kept here as one decision so the
 /// modules graph and the api-usage grouping cannot read different
 /// granularities). Structural, not language-keyed, exactly as before.
+/// The modules GRAPH carries one further step this function cannot express as
+/// a node fold: when every fold here still projects one node and the units
+/// tier renders more, [`modules_graph`] drops to [`units_graph`] outright
+/// (GitHub issue #20); the api-usage grouping keeps this granularity, and its
+/// emptiness statement [`api_usage_empty_reason`] already names the fold
+/// placement that collapse leaves behind.
 fn projection_node(model: &Model) -> fn(&str) -> String {
     let top = project(model, top_node);
     if top.nodes.len() > 1 {
@@ -995,6 +1077,202 @@ mod tests {
             vec!["demo".to_string()]
         );
         assert!(graph.edges.is_empty(), "a path depending on itself emits no edge");
+    }
+
+    /// The issue #20 shape: a monorepo whose module tier addresses its packages
+    /// by BARE unit names (the csharp scan spells a single-segment root
+    /// namespace this way) with per-package claims at those same bare paths.
+    /// Every endpoint is one segment: the top and deeper folds collapse the
+    /// whole graph onto `root`, unit edges project to suppressed self-edges,
+    /// and the identity arm is gated by the non-empty soft tier — the fold
+    /// that used to render `graph TD` + one `root` with zero edges.
+    fn issue20_monorepo_model() -> Model {
+        let mut model = Model::new("csharp");
+        model.units = ["Alpha", "Beta", "Gamma"]
+            .into_iter()
+            .map(|name| Unit {
+                name: name.to_string(),
+                kind: "project".to_string(),
+                path: name.to_string(),
+                root: format!("{name}.csproj"),
+                crate_ids: BTreeSet::from([name.to_string()]),
+            })
+            .collect();
+        model.edges = [
+            ("Beta", "Alpha"),
+            ("Gamma", "Alpha"),
+            ("Gamma", "Beta"),
+        ]
+        .into_iter()
+        .map(|(from, to)| Edge {
+            from: from.to_string(),
+            to: to.to_string(),
+        })
+        .collect();
+        model.soft_structure = ["Alpha", "Beta", "Gamma"]
+            .into_iter()
+            .map(|name| (name.to_string(), vec![name.to_string()]))
+            .collect();
+        model.module_edges = [
+            ("Beta", "Alpha", &["Token"][..]),
+            ("Gamma", "Alpha", &["Token"]),
+            ("Gamma", "Beta", &["Channel"]),
+        ]
+        .into_iter()
+        .map(|(from, to, symbols)| ModuleEdge {
+            type_only: false,
+            unit: from.to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+            symbols: symbols.iter().map(|s| s.to_string()).collect(),
+        })
+        .collect();
+        // Per-package claims: every package claims facade at its own root path.
+        model.roles = ["Alpha", "Beta", "Gamma"]
+            .into_iter()
+            .map(|name| (name.to_string(), Role::Facade))
+            .collect();
+        model
+    }
+
+    /// Precondition for the tests below: on this model every module-tier fold
+    /// projects one node — the collapse the drop replaces.
+    #[test]
+    fn issue20_model_folds_to_one_node_before_the_drop() {
+        let model = issue20_monorepo_model();
+        let folded = project_marked(&model, projection_node(&model));
+        assert_eq!(
+            folded.nodes.iter().cloned().collect::<Vec<_>>(),
+            vec![ROOT_NODE.to_string()],
+            "the repro must be a one-node fold before the drop"
+        );
+        assert!(folded.edges.is_empty(), "a one-node fold carries no edges");
+    }
+
+    /// The fix: the collapsed fold drops to the units tier — the render equals
+    /// what `--aggregate units` draws, so no single-node render escapes on a
+    /// model whose units tier shows more.
+    #[test]
+    fn issue20_collapsed_fold_drops_to_the_units_tier() {
+        let model = issue20_monorepo_model();
+        let graph = modules_graph(&model);
+        let units = units_graph(&model);
+        assert_eq!(graph.nodes, units.nodes, "the dropped render names the units tier");
+        assert_eq!(graph.edges, units.edges, "the dropped render draws the unit edges");
+        assert_eq!(graph.nodes.len(), 3, "{:?}", graph.nodes);
+        assert_eq!(graph.edges.len(), 3, "{:?}", graph.edges);
+        assert!(!graph.nodes.contains(ROOT_NODE), "the lone `root` was the bug");
+        // The per-package claims survive the drop: each claim lands on its own
+        // unit node through the units fold's attribution.
+        assert_eq!(graph.markers.len(), 3, "{:?}", graph.markers);
+        for name in ["Alpha", "Beta", "Gamma"] {
+            assert_eq!(graph.markers.get(name), Some(&Role::Facade), "{name} keeps its claim");
+        }
+        assert_eq!(graph.unplaced_claims, 0, "the units fold places every claim");
+    }
+
+    /// The residual case: one unit, several module paths, no fold separates
+    /// them, and no units tier to drop to — the render keeps its one node and
+    /// states the collapse loudly (same mechanism as the degraded-render note).
+    #[test]
+    fn issue20_residual_single_node_render_names_its_collapse() {
+        let model = model_with(
+            "app",
+            vec!["app::api", "app::api::api"],
+            vec![("app::api", "app::api::api", &[] as &[&str])],
+        );
+        let graph = modules_graph(&model);
+        assert_eq!(graph.nodes.iter().collect::<Vec<_>>().len(), 1, "{:?}", graph.nodes);
+        let note = automatic_projection_note(&model, &graph)
+            .expect("a one-node render of a multi-path tier must name its collapse");
+        assert!(note.starts_with("note: the automatic projection folded 2 module paths"), "{note}");
+        assert!(note.contains("--aggregate units"), "{note}");
+    }
+
+    /// The escape law: NO single-node render of a module tier that names more
+    /// than one path leaves the automatic path without the loud note, and no
+    /// healthy render gains a note or changes bytes.
+    #[test]
+    fn issue20_no_single_node_render_escapes_without_the_note() {
+        let sweep: Vec<Model> = vec![
+            issue20_monorepo_model(),
+            model_with("app", vec!["app"], vec![("app", "app", &[] as &[&str])]),
+            model_with(
+                "app",
+                vec!["app::api", "app::api::api"],
+                vec![("app::api", "app::api::api", &[])],
+            ),
+            model_with(
+                "example.com::demo",
+                Vec::new(),
+                vec![
+                    ("example.com::demo::app", "example.com::demo::shared", &[]),
+                    ("example.com::demo::shared", "example.com::demo::store", &[]),
+                ],
+            ),
+            model_with(
+                "example.com::demo",
+                Vec::new(),
+                vec![("example.com::demo::app", "example.com::demo::app", &[])],
+            ),
+            model_with(
+                "app",
+                vec!["app::core", "app::ui"],
+                vec![("app::core", "app::ui", &[])],
+            ),
+        ];
+        for model in sweep {
+            let graph = modules_graph(&model);
+            let paths = distinct_module_paths(&model);
+            if graph.nodes.len() <= 1 && paths > 1 {
+                assert!(
+                    automatic_projection_note(&model, &graph).is_some(),
+                    "single-node render of a {paths}-path tier escaped without a note: {:?}",
+                    graph.nodes
+                );
+            }
+            if graph.nodes.len() > 1 {
+                assert!(
+                    automatic_projection_note(&model, &graph).is_none(),
+                    "a multi-node render must stay silent: {:?}",
+                    graph.nodes
+                );
+            }
+        }
+        // The faithful single node (one path under the fold) keeps its silence.
+        let faithful = model_with(
+            "example.com::demo",
+            Vec::new(),
+            vec![("example.com::demo::app", "example.com::demo::app", &[] as &[&str])],
+        );
+        assert!(automatic_projection_note(&faithful, &modules_graph(&faithful)).is_none());
+    }
+
+    /// The cap note keeps its exact bytes on the file-grained render, and the
+    /// collapse note never double-fires with it.
+    #[test]
+    fn issue20_cap_note_bytes_are_unchanged() {
+        let mut model = Model::new("ts");
+        model.units = vec![Unit {
+            name: "root".to_string(),
+            kind: "package".to_string(),
+            path: ".".to_string(),
+            root: String::new(),
+            crate_ids: BTreeSet::from(["root".to_string()]),
+        }];
+        model.module_edges = (0..=AUTOMATIC_PROJECTION_NODE_CAP)
+            .map(|index| ModuleEdge {
+                type_only: false,
+                unit: "root".to_string(),
+                from: format!("packages/a/f{index}.ts"),
+                to: format!("packages/b/m{index}.ts"),
+                symbols: Vec::new(),
+            })
+            .collect();
+        let graph = modules_graph(&model);
+        assert!(graph.nodes.len() > AUTOMATIC_PROJECTION_NODE_CAP, "{:?}", graph.nodes.len());
+        let note = automatic_projection_note(&model, &graph).expect("cap crossing notes");
+        assert_eq!(note, degraded_projection_note(graph.nodes.len()), "cap note bytes");
     }
 
     #[test]

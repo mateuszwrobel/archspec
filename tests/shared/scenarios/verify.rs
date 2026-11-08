@@ -8,7 +8,7 @@ use crate::shared::scenario::Scenario;
 use crate::shared::scenarios::{
     boundary_spec, csharp_project_files, dot_stems_nest_units, expect_success, external_dep,
     go_driver, not_ts, not_ts_or_py, other_dep, scenario, scenario_when, scenario_when_capability,
-    scenario_when_inert,
+    scenario_when_inert, ts_driver,
 };
 
 pub fn all() -> Vec<Scenario> {
@@ -41,6 +41,18 @@ pub fn all() -> Vec<Scenario> {
             "stale_allowed_dependency_reports_missing_edge",
             "a declared depend_on edge absent from the model fails non-strict verify with the canonical missing edge label, and the same tree minus the stale declaration verifies clean",
             stale_allowed_dependency_reports_missing_edge,
+        ),
+        // Issue #19: the class names pairs the exercised pair graph cannot
+        // place — file-territory code evidence with unowned endpoints, the ts
+        // workspace shape. Drivers whose attribution places the pair name the
+        // undeclared use through the ceiling classes instead, so the scenario
+        // applies to the ts dialect (documented divergence).
+        scenario_when(
+            Feature::VerifyModuleBoundaries,
+            "used_but_undeclared_import_reports_error",
+            "a package whose code imports a sibling it declares no dependency on fails with the canonical used but undeclared label naming the importing file, never the zero-evidence reason",
+            ts_driver,
+            used_but_undeclared_import_reports_error,
         ),
         scenario_when(
             Feature::VerifyNoCycles,
@@ -514,6 +526,55 @@ fn stale_allowed_dependency_reports_missing_edge(
     if stdout.contains("missing edge:") {
         return Err(format!(
             "without the stale declaration no floor rule engages:\n{stdout}"
+        ));
+    }
+    Ok(())
+}
+
+fn used_but_undeclared_import_reports_error(
+    driver: &Driver,
+    fx: &common::Fixture,
+) -> Result<(), String> {
+    // ts workspace dialect (issue #19): two hoisted packages, a bare import
+    // that resolves through the workspace symlink while no manifest declares
+    // the pair — the code scan crossed it, the exercised pair graph cannot
+    // place it. Other drivers attribute such edges onto the graph and name
+    // the undeclared use through the ceiling classes (documented divergence).
+    fx.write(
+        "package.json",
+        "{\n  \"name\": \"mono\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+    );
+    for unit in ["a", "b"] {
+        fx.write(
+            &format!("packages/{unit}/package.json"),
+            &format!("{{\n  \"name\": \"{unit}\",\n  \"version\": \"1.0.0\",\n  \"main\": \"src/index.ts\"\n}}\n"),
+        );
+        let link = fx.path(&format!("node_modules/{unit}"));
+        std::fs::create_dir_all(link.parent().expect("link parent")).expect("link parent");
+        std::os::unix::fs::symlink(fx.path(&format!("packages/{unit}")), &link).expect("symlink");
+    }
+    fx.write(
+        "packages/a/src/index.ts",
+        "import { b } from 'b';\nexport const a = b;\n",
+    );
+    fx.write("packages/b/src/index.ts", "export const b = 1;\n");
+    fx.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"a\"] }\n\n[[module]]\nname = \"b\"\nmatches = { units = [\"b\"] }\n",
+    );
+    let output = driver.run(fx, &["verify"]);
+    if output.status.code() == Some(0) {
+        return Err("verify must fail when code imports an undeclared sibling".into());
+    }
+    let stdout = common::stdout(&output);
+    if !stdout.contains("used but undeclared: a -> b") {
+        return Err(format!(
+            "the report must name the class with the pair:\n{stdout}"
+        ));
+    }
+    if stdout.contains("no import evidence") {
+        return Err(format!(
+            "an evidenced pair must not render the zero-evidence reason:\n{stdout}"
         ));
     }
     Ok(())

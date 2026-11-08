@@ -104,6 +104,7 @@ const DIAGNOSTIC_CATEGORIES: &[&str] = &[
     "unresolved module file",
     "unresolved settings include",
     "unverifiable glob export",
+    "used but undeclared",
     "vacuous constraint",
     "virtual specifier not modelled",
     "workspace link missing",

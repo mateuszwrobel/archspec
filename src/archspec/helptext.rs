@@ -76,11 +76,26 @@ missing edge
               exists. The verdict names the reason class:
               ` (test-gated import evidence only)`,
               ` (import evidence exists but no module claim owns this pair)` or
-              ` (no import evidence for this pair)`.
+              ` (no import evidence for this pair)`. The last reason is read
+              only when the model holds no file-tier import evidence for the
+              pair at all — file evidence crossing an undeclared pair reports
+              as `used but undeclared` instead.
   origin:     spec (a dependency the code dropped)
   severity:   error (exit 1)
   follow-up:  archspec scan      (check module_edges for the pair)
   decision:   spec-fix — delete the stale depend_on, or code-fix to restore it.
+
+used but undeclared
+  pattern:    used but undeclared: <from> -> <to> (<evidence-loc>)
+  meaning:    code in <from> imports <to> across the boundary, but no
+              exercised pair exists because the importer's manifest does not
+              declare the leg. The finding names the importing file where the
+              model has the file-tier import evidence the pair graph dropped.
+  origin:     code (a dependency the manifest omits)
+  severity:   error (exit 1)
+  follow-up:  archspec depgraph  (api-usage shows the file->file crossings)
+  decision:   manifest-fix — declare the dependency in the importer's
+              manifest, or code-fix to cut the import.
 
 facade dependency
   pattern:    facade dependency: <from> -> <root>

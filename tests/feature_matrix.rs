@@ -250,6 +250,10 @@ const DIAGNOSTIC_CATEGORIES: &[(&str, &[&str])] = &[
         &["stale_allowed_dependency_reports_missing_edge"],
     ),
     (
+        "used but undeclared:",
+        &["used_but_undeclared_import_reports_error"],
+    ),
+    (
         "disallowed cross-component dependency:",
         &["undeclared_dependency_exceeds_allowed_ceiling"],
     ),

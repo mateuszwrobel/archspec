@@ -1421,6 +1421,78 @@ fn verify_lib_internal_groups_pass_when_dependency_is_one_way() {
     assert_pass(&fixture.run(&["verify"]));
 }
 
+/// Issue #30 fixture: single `kit` crate whose parent module `kit` and child
+/// module `kit::graph` sit under ONE claim (`kit-lib`), so the claim tier
+/// folds their pair away; `support` (claim `kit-support`) depends on `kit` so
+/// the constraint engages on both tiers and states no vacuity detail.
+/// `graph_body` decides whether the child reaches back into the parent.
+fn intra_claim_parent_child_fixture(
+    kit_body: &str,
+    graph_body: &str,
+) -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"kit\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "pub mod kit;\npub mod support;\n");
+    fixture.write("src/kit.rs", kit_body);
+    fixture.write("src/kit/graph.rs", graph_body);
+    fixture.write(
+        "src/support.rs",
+        "use crate::kit::Config;\npub fn help(c: &Config) { let _ = c; }\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"kit-lib\"\nmatches = { modules = [\"kit::kit\", \"kit::kit::graph\"] }\n\n[[module]]\nname = \"kit-support\"\nmatches = { modules = [\"kit::support\"] }\n\n[module.allowed]\ndepend_on = [\"kit-lib\"]\n\n[[constraint]]\ntype = \"no_cycles\"\nmodules = [\"kit-lib\", \"kit-support\"]\n",
+    );
+    fixture
+}
+
+const INTRA_CLAIM_KIT: &str =
+    "pub mod graph;\npub struct Config;\nuse crate::kit::graph::Graph;\npub fn run(g: &Graph) -> Config { let _ = g; Config }\n";
+
+/// The M1 acceptance: reciprocal `use crate::` imports between a parent
+/// module and its child — inside ONE claim — turn `verify --strict` RED.
+/// Pre-fix the driver emitted no reverse file row (`src/kit/graph.rs ->
+/// src/kit.rs`), the claim tier folded the same-claim pair away, and every
+/// verb read `cycles: 0` on a real cycle.
+#[test]
+fn verify_reddens_reciprocal_parent_child_cycle_inside_one_claim() {
+    let fixture = intra_claim_parent_child_fixture(
+        INTRA_CLAIM_KIT,
+        "use crate::kit::Config;\npub struct Graph;\npub fn build(c: &Config) -> Graph { let _ = c; Graph }\n",
+    );
+    let output = fixture.run(&["verify", "--strict"]);
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "a real intra-claim parent/child cycle must fail verify --strict (stderr: {})",
+        stderr(&output)
+    );
+    let out = stdout(&output) + &stderr(&output);
+    assert!(
+        out.contains("src/kit.rs")
+            && out.contains("src/kit/graph.rs")
+            && out.contains("cycle"),
+        "the finding must name the ring's files:\n{out}"
+    );
+}
+
+/// The keep-side of the fix: a clean containment tree stays GREEN at file
+/// grain. The child reaches UP into the parent (`use crate::kit::Config`)
+/// while the parent only declares `mod graph;` — the ring-closing direction
+/// is a bare declaration, the cycle graph excludes mod-only pairs, and no
+/// phantom parent cycle returns (the ADR-023 reddening class).
+#[test]
+fn verify_keeps_clean_containment_tree_green_with_ancestor_rows() {
+    let fixture = intra_claim_parent_child_fixture(
+        "pub mod graph;\npub struct Config;\n",
+        "use crate::kit::Config;\npub struct Graph;\npub fn build(c: &Config) -> Graph { let _ = c; Graph }\n",
+    );
+    assert_pass(&fixture.run(&["verify", "--strict"]));
+}
+
 /// #87 Forbidden-edge laundering through undeclared territory. A module
 /// depends on a forbidden target only via a module the spec claims through no
 /// boundary, so no direct boundary pair crosses the ban.
@@ -2228,9 +2300,50 @@ fn external_free_csharp_pure_module_passes_and_contamination_names_package() {
 /// `use app::Thing` records the unit-tier edge only — proven by the scan
 /// model), so the edge INTO a facade root recorded under a composition-role
 /// module — the exemption branch itself — is pinned by scenario 98h on c#,
-/// where such edges exist.
+/// where such edges exist. The wiring module states no `use crate::` import:
+/// under the ancestor-row symmetry law (issue #30) such a hop would row the
+/// file's own root and close a file-tier ring beside the exemption verdict —
+/// that hop and its cycle are pinned on their own below.
 #[test]
 fn verify_scenario_98f_bin_root_exemption_is_stated_by_the_composition_role() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "mod engine;\npub use engine::Thing;\n");
+    fixture.write("src/engine.rs", "pub struct Thing;\n");
+    fixture.write("src/wiring.rs", "pub struct Bound;\n");
+    fixture.write(
+        "src/main.rs",
+        "use app::Thing;\nmod wiring;\nfn main() { let _ = Thing; let _ = wiring::Bound; }\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"umbrella\"\nmatches = { units = [\"app\"] }\n\n[module.allowed]\ndepend_on = [\"engine\"]\n\n[[module]]\nname = \"engine\"\nmatches = { modules = [\"app::engine\"] }\n\n[[module]]\nname = \"bin\"\nmatches = { units = [\"app-bin\"] }\n\n[module.allowed]\ndepend_on = [\"umbrella\"]\n",
+    );
+    let model: serde_json::Value =
+        serde_json::from_str(&stdout(&fixture.run(&["scan"]))).expect("scan json");
+    assert_eq!(
+        model["roles"]["app-bin::main"].as_str(),
+        Some("composition"),
+        "the bin target (unit `app-bin`) carries the composition role: {:?}",
+        model["roles"]
+    );
+    let output = fixture.run(&["verify", "--strict"]);
+    assert_pass(&output);
+}
+
+/// Issue #30 (ancestor-row symmetry at the crate root): a bin submodule that
+/// states `pub use crate::Thing` records the module-pair edge to the crate
+/// root (`app-bin::wiring -> app-bin`) — the module tier has always edged
+/// it. The file tier now mirrors that edge onto the root's OWN file
+/// (`src/main.rs`), so a root that names the submodule back (a path use in
+/// `main`) closes a file-tier ring: `verify --strict` reddens naming the
+/// cycle. RED on the pre-fix tree, where the root hop was a silent module
+/// edge with no file row.
+#[test]
+fn verify_bin_wiring_root_hop_rows_the_root_file_and_closes_the_ring() {
     let fixture = common::Fixture::new();
     fixture.write(
         "Cargo.toml",
@@ -2252,14 +2365,30 @@ fn verify_scenario_98f_bin_root_exemption_is_stated_by_the_composition_role() {
     );
     let model: serde_json::Value =
         serde_json::from_str(&stdout(&fixture.run(&["scan"]))).expect("scan json");
-    assert_eq!(
-        model["roles"]["app-bin::main"].as_str(),
-        Some("composition"),
-        "the bin target (unit `app-bin`) carries the composition role: {:?}",
-        model["roles"]
+    assert!(
+        model["file_edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["from"] == "src/wiring.rs"
+            && e["to"] == "src/main.rs"
+            && e["kind"] == "use"),
+        "the root hop states its file row (the module edge `app-bin::wiring -> app-bin` \
+         has its file counterpart):\n{}",
+        serde_json::to_string_pretty(&model["file_edges"]).unwrap()
     );
     let output = fixture.run(&["verify", "--strict"]);
-    assert_pass(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "the root hop closes the file-tier ring:\n{}",
+        stdout(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("cycle") && out.contains("src/main.rs") && out.contains("src/wiring.rs"),
+        "the finding names the ring over the root's own file:\n{out}"
+    );
 }
 
 /// Scenario 98g (workplan archspec_roles, US 05): the exemption follows the

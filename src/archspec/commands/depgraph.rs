@@ -137,9 +137,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     let graph = depgraph::modules_graph(&model);
                     // Degraded-projection guard: the automatic path only,
                     // stderr only — the graph renders unchanged and the
-                    // exit code is unchanged (a note, not a refusal).
-                    if graph.nodes.len() > depgraph::AUTOMATIC_PROJECTION_NODE_CAP {
-                        eprintln!("{}", depgraph::degraded_projection_note(graph.nodes.len()));
+                    // exit code is unchanged (a note, not a refusal). The
+                    // helper picks which note the render owes (cap crossing
+                    // or single-node collapse, issue #20), or none.
+                    if let Some(note) = depgraph::automatic_projection_note(&model, &graph) {
+                        eprintln!("{note}");
                     }
                     graph
                 }

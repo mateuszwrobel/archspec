@@ -69,9 +69,16 @@ name = "rust-arch-test-kit"
 matches = { units = ["rust-arch-test-kit"] }
 
 # Library internals: prefix groups over one unit so `no_cycles` sees inside the
-# lib. These groups exist for that cycle visibility only — the lib is one
-# shared parsing/rendering engine, and it is the `engines` modules that import
-# it; nothing beyond acyclicity is policed between collector and render.
+# lib. The file tier reaches these groups by identity, not absorption: this
+# manifest spells two units at `path = "."`, and since the GitHub issue #29 fix
+# a file's unit — hence its module identity — is the unit its `file_edges` rows
+# carry, never the order of the unit list, so lib files project
+# `rust-arch-test-kit::*` and these groups claim them directly (before that fix
+# the tie landed them under the bin unit and only `engines` co-declared in the
+# `no_cycles` constraint kept lib file visibility engaged). These groups exist
+# for that cycle visibility only — the lib is one shared parsing/rendering
+# engine, and it is the `engines` modules that import it; nothing beyond
+# acyclicity is policed between collector and render.
 [[module]]
 name = "lib-collector"
 matches = { modules = ["rust-arch-test-kit::collector*"] }

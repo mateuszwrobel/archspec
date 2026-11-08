@@ -24,6 +24,14 @@ pub struct Diff {
     pub forbidden_edges: Vec<String>,
     /// Edge declared by `allowed.depend_on`, absent from the source.
     pub missing_edges: Vec<String>,
+    /// Edge the code imports across a pair of claim-owned units while the
+    /// importer's manifest omits the declaration: no exercised pair exists,
+    /// yet the model holds file-tier import evidence for exactly that pair
+    /// (GitHub issue #19 — the counterpart of the `missing edge`
+    /// zero-evidence reason, which stays for evidence that is truly absent).
+    /// Entries store the message body `<from> -> <to> (<evidence-locs>)`;
+    /// the renderer attaches the `used but undeclared: ` category label.
+    pub used_but_undeclared: Vec<String>,
     /// Edge crossing components without being in `allowed.depend_on`.
     pub disallowed_cross_component: Vec<String>,
     /// Structural publication-only root facade violation: an internal module
@@ -121,6 +129,7 @@ impl Diff {
             ("ambiguous module match", &self.ambiguous_module_matches),
             ("forbidden edge present", &self.forbidden_edges),
             ("missing edge", &self.missing_edges),
+            ("used but undeclared", &self.used_but_undeclared),
             ("disallowed cross-component dependency", &self.disallowed_cross_component),
             ("facade dependency", &self.facade_dependencies),
             ("contract leak", &self.contract_leaks),
@@ -218,6 +227,9 @@ pub fn render_report(diff: &Diff, strict: bool) -> String {
     }
     for edge in &diff.missing_edges {
         out.push_str(&format!("  missing edge: {edge}\n"));
+    }
+    for edge in &diff.used_but_undeclared {
+        out.push_str(&format!("  used but undeclared: {edge}\n"));
     }
     for edge in &diff.disallowed_cross_component {
         out.push_str(&format!(

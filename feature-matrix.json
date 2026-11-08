@@ -689,6 +689,25 @@
           }
         },
         {
+          "name": "used_but_undeclared_import_reports_error",
+          "description": "a package whose code imports a sibling it declares no dependency on fails with the canonical used but undeclared label naming the importing file, never the zero-evidence reason",
+          "status": {
+            "csharp": "skipped",
+            "go": "skipped",
+            "kotlin": "skipped",
+            "python": "skipped",
+            "rust": "skipped",
+            "ts": "pass"
+          },
+          "skip_reasons": {
+            "csharp": "project shape not applicable",
+            "go": "project shape not applicable",
+            "kotlin": "project shape not applicable",
+            "python": "project shape not applicable",
+            "rust": "project shape not applicable"
+          }
+        },
+        {
           "name": "facade_rule_note_announces_facade_tierless_driver",
           "description": "on a driver whose table marks role-facade not-emitted verify states the facade rule inert instead of staying silent, with the verdict and exit status unchanged",
           "status": {

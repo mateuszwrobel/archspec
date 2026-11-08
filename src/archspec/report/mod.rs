@@ -96,7 +96,7 @@ pub fn compute_metrics(model: &Model, mapping: &Mapping, modules: &[Module], dif
             "forbidden edge present" | "facade dependency" => {
                 boundary_violations += entries.len();
             }
-            "missing edge" | "disallowed cross-component dependency" => {
+            "missing edge" | "disallowed cross-component dependency" | "used but undeclared" => {
                 undeclared_violations += entries.len();
             }
             "cycle detected in" => {}
@@ -488,6 +488,7 @@ mod tests {
             ],
             forbidden_edges: vec!["a -> b".into()],
             missing_edges: vec!["billing -> auth".into()],
+            used_but_undeclared: vec!["billing -> auth (src/billing.ts)".into()],
             disallowed_cross_component: vec!["p -> q".into()],
             facade_dependencies: vec!["app::engine -> app".into()],
             contract_leaks: vec!["app exposes entity (forbidden)".into()],

@@ -542,7 +542,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 55] = [
+    let required: [&str; 56] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -605,6 +605,10 @@ fn registry_owns_claim_identity() {
         // sentence routing wrong-edge questions from the depgraph help
         // surfaces to the diagram scan-mode marked view.
         "depgraph-violations-pointer",
+        // Registered by the issue-19 evidence-honesty law (2026-11-08): the
+        // finding class naming a pair with code import evidence and no
+        // declared edge, and the suppression of the zero-evidence reason.
+        "used-but-undeclared-import",
         // Registered by the issue-8 fail-closed law (2026-11-05): the one
         // shared key-shape table behind the emitted schema and the runtime
         // unknown-key refusal.
@@ -1153,6 +1157,7 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             | "unresolvable-import-misses"
             | "workspace-link-missing"
             | "undeclared-member-import"
+            | "used-but-undeclared-import"
             | "virtual-specifier-not-modelled"
             | "framework-conventions-not-configured"
             | "workspace-target-not-built"

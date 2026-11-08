@@ -1319,3 +1319,123 @@ fn healthy_projection_under_the_cap_is_silent() {
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     assert_eq!(stderr(&output), "", "a healthy projection prints no note");
 }
+
+// --- the monorepo auto-fold collapse (GitHub issue 20) -----------------------
+
+/// The issue's 47-package incident reduced to three: three csharp projects,
+/// each root-namespaced at its own single-segment name — the shape whose
+/// module tier addresses packages by BARE unit paths, so every endpoint folds
+/// to `root`, every merged self-edge is suppressed, and the automatic render
+/// collapsed to `graph TD` + one `root` node with zero edges while
+/// `--aggregate units` carried the real graph.
+fn issue20_csharp_monorepo() -> Fixture {
+    let tree = Fixture::new();
+    let csproj = |references: &str| {
+        format!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n{references}</Project>\n"
+        )
+    };
+    tree.write("Alpha/Alpha.csproj", &csproj(""));
+    tree.write("Alpha/Token.cs", "namespace Alpha;\npublic class Token { }\n");
+    tree.write(
+        "Beta/Beta.csproj",
+        &csproj("  <ItemGroup><ProjectReference Include=\"../Alpha/Alpha.csproj\" /></ItemGroup>\n"),
+    );
+    tree.write(
+        "Beta/Channel.cs",
+        "namespace Beta;\nusing Alpha;\npublic class Channel { Token t; }\n",
+    );
+    tree.write(
+        "Gamma/Gamma.csproj",
+        &csproj(
+            "  <ItemGroup><ProjectReference Include=\"../Alpha/Alpha.csproj\" /><ProjectReference Include=\"../Beta/Beta.csproj\" /></ItemGroup>\n",
+        ),
+    );
+    tree.write(
+        "Gamma/Host.cs",
+        "namespace Gamma;\nusing Alpha;\nusing Beta;\npublic class Host { Channel c; Token t; }\n",
+    );
+    tree
+}
+
+/// A single-node modules render may only escape when the whole tier is one
+/// path — any other one-node render must carry the loud collapse note.
+fn assert_no_silent_single_node(tree: &Fixture, args: &[&str]) -> String {
+    let output = tree.run(args);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    let (nodes, _edges) = mermaid_census(&out);
+    if nodes <= 1 {
+        assert!(
+            stderr(&output).contains("onto one node"),
+            "a single-node render escaped without the collapse note:\n{out}\nstderr: {}",
+            stderr(&output)
+        );
+    }
+    out
+}
+
+#[test]
+fn issue20_repro_automatic_render_drops_the_collapse_to_the_units_tier() {
+    let tree = issue20_csharp_monorepo();
+    let out = assert_no_silent_single_node(&tree, &["depgraph", "modules"]);
+    assert_eq!(
+        mermaid_census(&out),
+        (3, 3),
+        "the collapsed fold must render the units tier, not a lone root:\n{out}"
+    );
+    for name in ["Alpha", "Beta", "Gamma"] {
+        assert!(out.contains(name), "unit node {name} missing:\n{out}");
+    }
+    assert!(out.contains("Beta --> Alpha") && out.contains("Gamma --> Alpha")
+        && out.contains("Gamma --> Beta"), "unit edges missing:\n{out}");
+    assert!(
+        !out.lines().any(|line| line.trim() == "root" || line.trim().starts_with("root[")),
+        "the lone `root` node was the bug: {out}"
+    );
+    assert_eq!(stderr(&tree.run(&["depgraph", "modules"])), "", "a real render states no degradation");
+    // The render equals the units tier it dropped to, node set and edges alike.
+    let units = stdout(&tree.run(&["depgraph", "modules", "--aggregate", "units"]));
+    assert_eq!(mermaid_census(&units), mermaid_census(&out), "the drop lands on the units tier");
+}
+
+#[test]
+fn issue20_residual_one_node_render_states_its_collapse() {
+    // One unit, two module paths that no fold separates (every path shares its
+    // first and final segment): the render keeps its one node — honestly, and
+    // loudly, naming the collapse and the coarser flag.
+    let tree = Fixture::new();
+    tree.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    tree.write("src/lib.rs", "pub mod api;\n");
+    tree.write("src/api/mod.rs", "pub mod api;\n");
+    tree.write("src/api/api.rs", "pub struct Leaf;\n");
+    let out = assert_no_silent_single_node(&tree, &["depgraph", "modules"]);
+    let (nodes, edges) = mermaid_census(&out);
+    assert_eq!((nodes, edges), (1, 0), "this tree's fold keeps one node:\n{out}");
+    let err = stderr(&tree.run(&["depgraph", "modules"]));
+    let notes: Vec<&str> = err.lines().collect();
+    assert_eq!(notes.len(), 1, "exactly one note line expected: {notes:?}");
+    assert!(
+        notes[0].starts_with("note: the automatic projection folded")
+            && notes[0].contains("onto one node"),
+        "{}",
+        notes[0]
+    );
+    assert!(notes[0].contains("--aggregate units"), "{}", notes[0]);
+    assert!(!out.contains("note:"), "no note may leak into the body:\n{out}");
+}
+
+#[test]
+fn issue20_healthy_trees_stay_byte_silent() {
+    // The sweep's integration arm: fold-descended and healthy trees print no
+    // note and keep their renders (the go-fold and rust fixtures).
+    for fixture in [edge_fixture(), nested_fixture()] {
+        let output = fixture.run(&["depgraph", "modules"]);
+        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+        assert_eq!(stderr(&output), "", "a multi-node render states nothing");
+        assert_no_silent_single_node(&fixture, &["depgraph", "modules"]);
+    }
+}

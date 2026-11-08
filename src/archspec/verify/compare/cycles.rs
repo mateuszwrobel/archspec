@@ -315,7 +315,7 @@ fn adjudicate_cycles(
 /// dotted-module claim covers the files backing its module — never a
 /// silently-vacuous file tier (the vacuity carrier states facts, not
 /// spelling accidents).
-fn file_module_identity(model: &Model, path: &str) -> String {
+pub(super) fn file_module_identity(model: &Model, path: &str) -> String {
     if language::from_name(&model.language) != Some(language::Language::Rust)
         || path.contains("::")
         || !path.ends_with(".rs")
@@ -323,18 +323,35 @@ fn file_module_identity(model: &Model, path: &str) -> String {
         return path.to_string();
     }
     // The unit whose `src/` root the file sits under (longest prefix wins).
-    let mut best: Option<(&Unit, usize)> = None;
+    // A tie at one prefix length — a single manifest spelling several units
+    // (`path = "."`, the bin+lib shape of GitHub issue #29) — is decided by
+    // the row facts, never by `model.units` order: the unit a `file_edges`
+    // row naming this file carries (the row-own-unit law of the no-cycles
+    // vacuity decision-check). A file every tied unit spells in its own
+    // rows is the mirrored lib/bin class the probe de-mirrors by file set:
+    // either identity states the same file there. A file no tied unit's
+    // rows name keeps the first tied unit (the probe's fallback law).
+    let mut tied: Vec<(&Unit, usize)> = Vec::new();
     for unit in &model.units {
         let src = if unit.path == "." {
             "src/".to_string()
         } else {
             format!("{}/src/", unit.path.trim_end_matches('/'))
         };
-        if path.starts_with(&src) && best.is_none_or(|(_, len)| src.len() > len) {
-            best = Some((unit, src.len()));
+        if !path.starts_with(&src) {
+            continue;
+        }
+        match tied.first() {
+            Some(&(_, len)) if src.len() > len => {
+                tied.clear();
+                tied.push((unit, src.len()));
+            }
+            Some(&(_, len)) if src.len() == len => tied.push((unit, src.len())),
+            Some(_) => {}
+            None => tied.push((unit, src.len())),
         }
     }
-    let Some((unit, prefix)) = best else {
+    if tied.is_empty() {
         // No unit source root matched: project relative to a plain `src/`
         // under the first unit — the probe's fallback law. A path under no
         // source root at all stays identity and claims through nothing else.
@@ -343,6 +360,20 @@ fn file_module_identity(model: &Model, path: &str) -> String {
             _ => return path.to_string(),
         };
         return project_rust_stem(unit, rel);
+    }
+    let (unit, prefix) = if tied.len() == 1 {
+        tied[0]
+    } else {
+        let decided = tied
+            .iter()
+            .find(|(unit, _)| {
+                model
+                    .file_edges
+                    .iter()
+                    .any(|edge| (edge.from == path || edge.to == path) && edge.unit == unit.name)
+            })
+            .unwrap_or(&tied[0]);
+        *decided
     };
     project_rust_stem(unit, &path[prefix..])
 }

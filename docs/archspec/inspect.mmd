@@ -272,6 +272,7 @@ graph TD
     tests_ts_workspace_rs_fedb3131["tests/ts_workspace.rs"]
     tests_type_only_exemption_rs_87b6eab2["tests/type_only_exemption.rs"]
     tests_update_rs_d4d62fa8["tests/update.rs"]
+    tests_used_but_undeclared_rs_f2926108["tests/used_but_undeclared.rs"]
     tests_vacuous_guards_rs_dd44012c["tests/vacuous_guards.rs"]
     tests_verify_rs_ca0c67e6["tests/verify.rs"]
     tests_verify_constraints_rs_885d1ae0["tests/verify_constraints.rs"]
@@ -353,7 +354,8 @@ graph TD
     tests_ts_driver_rs_3a036c39 ~~~ tests_ts_workspace_rs_fedb3131
     tests_ts_workspace_rs_fedb3131 ~~~ tests_type_only_exemption_rs_87b6eab2
     tests_type_only_exemption_rs_87b6eab2 ~~~ tests_update_rs_d4d62fa8
-    tests_update_rs_d4d62fa8 ~~~ tests_vacuous_guards_rs_dd44012c
+    tests_update_rs_d4d62fa8 ~~~ tests_used_but_undeclared_rs_f2926108
+    tests_used_but_undeclared_rs_f2926108 ~~~ tests_vacuous_guards_rs_dd44012c
     tests_vacuous_guards_rs_dd44012c ~~~ tests_verify_rs_ca0c67e6
     tests_verify_rs_ca0c67e6 ~~~ tests_verify_constraints_rs_885d1ae0
     tests_verify_constraints_rs_885d1ae0 ~~~ tests_verify_expose_rs_869304f2
@@ -648,6 +650,7 @@ graph TD
   src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_verify_compare_cycles_rs_7a16f3ee
   src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_verify_compare_diff_rs_1ea7ac2e
   src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
+  src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_verify_compare_pattern_rs_7d04036f
   src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_capability_rs_d60fec76
   src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_language_rs_232ea882
   src_archspec_verify_compare_engagement_rs_c3c042c0 --> src_archspec_model_rs_b8d77281

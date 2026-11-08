@@ -584,6 +584,16 @@ signatures = ["workspace link missing"]
 dedicated_guard = "tests/ts_workspace.rs"
 
 [[claim]]
+id = "used-but-undeclared-import"
+owner = "the `used but undeclared` catalog entry of `archspec help diagnostics`, rendered by verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "used but undeclared: <from> -> <to> (<evidence-loc>)"
+canonical_fragments = ["used but undeclared"]
+signatures = ["used but undeclared"]
+dedicated_guard = "tests/used_but_undeclared.rs"
+
+[[claim]]
 id = "undeclared-member-import"
 owner = "the `undeclared member import` catalog entry of `archspec help diagnostics`, rendered by the ts scan and verify runs on stderr"
 owner_surfaces = ["help diagnostics"]

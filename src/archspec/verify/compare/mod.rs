@@ -34,6 +34,8 @@ use edges::check_allowed_edges;
 use edges::check_facade_roots;
 use edges::check_forbidden_laundering;
 use edges::check_missing_edges;
+use edges::check_used_but_undeclared;
+use edges::file_tier_evidence;
 use adjudicate::{composition_sources, resolve_module_edges};
 use edges::submodule_dependency_edges;
 use edges::ts_submodule_constraints;
@@ -113,14 +115,17 @@ pub fn compare(
     }
     check_facade_roots(model, &mut diff);
     check_allowed_edges(&graph.pairs, &graph.value_pairs, model, modules, &claims, &mut diff);
+    let file_evidence = file_tier_evidence(model, &claims);
     check_missing_edges(
         &graph.pairs,
         model,
         &mapping,
         &claims,
         Some(&claims_index),
+        &file_evidence,
         &mut diff,
     );
+    check_used_but_undeclared(&graph.pairs, &file_evidence, &mut diff);
     let missing_components: BTreeSet<String> = diff.missing_components.iter().cloned().collect();
     check_claim_engagement(model, &claims, &missing_components, &mut diff.warnings);
     check_forbidden_laundering(
@@ -233,6 +238,7 @@ pub fn compare(
     diff.warnings.sort();
     diff.forbidden_edges.sort();
     diff.missing_edges.sort();
+    diff.used_but_undeclared.sort();
     diff.disallowed_cross_component.sort();
     diff
 }
@@ -284,6 +290,42 @@ mod tests {
                 "the granular {name} row for file-grained-dependency-facts has no \
                  projection arm in file_grained_rows — the row certifies facts the \
                  adjudication cannot read"
+            );
+        }
+    }
+
+    /// The GitHub issue #29 adversarial law: a two-unit single-manifest crate
+    /// (a bin and a lib both spelling `path = "."`) attributes each file by
+    /// the unit its `file_edges` rows carry, never by `model.units` order.
+    /// Here only the lib unit's rows name `src/collector.rs` (the bin's
+    /// `main.rs` never declares it), so both unit orders must project it to
+    /// the lib unit's module at the file tier.
+    #[test]
+    fn single_manifest_unit_tie_attributes_from_the_rows_own_unit_not_unit_order() {
+        let units_bin_first = r#"[{"name":"app_bin","kind":"bin","path":"."},
+                                 {"name":"app_lib","kind":"crate","path":"."}]"#;
+        let units_lib_first = r#"[{"name":"app_lib","kind":"crate","path":"."},
+                                 {"name":"app_bin","kind":"bin","path":"."}]"#;
+        for units in [units_bin_first, units_lib_first] {
+            let model = Model::from_json(&format!(
+                r#"{{"schema_version":1,"language":"rust","units":{units},"edges":[],
+                    "file_edges":[
+                        {{"unit":"app_bin","from":"src/main.rs","to":"src/cli.rs","kind":"mod"}},
+                        {{"unit":"app_lib","from":"src/lib.rs","to":"src/collector.rs","kind":"mod"}},
+                        {{"unit":"app_lib","from":"src/collector.rs","to":"src/util.rs","kind":"use"}}
+                    ]}}"#
+            ))
+            .expect("two-unit single-manifest model loads");
+            assert_eq!(
+                cycles::file_module_identity(&model, "src/collector.rs"),
+                "app_lib::collector",
+                "a lib file under a `path = \".\"` tie must project to the unit its \
+                 rows name, whatever the order of model.units"
+            );
+            assert_eq!(
+                cycles::file_module_identity(&model, "src/util.rs"),
+                "app_lib::util",
+                "a row endpoint seen only as a `to` attributes the same way"
             );
         }
     }

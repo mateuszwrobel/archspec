@@ -4,10 +4,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use super::adjudicate::{Verdict, pair_verdict};
-use super::claims::{Claim, ClaimIndex, ancestors_of};
+use super::claims::{Claim, ClaimIndex, ancestors_of, related_by_containment};
 use super::cycles::{submodule_identity, ts_submodule_identity};
 use super::diff::Diff;
 use super::mapping::{Mapping, is_test_module};
+use super::pattern::matches_pattern;
 
 use crate::archspec::model::{Model, ModuleEdge, Role};
 use crate::archspec::spec::{Constraint, Module};
@@ -205,6 +206,7 @@ pub(super) fn check_missing_edges(
     mapping: &Mapping,
     claims: &[Claim<'_>],
     index: Option<&ClaimIndex>,
+    file_evidence: &BTreeMap<(String, String), BTreeSet<String>>,
     diff: &mut Diff,
 ) {
     // Issue #17 inversion: the pair set scanned per declared entry made the
@@ -246,6 +248,19 @@ pub(super) fn check_missing_edges(
             continue;
         };
         let ancestry = exercised_ancestors.entry(to.as_str()).or_default();
+        for at in indices {
+            ancestry.extend(ancestors[*at].iter().copied());
+        }
+    }
+    // Issue #19: the file-tier evidence folded like the exercised pairs, so
+    // an import anywhere in a claim's subtree that crosses the target at
+    // file granularity keeps the zero-evidence arm silent.
+    let mut evidence_ancestors: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+    for (from, to) in file_evidence.keys() {
+        let Some(indices) = name_indices.get(from.as_str()) else {
+            continue;
+        };
+        let ancestry = evidence_ancestors.entry(to.as_str()).or_default();
         for at in indices {
             ancestry.extend(ancestors[*at].iter().copied());
         }
@@ -327,6 +342,20 @@ pub(super) fn check_missing_edges(
                 let unowned = unowned_sources.contains(&index)
                     || unowned_targets.contains(target)
                     || unowned_unit_targets.contains(target);
+                if !unowned
+                    && !evidence_by_target
+                        .get(target)
+                        .is_some_and(|ancestry| ancestry.contains(&index))
+                    && evidence_ancestors
+                        .get(target)
+                        .is_some_and(|ancestry| ancestry.contains(&index))
+                {
+                    // The model holds file-tier evidence crossing this very
+                    // pair; the `no import evidence` claim would contradict
+                    // the scan. `used but undeclared` names the leg at error
+                    // severity with its evidence loc instead (issue #19).
+                    continue;
+                }
                 let suffix = if unowned {
                     REASON_UNOWNED
                 } else if evidence_by_target
@@ -348,6 +377,96 @@ pub(super) fn check_missing_edges(
                     .push(format!("{} -> {target}{suffix}", claim.name));
             }
         }
+    }
+}
+
+/// Issue #19 — file-tier evidence folded by claim pair: every cross-UNIT
+/// import the model records at file granularity, re-attributed by unit-path
+/// territory and named by the claims owning those units, with the importing
+/// endpoint as evidence loc. The pair graph drops an edge whose endpoint no
+/// claim's arms own (the D10 file-territory gate keeps unit-only claims from
+/// owning path endpoints), so a workspace member importing a sibling whose
+/// manifest omits the leg vanishes from both boundary checks — reported
+/// neither by the ceiling nor honestly by the floor. This map is the honest
+/// second read of the same edges: the check that reports `used but
+/// undeclared`, and the missing-edge reason selection that must not claim
+/// "no import evidence" while these rows exist for the pair. Cross-module
+/// rows inside one unit's territory are excluded: the manifest tier declares
+/// unit→unit legs, so a same-unit crossing is module-territory surface the
+/// existing attribution already adjudicates. A root unit (path `.` or empty)
+/// attributes nothing: its territory is the whole tree, so containment
+/// against it would swallow foreign import paths (the go module-path shape).
+pub(super) fn file_tier_evidence(
+    model: &Model,
+    claims: &[Claim<'_>],
+) -> BTreeMap<(String, String), BTreeSet<String>> {
+    let owner = |path: &str| -> Option<usize> {
+        let unit = containing_unit(model, path)?;
+        claims.iter().enumerate().find_map(|(index, claim)| {
+            (claim.depth == 0
+                && claim
+                    .matches
+                    .units
+                    .iter()
+                    .any(|pattern| matches_pattern(unit, pattern)))
+            .then_some(index)
+        })
+    };
+    let mut evidence: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
+    for edge in &model.module_edges {
+        if is_test_module(model, &edge.from) || is_test_module(model, &edge.to) {
+            continue;
+        }
+        let (Some(from), Some(to)) = (owner(&edge.from), owner(&edge.to)) else {
+            continue;
+        };
+        if claims[from].name == claims[to].name || related_by_containment(claims, from, to) {
+            continue;
+        }
+        evidence
+            .entry((claims[from].name.to_string(), claims[to].name.to_string()))
+            .or_default()
+            .insert(edge.from.clone());
+    }
+    evidence
+}
+
+/// The non-root unit whose path territory contains `path` — longest path
+/// wins, so a nested package claims its own files against a wider parent.
+fn containing_unit<'m>(model: &'m Model, path: &str) -> Option<&'m str> {
+    model
+        .units
+        .iter()
+        .filter(|unit| {
+            let territory = unit.path.trim_end_matches('/');
+            !territory.is_empty()
+                && territory != "."
+                && (path == territory || path.starts_with(&format!("{territory}/")))
+        })
+        .max_by_key(|unit| unit.path.trim_end_matches('/').chars().count())
+        .map(|unit| unit.name.as_str())
+}
+
+/// Used but undeclared (GitHub issue #19): code imports across a pair of
+/// claim-owned units while the pair carries no exercised edge — the manifest
+/// legs are the unit tier of the pair graph, so an absent pair says the
+/// importer's manifest omits the declaration the code already exercises.
+/// Error severity with the evidence loc; the pair is named once with its
+/// sorted distinct importing files. The unowned-endpoint warning names the
+/// attribution gap; this finding names the dependency the gap hid.
+pub(super) fn check_used_but_undeclared(
+    pairs: &BTreeSet<(String, String)>,
+    file_evidence: &BTreeMap<(String, String), BTreeSet<String>>,
+    diff: &mut Diff,
+) {
+    for ((from, to), locs) in file_evidence {
+        if pairs.contains(&(from.clone(), to.clone())) {
+            continue;
+        }
+        diff.used_but_undeclared.push(format!(
+            "{from} -> {to} ({})",
+            locs.iter().cloned().collect::<Vec<_>>().join(", ")
+        ));
     }
 }
 

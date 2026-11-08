@@ -412,25 +412,23 @@ fn analyze_unit_modules(
                                 .or_default()
                                 .extend(symbols);
                         }
-                        // A CONTAINMENT hop is not a dependency: a path that
-                        // lands on an ancestor module of the using module —
-                        // spelled `super::`, `crate::`-absolute, or a bare
-                        // name — points at a module that CONTAINS the using
-                        // one. The module tier already edges that pair as a
-                        // descendant→ancestor module edge, so the file tier
-                        // may not row it either (the tier-comparability law
-                        // of the D6 projection dedup: a file ring closing on
-                        // an ancestor hop would re-report a fact the module
-                        // tier owns, and ring clean containment trees —
-                        // e.g. a sibling Rust workspace crate's freshness
-                        // check or the sibling crate's config module).
-                        // Sibling hops through a parent's item and
-                        // descendant-target rows keep their row: the target
-                        // is not an ancestor of the source.
-                        let containment_hop = contains_module(&target, &source_dotted);
-                        if !containment_hop {
-                            record_file_row(&mut state, file, &target, FileFactKind::Use);
-                        }
+                        // The ancestor-row symmetry law (GitHub issue #30): a
+                        // resolved import contributes its file row whatever the
+                        // target's position in the module tree — including an
+                        // ANCESTOR module reached through `super::` or a
+                        // `crate::`-absolute path. The retired containment-hop
+                        // exclusion folded the descendant→ancestor half away
+                        // because "the module tier already edges that pair",
+                        // yet no verb adjudicates cycles from `module_edges`:
+                        // reciprocal imports inside one subtree read `cycles: 0`
+                        // everywhere (the M1 false zero). The ADR-023
+                        // ring-clean protection stands where it always lived:
+                        // a pure containment ring closes only on a bare `mod`
+                        // declaration, and the cycle graph excludes mod-only
+                        // pairs (`file_tier_report_cycles`). Rows still come
+                        // only from parsed imports — never synthesized from a
+                        // module-tier fact.
+                        record_file_row(&mut state, file, &target, FileFactKind::Use);
                     }
                 } else {
                     let normalized = normalize_crate_name(first);
@@ -510,13 +508,10 @@ fn analyze_unit_modules(
                             .entry((source_dotted.clone(), target.clone()))
                             .or_default();
                     }
-                    // The containment-hop law of the `use` walk above: a
-                    // path expression that lands on an ancestor module
-                    // contributes no file row, whatever spelling it uses.
-                    let containment_hop = contains_module(&target, &source_dotted);
-                    if !containment_hop {
-                        record_file_row(&mut state, file, &target, FileFactKind::Path);
-                    }
+                    // The ancestor-row symmetry law of the `use` walk above:
+                    // a path expression landing on an ancestor module
+                    // contributes its row too, whatever spelling it uses.
+                    record_file_row(&mut state, file, &target, FileFactKind::Path);
                 }
             } else {
                 let normalized = normalize_crate_name(first);
@@ -565,7 +560,7 @@ fn analyze_unit_modules(
         // Resolution mirrors the two cited laws: the unit tier resolves the
         // first segment against `normalized_units` like the cross-unit `use`
         // branch above, and the module tier resolves a reserved-segment path
-        // against the module set with the containment-hop law like the
+        // against the module set with the ancestor-row symmetry law like the
         // qualified-path walk above. Two absences are law, not omission: trait
         // positions never contribute an `external` row (external facts come
         // from `use` and the manifest), and a bare first segment is probed
@@ -586,10 +581,7 @@ fn analyze_unit_modules(
                             .entry((source_dotted.clone(), target.clone()))
                             .or_default();
                     }
-                    let containment_hop = contains_module(&target, &source_dotted);
-                    if !containment_hop {
-                        record_file_row(&mut state, file, &target, FileFactKind::Path);
-                    }
+                    record_file_row(&mut state, file, &target, FileFactKind::Path);
                 }
             } else {
                 let normalized = normalize_crate_name(first);
@@ -1552,20 +1544,6 @@ fn resolve_module_path(segments: &[String], current: &[String], crate_name: &str
 /// scope for a bare `use`/path segment; ancestors and the crate root are NOT
 /// walked. Returns `None` when no declaration in this file matches, so the
 /// caller treats the segment as a crate reference.
-/// True when `target` is a STRICT ANCESTOR module of `source` — it contains
-/// `source` as a descendant, or `target` is the crate root module and `source`
-/// sits below it. Containment is the `mod`-tree relation, not a dependency:
-/// the containment-hop law that keeps ancestor-target rows out of the file
-/// tier rests on this predicate.
-fn contains_module(target: &str, source: &str) -> bool {
-    if target.is_empty() {
-        return !source.is_empty();
-    }
-    source
-        .strip_prefix(&format!("{target}::"))
-        .is_some_and(|rest| !rest.is_empty())
-}
-
 fn module_declared_in_file(
     name: &str,
     current: &[String],

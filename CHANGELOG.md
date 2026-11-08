@@ -6,6 +6,53 @@ only.
 
 ## [Unreleased]
 
+## [0.6.54] - 2026-11-08
+
+### Fixed
+
+- Reciprocal `use` imports inside one crate subtree now report their cycle
+  (GitHub issue #30): a file naming an ancestor module in an import states
+  its file row, so a reciprocal pair rows both directions and
+  `verify --strict` reddens. The scan driver previously suppressed file rows
+  for ancestor targets, which hid the reverse half of a real cycle from every
+  file-tier verb. Clean containment trees stay green: a ring closed by a bare
+  `mod` declaration stays composition, never a dependency.
+
+## [0.6.53] - 2026-11-08
+
+### Fixed
+
+- On a monorepo whose module tier collapses to one node, the automatic
+  `depgraph modules` render no longer prints `graph TD` plus a lone `root`
+  (GitHub issue #20): when every module-tier fold projects one node while the
+  units tier shows more, the projection drops to the units tier — the same
+  graph `--aggregate units` draws, claims and edges alike. A residual
+  one-node render of a multi-path tier names its degeneration in one stderr
+  note, the same mechanism as the degraded-render note.
+
+## [0.6.52] - 2026-11-08
+
+### Fixed
+
+- A dependency the code imports but no manifest declares is named honestly
+  (GitHub issue #19): the pair reports the new error class
+  `used but undeclared: <from> -> <to> (<importing files>)` and never the
+  contradictory `missing edge: ... (no import evidence for this pair)` —
+  the zero-evidence reason now appears only when the code scan shows no
+  evidence for the pair at all.
+
+## [0.6.51] - 2026-11-08
+
+### Fixed
+
+- In a single-manifest crate spelling several compilation units over one source
+  root (a `[lib]` and a `[[bin]]` both at `path = "."`), the file tier now
+  attributes each file to the compilation unit the file's own `file_edges` rows
+  carry, not to whichever unit the scan listed first (GitHub issue #29): a
+  module group claiming lib files is no longer silently vacuous at the file
+  tier, and the attribution is independent of the unit-list order. The
+  longest-source-prefix rule is unchanged wherever it does not tie.
+
 ## [0.6.50] - 2026-11-08
 
 ### Fixed

@@ -330,16 +330,21 @@ fn use_path_bare_first_segment_resolves_to_the_crate_not_an_own_module() {
     );
 }
 
-/// The containment-hop law: a file row whose target module CONTAINS the
-/// using module states a fact the module tier already edges (a descendant
-/// module reaching an ancestor's items), so the file tier must not row it —
-/// whatever spelling the path uses (`super::`, `crate::`-absolute, or a
-/// bare name). A clean containment tree may never ring at file grain: the
-/// ring would re-report a module-tier fact and reddened the fleet's mod
-/// trees once the rust posture row read `both` (ADR-023). Sibling hops
-/// through a parent keep their row: the target is not an ancestor.
+/// The ancestor-row symmetry law (GitHub issue #30): a `use` or qualified path
+/// whose target module CONTAINS the using module states a real dependency
+/// fact — a descendant reaching an ancestor's items — and the file tier rows
+/// it whatever spelling the path uses (`super::` or `crate::`-absolute),
+/// exactly like every other resolved import. The module tier edges the pair,
+/// but no verb adjudicates cycles from `module_edges`: a file tier that folded
+/// the ancestor hop away hid the reverse half of a real cycle (the M1
+/// false-zero class — the old containment-hop exclusion read `cycles: 0` on a
+/// cyclic tree). A clean containment tree still never rings at file grain:
+/// the parent's half of the pair is a bare `mod` declaration, and the cycle
+/// graph excludes mod-only pairs (the ADR-023 protection lives in the
+/// adjudication now, not in the driver). Sibling hops through a parent keep
+/// their row, as before.
 #[test]
-fn ancestor_target_hops_contribute_no_file_row_whatever_their_spelling() {
+fn ancestor_target_hops_row_their_file_edge_whatever_their_spelling() {
     let tree = Fixture::new();
     tree.write(
         "Cargo.toml",
@@ -370,18 +375,28 @@ fn ancestor_target_hops_contribute_no_file_row_whatever_their_spelling() {
             )
         })
         .collect();
-    for banned in [
+    // The descendant's own statements row the ancestor hops: `use
+    // super::PARENT_ITEM` rows the parent file, `use crate::ROOT_ITEM` (and
+    // the `crate::ROOT_ITEM` path expression) row the root file.
+    for required in [
         ("src/outer/inner.rs", "src/outer/mod.rs"),
         ("src/outer/inner.rs", "src/lib.rs"),
-        ("src/outer/mod.rs", "src/lib.rs"),
     ] {
         assert!(
-            !rows.contains(&(banned.0.to_string(), banned.1.to_string())),
-            "ancestor-target row {banned:?} must not be rowed at file grain: {rows:?}"
+            rows.contains(&(required.0.to_string(), required.1.to_string())),
+            "ancestor-target row {required:?} must be rowed at file grain: {rows:?}"
         );
     }
-    // The module tier still edges the descendant->ancestor fact: the pair
-    // stays visible there, so no cycle escapes the file tier into silence.
+    // The containment direction the tree never states stays absent: no file
+    // imports anything from a module that contains it via a bare `mod`
+    // declaration alone, and the driver still emits rows only from parsed
+    // statements — never a fact synthesized from the module tier.
+    assert!(
+        !rows.contains(&("src/outer/mod.rs".to_string(), "src/lib.rs".to_string())),
+        "a file that states no import of its ancestor states no row: {rows:?}"
+    );
+    // The module tier still edges the descendant->ancestor fact too: both
+    // tiers carry the pair now, never one silently folded against the other.
     let module_edges: Vec<(String, String)> = model["module_edges"]
         .as_array()
         .expect("module_edges")
@@ -399,6 +414,71 @@ fn ancestor_target_hops_contribute_no_file_row_whatever_their_spelling() {
             .any(|(from, to)| from.contains("outer::inner") && to == "app"),
         "the module tier still edges the ancestor hop: {module_edges:?}"
     );
+}
+
+/// The M1 fixture of the issue-#30 decision check as a regression: inside ONE
+/// crate subtree, reciprocal `use crate::` imports between a parent module and
+/// its child state a real cycle. The module tier carries both rows; the file
+/// tier must carry BOTH directions too — the reverse row
+/// (`src/kit/graph.rs -> src/kit.rs`, a `use crate::kit::Config` from inside
+/// the subtree) was the asymmetry that made every verb read `cycles: 0`.
+#[test]
+fn intra_subtree_reciprocal_use_rows_both_file_directions() {
+    let tree = Fixture::new();
+    tree.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    tree.write("src/lib.rs", "pub mod kit;\n");
+    tree.write(
+        "src/kit.rs",
+        "pub mod graph;\npub struct Config;\nuse crate::kit::graph::Graph;\npub fn run(g: &Graph) -> Config { let _ = g; Config }\n",
+    );
+    tree.write(
+        "src/kit/graph.rs",
+        "use crate::kit::Config;\npub struct Graph;\npub fn build(c: &Config) -> Graph { let _ = c; Graph }\n",
+    );
+    let model = scan_model(&tree);
+    let rows: Vec<(String, String)> = model["file_edges"]
+        .as_array()
+        .expect("file_edges present on a multi-file crate")
+        .iter()
+        .map(|row| {
+            (
+                row["from"].as_str().unwrap_or_default().to_string(),
+                row["to"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    for required in [
+        ("src/kit.rs", "src/kit/graph.rs"),
+        ("src/kit/graph.rs", "src/kit.rs"),
+    ] {
+        assert!(
+            rows.contains(&(required.0.to_string(), required.1.to_string())),
+            "the reciprocal pair must be rowed at file grain in BOTH directions: {rows:?}"
+        );
+    }
+    let module_edges: Vec<(String, String)> = model["module_edges"]
+        .as_array()
+        .expect("module_edges")
+        .iter()
+        .map(|edge| {
+            (
+                edge["from"].as_str().unwrap_or_default().to_string(),
+                edge["to"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    for required in [
+        ("app::kit", "app::kit::graph"),
+        ("app::kit::graph", "app::kit"),
+    ] {
+        assert!(
+            module_edges.contains(&(required.0.to_string(), required.1.to_string())),
+            "the module tier must carry the cycle row {required:?}: {module_edges:?}"
+        );
+    }
 }
 
 /// The same law's keep-side: a `super::`-spelled hop whose target is a
