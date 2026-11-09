@@ -60,7 +60,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // re-raised here.
     let loaded_spec = spec::load_scan(&root).ok().flatten();
     let declared = loaded_spec.as_ref().map(Exclusions::new);
-    let files = collect_files(&root, declared.as_ref())?;
+    let files = crate::hp!("ts:collect_files", collect_files(&root, declared.as_ref()))?;
     if files.is_empty() {
         return Err(format!("no ts sources found under: {}", root.display()));
     }
@@ -114,14 +114,15 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // report-only lines never exist (F14). Below the floor the lever
     // returns 1 and this is literally today's serial loop (no threads).
     let threads = super::leg::fact_leg_threads(files.len());
-    let all_facts: Vec<Result<syntax::FileFacts, String>> = if threads > 1 {
+    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::hp!("ts:fact_leg", { if threads > 1 {
         super::leg::parallel_fact_leg(files.len(), threads, |index| {
             file_facts(&root, &files[index])
         })
     } else {
         files.iter().map(|file| file_facts(&root, file)).collect()
-    };
+    } });
 
+    crate::hp!("ts:resolve_fold", {
     for (file, facts) in files.iter().zip(all_facts) {
         let facts = facts?;
         import_statements += facts.import_statements;
@@ -206,6 +207,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
             }
         }
     }
+    });
 
     // The seam's category lines ride the same channel as the anchor lines
     // above: findings as generated, deduped by the engine. The report-only

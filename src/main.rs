@@ -22,7 +22,16 @@ fn restore_default_sigpipe() {}
 
 fn main() {
     restore_default_sigpipe();
+    // The `profile` feature wires the hotpath profiler (hotpath-rs).
+    // The report prints when the guard drops; main exits via process::exit,
+    // which skips Drop, so the guard is dropped explicitly below.
+    #[cfg(feature = "profile")]
+    let _hp = hotpath::HotpathGuardBuilder::new("archspec")
+        .functions_limit(40)
+        .build();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = archspec::dispatch(&args);
+    #[cfg(feature = "profile")]
+    drop(_hp);
     std::process::exit(code);
 }

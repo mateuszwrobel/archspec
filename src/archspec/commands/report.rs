@@ -118,26 +118,26 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
     }
 
-    let model = scan::extract(language, root_path)?;
+    let model = crate::hp!("report:extract", scan::extract(language, root_path))?;
     // The environment declaration (GitHub issue #24): the census counts exactly
     // the report-only lines this scan produced — a count over facts already
     // emitted, never a second parse of the tree. Every renderer states it;
     // none computes a second adjudication.
     let environment = report::environment(&model);
 
-    let mapping = compare::map_units(&model.units, &loaded.modules);
-    let diff = compare::compare(
+    let mapping = crate::hp!("report:map_units", compare::map_units(&model.units, &loaded.modules));
+    let diff = crate::hp!("report:compare", { compare::compare(
         &mapping,
         &model,
         &loaded.modules,
         &loaded.stereotype,
         &loaded.constraint,
-    );
-    let metrics = report::compute_metrics(&model, &mapping, &loaded.modules, &diff);
+    ) });
+    let metrics = crate::hp!("report:metrics", report::compute_metrics(&model, &mapping, &loaded.modules, &diff));
 
     let config = config::load(root_path)?;
     let diagram = if format == "markdown" {
-        inspect::render_import_map(root_path, language)?
+        crate::hp!("report:diagram_reextract", inspect::render_import_map(root_path, language))?
     } else {
         None
     };

@@ -64,8 +64,8 @@ pub fn compare(
     constraints: &[Constraint],
 ) -> Diff {
     let soft_verifiable = soft_visibility_verifiable(model);
-    let mapping = augment_with_modules(mapping, model, modules);
-    let derived = effective_module_tier(model, &mapping);
+    let mapping = crate::hp!("cmp:augment", augment_with_modules(mapping, model, modules));
+    let derived = crate::hp!("cmp:tier", effective_module_tier(model, &mapping));
     let model = derived.as_ref();
     let declared: BTreeSet<&str> = modules.iter().map(|module| module.name.as_str()).collect();
     let resolved = resolved_components(&mapping);
@@ -90,7 +90,7 @@ pub fn compare(
             .collect(),
         unexpected_components: mapping.unexpected_components.clone(),
         unassigned_units: mapping.unassigned_units.clone(),
-        ambiguous_module_matches: check_ambiguous_module_matches(model, &claims),
+        ambiguous_module_matches: crate::hp!("cmp:ambiguous", check_ambiguous_module_matches(model, &claims)),
         ..Default::default()
     };
 
@@ -114,10 +114,10 @@ pub fn compare(
         diff.warnings
             .push(format!("unowned module edge endpoint: {path}"));
     }
-    check_facade_roots(model, &mut diff);
-    check_allowed_edges(&graph.pairs, &graph.value_pairs, model, modules, &claims, &mut diff);
+    crate::hp!("cmp:facade_roots", check_facade_roots(model, &mut diff));
+    crate::hp!("cmp:allowed_edges", check_allowed_edges(&graph.pairs, &graph.value_pairs, model, modules, &claims, &mut diff));
     let file_evidence = file_tier_evidence(model, &claims);
-    check_missing_edges(
+    crate::hp!("cmp:missing_edges", { check_missing_edges(
         &graph.pairs,
         model,
         &mapping,
@@ -125,19 +125,20 @@ pub fn compare(
         Some(&claims_index),
         &file_evidence,
         &mut diff,
-    );
-    check_used_but_undeclared(&graph.pairs, &file_evidence, &mut diff);
+    ) });
+    crate::hp!("cmp:used_but_undeclared", check_used_but_undeclared(&graph.pairs, &file_evidence, &mut diff));
     let missing_components: BTreeSet<String> = diff.missing_components.iter().cloned().collect();
-    check_claim_engagement(model, modules, &claims, &missing_components, constraints, &mut diff.warnings);
+    crate::hp!("cmp:claim_engagement", check_claim_engagement(model, modules, &claims, &missing_components, constraints, &mut diff.warnings));
     check_forbidden_laundering(
         &graph.pairs,
         &graph.fallback_pairs,
         modules,
         &mut diff.warnings,
     );
-    diff.contract_leaks = check_contract_leaks(&mapping, model, modules, stereotypes);
-    let (cycles, mut warnings, cycles_census) =
-        check_cycles(&graph.pairs, &graph.value_pairs, model, constraints, modules, &claims);
+    diff.contract_leaks = crate::hp!("cmp:contract_leaks", check_contract_leaks(&mapping, model, modules, stereotypes));
+    let (cycles, mut warnings, cycles_census) = crate::hp!("cmp:cycles", {
+        check_cycles(&graph.pairs, &graph.value_pairs, model, constraints, modules, &claims)
+    });
     diff.cycles = cycles;
     diff.cycles_census = cycles_census;
     diff.warnings.append(&mut warnings);
@@ -161,7 +162,7 @@ pub fn compare(
     diff.warnings.extend(expose.warnings);
     let mut expose_vacuous = expose.vacuous;
 
-    let (external, mut warning_external) = check_forbid_external(model, constraints);
+    let (external, mut warning_external) = crate::hp!("cmp:external", check_forbid_external(model, constraints));
     diff.forbidden_external_crates = external;
     diff.warnings.append(&mut warning_external);
 
@@ -169,7 +170,7 @@ pub fn compare(
     diff.not_external_free = impure;
     diff.warnings.append(&mut warning_impure);
 
-    let (manifest, mut warning_manifest) = check_manifest_integrity(model, constraints);
+    let (manifest, mut warning_manifest) = crate::hp!("cmp:manifest", check_manifest_integrity(model, constraints));
     diff.manifest_integrity = manifest;
     diff.warnings.append(&mut warning_manifest);
 
@@ -177,7 +178,7 @@ pub fn compare(
     diff.feature_boundaries = boundaries;
     diff.warnings.append(&mut warning_boundaries);
 
-    let submodule_edges = submodule_dependency_edges(model, &mapping, &claims, Some(&claims_index));
+    let submodule_edges = crate::hp!("cmp:submodule_edges", submodule_dependency_edges(model, &mapping, &claims, Some(&claims_index)));
     let restated_submodule_constraints: Vec<Constraint>;
     let submodule_constraints: &[Constraint] = if model.language == "ts" {
         restated_submodule_constraints = ts_submodule_constraints(constraints);
@@ -190,12 +191,12 @@ pub fn compare(
     diff.forbidden_submodule_dependencies = submodules;
     diff.warnings.append(&mut warning_submodules);
 
-    let (mut dead_errors, mut dead_warnings) = check_reference_engagement(
+    let (mut dead_errors, mut dead_warnings) = crate::hp!("cmp:reference_engagement", { check_reference_engagement(
         model,
         modules,
         stereotypes,
         soft_verifiable,
-    );
+    ) });
     diff.dead_references.append(&mut dead_errors);
     diff.warnings.append(&mut dead_warnings);
 

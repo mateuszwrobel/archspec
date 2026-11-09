@@ -177,3 +177,23 @@ pub fn dispatch(args: &[String]) -> i32 {
         }
     }
 }
+
+/// Profile-gated timing seam (hotpath-rs). `hp!("verb:phase", expr)` measures
+/// the expression under `--features profile` and compiles to the bare
+/// expression otherwise — zero cost on the shipped path. Labels are namespaced
+/// `<verb>:<phase>` and unique per call site (hotpath enforces literal-label
+/// uniqueness).
+#[cfg(feature = "profile")]
+#[macro_export]
+macro_rules! hp {
+    ($label:literal, $expr:expr) => {
+        hotpath::measure_block!($label, $expr)
+    };
+}
+#[cfg(not(feature = "profile"))]
+#[macro_export]
+macro_rules! hp {
+    ($label:literal, $expr:expr) => {
+        $expr
+    };
+}

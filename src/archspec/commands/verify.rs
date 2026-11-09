@@ -89,7 +89,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
     }
 
-    let mut model = scan::extract_checked(language, root_path)?;
+    let mut model = crate::hp!("verify:extract", scan::extract_checked(language, root_path))?;
     // The scan report surface covers both verbs (D13): wildcard facts print
     // here exactly as they do on `scan`, report-only (R2-6), and so do the
     // `external not installed` lines (ts-resolution record R7b).
@@ -115,13 +115,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut scan_warnings = std::mem::take(&mut model.warnings);
 
     let mapping = compare::map_units(&model.units, &loaded.modules);
-    let mut diff = compare::compare(
+    let mut diff = crate::hp!("verify:compare", { compare::compare(
         &mapping,
         &model,
         &loaded.modules,
         &loaded.stereotype,
         &loaded.constraint,
-    );
+    ) });
     // The fold (issue-8 phase 2): scan-side warn-mode findings join the
     // spec-side warnings in the diff's warnings channel, listed after all
     // error items and gated by `--strict` exactly like every other warning.

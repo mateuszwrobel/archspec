@@ -51,9 +51,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
     }
 
-    let model = scan::extract(detected, root_path)?;
+    let model = crate::hp!("update:extract", scan::extract(detected, root_path))?;
 
-    let content = update::seed_spec(&model);
+    let content = crate::hp!("update:seed_spec", update::seed_spec(&model));
     std::fs::write(&spec_path, content)
         .map_err(|err| format!("failed to write spec: {}: {err}", spec_path.display()))?;
 
