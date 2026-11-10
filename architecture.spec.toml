@@ -4,7 +4,7 @@ language = "rust"
 # own package.json marker, not part of the Rust model (ADR-051). Its guards
 # live in tests/npm_channel.rs and npm/test/; the language agreement check
 # must never count them.
-excluded_sources = [ { path = "npm", reason = "the npm installer package — node sources with their own marker, verified by tests/npm_channel.rs" } ]
+excluded_sources = [ { path = "npm", reason = "the npm installer package — node sources with their own marker, verified by tests/npm_channel.rs" }, { path = "scripts/bench", reason = "the issue #33 parity bench tooling — python corpus generator and sweep harness, exercised by the runner self-test leg and the perf-probe workflow, not part of the Rust model" } ]
 
 # CLI layer: the binary entrypoint, the module tree that wires commands, and one
 # prefix claim over the per-command submodules.
@@ -57,6 +57,7 @@ matches = { modules = [
   "archspec::archspec::language*",
   "archspec::archspec::capability*",
   "archspec::archspec::helptext*",
+  "archspec::archspec::profile*",
 ] }
 
 # Library crate boundary (the engine the binary links). The crate-root module

@@ -17,6 +17,13 @@ pub struct Spec {
     pub modules: Vec<Module>,
     #[serde(default)]
     pub constraint: Vec<Constraint>,
+    /// The `[[exempt]]` ratchet ledger (GitHub issue #27): one entry per
+    /// named ring whose debt is accepted, bounded by tier, optional count
+    /// cap and optional expiry. Matched by identity, never by count — see
+    /// `verify::compare::cycles` for the adjudication and
+    /// `helptext::DIAGNOSTICS_HELP` for the emitted categories.
+    #[serde(default)]
+    pub exempt: Vec<Exempt>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -286,6 +293,83 @@ pub struct Constraint {
     // `forbid_submodule_dependency`
     #[serde(default)]
     pub parent: String,
+}
+
+/// One `[[exempt]]` ratchet entry (GitHub issue #27): the named ring whose
+/// debt is accepted, the tier it was seen on, an optional shrink-only match
+/// cap and an optional expiry date. `cycle` and `tier` are mandatory — kept
+/// as `Option` so the schema validator names the missing key per entry the
+/// same way `validate_constraint` words the constraint rows;
+/// `validate_exempt` enforces the domain before any adjudication reads them.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Exempt {
+    /// Ring identity: `<member> -> <member> -> ... -> <member>` with a
+    /// repeated first member — the same bytes a finding states, tier prefix
+    /// and kind label excluded.
+    #[serde(default)]
+    pub cycle: Option<String>,
+    /// Which tier's findings this entry suppresses: `"file"`, `"module"`
+    /// or `"both"`. Tier mismatch never suppresses (R2): a file-tier entry
+    /// never whitens a module-tier ring, and the reverse.
+    #[serde(default)]
+    pub tier: Option<String>,
+    /// Shrink-only per-entry cap on the findings one identity can suppress
+    /// (R1: identity matches, count bounds). Absent = no bound. `0` is
+    /// refused — an entry that exempts nothing is a stale entry, not a cap.
+    #[serde(default)]
+    pub count: Option<i64>,
+    /// Optional expiry `YYYY-MM-DD` (UTC). A past date exempts NOTHING (R4):
+    /// the debt reports and the entry warns `exempt expired` instead of
+    /// whitening or silently vanishing.
+    #[serde(default)]
+    pub until: Option<String>,
+    /// Free-text justification, documentation only — never adjudicated.
+    #[serde(default)]
+    #[allow(dead_code)] // contract-visible: the [[exempt]] schema declares it; nothing adjudicates by design
+    pub reason: Option<String>,
+}
+
+impl Exempt {
+    /// True when the entry's `until` date lies before `today` (both
+    /// `YYYY-MM-DD`, so the lexicographic comparison is the date
+    /// comparison). An absent expiry never expires.
+    pub fn expired(&self, today: &str) -> bool {
+        self.until
+            .as_deref()
+            .is_some_and(|until| until < today)
+    }
+
+    /// True when this entry suppresses a finding on `tier` — the entry's
+    /// declared tier, or either tier for `"both"` (R2).
+    pub fn matches_tier(&self, tier: &str) -> bool {
+        matches!(self.tier.as_deref(), Some(t) if t == "both" || t == tier)
+    }
+}
+
+/// Today's UTC date as `YYYY-MM-DD` — the clock the expiry comparison runs
+/// on (no dependency: civil-from-days over the unix epoch).
+pub fn today_iso() -> String {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs() / 86_400)
+        .unwrap_or(0) as i64;
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// Howard Hinnant's `civil_from_days`: days since 1970-01-01 to the
+/// proleptic Gregorian (year, month, day).
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 5 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m as u32, d as u32)
 }
 
 /// Every declared claim name at every depth, depth-first. Claim names are
@@ -602,11 +686,12 @@ pub const SPEC_KEY_SHAPES: &[(&str, &[&str])] = &[
     ),
     ("contract", &["expose", "forbid"]),
     ("excluded_sources", &["mode", "path", "reason"]),
+    ("exempt", &["count", "cycle", "reason", "tier", "until"]),
     ("match", &["modules", "names", "paths", "units"]),
     ("module", &["allowed", "contract", "matches", "name", "submodules"]),
     ("project", &["excluded_sources", "framework", "language"]),
     ("stereotype", &["match", "name"]),
-    ("top", &["constraint", "module", "project", "stereotype"]),
+    ("top", &["constraint", "exempt", "module", "project", "stereotype"]),
 ];
 
 /// The declared keys of one shape. Panics on an unknown shape name — the
@@ -663,6 +748,12 @@ fn validate_unknown_keys(content: &str, spec_path: &std::path::Path) -> Result<(
         let location = format!("in [constraint] #{}", index + 1);
         if let Some(table) = entry.as_table() {
             check_spec_keys(table, "constraint", &location, spec_path)?;
+        }
+    }
+    for (index, entry) in array_items(root.get("exempt")).iter().enumerate() {
+        let location = format!("in [exempt] #{}", index + 1);
+        if let Some(table) = entry.as_table() {
+            check_spec_keys(table, "exempt", &location, spec_path)?;
         }
     }
     Ok(())
@@ -963,6 +1054,106 @@ fn validate_submodule_units(spec_path: &std::path::Path, module: &Module) -> Res
     Ok(())
 }
 
+/// The tier values one `[[exempt]]` entry may name (GitHub issue #27, R2).
+const EXEMPT_TIERS: &[&str] = &["both", "file", "module"];
+
+/// Validate the `[[exempt]]` ratchet ledger (GitHub issue #27): mandatory
+/// keys, the tier domain, ring-shaped identities, a positive `count`, a
+/// `YYYY-MM-DD` expiry and one entry per (tier, cycle) identity. Every
+/// refusal is the shipped `invalid spec: <file>: ...` class naming the
+/// entry (1-indexed) and the key — the `validate_constraint` message
+/// shape, never a new class.
+fn validate_exempt(spec_path: &std::path::Path, entries: &[Exempt]) -> Result<(), String> {
+    for (index, entry) in entries.iter().enumerate() {
+        let at = |key: &str| {
+            Err(format!(
+                "invalid spec: {}: [exempt] entry #{}: missing mandatory key \"{key}\" — an \
+                 ratchet entry names its ring and the tier it exempts",
+                spec_path.display(),
+                index + 1,
+            ))
+        };
+        let cycle = match entry.cycle.as_deref().map(str::trim) {
+            None => return at("cycle"),
+            Some("") => return at("cycle"),
+            Some(cycle) => cycle,
+        };
+        let tier = match entry.tier.as_deref() {
+            None | Some("") => return at("tier"),
+            Some(tier) => tier,
+        };
+        if !EXEMPT_TIERS.contains(&tier) {
+            return Err(format!(
+                "invalid spec: {}: [exempt] entry #{}: tier \"{tier}\" is not supported — \
+                 supported values are \"file\", \"module\" and \"both\"",
+                spec_path.display(),
+                index + 1,
+            ));
+        }
+        // The identity is the ring path the finding states (kind label and
+        // tier prefix excluded): at least two distinct stops, head == tail.
+        let legs: Vec<&str> = cycle.split(" -> ").map(str::trim).collect();
+        if legs.len() < 3
+            || legs.iter().any(|leg| leg.is_empty())
+            || legs.first() != legs.last()
+        {
+            return Err(format!(
+                "invalid spec: {}: [exempt] entry #{}: cycle \"{cycle}\" is not a ring — \
+                 expected \"<member> -> <member> -> ... -> <member>\" with a repeated first \
+                 member",
+                spec_path.display(),
+                index + 1,
+            ));
+        }
+        if entry.count.is_some_and(|count| count < 1) {
+            return Err(format!(
+                "invalid spec: {}: [exempt] entry #{}: count must be a positive integer — an \
+                 entry matching nothing is stale, not capped",
+                spec_path.display(),
+                index + 1,
+            ));
+        }
+        if let Some(until) = entry.until.as_deref() {
+            let digits = |mut range: std::ops::Range<usize>| {
+                until.len() == 10 && range.all(|i| until[i..i + 1].bytes().all(|b| b.is_ascii_digit()))
+            };
+            let date_like = until.is_ascii()
+                && digits(0..4)
+                && &until[4..5] == "-"
+                && digits(5..7)
+                && (1..=12).contains(&until[5..7].parse::<u32>().unwrap_or(0))
+                && &until[7..8] == "-"
+                && digits(8..10)
+                && (1..=31).contains(&until[8..10].parse::<u32>().unwrap_or(0));
+            if !date_like {
+                return Err(format!(
+                    "invalid spec: {}: [exempt] entry #{}: until \"{until}\" is not a date — \
+                     expected YYYY-MM-DD",
+                    spec_path.display(),
+                    index + 1,
+                ));
+            }
+        }
+        // One identity one entry (the duplicate check runs per pair, spec
+        // order first-wins): two entries on one (tier, cycle) would split
+        // the cap and the expiry across two truths.
+        for (other, other_entry) in entries.iter().enumerate().skip(index + 1) {
+            let same = other_entry.cycle.as_deref().map(str::trim) == Some(cycle)
+                && other_entry.tier.as_deref() == entry.tier.as_deref();
+            if same {
+                return Err(format!(
+                    "invalid spec: {}: [exempt] entries #{} and #{} are a duplicate exempt \
+                     entry for tier \"{tier}\" cycle \"{cycle}\" — one identity one entry",
+                    spec_path.display(),
+                    index + 1,
+                    other + 1,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Basic schema validation over the fields verify reads. Unknown constraint
 /// types and empty module names are schema violations naming the file, the
 /// offending entry (1-indexed), and why. Extend as later behaviors add checks.
@@ -1020,6 +1211,7 @@ fn validate_schema(spec_path: &std::path::Path, spec: &Spec) -> Result<(), Strin
     for (index, constraint) in spec.constraint.iter().enumerate() {
         validate_constraint(spec_path, constraint, index)?;
     }
+    validate_exempt(spec_path, &spec.exempt)?;
     for (index, module) in spec.modules.iter().enumerate() {
         if module.name.trim().is_empty() {
             return Err(format!(

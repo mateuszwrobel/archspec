@@ -383,7 +383,9 @@ impl Engine {
             // MEMBER-NAMED SUBPATH (round-6 P-CTX): the derivation order
             // (record R6) is the TARGET member's exports map under the R3
             // condition set, THEN the member dir joined with the spelled
-            // remainder plus the extension/index table — under every
+            // remainder through the relative arm's SHARED candidate table
+            // (issue #32: literal, the NodeNext extension substitution,
+            // extension inference and the index law) — under every
             // linker family, with no importer context consulted. The SAME
             // single key match hands the generated-attribution probe the
             // winning entry VALUE (plan D3) — one lookup, never a second
@@ -397,8 +399,8 @@ impl Engine {
             let base = member_dir.join(subpath);
             let found = mapped
                 .as_deref()
-                .and_then(member_candidates)
-                .or_else(|| member_candidates(&base));
+                .and_then(member_subpath_answer)
+                .or_else(|| member_subpath_answer(&base));
             let edge = found.as_deref().and_then(|f| self.disk_edge(f));
             if let Some(edge) = edge {
                 if declared_in.is_some() {
@@ -1526,7 +1528,9 @@ fn member_entry(dir: &Path) -> Option<PathBuf> {
 }
 
 /// Extension inference for a member-internal target: the exact path when it
-/// exists, then the ts source extensions, then the index law.
+/// exists, then the ts source extensions, then the index law. The bare-name
+/// arms (`member_source`, `member_entry`) ride this table; the member-named
+/// SUBPATH arm rides the relative arm's shared table below (issue #32).
 fn member_candidates(base: &Path) -> Option<PathBuf> {
     if base.is_file() {
         return Some(base.to_path_buf());
@@ -1547,6 +1551,23 @@ fn member_candidates(base: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// The MEMBER-NAMED SUBPATH arm's candidate law (GitHub issue #32): the
+/// SAME table the relative arm walks — `common::candidate_paths`: the
+/// NodeNext extension substitution (`.js` → `.ts`/`.tsx`/`.d.ts`, `.mjs` →
+/// `.mts`, `.cjs` → `.cts`), extension inference and the index law. The
+/// exact-path leg stays FIRST: it mirrors the relative arm's literal-first
+/// row and keeps the member arm's existing landing on an exact file. The
+/// table lives in the vocabulary leaf so neither arm crosses the
+/// `ts <-> resolution` ring (F1 cycle law).
+fn member_subpath_answer(base: &Path) -> Option<PathBuf> {
+    if base.is_file() {
+        return Some(base.to_path_buf());
+    }
+    super::common::candidate_paths(base)
+        .into_iter()
+        .find(|found| found.is_file())
 }
 
 

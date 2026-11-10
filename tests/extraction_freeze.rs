@@ -229,6 +229,7 @@ fn help_never_mentions_the_backend_flag() {
     for topic in [
         "scan",
         "verify",
+        "explain",
         "update",
         "report",
         "depgraph",

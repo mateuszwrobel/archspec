@@ -140,11 +140,34 @@ findings. It states what the cycle adjudication counted:
 The first number counts the reported cycles. The second counts the model rows
 the adjudications actually walked — the induced adjacencies, never projected or
 hypothetical edges. The noun names the tier: `file facts` when a file tier
-adjudicated, `module facts` on a claims-only tree. The `territory:` field names
+adjudicated, `module facts` on a claims-only tree. When the `[[exempt]]` ratchet
+exempts at least one found ring, a `; exempt: <E>, violating: <V>` segment
+precedes the `territory:` field — found rings stated by adjudication, exempted
+and violating separately, never a silent zero; at zero exempt the line's bytes
+are unchanged. The `territory:` field names
 the modules the adjudications covered over all declared modules. The line is
 absent when no cycle was reported, and absent when a `no_cycles` vacuity entry
 already fired — the vacuity channel speaks instead. The line is a summary,
 never a finding: it carries no severity and never changes the verdict.
+
+### Ratchet warnings
+
+`[[exempt]]` ledger entries that need attention print as warning-severity
+findings (`--strict` promotes them). An entry that matched no finding this run
+is stale — the ring is gone, renamed, or the entry's tier never sees it; an
+entry whose `until` date has passed is expired and exempts NOTHING, so its
+ring is back among the findings. The ledger is documented in `../../spec.md`;
+the diagnostics catalog owns the wording (`archspec help diagnostics`):
+
+```
+  warning: exempt stale: <tier> <ring>
+  warning: exempt expired: <tier> <ring>
+```
+
+Each line names one entry by its declared tier and the ring's emitted identity.
+Neither warning adds a finding on its own: a stale entry matches nothing to
+suppress, and an expired entry suppresses nothing. Resolving either is a human
+act — repair or delete the entry; the ledger edits itself never.
 
 ## Dead references
 

@@ -16,12 +16,13 @@ A JSON object (pretty-printed, newline-terminated) with:
 | `title` | a human-readable title |
 | `type` | `"object"` |
 | `additionalProperties` | `false` |
-| `properties` | `project`, `module`, `constraint`, `stereotype` |
+| `properties` | `project`, `module`, `constraint`, `stereotype`, `exempt` |
 
 - `project`: object with `language` **required**, enumerated by the ONE driver-name table the schema renders (the enum is computed, never a hand-maintained copy); optional `framework`, enumerated by the driver-side framework registry the schema computes; optional `excluded_sources`, an array of `{ path, reason, mode }` tables — `path` and `reason` **required** and non-empty, `mode` optional and enumerated as `["abort", "warn"]` (the default is `abort`), no other key accepted (the declared source exclusion, D14).
 - `module`: array of objects — `name` **required**; `matches` accepts `names`, `paths`, `units` and `modules` (arrays of strings; `names`/`paths` are the stereotype vocabulary, parsed on a module claim but not resolved there); `contract` accepts the enforced `forbid` and the enforced `expose` (the expose chain law); `allowed` accepts `depend_on`/`forbidden`; `submodules` recurses to the same module shape — with `matches.units` declarable only on top-level modules: a submodule declares the module tier only, so `matches.units` on a submodule is rejected at parse. An entry key outside these is an unknown-key refusal (see `errors.md`).
 - `constraint`: array of objects — `type` enumerated over all 7 types; per-type `required` arrays match the shared required-field table exactly (see `../../spec.md`); the entry shape lists every key any type accepts (`severity`, `scope`, `modules`, `kinds`, `allowed`, `from`, `forbid`, `require_publish`, `forbidden_dependencies`, `required_features`, `feature`, `gated_modules`, `allowed_from`, `parent`); the shape is fail-closed, so a key outside it is refused at load naming the key and its location; `severity` is optional and enumerated as `["error", "warning"]`.
 - `stereotype`: array of objects with a string `name` and an optional `match` table.
+- `exempt`: array of objects — the cycle ratchet ledger: `cycle` and `tier` required (`tier` is `file`, `module` or `both`); optional `count` (positive integer), `until` (`YYYY-MM-DD`) and `reason`. Entry shape is fail-closed like every other table; the loader additionally refuses a non-positive `count`, an invalid `until` date and two entries naming one (tier, cycle).
 
 ## Reference output
 
@@ -57,7 +58,7 @@ severity = "error"                                # error | warning (optional)
 ...
 ```
 
-The exact text is not a contract; that all sections (`[project]`, `[[module]]`, `[[constraint]]`, `[[stereotype]]`) appear and the exit code is `0` is. `spec` and `spec --help` share one embedded constant, so they cannot drift.
+The exact text is not a contract; that all sections (`[project]`, `[[module]]`, `[[constraint]]`, `[[stereotype]]`, `[[exempt]]`) appear and the exit code is `0` is. `spec` and `spec --help` share one embedded constant, so they cannot drift.
 
 ## Determinism
 

@@ -51,6 +51,18 @@ pub struct Metrics {
     pub violations_contracts: usize,
     /// Violations in the cycles category.
     pub violations_cycles: usize,
+    /// Cycle findings suppressed by the `[[exempt]]` ratchet (GitHub issue
+    /// #27, R5): `cycles` = found = violating + exempt. Serialized only when
+    /// non-zero — an unexempted run keeps the shipped json bytes.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub exempt_cycles: usize,
+}
+
+/// Skip-serialization predicate: an unexempted run keeps the shipped json
+/// bytes exactly (GitHub issue #27, R5 — the new field appears only when
+/// it says something).
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 impl Metrics {
@@ -75,12 +87,18 @@ pub fn compute_metrics(model: &Model, mapping: &Mapping, modules: &[Module], dif
     let components =
         compare::resolved_components(&augmented).len() + augmented.unexpected_components.len();
     let (internal, external) = compare::count_model_edges(model);
-    let cycles = diff.cycles.len()
+    let violating_cycles = diff.cycles.len()
         + diff
             .warnings
             .iter()
             .filter(|warning| warning.starts_with("cycle: "))
             .count();
+    // The exempt ratchet split (GitHub issue #27, R5/R7): `cycles` states
+    // every adjudicated ring — the ledger-whitened ones included — while the
+    // violations row counts only the ones that still report. Without any
+    // exemption the two numbers coincide with the shipped bytes.
+    let exempt_cycles = diff.cycles_exempt;
+    let cycles = violating_cycles + exempt_cycles;
     // Bucket the gated fields (the same `error_fields` list the exit gate and
     // the renderers consume) so no counted violation can miss the metrics.
     // An unknown category lands in `contracts` — fail closed, never invisible.
@@ -114,7 +132,8 @@ pub fn compute_metrics(model: &Model, mapping: &Mapping, modules: &[Module], dif
         violations_undeclared_dependency: undeclared_violations,
         violations_boundary_violation: boundary_violations,
         violations_contracts: contracts_violations,
-        violations_cycles: cycles,
+        violations_cycles: violating_cycles,
+        exempt_cycles,
     }
 }
 
@@ -383,6 +402,14 @@ pub fn render_text(
         }
     }
     out.push('\n');
+    // The exempt ratchet census (GitHub issue #27, R5): with exemptions
+    // active the report states the split, never a silent zero — absent at
+    // zero exempt, so pre-ratchet bytes stay byte-identical.
+    if diff.cycles_exempt > 0
+        && let Some(census) = &diff.cycles_census
+    {
+        out.push_str(&format!("{census}\n\n"));
+    }
     out.push_str(&summary(metrics, "Result:"));
     out
 }
@@ -814,11 +841,15 @@ mod tests {
                 "laundered forbidden edge: a -> b via hidden".into(),
                 "unresolved module file: app::ghost".into(),
                 "unowned module edge endpoint: app::hidden".into(),
+                "exempt stale: module a -> b -> a".into(),
+                "exempt expired: file src/a.rs -> src/b.rs -> src/a.rs".into(),
             ],
             vacuous_constraints: vec![
                 "[constraint #1] forbid_external_crates: 'from' pattern matches nothing".into(),
             ],
             cycles_census: None,
+            cycles_exempt: 0,
+            cycle_debts: Vec::new(),
         }
     }
 
@@ -867,7 +898,9 @@ mod tests {
     /// class this guard outlaws. `warnings` and `vacuous_constraints` are the
     /// two named warning-level fields the gate never counts; `cycles_census`
     /// is the one named informational field — a summary line, never a
-    /// finding, rendered by the verify text renderer alone.
+    /// finding, rendered by the verify text renderer alone; `cycles_exempt`
+    /// and `cycle_debts` are the exempt-ratchet split (GitHub issue #27) —
+    /// counts and seeds, never findings, never verdict inputs.
     #[test]
     fn the_exit_gate_and_the_renderers_share_one_field_list() {
         let manifest = env!("CARGO_MANIFEST_DIR");
@@ -893,7 +926,11 @@ mod tests {
             let name = name.trim();
             if matches!(
                 name,
-                "warnings" | "vacuous_constraints" | "cycles_census"
+                "warnings"
+                    | "vacuous_constraints"
+                    | "cycles_census"
+                    | "cycles_exempt"
+                    | "cycle_debts"
             ) {
                 continue;
             }

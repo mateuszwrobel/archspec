@@ -87,20 +87,26 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // per-file leg runs across workers; the fold replays in walk order and
     // the `?` on the FIRST Err reproduces the serial early abort.
     let threads = super::leg::fact_leg_threads(files.len());
-    let all_facts: Vec<Result<syntax::FileFacts, String>> = if threads > 1 {
-        super::leg::parallel_fact_leg(files.len(), threads, |index| {
-            let file = &files[index];
-            syntax::scan_kotlin_file(&root.join(file)).map_err(|err| format!("{file}: {err}"))
-        })
-    } else {
-        files
-            .iter()
-            .map(|file| {
-                syntax::scan_kotlin_file(&root.join(file)).map_err(|err| format!("{file}: {err}")
-            )
-            })
-            .collect()
-    };
+    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::archspec::profile::phase(
+        "scan-facts",
+        || {
+            if threads > 1 {
+                super::leg::parallel_fact_leg(files.len(), threads, |index| {
+                    let file = &files[index];
+                    syntax::scan_kotlin_file(&root.join(file))
+                        .map_err(|err| format!("{file}: {err}"))
+                })
+            } else {
+                files
+                    .iter()
+                    .map(|file| {
+                        syntax::scan_kotlin_file(&root.join(file))
+                            .map_err(|err| format!("{file}: {err}"))
+                    })
+                    .collect()
+            }
+        },
+    );
     let mut facts_of: BTreeMap<String, syntax::FileFacts> = BTreeMap::new();
     let mut import_statements = 0usize;
     for (file, facts) in files.iter().zip(all_facts) {

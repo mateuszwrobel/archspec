@@ -811,3 +811,45 @@ canonical_fragments = [
 ]
 signatures = ["only: excluding class"]
 dedicated_guard = "src/archspec/report/mod.rs"
+
+# GitHub issue #26 (bound B1): explain is a renderer over the verify path.
+[[claim]]
+id = "explain-renderer"
+owner = "the body of `archspec explain --help` — the renderer claim behind the explain verb"
+owner_surfaces = ["explain --help", "help explain"]
+relations = ["echo", "cite"]
+canonical = "the same load, extract and compare calls `archspec verify` runs"
+signatures = ["the same load, extract and compare calls"]
+dedicated_guard = "src/archspec/commands/explain.rs"
+
+# GitHub issue #27 (bounds R6/R8): the [[exempt]] ratchet — the seed-only
+# ledger flag line of the verify help and the stale/expired warning pair of
+# the diagnostics catalog.
+[[claim]]
+id = "verify-help-seed-flag"
+owner = "the `--write-exemptions` flag line of the verify help — the seed-only ledger writer"
+owner_surfaces = ["verify --help", "help verify", "help commands"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "--write-exemptions seed the [[exempt]] ledger: append one entry per currently violating cycle (identity + tier), never edit or remove an existing entry, never auto-grow a covered one; the run echoes `wrote <path>` and goes green for what it just named. Refused with --json (64): a machine consumer must never trigger a write",
+  "coverage: cycles: <found>, exempt: <E>, violating: <V>",
+]
+signatures = ["never auto-grow a covered one", "coverage: cycles:"]
+dedicated_guard = "tests/exempt.rs"
+[[claim.guard_pin]]
+file = "tests/exempt.rs"
+relation = "named-in-file"
+[[claim]]
+id = "exempt-ratchet-diagnostics"
+owner = "the `exempt stale / exempt expired` catalog entry of `archspec help diagnostics` — the ratchet ledger's warning pair"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "exempt stale: <tier> <ring>",
+  "exempt expired: <tier> <ring>",
+]
+signatures = ["exempt stale", "exempt expired"]
+dedicated_guard = "tests/exempt.rs"
+[[claim.guard_pin]]
+file = "tests/exempt.rs"
+relation = "named-in-file"

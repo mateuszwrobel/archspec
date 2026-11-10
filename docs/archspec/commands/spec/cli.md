@@ -24,7 +24,7 @@ archspec spec [--schema]
 archspec spec
 ```
 
-Print the annotated example TOML covering every section (`[project]`, `[[module]]`, `[module.allowed]`, `[[constraint]]` for all 7 types, `[[stereotype]]`) to stdout.
+Print the annotated example TOML covering every section (`[project]`, `[[module]]`, `[module.allowed]`, `[[constraint]]` for all 7 types, `[[stereotype]]`, `[[exempt]]`) to stdout.
 
 ### JSON Schema
 

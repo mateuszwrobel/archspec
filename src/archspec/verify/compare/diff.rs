@@ -53,6 +53,15 @@ pub struct Diff {
     /// engagement. Rendered by `render_report` as a plain indented line
     /// after the findings; never a finding itself, never a verdict input.
     pub cycles_census: Option<String>,
+    /// Cycle findings suppressed by the `[[exempt]]` ratchet (GitHub issue
+    /// #27, R7): counted by the census and the metrics, listed nowhere — an
+    /// informational split, never a verdict input and never a finding.
+    pub cycles_exempt: usize,
+    /// Violating cycle findings as `(tier, identity)` pairs, sorted and
+    /// deduplicated — the input of the `--write-exemptions` seed writer
+    /// (GitHub issue #27, R8). Informational: never a finding, never a
+    /// verdict input; the finding lists already carry the rendered bytes.
+    pub cycle_debts: Vec<(String, String)>,
     /// `public_api_allowlist` violation: a public export not in `allowed`.
     pub public_api_leaks: Vec<String>,
     /// `public_api_allowlist` violation: a glob re-export at a unit root whose

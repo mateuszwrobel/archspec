@@ -528,16 +528,16 @@ pub enum EdgePlacement<'a> {
 }
 
 /// The boundary-level dependency graph extracted from the model.
-pub(super) struct BoundaryGraph {
+pub(crate) struct BoundaryGraph {
     /// Deduplicated cross-boundary pairs from both tiers. The cycle tier
     /// consumes this set alone: it counts every edge regardless of kind
     /// (D3 — no exemption exists at the cycle tier).
-    pub(super) pairs: BTreeSet<(String, String)>,
+    pub(crate) pairs: BTreeSet<(String, String)>,
     /// Pairs carrying at least one VALUE crossing (ts `type_only = "exempt"`
     /// law, D3): unit-tier edges carry no kind fact and are value crossings;
     /// a ts module-edge row contributes here iff it is not type-only. A pair
     /// in `pairs` and absent here crosses type-only.
-    pub(super) value_pairs: BTreeSet<(String, String)>,
+    pub(crate) value_pairs: BTreeSet<(String, String)>,
     /// Pairs whose ownership resolved through the unit fallback: hops across
     /// territory no boundary declares (unit wiring, unclaimed modules).
     pub(super) fallback_pairs: BTreeSet<(String, String)>,
@@ -554,7 +554,7 @@ pub(super) struct BoundaryGraph {
 /// escaped — a planted bin main plus a catch-all claiming the bin's unit
 /// laundered the whole boundary), and the stage-1/2/3 attribution ladder it
 /// needed misattributed multi-segment paths to the neighbouring unit.
-pub(super) fn composition_sources(model: &Model) -> BTreeSet<String> {
+pub(crate) fn composition_sources(model: &Model) -> BTreeSet<String> {
     model
         .roles
         .iter()
@@ -580,7 +580,7 @@ pub(super) fn composition_sources(model: &Model) -> BTreeSet<String> {
 /// composition unit wiring out — sanctioned whatever boundary the attribution
 /// landed them on — so they lose the conduit character while staying in
 /// `pairs` (a banned route still reaches its target through them).
-pub(super) fn resolve_module_edges(
+pub(crate) fn resolve_module_edges(
     model: &Model,
     mapping: &Mapping,
     modules: &[Module],

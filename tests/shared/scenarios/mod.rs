@@ -7,6 +7,7 @@ use serde_json::Value;
 pub mod cli;
 pub mod depgraph;
 pub mod diagram;
+pub mod explain;
 pub mod help;
 pub mod init;
 pub mod inspect;
@@ -25,6 +26,7 @@ pub fn all() -> Vec<Scenario> {
     let mut out = Vec::new();
     out.extend(scan::all());
     out.extend(verify::all());
+    out.extend(explain::all());
     out.extend(update::all());
     out.extend(report::all());
     out.extend(inspect::all());

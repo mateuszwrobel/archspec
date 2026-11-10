@@ -75,6 +75,18 @@ forbid = [\"control_loop\"]
 [[stereotype]]
 name = \"domain\"
 match = { names = [\"domain\"] }
+
+[[exempt]]                                       # the cycle ratchet ledger (optional)
+cycle = \"domain::a -> domain::b -> domain::a\"  # required; ring identity — the finding's path bytes with the closing repeated member, file paths at the file tier; matching is by identity and tier, never by count
+tier = \"module\"                                # required: \"file\" | \"module\" | \"both\"; tier mismatch never suppresses
+# count = 1                                      # optional shrink-only cap on findings one identity may suppress; absent = every match; never auto-grows
+# until = \"2027-01-31\"                          # optional expiry (UTC); a past date exempts NOTHING and the ratchet warning channel names the entry (see `archspec help diagnostics`)
+# reason = \"split tracked in #123\"               # optional prose naming the debt; recommended — the ledger is a contract
+# a covered ring is suppressed from the verdict yet stays counted (the census
+# and metrics state it as exempt, never a silent zero); an entry that matched
+# nothing is named by the ratchet warning channel (see `archspec help
+# diagnostics`); `archspec verify --write-exemptions` seeds missing entries —
+# it appends only, never edits or removes, never auto-grows
 ";
 
 const ALL_TYPES: [&str; 7] = [
@@ -207,6 +219,24 @@ fn schema_json() -> String {
                         "match": match_schema()
                     },
                     "required": ["name"]
+                }
+            },
+            // The `[[exempt]]` cycle-ratchet ledger (GitHub issue #27): the
+            // shape mirrors SPEC_KEY_SHAPES["exempt"], required mirrors the
+            // parser (cycle + tier mandatory, validated by validate_exempt).
+            "exempt": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "cycle": { "type": "string", "minLength": 1, "description": "ring identity: the finding's path bytes including the closing repeated member ('a -> b -> a'), file paths at the file tier; matching is by identity and tier, never by count" },
+                        "tier": { "enum": ["file", "module", "both"], "description": "which tier's findings this entry suppresses; tier mismatch never suppresses" },
+                        "count": { "type": "integer", "minimum": 1, "description": "optional shrink-only cap on how many findings this identity may suppress; absent suppresses every match; never auto-grows" },
+                        "until": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "optional expiry (UTC date); a past date exempts NOTHING and the ratchet warning channel names the entry" },
+                        "reason": { "type": "string", "description": "optional prose naming the debt; recommended, the ledger is a contract" }
+                    },
+                    "required": ["cycle", "tier"]
                 }
             }
         }
@@ -412,6 +442,7 @@ mod tests {
         );
         assert_shape(&schema["properties"]["constraint"]["items"], "constraint");
         assert_shape(&schema["properties"]["stereotype"]["items"], "stereotype");
+        assert_shape(&schema["properties"]["exempt"]["items"], "exempt");
         assert_shape(
             &schema["properties"]["stereotype"]["items"]["properties"]["match"],
             "match",

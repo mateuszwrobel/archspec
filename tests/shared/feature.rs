@@ -32,10 +32,11 @@ pub enum Feature {
     CliArtefactFreshness,
     VerifyJsonVerdict,
     VerifyEnvironmentDeclared,
+    ExplainPairTrace,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 25] = [
+    pub const ALL: [Feature; 26] = [
         Feature::ScanUnits,
         Feature::ScanSoftStructure,
         Feature::ScanModuleEdges,
@@ -61,6 +62,7 @@ impl Feature {
         Feature::CliArtefactFreshness,
         Feature::VerifyJsonVerdict,
         Feature::VerifyEnvironmentDeclared,
+        Feature::ExplainPairTrace,
     ];
 
     pub fn as_str(&self) -> &'static str {
@@ -90,6 +92,7 @@ impl Feature {
             Feature::CliArtefactFreshness => "cli.artefact_freshness",
             Feature::VerifyJsonVerdict => "verify.json_verdict",
             Feature::VerifyEnvironmentDeclared => "verify.environment_declared",
+            Feature::ExplainPairTrace => "explain.pair_trace",
         }
     }
 
@@ -124,6 +127,7 @@ impl Feature {
             Feature::CliArtefactFreshness => probe_artefact_freshness(driver),
             Feature::VerifyJsonVerdict => probe_verify_json(driver),
             Feature::VerifyEnvironmentDeclared => probe_environment_declared(driver),
+            Feature::ExplainPairTrace => probe_explain(driver),
         }
     }
 }
@@ -385,6 +389,28 @@ fn probe_help_diagnostics(driver: &Driver) -> bool {
     let fx = common::Fixture::new();
     let output = driver.run(&fx, &["help", "diagnostics"]);
     output.status.code() == Some(0) && common::stdout(&output).contains("laundered forbidden edge")
+}
+
+/// The `explain` verb renders this path for every driver: one declared module
+/// is enough to trace, so the probe traces the module the probe tree always
+/// has and checks the trace's own section headers, not any language fact.
+fn probe_explain(driver: &Driver) -> bool {
+    let fx = common::Fixture::new();
+    driver.materialize(&fx, &driver.probe_tree());
+    fx.write(
+        "architecture.spec.toml",
+        &format!(
+            "[project]\nlanguage = \"{}\"\n\n\
+             [[module]]\nname = \"app\"\nmatches = {{ units = [\"{}\"] }}\n",
+            driver.language.as_str(),
+            driver.unit_name("app")
+        ),
+    );
+    let output = driver.run(&fx, &["explain", "app", "app"]);
+    let text = common::stdout(&output);
+    output.status.code() == Some(0)
+        && text.contains("pair: app -> app")
+        && text.contains("model rows:")
 }
 
 /// The facade rule needs the role fact `role-facade`. The

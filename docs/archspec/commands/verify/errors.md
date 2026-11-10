@@ -15,7 +15,7 @@ A parse failure **aborts the run** — no diff is produced for a partially extra
 | path is a regular file | the path is invalid and why | non-zero |
 | no `architecture.spec.toml` found | the expected file name and where it was expected | non-zero |
 | spec is not valid TOML | the file and the TOML parse error | non-zero |
-| spec carries a key the model does not define (`unknown key(s) "<key>" <location>`, fail-closed at load: top level, `[project]` and its `excluded_sources` entries, `[[stereotype]]` entries and their `match` tables, module claims with recursive `submodules` and their `matches`/`contract`/`allowed` tables, `[[constraint]]` entries; `allowed` array entries stay owned by the entry-level refusal) | the file, the unexpected key(s), and where the key sits | non-zero |
+| spec carries a key the model does not define (`unknown key(s) "<key>" <location>`, fail-closed at load: top level, `[project]` and its `excluded_sources` entries, `[[stereotype]]` entries and their `match` tables, module claims with recursive `submodules` and their `matches`/`contract`/`allowed` tables, `[[constraint]]` entries and `[[exempt]]` entries; `allowed` array entries stay owned by the entry-level refusal) | the file, the unexpected key(s), and where the key sits | non-zero |
 | spec violates the schema | the file, the offending field/section, and why | non-zero |
 | module declares an empty `contract.expose` entry | the file, the module name, and the empty entry position | non-zero |
 | constraint references an undeclared module | the file, the 1-indexed constraint number, and the undeclared module name | non-zero |
@@ -27,6 +27,7 @@ A parse failure **aborts the run** — no diff is produced for a partially extra
 | language driver/toolchain missing | the language, and the suggestion to run `archspec doctor` | non-zero |
 | unknown flag | the flag name | non-zero |
 | more than one positional argument | that only one path is accepted | non-zero |
+| `--json` combined with `--write-exemptions` | that a machine consumer must never trigger a write | 64 |
 | a scanned ts source file carries no model fact (`orphan file: <path>`, closed by one `orphan file census: <n> of <m> scanned files — the model lists no fact for any of them` summary, never at zero) | that the import-graph fact sets list no fact for the file — report-only stderr on the shipped report surface, printed under green AND red verdicts alike, never itself a verdict | 0 (green) / non-zero only from real findings |
 
 ## Examples

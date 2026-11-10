@@ -107,6 +107,36 @@ On C# casing is asymmetric inside `forbid_external_crates`: scan attributes pack
 | `[[module]]` | A declared boundary: `matches` (one or both of `units`/`modules`), optional `contract` (`forbid` enforced on the module and — recursively — on its submodules, where it applies to the surface crossing the submodule's boundary path; `expose` states the exact allowed public surface of the claiming module — see *Module contracts*), `[module.allowed]` exact `depend_on` set (ceiling and floor — see Behavioral rules) and `forbidden` bans |
 | `[[module.submodules]]` | A nested claim inside a declared boundary: `matches.modules` package/module paths and an optional `[module.allowed]`; a submodule claims the module tier only — `matches.units` on a submodule is a schema error at parse. Submodule names are claim names, globally unique and addressable by `depend_on`/`forbidden` at any depth; with `[module.allowed]` present a submodule owns its territory's dependency adjudication (most-specific claim wins at every depth), without it the nearest ancestor's policy applies. Ancestors' `contract.forbid` and `allowed.forbidden` bind downward cumulatively. |
 | `[[constraint]]` | Named dependency checks over the resolved module graph (see table above) |
+| `[[exempt]]` | Cycle ratchet ledger: one entry per exempted cycle ring — `cycle` (the ring identity exactly as reported, e.g. `a -> b -> a`), `tier` (`file`, `module` or `both`), optional `count` (shrink-only cap on how many findings the entry may suppress), optional `until` (`YYYY-MM-DD` expiry), optional `reason` (free text). See *Cycle ratchet ledger* below |
+
+## Cycle ratchet ledger
+
+`[[exempt]]` entries record cycle debt against `no_cycles` findings so a legacy
+cycle can be gated green while it is being removed, without muting anything it
+does not name. The laws:
+
+- **Identity-keyed.** An entry suppresses exactly the rings whose emitted
+  identity and tier it names — a ring the entry did not name is never suppressed
+  (R1). Matching is by the reported ring at the named tier, never by count.
+- **Tier-bound.** An entry naming `tier = "file"` never suppresses a claim-tier
+  finding and the other way round; `tier = "both"` names both (R2).
+- **Count is a cap, never a target.** `count` limits how many findings the entry
+  may suppress; the cap shrinks by hand as debt is paid down. A run never
+  auto-grows it (R1/R8).
+- **Expiry disables, never hides.** An `until` date in the past exempts nothing:
+  the covered ring reports red as if no entry existed, and the run warns
+  `exempt expired: <tier> <ring>`; `--strict` promotes the warning (R4).
+- **Stale is stated, not swallowed.** An entry that matches nothing (the ring
+  was fixed or renamed) warns `exempt stale: <tier> <ring>`; `--strict`
+  promotes the warning (R3).
+- **The verdict is all it suppresses.** Exempted rings stay counted and
+  adjudicated: the cycles census, the `--coverage` split line and the json
+  metrics state found, exempt and violating separately — never a false zero
+  (R5/R7).
+- **Seeding is append-only.** `archspec verify --write-exemptions` appends one
+  entry per currently violating ring (identity and tier only) and never edits
+  or removes an existing entry; a run with nothing new to name writes nothing.
+  Refused with `--json`: a machine consumer must never trigger a write (R8).
 
 ## Behavioral rules
 

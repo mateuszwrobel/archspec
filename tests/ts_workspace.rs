@@ -1895,3 +1895,113 @@ fn a_built_tree_states_itself_as_built_in_the_verdict() {
         "a census that appears counts the classes that exist:\n{stdout}"
     );
 }
+
+/// GitHub issue #32 repro: the npm-workspaces fixture (root `workspaces` +
+/// two member packages) importing the member subpath spelled `.js` —
+/// `@x/b/src/index.js` with only `packages/b/src/index.ts` on disk. The
+/// member-named subpath arm must apply the relative arm's NodeNext
+/// extension substitution, not only the literal-plus-append table; the
+/// `.mjs`/`.cjs` sibling rows ride the same shared table.
+#[test]
+fn a_member_subpath_spelled_js_resolves_to_the_ts_source() {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"mono\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+    );
+    tree.write(
+        "packages/a/package.json",
+        "{\n  \"name\": \"@x/a\",\n  \"dependencies\": { \"@x/b\": \"*\" }\n}\n",
+    );
+    tree.write(
+        "packages/a/src/main.ts",
+        "import { b } from \"@x/b/src/index.js\";\nimport { m } from \"@x/b/src/m.mjs\";\n\
+         import { c } from \"@x/b/src/c.cjs\";\nexport const a = [b, m, c];\n",
+    );
+    tree.write("packages/b/package.json", "{\n  \"name\": \"@x/b\"\n}\n");
+    tree.write("packages/b/src/index.ts", "export const b = 1;\n");
+    tree.write("packages/b/src/m.mts", "export const m = 2;\n");
+    tree.write("packages/b/src/c.cts", "export const c = 3;\n");
+    let scan = tree.run(&["scan", "."]);
+    let text = format!("{}{}", common::stdout(&scan), common::stderr(&scan));
+    assert_eq!(
+        scan.status.code(),
+        Some(0),
+        "a `.js`/`.mjs`/`.cjs`-spelled member subpath resolves to its TS source: {text}"
+    );
+    let edges = module_edges(&json_model(&scan));
+    for (spelled, target) in [
+        ("src/index.js", "packages/b/src/index.ts"),
+        ("src/m.mjs", "packages/b/src/m.mts"),
+        ("src/c.cjs", "packages/b/src/c.cts"),
+    ] {
+        assert!(
+            edges.contains(&(
+                "@x/a".to_string(),
+                "packages/a/src/main.ts".to_string(),
+                target.to_string()
+            )),
+            "the subpath @{spelled} substitution edge lands on the source twin: {edges:?}"
+        );
+    }
+    assert!(
+        !text.contains("unresolvable import"),
+        "no spelling rides the unresolvable red: {text}"
+    );
+}
+
+/// GitHub issue #32 central claim: the SAME target file resolves via BOTH
+/// arms — the workspace-member package-subpath arm (`@x/b/src/index.js`)
+/// and the RELATIVE arm (`../../b/src/index.js`) — and both edges land on
+/// the identical source file. Before the fix the relative arm substituted
+/// `.js`→`.ts` while the package-subpath arm answered unresolvable.
+#[test]
+fn the_member_subpath_and_relative_arms_land_on_the_same_ts_source() {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"mono\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+    );
+    tree.write(
+        "packages/a/package.json",
+        "{\n  \"name\": \"@x/a\",\n  \"dependencies\": { \"@x/b\": \"*\" }\n}\n",
+    );
+    tree.write(
+        "packages/a/src/main.ts",
+        "import { named } from \"@x/b/src/index.js\";\nimport { rel } from \"../../b/src/index.js\";\n\
+         export const a = [named, rel];\n",
+    );
+    tree.write("packages/b/package.json", "{\n  \"name\": \"@x/b\"\n}\n");
+    tree.write(
+        "packages/b/src/index.ts",
+        "export const named = 1;\nexport const rel = 2;\n",
+    );
+    let scan = tree.run(&["scan", "."]);
+    let text = format!("{}{}", common::stdout(&scan), common::stderr(&scan));
+    assert_eq!(
+        scan.status.code(),
+        Some(0),
+        "both spellings of the same target resolve: {text}"
+    );
+    let edges = module_edges(&json_model(&scan));
+    let landing: Vec<&(String, String, String)> = edges
+        .iter()
+        .filter(|(_, from, _)| from == "packages/a/src/main.ts")
+        .collect();
+    // The model deduplicates parallel (from, to) edges: both statements
+    // landing on the SAME file collapse to one row — the merged landing IS
+    // the equivalence verdict (a split would show a second row elsewhere).
+    assert_eq!(
+        landing.len(),
+        1,
+        "both import statements land on one merged edge: {edges:?}"
+    );
+    assert_eq!(
+        landing[0].2, "packages/b/src/index.ts",
+        "both arms land on the SAME target file: {edges:?}"
+    );
+    assert!(
+        !text.contains("unresolvable import"),
+        "the package-subpath arm kept no red: {text}"
+    );
+}

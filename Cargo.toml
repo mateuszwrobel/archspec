@@ -1,6 +1,6 @@
 [package]
 name = "rust-arch-test-kit"
-version = "0.6.61"  # released — entry lives in CHANGELOG.md under [0.6.42]; do not bump past the tag until the release commit
+version = "0.6.69"  # released — entry lives in CHANGELOG.md under [0.6.42]; do not bump past the tag until the release commit
 edition = "2024"
 
 rust-version = "1.99"
@@ -61,8 +61,63 @@ unused_imports = "deny"
 [lints.clippy]
 all = "deny"
 
+# Release-profile rider (issue #33 program, decision-check 2026-11-09 M6):
+# fat LTO and one codegen unit for every release build. Not the musl cure —
+# a profile cannot fix a lock convoy — but a free cross-target gain measured
+# by the parity sweep as a rider. No `target-cpu=native` (portability), no
+# `panic = "abort"` (panic-recovery semantics stay unchanged).
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+# musl-only allocator gate (issue #33). The parallel fact leg allocates on
+# every worker; musl's default allocator serializes those on a global lock,
+# so under musl the parallel leg runs 2-3x SLOWER than serial while glibc
+# scales. mimalloc's thread-local heaps remove the contention. This feature
+# changes nothing by itself: the global_allocator in src/main.rs additionally
+# requires cfg(target_env = "musl"), and the dependency below is
+# target-gated, so gnu/darwin/windows dependency graphs and every dev/test
+# build stay byte-unchanged. The release matrix enables the feature in the
+# musl build steps only.
+[features]
+musl-alloc = ["dep:mimalloc"]
+# Phase-profiling harness (GitHub issue #34, operator ruling): the ONLY
+# consumer of hotpath is the dev-only `phase-probe` example, so enabling
+# this feature turns hotpath's measurement machinery on exactly there. The
+# shipped dependency graph cannot change by construction — hotpath is a
+# dev-dependency and the resolver never links dev edges into a binary
+# target (resolver v2 rule); tests/profile_gate.rs proves it per platform.
+# A binary build with this feature fails loud in src/main.rs.
+profile-phases = ["hotpath/hotpath", "hotpath/threads"]
+
+[target.'cfg(target_env = "musl")'.dependencies]
+# Exact pin (ADR-014 discipline): the allocator combination moves only as a
+# probed unit. default-features = false keeps the resolved graph minimal.
+# The `override` feature additionally defines the malloc-family symbols (the
+# mimalloc static lib wins the static-link resolution), so the C-side
+# allocations of the embedded tree-sitter grammars — which a Rust
+# `#[global_allocator]` cannot reach — also leave musl's locked allocator.
+# Measured: without `override` the parallel-vs-serial inversion persisted
+# (lane sweep 2026-11-09); with it the cure reaches the C allocations.
+mimalloc = { version = "=0.1.52", optional = true, default-features = false, features = ["override"] }
+
 [dev-dependencies]
 tempfile = "3.24.0"
+# Phase-profiling harness (GitHub issue #34): dev-dependency ONLY, per the
+# operator ruling — hotpath code never links into a shipped binary. With the
+# `profile-phases` feature off (every gate, every release build) the crate
+# compiles to its no-op macro shell; the feature, enabled only by the
+# `phase-probe` example, switches on its measurement machinery in dev
+# targets. The graph proof lives in tests/profile_gate.rs.
+hotpath = { version = "=0.31.1", default-features = false }
+
+# The profiling harness itself: `cargo run --release --example phase-probe
+# --features profile-phases -- <corpus-tree> [runs]`. Skipped by every
+# default build and every gate through required-features.
+[[example]]
+name = "phase-probe"
+path = "examples/phase_probe.rs"
+required-features = ["profile-phases"]
 
 [[bin]]
 name = "archspec"

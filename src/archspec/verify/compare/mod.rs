@@ -18,6 +18,12 @@ mod surfaces;
 
 pub use mapping::{Mapping, augment_with_modules, effective_module_tier, map_units, resolved_components};
 pub use claims::{flatten_claims};
+// The `explain` verb renders this path's own values (GitHub issue #26, bound
+// B1): the graph and claim resolvers below are the machinery `compare` runs,
+// re-exported for the renderer — never a second adjudication.
+pub(crate) use adjudicate::{composition_sources, resolve_module_edges};
+pub(crate) use claims::{Claim, ClaimIndex};
+pub(crate) use cycles::{file_claim_index, file_module_identity};
 pub use adjudicate::{Adjudicator, ModuleRender};
 pub use contracts::adjudicate_expose;
 pub use mapping::file_grained_rows;
@@ -37,7 +43,6 @@ use edges::check_forbidden_laundering;
 use edges::check_missing_edges;
 use edges::check_used_but_undeclared;
 use edges::file_tier_evidence;
-use adjudicate::{composition_sources, resolve_module_edges};
 use edges::submodule_dependency_edges;
 use edges::ts_submodule_constraints;
 use engagement::check_claim_engagement;
@@ -50,7 +55,7 @@ use external::check_manifest_integrity;
 use surfaces::check_public_api;
 
 use crate::archspec::model::{Model, Role};
-use crate::archspec::spec::{Constraint, Module, Stereotype};
+use crate::archspec::spec::{Constraint, Exempt, Module, Stereotype};
 use std::collections::{BTreeSet};
 
 /// Structural compare (ADR-010): extracted vs declared component sets, plus
@@ -62,6 +67,7 @@ pub fn compare(
     modules: &[Module],
     stereotypes: &[Stereotype],
     constraints: &[Constraint],
+    exempt: &[Exempt],
 ) -> Diff {
     let soft_verifiable = soft_visibility_verifiable(model);
     let mapping = augment_with_modules(mapping, model, modules);
@@ -136,11 +142,22 @@ pub fn compare(
         &mut diff.warnings,
     );
     diff.contract_leaks = check_contract_leaks(&mapping, model, modules, stereotypes);
-    let (cycles, mut warnings, cycles_census) =
-        check_cycles(&graph.pairs, &graph.value_pairs, model, constraints, modules, &claims);
-    diff.cycles = cycles;
-    diff.cycles_census = cycles_census;
-    diff.warnings.append(&mut warnings);
+    let mut cycle_check = crate::archspec::profile::phase("cycle-detect", || {
+        check_cycles(
+            &graph.pairs,
+            &graph.value_pairs,
+            model,
+            constraints,
+            modules,
+            &claims,
+            exempt,
+        )
+    });
+    diff.cycles = cycle_check.errors;
+    diff.cycles_census = cycle_check.census;
+    diff.cycles_exempt = cycle_check.exempt;
+    diff.cycle_debts = cycle_check.debts;
+    diff.warnings.append(&mut cycle_check.warnings);
 
     let (leaks, glob_leaks, empty_globs, mut warning_leaks) =
         check_public_api(&mapping, model, modules, constraints);

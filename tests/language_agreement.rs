@@ -69,6 +69,79 @@ fn ts_subtree_under_a_go_tree_fails_both_verbs_loud() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// GitHub issue #36 cells: the agreement guard welds the `report` verb too.
+// Report is the verb that only produces artifacts, so the precondition is
+// missing nowhere else as loudly as here — the same shared call the scan and
+// verify verbs make, same message bytes, same exit class, no artifact on a
+// red run.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn report_refusal_bytes_equal_verify_refusal_bytes() {
+    // The parity cell: same tree, same spec. verify refuses with exit 1 and
+    // the named mismatch line; report must refuse with the SAME guard finding
+    // bytes and the same exit class — a run that would analyze the wrong
+    // tree produces no artifact on any verb.
+    let tree = go_tree("");
+
+    let verify = tree.run(&["verify", "."]);
+    assert_eq!(
+        verify.status.code(),
+        Some(1),
+        "verify must refuse the mismatch: {}",
+        common::stderr(&verify)
+    );
+    let verify_line = mismatch_line(&verify).expect("verify must fail loud with the mismatch line");
+
+    let report = tree.run(&["report", "--output", "r.md", "."]);
+    assert_eq!(
+        report.status.code(),
+        Some(1),
+        "the mismatch class is untagged — exit 1, the same class as verify: {}",
+        common::stderr(&report)
+    );
+    let report_line = mismatch_line(&report).expect("report must fail loud with the mismatch line");
+    assert_eq!(
+        report_line, verify_line,
+        "the guard finding bytes are the shared bytes — report printed {report_line:?}, verify printed {verify_line:?}"
+    );
+    assert!(
+        !tree.path("r.md").exists(),
+        "a refusing report writes no artifact"
+    );
+    assert!(
+        common::stdout(&report).is_empty(),
+        "a refusing report prints no report body: {}",
+        common::stdout(&report)
+    );
+}
+
+#[test]
+fn an_exclusion_silences_the_subtree_on_report_too() {
+    // The green companion cell: with the subtree excluded the shared guard
+    // stays silent on report exactly as it does on the other two verbs — the
+    // artifact is written as before.
+    let tree = go_tree(
+        "\nexcluded_sources = [ { path = \"opencode-plugin\", reason = \"plugin subtree in its own language\" } ]\n",
+    );
+    let report = tree.run(&["report", "--output", "r.md", "."]);
+    assert!(
+        mismatch_line(&report).is_none(),
+        "an excluded subtree must not trip the guard: {}",
+        common::stderr(&report)
+    );
+    assert!(
+        report.status.success(),
+        "report failed: {}",
+        common::stderr(&report)
+    );
+    assert!(
+        tree.path("r.md").exists(),
+        "a green report writes the artifact as before"
+    );
+}
+
 #[test]
 fn an_exclusion_with_a_reason_silences_the_subtree_on_both_verbs() {
     // The companion cell: the exclusion (or a restructure) lands before the

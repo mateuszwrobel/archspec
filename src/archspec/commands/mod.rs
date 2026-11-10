@@ -2,6 +2,7 @@ pub mod capability;
 pub mod depgraph;
 pub mod diagram;
 pub mod doctor;
+pub mod explain;
 pub mod help;
 pub mod registry;
 pub mod report;

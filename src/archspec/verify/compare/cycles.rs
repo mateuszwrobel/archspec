@@ -7,7 +7,7 @@ use super::mapping::file_grained_rows;
 use super::claims::claim_owner;
 use crate::archspec::{capability, language};
 use crate::archspec::model::{Model, Unit};
-use crate::archspec::spec::{Constraint, Module};
+use crate::archspec::spec::{Constraint, Exempt, Module};
 
 /// `no_cycles` check (#9, severity #12-#14) with the D5 scope selector: the
 /// The file-tier cycles one adjudication REPORTS (D5/D6): the file-grained
@@ -151,11 +151,35 @@ pub(super) fn file_tier_report_cycles(
 /// all legs are value edges, `(type-assisted)` when any leg is type-only —
 /// and a `kinds = [...]` list on the constraint narrows which ring classes
 /// it reports (absent = all kinds).
-/// Returns `(error_cycles, warning_cycles, census)` — the census line
-/// states the adjudicated counts behind the findings (GitHub issue #18's
-/// surviving census half, bounded by the A3 rule of the no-cycles
-/// vacuity decision-check: it counts ONLY already-adjudicated model rows,
-/// never projected edges) and is `None` when no cycle was reported.
+///
+/// The `[[exempt]]` ratchet (GitHub issue #27, R1/R2): a finding matches an
+/// entry by (tier, ring identity), never by count; `count` bounds how many
+/// findings one identity may suppress, `until` past makes the entry exempt
+/// NOTHING (R4). The result carries the split — see `CycleCheck`.
+pub(super) struct CycleCheck {
+    /// Violating error-severity findings, rendered bytes unchanged.
+    pub errors: Vec<String>,
+    /// Violating warning-severity findings plus the stale/expired entry
+    /// warnings (R3/R4), each already `<category>: <detail>`.
+    pub warnings: Vec<String>,
+    /// The census line: `None` when nothing was adjudicated, `Some` whenever
+    /// any ring was — exempt rings included (R5: never a false zero).
+    pub census: Option<String>,
+    /// Findings suppressed by the ledger — counted, never listed (R7).
+    pub exempt: usize,
+    /// Violating findings as sorted, deduplicated `(tier, identity)` pairs —
+    /// the input of the `--write-exemptions` seed writer (R8).
+    pub debts: Vec<(String, String)>,
+}
+
+/// The tier labels an `[[exempt]]` entry matches against (issue #27 R2): the
+/// claim tier's findings are `module`, the file tier's are `file`.
+const TIER_MODULE: &str = "module";
+const TIER_FILE: &str = "file";
+
+/// The `no_cycles` adjudication entry (the constraint loop plus the shared
+/// advisory tier) and the `[[exempt]]` ratchet pass over its findings.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn check_cycles(
     module_edges: &BTreeSet<(String, String)>,
     value_pairs: &BTreeSet<(String, String)>,
@@ -163,7 +187,8 @@ pub(super) fn check_cycles(
     constraints: &[Constraint],
     modules: &[Module],
     claims: &[Claim<'_>],
-) -> (Vec<String>, Vec<String>, Option<String>) {
+    exempt: &[Exempt],
+) -> CycleCheck {
     let all_modules: BTreeSet<String> = modules.iter().map(|module| module.name.clone()).collect();
     let posture = language::from_name(&model.language).map(capability::posture);
     let file_facts_granular = language::from_name(&model.language).is_some_and(|language| {
@@ -172,6 +197,9 @@ pub(super) fn check_cycles(
     });
     let mut error_cycles: BTreeSet<String> = BTreeSet::new();
     let mut warning_cycles: BTreeSet<String> = BTreeSet::new();
+    // issue #27: the (tier, identity) behind each finding string — the
+    // exemption matching reads this, the finding lists stay the shipped bytes.
+    let mut finding_meta: BTreeMap<String, (&'static str, String)> = BTreeMap::new();
     let mut census = CycleCensus::default();
 
     let mut declared = false;
@@ -212,6 +240,7 @@ pub(super) fn check_cycles(
             },
             &mut error_cycles,
             &mut warning_cycles,
+            &mut finding_meta,
             &mut census,
         );
     }
@@ -242,25 +271,104 @@ pub(super) fn check_cycles(
             },
             &mut error_cycles,
             &mut warning_cycles,
+            &mut finding_meta,
             &mut census,
         );
     }
 
     // A cycle covered by both a warning and an error constraint must fail: an
     // error-level finding wins over the warning. Only then sort for the report.
-    let mut warnings: Vec<String> = warning_cycles
-        .difference(&error_cycles)
-        .map(|path| format!("cycle: {path}"))
+    let error_findings: Vec<String> = error_cycles.iter().cloned().collect();
+    let warning_findings: Vec<String> = warning_cycles.difference(&error_cycles).cloned().collect();
+
+    // The `[[exempt]]` ratchet pass (GitHub issue #27). Matching is by
+    // (tier, ring identity) — never by count (R1); tier mismatch never
+    // suppresses (R2); a past `until` exempts NOTHING (R4); an entry that
+    // matched nothing while not expired warns as stale (R3). Suppressed
+    // findings leave the finding lists; the census and the metrics keep them
+    // counted (R5/R7).
+    let today = crate::archspec::spec::today_iso();
+    let mut suppressed: BTreeSet<String> = BTreeSet::new();
+    let mut exempt_warnings: Vec<String> = Vec::new();
+    for entry in exempt {
+        let cycle = entry.cycle.as_deref().unwrap_or_default().trim();
+        let tier = entry.tier.as_deref().unwrap_or_default();
+        if cycle.is_empty() {
+            continue; // validate_exempt refused the spec before this point
+        }
+        let matches: Vec<&String> = error_findings
+            .iter()
+            .chain(warning_findings.iter())
+            .filter(|finding| {
+                finding_meta
+                    .get(finding.as_str())
+                    .is_some_and(|(finding_tier, identity)| {
+                        identity == cycle && entry.matches_tier(finding_tier)
+                    })
+            })
+            .collect();
+        if entry.expired(&today) {
+            // R4: a past `until` exempts NOTHING — the debt stays in the
+            // finding lists and the entry names itself expired instead.
+            exempt_warnings.push(format!("exempt expired: {tier} {cycle}"));
+            continue;
+        }
+        if matches.is_empty() {
+            // R3: a healthy-but-matched-nothing entry warns, never vanishes.
+            exempt_warnings.push(format!("exempt stale: {tier} {cycle}"));
+            continue;
+        }
+        // R1: identity matched; `count` bounds how many of the matches this
+        // entry may suppress (shrink-only cap; absent = every match).
+        let cap = entry.count.unwrap_or(i64::MAX).max(1) as usize;
+        for finding in matches.iter().take(cap) {
+            suppressed.insert((*finding).clone());
+        }
+    }
+
+    let mut errors: Vec<String> = error_findings
+        .iter()
+        .filter(|finding| !suppressed.contains(finding.as_str()))
+        .cloned()
         .collect();
-    warnings.sort();
-    let mut errors: Vec<String> = error_cycles.into_iter().collect();
     errors.sort();
-    let census = if errors.is_empty() && warnings.is_empty() {
+    let mut warnings: Vec<String> = warning_findings
+        .iter()
+        .filter(|finding| !suppressed.contains(finding.as_str()))
+        .map(|finding| format!("cycle: {finding}"))
+        .collect();
+    warnings.append(&mut exempt_warnings);
+    warnings.sort();
+
+    // Seed-writer input (R8): violating findings as (tier, identity) pairs,
+    // sorted and deduplicated — exempt rings are NOT debts.
+    let mut debts: BTreeSet<(String, String)> = BTreeSet::new();
+    for finding in error_findings
+        .iter()
+        .chain(warning_findings.iter())
+        .filter(|finding| !suppressed.contains(finding.as_str()))
+    {
+        if let Some((tier, identity)) = finding_meta.get(finding.as_str()) {
+            debts.insert(((*tier).to_string(), identity.clone()));
+        }
+    }
+
+    let found = error_findings.len() + warning_findings.len();
+    let exempt_count = suppressed.len();
+    // R5: the census states the adjudicated rings whenever any ring was
+    // adjudicated — suppressed ones included, never a false zero.
+    let census = if found == 0 {
         None
     } else {
-        Some(census.render(errors.len() + warnings.len(), modules))
+        Some(census.render(found, exempt_count, modules))
     };
-    (errors, warnings, census)
+    CycleCheck {
+        errors,
+        warnings,
+        census,
+        exempt: exempt_count,
+        debts: debts.into_iter().collect(),
+    }
 }
 
 /// The read-only context one cycle adjudication needs: the extracted model,
@@ -343,15 +451,24 @@ struct CycleCensus {
 impl CycleCensus {
     /// The census line: `<N> cycles among <M> file facts; territory: <x>/<y>
     /// modules`. The row count names its tier honestly: `file facts` when a
-    /// file tier adjudicated, `module facts` on a claims-only tree.
-    fn render(&self, cycles: usize, modules: &[Module]) -> String {
+    /// file tier adjudicated, `module facts` on a claims-only tree. With the
+    /// exempt ratchet active (GitHub issue #27, R5) the line splits the
+    /// count — `<N> cycles among <M> file facts; exempt: <E>, violating: <V>;
+    /// territory: <x>/<y> modules` — the segment absent at zero exempt, so
+    /// pre-ratchet bytes stay byte-identical.
+    fn render(&self, cycles: usize, exempt: usize, modules: &[Module]) -> String {
         let (rows, noun) = if self.file_tier {
             (self.file_rows.len(), "file fact")
         } else {
             (self.claim_rows.len(), "module fact")
         };
+        let split = if exempt > 0 {
+            format!("; exempt: {exempt}, violating: {}", cycles - exempt)
+        } else {
+            String::new()
+        };
         format!(
-            "{} among {}; territory: {}/{}",
+            "{} among {}{split}; territory: {}/{}",
             plural(cycles, "cycle"),
             plural(rows, noun),
             self.territory.len(),
@@ -400,6 +517,7 @@ fn adjudicate_cycles(
     row: &CycleRow<'_>,
     error_cycles: &mut BTreeSet<String>,
     warning_cycles: &mut BTreeSet<String>,
+    finding_meta: &mut BTreeMap<String, (&'static str, String)>,
     census: &mut CycleCensus,
 ) {
     let CycleRow {
@@ -441,6 +559,10 @@ fn adjudicate_cycles(
                 claim_cycle_edges.insert((pair[0].clone(), pair[1].clone()));
             }
             let finding = format!("{} ({kind})", path.join(" -> "));
+            finding_meta.insert(
+                finding.clone(),
+                (TIER_MODULE, path.join(" -> ")),
+            );
             if severity_is_warning {
                 warning_cycles.insert(finding);
             } else {
@@ -471,6 +593,7 @@ fn adjudicate_cycles(
         }
         let mut finding = file_cycle_finding(context.model, &members, &path, context.claims);
         finding.push_str(&format!(" ({kind})"));
+        finding_meta.insert(finding.clone(), (TIER_FILE, path.join(" -> ")));
         if severity_is_warning {
             warning_cycles.insert(finding);
         } else {
@@ -490,7 +613,7 @@ fn adjudicate_cycles(
 /// dotted-module claim covers the files backing its module — never a
 /// silently-vacuous file tier (the vacuity carrier states facts, not
 /// spelling accidents).
-pub(super) fn file_module_identity(model: &Model, path: &str) -> String {
+pub(crate) fn file_module_identity(model: &Model, path: &str) -> String {
     if language::from_name(&model.language) != Some(language::Language::Rust)
         || path.contains("::")
         || !path.ends_with(".rs")
@@ -638,7 +761,7 @@ pub(super) fn submodule_identity(language: &str, path: &str) -> String {
 /// first (territory spelling): claims address modules, never raw paths.
 /// `None` states the synthetic tree root: no claim covers the file, and the
 /// root is where the attribution lands (R2-5).
-pub(super) fn file_claim_index(model: &Model, file: &str, claims: &[Claim<'_>]) -> Option<usize> {
+pub(crate) fn file_claim_index(model: &Model, file: &str, claims: &[Claim<'_>]) -> Option<usize> {
     let identity = file_module_identity(model, file);
     claim_owner(&identity, claims).or_else(|| claim_unit_fallback(&identity, claims))
 }

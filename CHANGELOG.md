@@ -6,6 +6,137 @@ only.
 
 ## [Unreleased]
 
+## [0.6.69] - 2026-11-10
+
+### Documentation
+
+- The `[[exempt]]` test-suite notes cite the decision-check ruling by its
+  section labels instead of a record path outside this repository. Test
+  documentation only — behavior is unchanged.
+
+## [0.6.68] - 2026-11-09
+
+### Added
+
+- The `verify` pipeline now carries a feature-gated phase-timing seam, and a
+  published table of measured per-phase budgets: the dev-only
+  `profile-phases` feature and the `phase-probe` example (hotpath as a
+  dev-dependency only) measure spec-load, scan (with its scan-facts fact
+  leg), mapping, compare (with its cycle-detect share) and report on the
+  committed synthetic corpus. The shipped binary refuses the feature at
+  compile time; with the feature off every seam inlines to the wrapped call
+  alone, and the normal dependency graph gains no edge (guarded by
+  `tests/profile_gate.rs`). Measured numbers, commands and machine class:
+  `docs/archspec/performance.md` (GitHub issue #34).
+
+## [0.6.67] - 2026-11-09
+
+### Fixed
+
+- A workspace-member subpath import spelled with a JavaScript extension
+  (for example `@scope/pkg/src/index.js`) now resolves to its TypeScript
+  source twin (`src/index.ts`, `.mts`, `.cts` alike), the same way a
+  relative import of the same file resolves. Before, only the relative arm
+  applied the extension substitution, so the package-subpath spelling of an
+  existing source file failed as an unresolvable import (GitHub issue #32).
+  The package-subpath arm now walks the same candidate table as the
+  relative arm: the literal spelling first, the NodeNext extension
+  substitution, extension inference, and the index law.
+
+## [0.6.66] - 2026-11-09
+
+### Fixed
+
+- `report` now refuses a tree whose declared `[project] language` disagrees
+  with the counted sources before any artifact is produced — the same
+  fail-closed agreement guard `verify` and `scan` run (GitHub issue #36).
+  The run calls the shared guard once, prints the shared `language mismatch:`
+  line naming both languages and their counts, exits non-zero, and writes
+  nothing; an `excluded_sources` entry for the foreign subtree silences it
+  exactly as it does on the other verbs.
+
+## [0.6.65] - 2026-11-09
+
+### Fixed
+
+- The parallel scan leg no longer runs slower than serial in the published
+  musl binaries. musl's default allocator serialized the leg's small
+  allocations — including the C allocations of the embedded tree-sitter
+  grammars — on a global lock across all workers; mimalloc's thread-local
+  heaps now carry them, at the malloc level too, so the grammar parses
+  benefit as well. The cure is gated twice — a `musl-alloc` cargo feature
+  AND `cfg(target_env = "musl")` — and the release matrix enables it in the
+  musl build steps only, so gnu, darwin and windows artifacts and every
+  dev/test build are byte-unchanged. Static-pie, the anywhere-runs promise
+  and every output stay as before.
+
+### Changed
+
+- Release builds set `lto = "fat"` and `codegen-units = 1` in
+  `[profile.release]` (rider: a whole-program codegen gain measured
+  alongside the allocator fix, not a substitute for it).
+- `CREDITS.md` now resolves the dependency closure with `musl-alloc`
+  enabled, so the allocator linked into the published musl binaries is
+  credited.
+
+## [0.6.64] - 2026-11-09
+
+### Added
+
+- `[[exempt]]` cycle ratchet — an in-spec ledger of accepted cycle debts.
+  Entries match findings by ring identity and tier, never by count: `cycle`
+  (the finding's path bytes, closing repeated member included) and `tier`
+  (`file`, `module` or `both`) are mandatory; `count` is an optional
+  shrink-only match cap; `until` (`YYYY-MM-DD`, UTC) is an optional expiry;
+  `reason` is optional prose. A covered ring leaves the verdict yet stays
+  counted: the census line gains `; exempt: <E>, violating: <V>` when any
+  ring is exempt, the json metrics gain `exempt_cycles` (serialized only
+  when non-zero; `cycles` stays found = violating + exempt), and
+  `verify --coverage` adds `coverage: cycles: <found>, exempt: <E>,
+  violating: <V>`. Tier mismatch never suppresses; a past `until` exempts
+  NOTHING and the entry warns `exempt expired`; an entry matching nothing
+  warns `exempt stale`; `--strict` promotes either warning.
+- `archspec verify --write-exemptions` — the seed-only ledger writer: appends
+  one entry per currently violating ring, never edits or removes an existing
+  entry, never auto-grows a covered one, echoes `wrote <path>` only when it
+  changed the file, and the run then reports the exemptions it just named.
+  Refused in combination with `--json` (usage class 64): a machine consumer
+  must never trigger a write.
+
+### Changed
+
+- The `verify` help surface and `archspec spec` reference document the ledger
+  and the seed flag; `help diagnostics` names the `exempt stale` and
+  `exempt expired` warning categories. The capability matrix declares the
+  tool-native `seed` verb (`verify --write-exemptions`).
+
+## [0.6.63] - 2026-11-09
+
+### Added
+
+- New `explain` verb: `archspec explain <source> <target> [path] [--constraint <pattern>]`
+  prints the adjudication trace for one pair — endpoint resolution, claim chain,
+  module-graph row and value tier, per-constraint territory, and the run's
+  findings naming the pair. The trace is a renderer over the same load, extract
+  and compare calls `verify` runs; findings are read through the exit-gate
+  table, so explain and verify cannot disagree. Exit codes carry the usage and
+  operational classes only — a finding never moves the exit code; verdicts
+  stay in `verify`. The per-constraint census stays in `verify --coverage`.
+
+## [0.6.62] - 2026-11-08
+
+### Added
+
+- The test runner gates the architecture-spec portfolio of the checkout it
+  runs in: when the delta touches the payload `src/` paths — the verify
+  semantics floor — or when the delta cannot be derived, the freshly built
+  binary runs `verify --strict` against every `architecture.spec.toml` found
+  in the checkout and prints one `PORTFOLIO-VERIFY PASS|FAIL` line per spec
+  plus a tally line. A derived delta that misses those paths prints one
+  named `PORTFOLIO-VERIFY SKIP` line and runs nothing extra. Set
+  `ARCHSPEC_PORTFOLIO=force` to run the arm unconditionally.
+
+
 ## [0.6.61] - 2026-11-08
 
 ### Fixed

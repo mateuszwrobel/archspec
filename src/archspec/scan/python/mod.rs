@@ -80,18 +80,26 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // Below the floor the lever returns 1 and this is literally today's
     // serial loop (no threads).
     let threads = super::leg::fact_leg_threads(files.len());
-    let all_facts: Vec<Result<syntax::FileFacts, String>> = if threads > 1 {
-        super::leg::parallel_fact_leg(files.len(), threads, |index| {
-            let file = &files[index];
-            syntax::scan_python_file(&root.join(file))
-                .map_err(|err| format!("{file}: {err}"))
-        })
-    } else {
-        files.iter().map(|file| {
-            syntax::scan_python_file(&root.join(file))
-                .map_err(|err| format!("{file}: {err}"))
-        }).collect()
-    };
+    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::archspec::profile::phase(
+        "scan-facts",
+        || {
+            if threads > 1 {
+                super::leg::parallel_fact_leg(files.len(), threads, |index| {
+                    let file = &files[index];
+                    syntax::scan_python_file(&root.join(file))
+                        .map_err(|err| format!("{file}: {err}"))
+                })
+            } else {
+                files
+                    .iter()
+                    .map(|file| {
+                        syntax::scan_python_file(&root.join(file))
+                            .map_err(|err| format!("{file}: {err}"))
+                    })
+                    .collect()
+            }
+        },
+    );
 
     for (file, facts) in files.iter().zip(all_facts) {
         let facts = facts?;

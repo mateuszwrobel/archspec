@@ -31,7 +31,10 @@ mod syntax;
 mod workspace;
 
 mod common;
-use common::{Exclusions, Resolved, exclusion_verdict, is_excluded, mechanically_excluded, relative, spell, strip_query};
+use common::{
+    exclusion_verdict, is_excluded, candidates, mechanically_excluded, relative, strip_query,
+    TS_SOURCE_EXTS, Exclusions, Resolved,
+};
 
 use crate::archspec::language;
 use crate::archspec::model::{ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
@@ -40,17 +43,6 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
-
-/// The source extensions the ts driver reads and the resolution law infers.
-const TS_SOURCE_EXTS: &[&str] = &["ts", "tsx", "js", "jsx", "svelte", "mjs", "cjs", "mts", "cts"];
-
-/// Extensions that mark an asset import: an ordinary edge to the exact file,
-/// never extension-inferred (D2 asset law — the runtime edges the retired
-/// textual guard counted stay visible).
-const ASSET_EXTS: &[&str] = &[
-    "css", "scss", "sass", "less", "styl", "svg", "png", "jpg", "jpeg", "gif", "webp", "avif",
-    "woff", "woff2", "ttf", "eot", "mp3", "mp4", "webm", "wav", "ogg", "json", "txt", "wasm",
-];
 
 pub fn extract(root: &Path) -> Result<Model, String> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
@@ -114,13 +106,18 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // report-only lines never exist (F14). Below the floor the lever
     // returns 1 and this is literally today's serial loop (no threads).
     let threads = super::leg::fact_leg_threads(files.len());
-    let all_facts: Vec<Result<syntax::FileFacts, String>> = if threads > 1 {
-        super::leg::parallel_fact_leg(files.len(), threads, |index| {
-            file_facts(&root, &files[index])
-        })
-    } else {
-        files.iter().map(|file| file_facts(&root, file)).collect()
-    };
+    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::archspec::profile::phase(
+        "scan-facts",
+        || {
+            if threads > 1 {
+                super::leg::parallel_fact_leg(files.len(), threads, |index| {
+                    file_facts(&root, &files[index])
+                })
+            } else {
+                files.iter().map(|file| file_facts(&root, file)).collect()
+            }
+        },
+    );
 
     for (file, facts) in files.iter().zip(all_facts) {
         let facts = facts?;
@@ -663,75 +660,6 @@ fn resolve(
             .reported_generated_relative(&base, specifier)
             .unwrap_or_else(|| Resolved::Unresolvable(String::new())),
     }
-}
-
-/// The candidate spellings: the exact path when it carries a known
-/// extension (a source file or an asset), the NodeNext extension
-/// substitution when the literal spelling ends in `.js`/`.mjs`/`.cjs`
-/// (record R10, round 4 B — after the literal, never before it), extension
-/// inference over the ts source set, and the index law (`dir/x` also tries
-/// `dir/x/index.*`).
-fn candidates(base: &Path) -> Vec<String> {
-    let mut candidates = Vec::new();
-    let has_known_extension = |path: &Path| -> bool {
-        path.extension()
-            .map(|extension| {
-                let extension = extension.to_string_lossy().to_lowercase();
-                TS_SOURCE_EXTS.contains(&extension.as_str()) || ASSET_EXTS.contains(&extension.as_str())
-            })
-            .unwrap_or(false)
-    };
-    if has_known_extension(base) {
-        candidates.push(spell(base));
-    }
-    for substituted in nodext_substitutions(base) {
-        if !candidates.contains(&substituted) {
-            candidates.push(substituted);
-        }
-    }
-    for extension in TS_SOURCE_EXTS {
-        let mut with_extension = base.as_os_str().to_os_string();
-        with_extension.push(".");
-        with_extension.push(*extension);
-        candidates.push(spell(Path::new(&with_extension)));
-    }
-    for extension in TS_SOURCE_EXTS {
-        let mut index = base.as_os_str().to_os_string();
-        index.push("/index.");
-        index.push(*extension);
-        candidates.push(spell(Path::new(&index)));
-    }
-    candidates
-}
-
-/// The NodeNext extension substitutions (record R10, round 4 B): a base
-/// spelled `.js` also tries `.ts`, `.tsx` and `.d.ts` (the tsc arm order —
-/// GitHub issue #11); `.mjs` tries `.mts`; `.cjs` tries `.cts`. The literal
-/// spelling stays FIRST in every row — when both
-/// `x.js` and `x.ts` exist, the runtime loads `x.js` and the edge lands
-/// there (the mixed-tree law). `.mjs`/`.cjs` literals carry a known
-/// extension since the indexing law, so the literal rides the exact-path
-/// leg and the substitution rows repeat it after the dedup. No `.svelte`
-/// row exists in any mapping. The oxc-side `extension_alias` table stays
-/// DISABLED: it fires before the literal and errors on twin-less trees
-/// (R10 Rejected, round-4 measurements).
-fn nodext_substitutions(base: &Path) -> Vec<String> {
-    let Some(extension) = base.extension() else {
-        return Vec::new();
-    };
-    let extension = extension.to_string_lossy().to_lowercase();
-    let row: &[&str] = match extension.as_str() {
-        "js" => &["ts", "tsx", "d.ts"],
-        "mjs" => &["mjs", "mts"],
-        "cjs" => &["cjs", "cts"],
-        _ => &[],
-    };
-    row.iter()
-        .map(|target| {
-            let substituted = base.with_extension(target);
-            spell(&substituted)
-        })
-        .collect()
 }
 
 /// `from_dir + specifier` normalized component-wise; `..` steps that leave

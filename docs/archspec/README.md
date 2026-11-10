@@ -35,6 +35,7 @@ Each `commands/<command>/` folder holds that command's contracts (invocation, in
 | `help.md` | Tool-wide help: no-args listing, `--help`, per-command `--help` |
 | `agents.md` | Guide for LLM agents / model-driven users: recipe order, built-in manual, worked prompts, real output shapes |
 | `skill-analysis.md` | Source of the analysis skill emitted by `archspec skill analysis` — relation-analysis playbook for agents: the dumps to generate, five heuristics over them (cycles, fan-in/fan-out outliers, orphans, layering direction, god-crate shape), the recommendation output contract |
+| `performance.md` | Measured phase budgets of the `verify` pipeline and the dev-only `profile-phases` harness that produces them — data for agents, not a shipped behavior contract |
 
 ## Roadmap
 

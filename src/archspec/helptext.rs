@@ -878,6 +878,26 @@ cycle (warning severity)
   decision:   as the error cycle above, tolerated without --strict; promoted to
               an error line (exit 1) under --strict.
 
+exempt stale / exempt expired (the [[exempt]] ratchet ledger)
+  pattern:    exempt stale: <tier> <ring>    (rendered 'warning: exempt stale: ...')
+              exempt expired: <tier> <ring>  (rendered 'warning: exempt expired: ...')
+  meaning:    an [[exempt]] entry of the cycle ratchet needs attention.
+              stale — the entry matched no finding this run: the ring is gone,
+              renamed, or the entry's tier never sees it; delete the entry.
+              expired — its `until` date has passed, so it exempts NOTHING:
+              the named ring is back in the findings (or is gone on its own).
+              <ring> repeats the entry's `cycle` bytes; <tier> is the entry's
+              `tier` value ('file', 'module' or 'both'). A ring the ledger
+              covers never prints as a cycle finding; it stays counted — the
+              census line states it as exempt, never a silent zero.
+  origin:     spec
+  severity:   warning (exit 0; exit 1 under --strict)
+  follow-up:  archspec verify --write-exemptions  (seed entries for what still
+              violates; it never edits or removes an existing entry)
+  decision:   spec-fix — delete a stale entry; on expiry fix the ring or
+              renew `until` with a reason. The ratchet shrinks only: an entry
+              never auto-grows, and `count` is a shrink-only cap.
+
 unresolved module file
   pattern:    unresolved module file: <path>
   meaning:    a 'mod' declaration has no backing file the scanner could find.

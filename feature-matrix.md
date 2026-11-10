@@ -927,3 +927,23 @@
   - python: skipped (project shape not applicable)
   - kotlin: skipped (project shape not applicable)
 
+## explain.pair_trace
+**Capability:** rust=implemented, csharp=implemented, go=implemented, ts=implemented, python=implemented, kotlin=implemented
+
+**Behaviors:**
+
+- **explain_traces_a_clean_pair_with_no_findings** — explain over a clean boundary spec exits 0, states the pair's model row and the renderer note, and names no finding
+  - rust: pass
+  - csharp: pass
+  - go: pass
+  - ts: pass
+  - python: pass
+  - kotlin: pass
+- **explain_names_the_cycle_findings_verify_reports** — a cycle verify reports is listed by explain's findings section for the pair, and the trace states the pair is adjudicated
+  - rust: pass
+  - csharp: pass
+  - go: pass
+  - ts: skipped (project shape not applicable)
+  - python: skipped (project shape not applicable)
+  - kotlin: pass
+

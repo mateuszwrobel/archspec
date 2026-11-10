@@ -21,6 +21,7 @@ emitted).
 | no `architecture.spec.toml` | the expected file and the directory searched | non-zero |
 | invalid spec | the spec file and the reason — a key the model does not define is refused here (`unknown key(s) "<key>" <location>`, fail-closed at load: top level, `[project]` and its `excluded_sources` entries, `[[stereotype]]` entries and their `match` tables, module claims with recursive `submodules` and their `matches`/`contract`/`allowed` tables, `[[constraint]]` entries; `allowed` array entries stay owned by the entry-level refusal) | non-zero |
 | no sources in the spec's declared language | that no sources were found, the language, and where | non-zero |
+| the declared language disagrees with the counted tree (`language mismatch`, the D14 agreement check) | the declared and found languages with the counts of each, and the `excluded_sources` remedy | non-zero |
 | a source file fails to parse | the name of the failing file | non-zero |
 | declared language's driver/toolchain missing | the language and that `archspec doctor` can diagnose | non-zero |
 | unsupported `--format` value | the value and the supported formats | non-zero |

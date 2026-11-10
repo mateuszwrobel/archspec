@@ -2,8 +2,8 @@
   "schema": "archspec-e2e-matrix-v0",
   "generated_by": "tests/e2e_matrix.rs (generated, never hand-edited)",
   "denominator": {
-    "mode_cells": 68,
-    "exit_class_cells": 8,
+    "mode_cells": 71,
+    "exit_class_cells": 9,
     "line_class_rows": 19,
     "note": "the proposal heading says 58 verb-mode cells; the registry enumerates the table rows, which is the honest denominator"
   },
@@ -309,6 +309,52 @@
       ],
       "exit_class": 1,
       "witness": "--only echoes the excluded class, changes nothing else",
+      "status": "pass"
+    },
+    {
+      "id": "verify/write-exemptions",
+      "verb": "verify",
+      "mode": "--write-exemptions",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "verify",
+        "--write-exemptions"
+      ],
+      "exit_class": 1,
+      "witness": "seed-only writer on a tree with no uncovered cycle: no write, verdict unchanged",
+      "status": "pass"
+    },
+    {
+      "id": "explain/default",
+      "verb": "explain",
+      "mode": "default",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "explain",
+        "Billing",
+        "Shared"
+      ],
+      "exit_class": 0,
+      "witness": "pair trace on stdout, exit 0 — a finding never moves the exit code",
+      "status": "pass"
+    },
+    {
+      "id": "explain/constraint-filter",
+      "verb": "explain",
+      "mode": "--constraint",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "explain",
+        "Billing",
+        "Shared",
+        "--constraint",
+        "no_cycles"
+      ],
+      "exit_class": 0,
+      "witness": "--constraint filters the census to matching constraint rows",
       "status": "pass"
     },
     {
@@ -1003,6 +1049,21 @@
       ],
       "exit_class": 70,
       "witness": "missing precondition exits 70 naming the file",
+      "status": "pass"
+    },
+    {
+      "id": "report/language-mismatch",
+      "verb": "report",
+      "mode": "language mismatch",
+      "kind": "exit-class",
+      "corpus": "mixed-go-ts",
+      "args": [
+        "report",
+        "--output",
+        "report.md"
+      ],
+      "exit_class": 1,
+      "witness": "the D14 agreement guard refuses a mismatching tree on report too, before any artifact (GitHub issue #36)",
       "status": "pass"
     },
     {

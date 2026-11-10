@@ -3,10 +3,100 @@
 //! neither `ts` nor `ts::resolution` is imported here — both call down —
 //! so the `ts <-> resolution` import ring the F1 census recorded is gone.
 
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 use crate::archspec::{language, spec};
 use crate::archspec::spec::Spec;
+
+/// The source extensions the ts driver reads and the resolution law infers.
+pub(super) const TS_SOURCE_EXTS: &[&str] =
+    &["ts", "tsx", "js", "jsx", "svelte", "mjs", "cjs", "mts", "cts"];
+
+/// Extensions that mark an asset import: an ordinary edge to the exact file,
+/// never extension-inferred (D2 asset law — the runtime edges the retired
+/// textual guard counted stay visible).
+pub(super) const ASSET_EXTS: &[&str] = &[
+    "css", "scss", "sass", "less", "styl", "svg", "png", "jpg", "jpeg", "gif", "webp", "avif",
+    "woff", "woff2", "ttf", "eot", "mp3", "mp4", "webm", "wav", "ogg", "json", "txt", "wasm",
+];
+
+/// The candidate spellings of the shared resolution law (see
+/// `candidate_paths`): the relative arm walks these spellings, the
+/// member-named subpath arm walks the paths directly (GitHub issue #32 —
+/// one table, two arms, homed here so neither arm calls across the
+/// `ts <-> resolution` ring the F1 census broke).
+pub(super) fn candidates(base: &Path) -> Vec<String> {
+    candidate_paths(base)
+        .into_iter()
+        .map(|path| spell(&path))
+        .collect()
+}
+
+/// The candidate table as PATHS — the ONE resolution law shared by the
+/// relative arm and the member-named subpath arm. The spellings: the exact
+/// path when it carries a known extension (a source file or an asset), the
+/// NodeNext extension substitution when the literal spelling ends in
+/// `.js`/`.mjs`/`.cjs` (record R10, round 4 B — after the literal, never
+/// before it), extension inference over the ts source set, and the index
+/// law (`dir/x` also tries `dir/x/index.*`).
+pub(super) fn candidate_paths(base: &Path) -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    let has_known_extension = |path: &Path| -> bool {
+        path.extension()
+            .map(|extension| {
+                let extension = extension.to_string_lossy().to_lowercase();
+                TS_SOURCE_EXTS.contains(&extension.as_str())
+                    || ASSET_EXTS.contains(&extension.as_str())
+            })
+            .unwrap_or(false)
+    };
+    if has_known_extension(base) {
+        candidates.push(base.to_path_buf());
+    }
+    for substituted in nodext_substitutions(base) {
+        if !candidates.contains(&substituted) {
+            candidates.push(substituted);
+        }
+    }
+    for extension in TS_SOURCE_EXTS {
+        let mut with_extension = base.as_os_str().to_os_string();
+        with_extension.push(".");
+        with_extension.push(*extension);
+        candidates.push(PathBuf::from(&with_extension));
+    }
+    for extension in TS_SOURCE_EXTS {
+        let mut index = base.as_os_str().to_os_string();
+        index.push("/index.");
+        index.push(*extension);
+        candidates.push(PathBuf::from(&index));
+    }
+    candidates
+}
+
+/// The NodeNext extension substitutions (record R10, round 4 B): a base
+/// spelled `.js` also tries `.ts`, `.tsx` and `.d.ts` (the tsc arm order —
+/// GitHub issue #11); `.mjs` tries `.mts`; `.cjs` tries `.cts`. The literal
+/// spelling stays FIRST in every row — when both
+/// `x.js` and `x.ts` exist, the runtime loads `x.js` and the edge lands
+/// there (the mixed-tree law). `.mjs`/`.cjs` literals carry a known
+/// extension since the indexing law, so the literal rides the exact-path
+/// leg and the substitution rows repeat it after the dedup. No `.svelte`
+/// row exists in any mapping. The oxc-side `extension_alias` table stays
+/// DISABLED: it fires before the literal and errors on twin-less trees
+/// (R10 Rejected, round-4 measurements).
+fn nodext_substitutions(base: &Path) -> Vec<PathBuf> {
+    let Some(extension) = base.extension() else {
+        return Vec::new();
+    };
+    let extension = extension.to_string_lossy().to_lowercase();
+    let row: &[&str] = match extension.as_str() {
+        "js" => &["ts", "tsx", "d.ts"],
+        "mjs" => &["mjs", "mts"],
+        "cjs" => &["cjs", "cts"],
+        _ => &[],
+    };
+    row.iter().map(|target| base.with_extension(target)).collect()
+}
 
 /// The declared exclusions: spec entries plus the mechanical set (always on).
 pub(super) struct Exclusions {

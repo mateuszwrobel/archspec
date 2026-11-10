@@ -105,6 +105,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
         )
     })?;
 
+    // The agreement check is a precondition (D14, GitHub issue #36): the
+    // declared language is the truth of the tree, and any un-excluded foreign
+    // source file fails the run loud BEFORE any artifact is computed. Report
+    // is the verb that only produces artifacts, so the guard must weld here
+    // too: the same shared `agreement_finding` call verify and scan make —
+    // one call site, same message bytes, same untagged exit class — never a
+    // report-local copy of the logic.
+    if let Some(finding) =
+        language::agreement_finding(root_path, language, &spec::exclusion_paths(&loaded))
+    {
+        return Err(finding);
+    }
+
     if !scan::driver_available(language) {
         return Err(format!(
             "{} driver unavailable (toolchain not found); run 'archspec doctor' to diagnose",
@@ -132,6 +145,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         &loaded.modules,
         &loaded.stereotype,
         &loaded.constraint,
+        &loaded.exempt,
     );
     let metrics = report::compute_metrics(&model, &mapping, &loaded.modules, &diff);
 

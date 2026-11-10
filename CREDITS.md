@@ -4,7 +4,10 @@ The `archspec` tool (crate `rust-arch-test-kit`) is licensed under the
 Apache License 2.0 — the full text lives in [LICENSE](LICENSE).
 
 This listing credits every third-party crate whose code is linked into the
-`archspec` binary, as resolved from the committed lockfile. It is
+`archspec` binary, as resolved from the committed lockfile. The closure is
+computed with the `musl-alloc` feature enabled — the flag the release builds
+pass on musl targets — so the allocator linked into the published musl
+binaries is credited here too; non-musl binaries do not link it. It is
 **generated** — do not edit it by hand. Regenerate it from a checkout of
 this crate with:
 
@@ -52,9 +55,11 @@ No code was ported into this binary from any third-party implementation.
 | `itoa` | 1.0.17 | MIT OR Apache-2.0 | https://github.com/dtolnay/itoa |
 | `json-strip-comments` | 3.1.2 | Apache-2.0 | https://github.com/oxc-project/json-strip-comments |
 | `libc` | 0.2.182 | MIT OR Apache-2.0 | https://github.com/rust-lang/libc |
+| `libmimalloc-sys` | 0.1.49 | MIT | https://github.com/purpleprotocol/mimalloc_rust/tree/master/libmimalloc-sys |
 | `linux-raw-sys` | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/sunfishcode/linux-raw-sys |
 | `lock_api` | 0.4.14 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
 | `memchr` | 2.8.0 | Unlicense OR MIT | https://github.com/BurntSushi/memchr |
+| `mimalloc` | 0.1.52 | MIT | https://github.com/purpleprotocol/mimalloc_rust |
 | `nodejs-built-in-modules` | 1.0.0 | MIT | https://github.com/oxc-project/nodejs-built-in-modules |
 | `num-traits` | 0.2.19 | MIT OR Apache-2.0 | https://github.com/rust-num/num-traits |
 | `once_cell` | 1.21.4 | MIT OR Apache-2.0 | https://github.com/matklad/once_cell |
@@ -125,4 +130,4 @@ No code was ported into this binary from any third-party implementation.
 | `winnow` | 0.7.14 | MIT | https://github.com/winnow-rs/winnow |
 | `zmij` | 1.0.21 | MIT | https://github.com/dtolnay/zmij |
 
-**94 crates.**
+**96 crates.**

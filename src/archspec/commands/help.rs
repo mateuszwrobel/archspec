@@ -32,6 +32,7 @@ commands:
   scan       extract the architecture model only (no spec needed)
   diagram    render model (extracted or declared) to an artefact
   verify     extract + compare vs spec, full diff, exit code
+  explain    print the adjudication trace for one pair (facts from the verify path)
   update     seed a spec by snapshotting the real tree
   report     text/markdown/json diff + metric output
   spec       print the spec JSON schema or annotated reference
@@ -438,6 +439,11 @@ fn capabilities_block() -> String {
             language.as_str()
         ));
     }
+    out.push_str(
+        "\nphase budgets — the measured per-phase cost table of the verify\n\
+         pipeline ships in docs/archspec/performance.md (dev harness, feature\n\
+         `profile-phases`; the shipped build measures nothing and costs nothing).\n",
+    );
     out
 }
 

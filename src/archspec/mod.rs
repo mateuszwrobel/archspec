@@ -8,6 +8,7 @@ pub mod helptext;
 pub mod language;
 pub mod model;
 pub mod parse;
+pub mod profile;
 pub mod report;
 pub mod scan;
 pub mod spec;
@@ -41,6 +42,11 @@ pub(crate) const COMMANDS: &[CommandInfo] = &[
         name: "verify",
         summary: "extract + compare vs spec, full diff, exit code",
         help: commands::verify::HELP,
+    },
+    CommandInfo {
+        name: "explain",
+        summary: "print the adjudication trace for one pair (facts from the verify path)",
+        help: commands::explain::HELP,
     },
     CommandInfo {
         name: "update",
@@ -130,6 +136,7 @@ pub fn dispatch(args: &[String]) -> i32 {
         "scan" => commands::scan::run(rest),
         "diagram" => commands::diagram::run(rest),
         "verify" => commands::verify::run(rest),
+        "explain" => commands::explain::run(rest),
         "update" => commands::update::run(rest),
         "report" => commands::report::run(rest),
         "spec" => commands::spec::run(rest),

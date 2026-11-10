@@ -11,6 +11,11 @@
 # The listing covers the normal (runtime) dependency closure of the root
 # package: dev-dependencies and build-host-only crates are excluded, so the
 # table states exactly the licenses of the code linked into the binary.
+# The closure is resolved WITH `--features musl-alloc` (the flag the release
+# matrix passes to the musl build steps, issue #33): mimalloc is linked into
+# the published musl binaries, so it is credited. Without the flag the graph
+# is exactly the previous one — the extra row describes the shipped musl
+# shape only, never a dev/test or non-musl build.
 # Works from a clean checkout of this crate; needs cargo (with the committed
 # lockfile) and jq.
 set -euo pipefail
@@ -33,7 +38,10 @@ trap 'rm -rf "$tmp"' EXIT
 
 # --locked: the listing must describe the committed lockfile, never a newer
 # resolution. Any resolution drift fails closed here.
-cargo metadata --format-version 1 --locked --manifest-path "$ROOT/Cargo.toml" >"$tmp/meta.json"
+# --features musl-alloc: the published musl binaries link the gated
+# allocator (issue #33); the listing covers that shape too (see the header).
+cargo metadata --format-version 1 --locked --features musl-alloc \
+  --manifest-path "$ROOT/Cargo.toml" >"$tmp/meta.json"
 
 # Transitive closure from the root over normal edges only (in metadata v1 a
 # dependency kind serialized as null is the normal kind), minus the root.
@@ -68,7 +76,10 @@ The `archspec` tool (crate `rust-arch-test-kit`) is licensed under the
 Apache License 2.0 — the full text lives in [LICENSE](LICENSE).
 
 This listing credits every third-party crate whose code is linked into the
-`archspec` binary, as resolved from the committed lockfile. It is
+`archspec` binary, as resolved from the committed lockfile. The closure is
+computed with the `musl-alloc` feature enabled — the flag the release builds
+pass on musl targets — so the allocator linked into the published musl
+binaries is credited here too; non-musl binaries do not link it. It is
 **generated** — do not edit it by hand. Regenerate it from a checkout of
 this crate with:
 

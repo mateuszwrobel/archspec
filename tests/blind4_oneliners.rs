@@ -84,7 +84,7 @@ fn rendered_surfaces() -> Vec<(String, String)> {
     for topic in ["commands", "glob", "spec", "constraints", "languages", "roles", "workflow", "diagnostics"] {
         surfaces.push((format!("help {topic}"), help_surface(&["help", topic])));
     }
-    for command in ["init", "scan", "diagram", "verify", "update", "report", "doctor", "inspect", "depgraph", "skill"] {
+    for command in ["init", "scan", "diagram", "verify", "explain", "update", "report", "doctor", "inspect", "depgraph", "skill"] {
         surfaces.push((format!("help {command}"), help_surface(&["help", command])));
         surfaces.push((
             format!("{command} --help"),

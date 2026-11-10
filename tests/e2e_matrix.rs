@@ -409,6 +409,56 @@ fn registry() -> Vec<Cell> {
             None,
             "--only echoes the excluded class, changes nothing else"
         ),
+        // --- exempt ratchet (GitHub issue #27: seed-only ledger writer) ---
+        cell!(
+            "verify/write-exemptions",
+            "verify",
+            "--write-exemptions",
+            "mode",
+            "rust-violating",
+            NO_PRE,
+            &["verify", "--write-exemptions"],
+            1,
+            &["does not match source model"],
+            &[],
+            &["wrote "],
+            None,
+            "seed-only writer on a tree with no uncovered cycle: no write, verdict unchanged"
+        ),
+        // --- explain (GitHub issue #26: renderer over the verify path) ---
+        cell!(
+            "explain/default",
+            "explain",
+            "default",
+            "mode",
+            "rust-violating",
+            NO_PRE,
+            &["explain", "Billing", "Shared"],
+            0,
+            &["pair: Billing -> Shared", "model rows:", "note: explain renders"],
+            &[],
+            &[],
+            None,
+            "pair trace on stdout, exit 0 — a finding never moves the exit code"
+        ),
+        cell!(
+            "explain/constraint-filter",
+            "explain",
+            "--constraint",
+            "mode",
+            "rust-violating",
+            NO_PRE,
+            &["explain", "Billing", "Shared", "--constraint", "no_cycles"],
+            0,
+            &[
+                "pair: Billing -> Shared",
+                "none — the spec declares no constraint row under this filter",
+            ],
+            &[],
+            &[],
+            None,
+            "--constraint filters the census to matching constraint rows"
+        ),
         // --- update ---
         cell!(
             "update/default",
@@ -1038,6 +1088,21 @@ fn registry() -> Vec<Cell> {
         "missing precondition exits 70 naming the file"
     ));
     cells.push(cell!(
+        "report/language-mismatch",
+        "report",
+        "language mismatch",
+        "exit-class",
+        "mixed-go-ts",
+        NO_PRE,
+        &["report", "--output", "report.md"],
+        1,
+        &[],
+        &["language mismatch:"],
+        &[],
+        None,
+        "the D14 agreement guard refuses a mismatching tree on report too, before any artifact (GitHub issue #36)"
+    ));
+    cells.push(cell!(
         "cli/unknown-command",
         "cli",
         "unknown command",
@@ -1216,6 +1281,21 @@ fn build_corpus(name: &str, fx: &Fixture) -> Result<(), String> {
                 language: Language::Rust,
             };
             driver.materialize(fx, &driver.probe_tree());
+            Ok(())
+        }
+        // The D14 mismatch corpus (GitHub issue #36): a go root with an
+        // un-excluded nested ts subtree — every guard-consuming verb must
+        // refuse it before computing anything (mirrors `go_tree` in
+        // `tests/language_agreement.rs`).
+        "mixed-go-ts" => {
+            fx.write("go.mod", "module example.com/tool\n\ngo 1.21\n");
+            fx.write("cmd/tool/main.go", "package main\n\nfunc main() {}\n");
+            fx.write("opencode-plugin/package.json", "{\"name\": \"plugin\"}\n");
+            fx.write("opencode-plugin/index.ts", "export const p = 1;\n");
+            fx.write(
+                "architecture.spec.toml",
+                "[project]\nlanguage = \"go\"\n\n[[module]]\nname = \"tool\"\nmatches = { units = [\"example.com/tool/cmd/tool\"] }\n",
+            );
             Ok(())
         }
         "python-dynamic" => {

@@ -785,7 +785,7 @@ fn cycle_through_a_test_project_is_invisible_to_production_guard(
 /// severity. `allow_reverse` also permits b -> a (the mutual-cycle shape);
 /// without it only a -> b is declared, so an acyclic tree satisfies every
 /// required edge. Shared by both no_cycles scenarios.
-fn write_cycle_spec(driver: &Driver, fx: &common::Fixture, allow_reverse: bool) {
+pub(crate) fn write_cycle_spec(driver: &Driver, fx: &common::Fixture, allow_reverse: bool) {
     let a = driver.unit_name("a");
     let b = driver.unit_name("b");
     let b_allowed = if allow_reverse {

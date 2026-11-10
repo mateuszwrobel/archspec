@@ -1,0 +1,177 @@
+name: Perf probe (issue #33 guard)
+
+# Gate-free scheduled witness (decision-check 2026-11-09, M2): this workflow
+# gates NOTHING. No pull_request trigger, no merge consumer. Scheduled and
+# manual runs assert RELATIVE ratios only (never absolute wall time) and go
+# red on a breach — visible, actionable, consumed by nothing. Tag runs
+# measure the just-published assets against a source build of the same tag
+# and are ANNOTATE-ONLY: the republish-freeze law means a red cannot change
+# a release, so their verdict goes to the trend record, never to the release
+# page. Absolute numbers print to the step summary and a metrics.json
+# artifact (trend class; the store decision belongs to the perf program).
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # weekly, Monday 03:17 UTC (off the top of the hour)
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+          targets: x86_64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: "Build source binaries (matrix shapes: gnu plain, musl with musl-alloc)"
+        run: |
+          set -euo pipefail
+          cargo build --release --locked
+          cargo build --release --locked --features musl-alloc --target x86_64-unknown-linux-musl
+          mkdir -p bench-bin
+          cp target/release/archspec bench-bin/source-gnu
+          cp target/x86_64-unknown-linux-musl/release/archspec bench-bin/source-musl
+      - name: Generate corpus + guard (refuses before timing when short or drifted)
+        run: |
+          set -euo pipefail
+          python3 scripts/bench/gen_corpus.py bench-tree 800 25
+          python3 scripts/bench/bench_sweep.py guard \
+            --corpus bench-tree --manifest scripts/bench/corpus-manifest.txt
+      - name: Corpus-guard self-test (a stub tree must refuse, nonzero)
+        run: python3 scripts/bench/bench_sweep.py self-test
+      - name: Download the published assets when triggered by a tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          gh release download "${GITHUB_REF_NAME}" -p "archspec-${ver}-x86_64-unknown-linux-musl.tar.gz" -O bench-bin/
+          tar xzf bench-bin/"archspec-${ver}-x86_64-unknown-linux-musl.tar.gz" -C bench-bin/
+          mv bench-bin/archspec bench-bin/shipped-musl
+          rm -f bench-bin/*.tar.gz
+      - name: Bench (medians of 3 after one discarded warmup, legs sequential here)
+        run: |
+          set -euo pipefail
+          args=(--corpus bench-tree --manifest scripts/bench/corpus-manifest.txt
+                --reps 3 --deadline 900 --out metrics.json
+                --bin source-gnu=bench-bin/source-gnu
+                --bin source-musl=bench-bin/source-musl)
+          if [ -x bench-bin/shipped-musl ]; then
+            args+=(--bin shipped-musl=bench-bin/shipped-musl)
+          fi
+          python3 scripts/bench/bench_sweep.py bench "${args[@]}" | tee bench-report.tsv
+      - name: Assert ratios (red on schedule/dispatch; annotate-only on tags)
+        continue-on-error: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, sys
+          rows = {r["binary"]: r for r in json.load(open("metrics.json"))["rows"]}
+          problems, notes = [], []
+          for name, r in rows.items():
+              if r["ratio"] > 1.15:
+                  problems.append(f"{name}: parallel/serial ratio {r['ratio']:.2f} > 1.15 (inversion)")
+          if "source-musl" in rows and "source-gnu" in rows:
+              ratio = rows["source-musl"]["wall_p"] / rows["source-gnu"]["wall_p"]
+              if ratio > 2.0:
+                  problems.append(f"musl parallel is {ratio:.2f}x gnu parallel (> 2.0 bound)")
+          if "shipped-musl" in rows and "source-gnu" in rows:
+              ratio = rows["shipped-musl"]["wall_p"] / rows["source-gnu"]["wall_p"]
+              if ratio > 2.0:
+                  problems.append(f"shipped musl parallel is {ratio:.2f}x source gnu parallel (> 2.0 bound)")
+          tag = os.environ.get("GITHUB_REF", "").startswith("refs/tags/")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("## perf probe (linux)\n\n")
+              for name, r in rows.items():
+                  fh.write(f"- `{name}`: parallel {r['wall_p']:.2f}s, serial {r['wall_s']:.2f}s, "
+                           f"ratio {r['ratio']:.2f}, peak RSS {r['rss_p_kb'] // 1024} MB\n")
+              if problems:
+                  line = " | ".join(problems)
+                  fh.write(f"\n**{'VERDICT (annotate-only)' if tag else 'BREACH'}:** {line}\n")
+              else:
+                  fh.write("\n**within bounds**\n")
+          if problems and not tag:
+              sys.exit(1)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perf-metrics-linux-${{ github.run_id }}
+          path: |
+            metrics.json
+            bench-report.tsv
+        if: always()
+
+  # Native legs for the other published OSes (M1: cross-arch timing under
+  # emulation fabricates the table, so every OS benches on its own runner).
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: darwin-arm64
+          - os: windows-latest
+            label: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+      - name: Build source binary (native host shape)
+        shell: bash
+        run: cargo build --release --locked
+      - name: Generate corpus + guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/bench/gen_corpus.py bench-tree 800 25
+          python3 scripts/bench/bench_sweep.py guard \
+            --corpus bench-tree --manifest scripts/bench/corpus-manifest.txt
+      - name: Bench (same script and protocol as the linux leg)
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=""
+          [ "${RUNNER_OS:-}" = "Windows" ] && exe=".exe"
+          python3 scripts/bench/bench_sweep.py bench \
+            --corpus bench-tree --manifest scripts/bench/corpus-manifest.txt \
+            --reps 3 --deadline 900 --out metrics.json \
+            --bin "source=target/release/archspec${exe}" | tee bench-report.tsv
+      - name: Assert ratio (red on schedule/dispatch; annotate-only on tags)
+        continue-on-error: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, sys
+          rows = {r["binary"]: r for r in json.load(open("metrics.json"))["rows"]}
+          problems = [f"{n}: ratio {r['ratio']:.2f} > 1.15 (inversion)"
+                      for n, r in rows.items() if r["ratio"] > 1.15]
+          tag = os.environ.get("GITHUB_REF", "").startswith("refs/tags/")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write(f"## perf probe (${{ matrix.label }})\n\n")
+              for n, r in rows.items():
+                  fh.write(f"- `{n}`: parallel {r['wall_p']:.2f}s, serial {r['wall_s']:.2f}s, ratio {r['ratio']:.2f}\n")
+              fh.write(f"\n**{'VERDICT (annotate-only)' if problems and tag else 'BREACH' if problems else 'within bounds'}:** "
+                       + (" | ".join(problems) if problems else "ok") + "\n")
+          sys.exit(1 if (problems and not tag) else 0)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perf-metrics-${{ matrix.label }}-${{ github.run_id }}
+          path: metrics.json
+        if: always()

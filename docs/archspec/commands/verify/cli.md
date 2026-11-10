@@ -3,10 +3,10 @@
 ## Invocation
 
 ```
-archspec verify [path] [--strict] [--json] [--coverage] [--only <class>]
+archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--write-exemptions]
 ```
 
-`path` is optional and positional. `--strict`, `--json`, `--coverage` and `--only` are optional.
+`path` is optional and positional. `--strict`, `--json`, `--coverage`, `--only` and `--write-exemptions` are optional.
 
 | Part | Meaning | Default |
 |---|---|---|
@@ -15,6 +15,7 @@ archspec verify [path] [--strict] [--json] [--coverage] [--only <class>]
 | `--json` | render the verdict in the `report --format json` machine schema | off |
 | `--coverage` | print the coverage census after the verdict | off |
 | `--only <class>` | hide one diagnostic class from the report-only notices; the verdict and the environment census are unchanged | off |
+| `--write-exemptions` | seed the `[[exempt]]` cycle ledger: append one entry per currently violating ring, never edit or remove an existing entry, then report green for what the run named | off |
 
 ## Accepted flag values
 
@@ -22,6 +23,7 @@ archspec verify [path] [--strict] [--json] [--coverage] [--only <class>]
 - `--json`: boolean, takes no value.
 - `--coverage`: boolean, takes no value.
 - `--only <class>`: takes exactly one value, the diagnostic class to exclude from the report-only notices — the prefix before the first `": "` of a notice line. An unknown or empty class excludes nothing and still echoes. Any other flag is an error (see `errors.md`).
+- `--write-exemptions`: boolean, takes no value. Refused in combination with `--json` (usage class 64): a machine consumer must never trigger a write.
 
 ## Usage examples
 
@@ -71,6 +73,25 @@ coverage: no_cycles[0] modules=[wide] — 0/3 files
 coverage: no_cycles[1] modules=[app] — 2/3 files
 coverage summary — 3 files adjudicated by 2 constraints
 ```
+
+With the `[[exempt]]` ratchet active one further line states the split —
+found, exempt and violating rings, never a silent zero:
+`coverage: cycles: <found>, exempt: <E>, violating: <V>`.
+
+### Seed the exemption ledger
+
+```bash
+archspec verify --write-exemptions
+```
+
+Appends one `[[exempt]]` entry per currently violating cycle to
+`architecture.spec.toml` — identity and tier only; `count`, `until` and
+`reason` are human-owned and stay absent until a human adds them. The run
+never edits or removes an existing entry and never auto-grows a covered
+one; a run with nothing new to seed writes nothing and echoes nothing.
+On a write the run echoes `wrote <path>` and then reports the verdict
+over the ledger as it now stands — the exemptions it just named. Refused
+with `--json` (usage class 64, see `errors.md`).
 
 ### Diagnostic class filter
 

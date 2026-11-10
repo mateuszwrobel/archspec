@@ -2052,6 +2052,47 @@
           }
         }
       ]
+    },
+    {
+      "name": "explain.pair_trace",
+      "language_capability": {
+        "csharp": "implemented",
+        "go": "implemented",
+        "kotlin": "implemented",
+        "python": "implemented",
+        "rust": "implemented",
+        "ts": "implemented"
+      },
+      "behaviors": [
+        {
+          "name": "explain_traces_a_clean_pair_with_no_findings",
+          "description": "explain over a clean boundary spec exits 0, states the pair's model row and the renderer note, and names no finding",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "kotlin": "pass",
+            "python": "pass",
+            "rust": "pass",
+            "ts": "pass"
+          }
+        },
+        {
+          "name": "explain_names_the_cycle_findings_verify_reports",
+          "description": "a cycle verify reports is listed by explain's findings section for the pair, and the trace states the pair is adjudicated",
+          "status": {
+            "csharp": "pass",
+            "go": "pass",
+            "kotlin": "pass",
+            "python": "skipped",
+            "rust": "pass",
+            "ts": "skipped"
+          },
+          "skip_reasons": {
+            "python": "project shape not applicable",
+            "ts": "project shape not applicable"
+          }
+        }
+      ]
     }
   ]
 }
