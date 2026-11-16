@@ -12,7 +12,7 @@ use std::path::Path;
 /// it to stderr — a rule violation is not an operational error.
 pub const RULE_VIOLATION_REPORTED: &str = "\u{1}archspec-rule-violation-reported";
 
-pub const HELP: &str = "usage: archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--write-exemptions]\nextract the model and compare against architecture.spec.toml; exit 1 on violations\n\n  path          project directory to extract and compare (default: current directory)\n  --strict      promote every warning to an error (CI gate); a green run means zero\n                findings of any kind\n  --json        emit the verdict as machine-readable json: the metrics and findings\n                body of `archspec report --format json` — the same findings, the same\n                verdict, the same exit codes; a renderer, not a second adjudication\n  --coverage    print the coverage census after the verdict: one line per constraint\n                row stating the facts its check adjudicates in its declared territory\n                versus the model totals; with the [[exempt]] ratchet active one\n                further line states `coverage: cycles: <found>, exempt: <E>,\n                violating: <V>`\n  --only <class>  hide one diagnostic class from the report-only notices; findings,\n                the verdict and the environment census are unchanged; the run echoes\n                `only: excluding class \"<class>\" — verdict unchanged`\n  --write-exemptions  seed the [[exempt]] ledger: append one entry per currently\n                violating cycle (identity + tier), never edit or remove an existing\n                entry, never auto-grow a covered one; the run echoes `wrote <path>`\n                and goes green for what it just named. Refused with --json (64):\n                a machine consumer must never trigger a write\n\nEvery verdict declares the environment it was adjudicated against: the line\n`adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N\nspecifiers resolved to src instead of dist` when the scan resolved declared\nbuild targets to source. `--json` states the same fact as the `environment`\nfield; a summary-by-class census follows the header whenever the scan\nemitted report-only lines.\n\nsee 'archspec help workflow' for the audit recipe and 'archspec help diagnostics'\nfor what each finding category means\n";
+pub const HELP: &str = "usage: archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--write-exemptions]\nextract the model and compare against architecture.spec.toml; exit 1 on violations\n\n  path          project directory to extract and compare (default: current directory)\n  --strict      promote every warning to an error (CI gate); a green run means zero\n                findings of any kind\n  --json        emit the verdict as machine-readable json: the metrics and findings\n                body of `archspec report --format json` — the same findings, the same\n                verdict, the same exit codes; a renderer, not a second adjudication\n  --coverage    print the coverage census after the verdict: one line per constraint\n                row stating the facts its check adjudicates in its declared territory\n                versus the model totals; with the [[exempt]] ratchet active one\n                further line states `coverage: cycles: <found>, exempt: <E>,\n                violating: <V>`\n  --only <class>  hide one diagnostic class from the report-only notices; findings,\n                the verdict and the environment census are unchanged; the run echoes\n                `only: excluding class \"<class>\" — verdict unchanged`\n  --write-exemptions  seed the [[exempt]] ledger: merge one entry per currently\n                violating cycle (identity + tier) into the ledger tables, never\n                edit or remove an existing entry, never auto-grow a covered one;\n                an entry whose keys the writer cannot verify is named on stderr\n                and left untouched; the run echoes `wrote <path>` and goes green\n                for what it just named. Refused with --json (64): a machine\n                consumer must never trigger a write\n\nEvery verdict declares the environment it was adjudicated against: the line\n`adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N\nspecifiers resolved to src instead of dist` when the scan resolved declared\nbuild targets to source. `--json` states the same fact as the `environment`\nfield; a summary-by-class census follows the header whenever the scan\nemitted report-only lines.\n\nsee 'archspec help workflow' for the audit recipe and 'archspec help diagnostics'\nfor what each finding category means\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -141,30 +141,32 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &loaded.exempt,
         )
     });
-    // `--write-exemptions` (GitHub issue #27, R8): seed the ledger with one
-    // entry per currently violating cycle, appending only — existing entries
-    // are byte-preserved, covered violations re-seed nothing. The write
-    // happens BEFORE the verdict renders: after a real write the verdict is
-    // recomputed over the ledger as it now stands, so the seeding run
-    // honestly reports the exemptions it just named (the file, not the
-    // memory, is the ledger).
+    // `--write-exemptions` (GitHub issue #27, R8; merge semantics per GitHub
+    // issue #40): seed the ledger with one entry per currently violating
+    // cycle, merging into the existing `[[exempt]]` tables — existing entries
+    // and their comments are byte-preserved, covered violations re-seed
+    // nothing. The write happens BEFORE the verdict renders: after a real
+    // write the verdict is recomputed over the ledger as it now stands, so
+    // the seeding run honestly reports the exemptions it just named (the
+    // file, not the memory, is the ledger).
     if parsed.switches.contains("write-exemptions") {
         let seeds = seed_entries(&loaded.exempt, &diff.cycle_debts);
         if !seeds.is_empty() {
             let spec_path = root_path.join(spec::SPEC_FILE);
-            append_exempt_entries(&spec_path, &seeds)?;
-            println!("wrote {}", spec_path.display());
-            loaded = spec::load_verify(root_path)?;
-            diff = profile::phase("compare", || {
-                compare::compare(
-                    &mapping,
-                    &model,
-                    &loaded.modules,
-                    &loaded.stereotype,
-                    &loaded.constraint,
-                    &loaded.exempt,
-                )
-            });
+            if seed_exempt_entries(&spec_path, &seeds)? > 0 {
+                println!("wrote {}", spec_path.display());
+                loaded = spec::load_verify(root_path)?;
+                diff = profile::phase("compare", || {
+                    compare::compare(
+                        &mapping,
+                        &model,
+                        &loaded.modules,
+                        &loaded.stereotype,
+                        &loaded.constraint,
+                        &loaded.exempt,
+                    )
+                });
+            }
         }
     }
     // The fold (issue-8 phase 2): scan-side warn-mode findings join the
@@ -280,22 +282,254 @@ fn seed_entries(ledger: &[spec::Exempt], debts: &[(String, String)]) -> Vec<(Str
         .collect()
 }
 
-/// Append seed entries to the spec file verbatim (R8: existing bytes are
-/// never touched — the file is extended, not rewritten). Each entry carries
-/// the machine-known facts only: `cycle` and `tier`; `count`, `until` and
-/// `reason` are human-owned and stay absent until a human adds them.
-fn append_exempt_entries(spec_path: &Path, seeds: &[(String, String)]) -> Result<(), String> {
-    let mut text = std::fs::read_to_string(spec_path)
+/// The `--write-exemptions` seed writer (GitHub issue #27, R8; merge
+/// semantics per GitHub issue #40): seeds MERGE into the existing
+/// `[[exempt]]` tables — the file is never re-serialized, and every existing
+/// table keeps its bytes, its documented optional keys (`count`, `until`,
+/// `reason`) and the comments around it. New entries carry the machine-known
+/// facts only: `cycle` and `tier`; the human-owned keys stay absent until a
+/// human adds them. Returns how many entries the write added (0 when every
+/// seed merged into an existing entry or the merged bytes were refused).
+fn seed_exempt_entries(spec_path: &Path, seeds: &[(String, String)]) -> Result<usize, String> {
+    let text = std::fs::read_to_string(spec_path)
         .map_err(|e| format!("cannot read {}: {e}", spec_path.display()))?;
-    if !text.ends_with('\n') {
-        text.push('\n');
+    let tables = scan_exempt_tables(&text);
+    for table in tables
+        .iter()
+        .filter(|table| matches!(table.body, LedgerTableBody::Unverifiable))
+    {
+        eprintln!(
+            "warning: exempt entry #{} has ledger keys the seeding writer cannot read \
+             — its bytes are left untouched",
+            table.index
+        );
     }
-    for (tier, identity) in seeds {
-        text.push_str(&format!(
-            "\n[[exempt]]\ncycle = \"{identity}\"\ntier = \"{tier}\"\n"
-        ));
+    // Merge by the entry identity (cycle, tier): a seed the raw ledger text
+    // already carries is skipped — an annotated table is never rewritten
+    // beside its own identity. Model coverage filters covered seeds already;
+    // this is the structural guard (GitHub issue #40).
+    let seeds: Vec<&(String, String)> = seeds
+        .iter()
+        .filter(|(tier, identity)| {
+            !tables.iter().any(|table| {
+                matches!(&table.body, LedgerTableBody::Identity { cycle, tier: entry_tier }
+                    if cycle == identity && (entry_tier == tier || entry_tier == "both"))
+            })
+        })
+        .collect();
+    if seeds.is_empty() {
+        return Ok(0);
     }
-    std::fs::write(spec_path, text).map_err(|e| format!("cannot write {}: {e}", spec_path.display()))
+    // Assemble the merged text: new entries join the ledger region — just
+    // after the last `[[exempt]]` table when the file has one, at end of file
+    // otherwise (R8's append shape). Bytes outside the inserted text never
+    // move, so comments outside a table stay where they are.
+    let insert_at = tables.last().map_or(text.len(), |table| table.end);
+    let mut out = String::new();
+    if insert_at < text.len() {
+        let (before, after) = text.split_at(insert_at);
+        out.push_str(before.trim_end_matches([' ', '\t', '\n']));
+        for (tier, identity) in &seeds {
+            out.push_str(&format!(
+                "\n\n[[exempt]]\ncycle = \"{identity}\"\ntier = \"{tier}\"\n"
+            ));
+        }
+        if !after.is_empty() {
+            out.push('\n');
+            out.push_str(after.trim_start_matches('\n'));
+        }
+    } else {
+        out.push_str(&text);
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        for (tier, identity) in &seeds {
+            out.push_str(&format!(
+                "\n[[exempt]]\ncycle = \"{identity}\"\ntier = \"{tier}\"\n"
+            ));
+        }
+    }
+    // Fail closed: the merged bytes must parse as TOML before they replace
+    // the file — a scanner that misread the ledger warns and never corrupts
+    // the ledger (GitHub issue #40: never lose data silently).
+    if toml::from_str::<toml::Value>(&out).is_err() {
+        eprintln!(
+            "warning: seeding refused — the merged ledger does not parse; {} is unchanged",
+            spec_path.display()
+        );
+        return Ok(0);
+    }
+    std::fs::write(spec_path, &out)
+        .map_err(|e| format!("cannot write {}: {e}", spec_path.display()))?;
+    Ok(seeds.len())
+}
+
+/// The body of one `[[exempt]]` table as read from the raw ledger text.
+enum LedgerTableBody {
+    /// The identity read from the table's single-line string keys — escaped
+    /// and multi-line values are never guessed.
+    Identity { cycle: String, tier: String },
+    /// A key the text scanner cannot read exactly. The seeding writer leaves
+    /// such a table untouched and names it on stderr (GitHub issue #40).
+    Unverifiable,
+}
+
+/// One `[[exempt]]` table region of the raw ledger text.
+struct LedgerTable {
+    /// The table's ledger position, 1-based — the number `validate_exempt`
+    /// words its messages with.
+    index: usize,
+    /// Byte offset just after the table region: the start of the next
+    /// top-level table header, or the end of the file.
+    end: usize,
+    body: LedgerTableBody,
+}
+
+/// Locate every `[[exempt]]` table in the raw spec text: a line-oriented
+/// scan of top-level headers, aware of multi-line strings. The scan is
+/// best-effort by design — every risk it takes ends in the fail-closed
+/// parse check of `seed_exempt_entries`, never in a corrupt write.
+fn scan_exempt_tables(text: &str) -> Vec<LedgerTable> {
+    let mut headers: Vec<(usize, bool)> = Vec::new();
+    let mut open_string: Option<&str> = None;
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if let Some(delimiter) = open_string {
+            if line.matches(delimiter).count() % 2 == 1 {
+                open_string = None;
+            }
+        } else if !trimmed.starts_with('#') {
+            if let Some(rest) = trimmed.strip_prefix("[[") {
+                let name = rest.split("]]").next().unwrap_or_default().trim();
+                headers.push((offset, name == "exempt"));
+            } else if trimmed.starts_with('[') {
+                headers.push((offset, false));
+            }
+            open_string = multiline_opener(line);
+        }
+        offset += line.len();
+    }
+    let mut tables = Vec::new();
+    for (position, (start, is_exempt)) in headers.iter().enumerate() {
+        if !*is_exempt {
+            continue;
+        }
+        let end = headers
+            .get(position + 1)
+            .map_or(text.len(), |(next, _)| *next);
+        tables.push(LedgerTable {
+            index: tables.len() + 1,
+            end,
+            body: exempt_table_body(&text[*start..end]),
+        });
+    }
+    tables
+}
+
+/// The first multi-line string delimiter (`\"\"\"` or `'''`) that stays open
+/// on a line, if any.
+fn multiline_opener(line: &str) -> Option<&'static str> {
+    if line.matches("\"\"\"").count() % 2 == 1 {
+        Some("\"\"\"")
+    } else if line.matches("'''").count() % 2 == 1 {
+        Some("'''")
+    } else {
+        None
+    }
+}
+
+/// Read one exempt table's identity from its region text: single-line string
+/// values for `cycle` and `tier`, no escapes; anything else is unverifiable.
+fn exempt_table_body(region: &str) -> LedgerTableBody {
+    // None: the key never appeared. Some(None): the key appeared but its
+    // value cannot be read exactly. Some(Some(v)): the parsed text value.
+    let mut cycle: Option<Option<String>> = None;
+    let mut tier: Option<Option<String>> = None;
+    let mut open_string: Option<&str> = None;
+    for line in region.split_inclusive('\n').skip(1) {
+        let trimmed = line.trim_start();
+        if let Some(delimiter) = open_string {
+            if line.matches(delimiter).count() % 2 == 1 {
+                open_string = None;
+            }
+            continue;
+        }
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once('=') else {
+            return LedgerTableBody::Unverifiable;
+        };
+        let slot = match key.trim() {
+            "cycle" => &mut cycle,
+            "tier" => &mut tier,
+            _ => continue,
+        };
+        let value = strip_inline_comment(value.trim());
+        if slot.is_some() {
+            // A repeated key is a ledger the writer cannot account for —
+            // the loader refuses the file before this point anyway.
+            *slot = Some(None);
+            continue;
+        }
+        if let Some(delimiter) = multiline_opener(value) {
+            *slot = Some(None);
+            open_string = Some(delimiter);
+            continue;
+        }
+        *slot = Some(single_line_string(value));
+    }
+    match (cycle, tier) {
+        (Some(Some(cycle)), Some(Some(tier))) => LedgerTableBody::Identity { cycle, tier },
+        _ => LedgerTableBody::Unverifiable,
+    }
+}
+
+/// Read a single-line TOML string value: basic (no escapes) or literal.
+/// `None` marks a value whose text cannot be compared to a parsed identity
+/// directly — an escape, a multi-line opener or a non-string value.
+fn single_line_string(value: &str) -> Option<String> {
+    if value.starts_with("\"\"\"") || value.starts_with("'''") {
+        return None;
+    }
+    if let Some(rest) = value.strip_prefix('"') {
+        let inner = rest.strip_suffix('"')?;
+        if inner.contains('\\') {
+            return None;
+        }
+        Some(inner.trim().to_string())
+    } else if let Some(rest) = value.strip_prefix('\'') {
+        let inner = rest.strip_suffix('\'')?;
+        Some(inner.trim().to_string())
+    } else {
+        None
+    }
+}
+
+/// Drop a trailing `#` comment that starts outside the quoted value.
+fn strip_inline_comment(value: &str) -> &str {
+    let mut quote: Option<u8> = None;
+    let mut escaped = false;
+    for (position, byte) in value.bytes().enumerate() {
+        match quote {
+            None => match byte {
+                b'"' | b'\'' => quote = Some(byte),
+                b'#' => return value[..position].trim_end(),
+                _ => {}
+            },
+            Some(quote_char) => {
+                if escaped {
+                    escaped = false;
+                } else if byte == quote_char {
+                    quote = None;
+                } else if quote_char == b'"' && byte == b'\\' {
+                    escaped = true;
+                }
+            }
+        }
+    }
+    value
 }
 
 /// Informational notes stating which capability-table-listed rules can never

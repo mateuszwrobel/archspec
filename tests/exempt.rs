@@ -484,6 +484,63 @@ fn write_exemptions_keeps_stale_entries() {
     assert!(spec.contains("gone -> away -> gone"), "the stale entry is kept for the human:\n{spec}");
 }
 
+/// GitHub issue #40 — seeding MERGES into the ledger: an annotated entry and
+/// the comments around it survive a seeding run byte-identically, the new
+/// ring's entry lands in the ledger region (not at end of file), and the
+/// second run writes nothing.
+#[test]
+fn write_exemptions_merges_into_the_ledger_preserving_annotations_and_comments() {
+    let fixture = Fixture::new();
+    write_demo_crate(&fixture, &[("a", "b"), ("c", "d")]);
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"a\"\nmatches = { modules = [\"demo::a\"] }\n\n[module.allowed]\ndepend_on = [\"b\"]\n\n# Cycle ratchet ledger — debt entries, see 'archspec help diagnostics'.\n[[exempt]]\ncycle = \"a -> b -> a\"\ntier = \"module\"\ncount = 1\nuntil = \"2999-12-31\"\nreason = \"named debt, annotated by hand\"\n\n[[module]]\nname = \"b\"\nmatches = { modules = [\"demo::b\"] }\n\n[module.allowed]\ndepend_on = [\"a\"]\n\n[[module]]\nname = \"c\"\nmatches = { modules = [\"demo::c\"] }\n\n[module.allowed]\ndepend_on = [\"d\"]\n\n[[module]]\nname = \"d\"\nmatches = { modules = [\"demo::d\"] }\n\n[module.allowed]\ndepend_on = [\"c\"]\n\n[[constraint]]\ntype = \"no_cycles\"\nseverity = \"error\"\n",
+    );
+    let output = fixture.run(&["verify", ".", "--write-exemptions"]);
+    assert_eq!(output.status.code(), Some(0), "the seeding run greens:\n{}", stdout(&output));
+    assert!(stderr(&output).is_empty(), "every ledger key is readable — no warning:\n{}", stderr(&output));
+    let after = fixture.read("architecture.spec.toml");
+    // The annotated table: section comment, identity keys and all three
+    // documented optional keys survive byte-identically (issue #40).
+    let annotated = "# Cycle ratchet ledger — debt entries, see 'archspec help diagnostics'.\n[[exempt]]\ncycle = \"a -> b -> a\"\ntier = \"module\"\ncount = 1\nuntil = \"2999-12-31\"\nreason = \"named debt, annotated by hand\"\n";
+    assert!(after.contains(annotated), "the annotated entry and its comment survive byte-identically:\n{after}");
+    // The new ring is seeded into the ledger region — after the last
+    // existing exempt table, before the section that follows it.
+    let seeded = after.find("cycle = \"c -> d -> c\"").expect("the new ring is seeded");
+    let module_b = after.find("[[module]]\nname = \"b\"").expect("module b stays declared");
+    assert!(seeded < module_b, "the seeded entry merges into the ledger region, not end of file:\n{after}");
+    let second = fixture.run(&["verify", ".", "--write-exemptions"]);
+    assert!(!stdout(&second).contains("wrote "), "the merged ledger is still:\n{}", stdout(&second));
+    assert_eq!(fixture.read("architecture.spec.toml"), after, "the second run never rewrites the ledger");
+}
+
+/// GitHub issue #40 — an entry whose keys the writer cannot read from the raw
+/// text is named on stderr and left untouched; the genuinely new ring is
+/// still seeded and the run greens.
+#[test]
+fn write_exemptions_names_unreadable_ledger_entries_on_stderr() {
+    let fixture = two_cycle_fixture("[[exempt]]\ncycle = \"\"\"\na -> b -> a\n\"\"\"\ntier = \"module\"\nreason = \"a multi-line value the writer will not guess\"\n");
+    let output = fixture.run(&["verify", ".", "--write-exemptions"]);
+    assert_eq!(output.status.code(), Some(0), "the new ring seeds, the run greens:\n{}", stdout(&output));
+    assert!(
+        stderr(&output).contains(
+            "warning: exempt entry #1 has ledger keys the seeding writer cannot read \
+             — its bytes are left untouched"
+        ),
+        "the unreadable entry names itself on stderr:\n{}",
+        stderr(&output)
+    );
+    let after = fixture.read("architecture.spec.toml");
+    assert!(
+        after.contains("cycle = \"\"\"\na -> b -> a\n\"\"\"")
+            && after.contains("reason = \"a multi-line value the writer will not guess\""),
+        "the unreadable entry keeps every byte:\n{after}"
+    );
+    assert!(after.contains("cycle = \"c -> d -> c\""), "the genuinely new ring is still seeded:\n{after}");
+    let plain = fixture.run(&["verify", "."]);
+    assert!(stdout(&plain).contains("exempt: 2, violating: 0"), "both rings stay visible:\n{}", stdout(&plain));
+}
+
 /// `--json` + `--write-exemptions` is a usage error: a machine consumer must
 /// never trigger a write.
 #[test]

@@ -41,7 +41,7 @@ Environment lines by class
 --------------------------
 ```
 
-The census counts facts already emitted; it is a view, and it never changes the verdict. `--only <class>` removes one class from the stderr notices only — the header, the census, the findings and the exit code are unchanged, and the run echoes `only: excluding class "<class>" — verdict unchanged`. `verify --json` and `report --format json` state the same facts in the `environment` field (`state`, `header`, and a `classes` map skipped when empty) — see `../report/output.md`.
+The census counts facts already emitted; it is a view, and it never changes the verdict. A run whose scan excluded C# test projects adds the census note `test-gated units: <n>` after the table, counting the `test-gated unit: <path> — <marker>` lines the scan already printed (see `../scan/input.md`); at zero test tier the note is absent. `--only <class>` removes one class from the stderr notices only — the header, the census, the findings and the exit code are unchanged, and the run echoes `only: excluding class "<class>" — verdict unchanged`. `verify --json` and `report --format json` state the same facts in the `environment` field (`state`, `header`, and a `classes` map skipped when empty) — see `../report/output.md`; the json carries the count inside `classes`, never the note line.
 
 ## Capability notes
 

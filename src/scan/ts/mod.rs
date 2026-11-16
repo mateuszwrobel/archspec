@@ -36,23 +36,21 @@ use common::{
     TS_SOURCE_EXTS, Exclusions, Resolved,
 };
 
-use crate::archspec::language;
-use crate::archspec::model::{ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
-use crate::archspec::spec;
+use crate::language;
+use crate::model::{ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
+use crate::model::DeclaredFacts;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
 
-pub fn extract(root: &Path) -> Result<Model, String> {
+pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    // The spec at the scanned root (root-only discovery, D14(4)) supplies the
-    // declared exclusions the resolution law names in unresolvable findings.
-    // An invalid spec failed the verb before extraction; its error is not
-    // re-raised here.
-    let loaded_spec = spec::load_scan(&root).ok().flatten();
-    let declared = loaded_spec.as_ref().map(Exclusions::new);
-    let files = collect_files(&root, declared.as_ref())?;
+    // The declared exclusions and framework ride the DeclaredFacts seam: the
+    // spec at the scanned root is loaded by the caller (verbs, inspect arm)
+    // and mapped here without the library owning the loader (D14(4)).
+    let declared = Exclusions::new(&facts.exclusions);
+    let files = collect_files(&root, Some(&declared))?;
     if files.is_empty() {
         return Err(format!("no ts sources found under: {}", root.display()));
     }
@@ -82,10 +80,8 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // for the join-and-Err below and the model's transient report field.
     let mut engine = resolution::Engine::new(
         &root,
-        declared.as_ref(),
-        loaded_spec
-            .as_ref()
-            .and_then(|loaded| loaded.project.framework.as_deref()),
+        Some(&declared),
+        facts.framework.as_deref(),
     );
     // The workspace registry (R5): the membership map of a workspace tree.
     // An empty registry keeps every law below at the single-package
@@ -106,7 +102,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // report-only lines never exist (F14). Below the floor the lever
     // returns 1 and this is literally today's serial loop (no threads).
     let threads = super::leg::fact_leg_threads(files.len());
-    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::archspec::profile::phase(
+    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::profile::phase(
         "scan-facts",
         || {
             if threads > 1 {
@@ -148,7 +144,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
                 .insert(wildcard.clone());
         }
         for edge in &facts.edges {
-            match resolve(&root, file, edge, declared.as_ref(), &mut engine) {
+            match resolve(&root, file, edge, Some(&declared), &mut engine) {
                 Resolved::Edge(target) => {
                     // The (from, to, kind) row split (D3/R3-9): a value
                     // crossing contributes the type_only=false row, a
@@ -363,7 +359,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // its facts say pure republication (the loop above). The role key is
     // the file identity the module edges use, so `check_facade_roots`
     // addresses it exactly as it addresses rust root module paths.
-    let mut roles: BTreeMap<String, crate::archspec::model::Role> = BTreeMap::new();
+    let mut roles: BTreeMap<String, crate::model::Role> = BTreeMap::new();
     for dir in std::iter::once(&root).chain(members.iter().map(|(dir, _)| dir)) {
         let Some(rel) = relative(dir, &root).or_else(|| {
             (dir == &root).then(String::new)
@@ -378,7 +374,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         if pure_republication.contains(&barrel) {
             roles.insert(
                 barrel,
-                crate::archspec::model::Role::Facade,
+                crate::model::Role::Facade,
             );
         }
     }
@@ -406,9 +402,9 @@ pub fn extract(root: &Path) -> Result<Model, String> {
             },
         )
         .collect();
-    let edges: Vec<crate::archspec::model::Edge> = package_edges
+    let edges: Vec<crate::model::Edge> = package_edges
         .iter()
-        .map(|(from, to)| crate::archspec::model::Edge {
+        .map(|(from, to)| crate::model::Edge {
             from: from.clone(),
             to: to.clone(),
         })
@@ -901,7 +897,7 @@ mod tests {
     #[test]
     fn exclusion_hit_names_the_declared_entry_before_the_mechanical_dir() {
         let declared = Exclusions {
-            declared: vec![crate::archspec::spec::ExclusionEntry {
+            declared: vec![crate::model::ExclusionEntry {
                 path: PathBuf::from("src/vendor"),
                 mode: "abort",
             }],

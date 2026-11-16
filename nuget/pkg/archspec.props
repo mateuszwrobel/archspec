@@ -1,4 +1,4 @@
-<Project>
+<Project InitialTargets="_ArchspecRidCheck">
   <!-- archspec tools-package selection (decision-check record 2026-11-06).
 
        The package is tools-only: restore does not copy its files to the
@@ -32,5 +32,12 @@
     <ArchspecPath Condition="'$(_ArchspecRid)' == 'osx-arm64'">$(ArchspecPackageRoot)runtimes/osx-arm64/native/archspec</ArchspecPath>
     <ArchspecPath Condition="'$(_ArchspecRid)' == 'win-x64'">$(ArchspecPackageRoot)runtimes/win-x64/native/archspec.exe</ArchspecPath>
   </PropertyGroup>
-  <Error Condition="'$(ArchspecPath)' == ''" Text="archspec: the archspec tools package ships no binary for .NET SDK runtime identifier '$(_ArchspecRid)'. It ships linux-x64 (static musl — also serves linux-musl-x64), linux-arm64 (glibc — no Alpine arm64 build yet), osx-x64, osx-arm64 and win-x64, and falls back to nothing by design. Set _ArchspecRid explicitly only when you have proven that binary runs on this machine." />
+  <!-- MSBuild 18 (.NET 10 SDK) refuses an <Error> directly under <Project> at
+       evaluation time, so the loud unknown-RID fail (finding M3) rides an
+       initial target: it runs before any requested target, keeping the
+       fail-before-useful-work contract, and it is skipped whenever
+       ArchspecPath resolved non-empty. -->
+  <Target Name="_ArchspecRidCheck" Condition="'$(ArchspecPath)' == ''">
+    <Error Text="archspec: the archspec tools package ships no binary for .NET SDK runtime identifier '$(_ArchspecRid)'. It ships linux-x64 (static musl — also serves linux-musl-x64), linux-arm64 (glibc — no Alpine arm64 build yet), osx-x64, osx-arm64 and win-x64, and falls back to nothing by design. Set _ArchspecRid explicitly only when you have proven that binary runs on this machine." />
+  </Target>
 </Project>

@@ -468,6 +468,20 @@ pub fn load_scan(dir: &Path) -> Result<Option<Spec>, String> {
     Ok(Some(spec))
 }
 
+/// The verb-site pin (GitHub issue #38): a present spec's `[project] language`
+/// SELECTS the driver at every detect()-consuming verb — the same shared
+/// parser the scan and verify sites call (round-8 F11 lineage), so an unknown
+/// name fails with the shipped unknown-language red, byte-identical to the
+/// verify-site mapping, BEFORE any source scanning.
+pub fn declared_driver(loaded: &Spec) -> Result<language::Language, String> {
+    language::from_name(&loaded.project.language).ok_or_else(|| {
+        format!(
+            "invalid spec: unknown language \"{}\"",
+            loaded.project.language
+        )
+    })
+}
+
 /// The `excluded sources` report line (D13 owner: the scan/verify report
 /// surface): every active entry, one line per entry, exact bytes
 /// `excluded sources: <path> — <reason>` — a run with an active exclusion
@@ -515,55 +529,10 @@ pub fn exclusion_entries(spec: &Spec) -> Vec<ExclusionEntry> {
 }
 
 /// One consumed exclusion entry: the trimmed root plus the resolved mode.
-#[derive(Debug, Clone)]
-pub struct ExclusionEntry {
-    pub path: std::path::PathBuf,
-    pub mode: &'static str,
-}
-
-/// The specificity of one entry's match on a repo-relative path (decision-
-/// check MAJOR-1): `Some((exact, components))` when the entry matches —
-/// the entry path equal to the file path is the `exact` match, the entry
-/// path a component-wise ancestor of the file path is the prefix match
-/// (`Path::starts_with`, so the entry `web` matches `web` and `web/app.ts`,
-/// never `webapp/app.ts`). Ordering follows the tuple: an exact match beats
-/// any prefix match, and among prefix matches the entry with the most
-/// components — the most specific prefix — wins. Declaration order
-/// contributes nothing.
-pub fn exclusion_specificity(entry: &Path, rel: &Path) -> Option<(bool, usize)> {
-    if entry == rel {
-        Some((true, entry.components().count()))
-    } else if rel.starts_with(entry) {
-        Some((false, entry.components().count()))
-    } else {
-        None
-    }
-}
-
-/// The entry a path hits, resolved by specificity over all entries (never
-/// the first in spec order). A tie — two entries of equal specificity on
-/// one path — cannot exist for distinct entries: any two different prefixes
-/// of the same path differ in component count, and equal paths are refused
-/// at load by the duplicate-entry arm of `validate_schema`. The string
-/// tie-break keeps the choice deterministic even for callers that skipped
-/// validation.
-pub fn matching_exclusion<'a>(
-    entries: &'a [ExclusionEntry],
-    rel: &Path,
-) -> Option<&'a ExclusionEntry> {
-    entries
-        .iter()
-        .filter_map(|entry| {
-            exclusion_specificity(&entry.path, rel)
-                .map(|score| (score, entry.path.as_path(), entry))
-        })
-        .max_by(|(left_score, left_path, _), (right_score, right_path, _)| {
-            left_score
-                .cmp(right_score)
-                .then_with(|| left_path.cmp(right_path))
-        })
-        .map(|(_, _, entry)| entry)
-}
+/// The entry vocabulary and its specificity resolution live in the library's
+/// model (the scan drivers adjudicate through them; the loader builds them
+/// here), re-exported so the spec surface keeps naming them in place.
+pub use rust_arch_test_kit::model::{ExclusionEntry, exclusion_specificity};
 
 /// The zero-match liveness report (decision-check MAJOR-2): one line per
 /// entry that matched NOTHING the run would have analyzed, exact bytes
@@ -1248,6 +1217,7 @@ fn validate_schema(spec_path: &std::path::Path, spec: &Spec) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_arch_test_kit::model::matching_exclusion;
 
     /// The shape table drives both refusal messages and schema properties, so
     /// its rows must be sorted (byte-stable output) and duplicate-free.

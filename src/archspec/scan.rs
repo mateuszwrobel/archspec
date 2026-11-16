@@ -1,17 +1,22 @@
+//! The binary's CLI glue over the library scan engine (discovery-extraction
+//! rung one). The engine walks through `rust_arch_test_kit::scan`; this file
+//! owns the root-spec discovery (D14(4)) the engine no longer performs: the
+//! verbs keep the shipped behavior — the root `architecture.spec.toml` is
+//! read once, its declared entries are handed to the walk as facts, and the
+//! report lines print on the report surface exactly as before.
+
 use crate::archspec::cli::{self, FlagSpec};
 use crate::archspec::config;
-use crate::archspec::language::{self, Language};
+use crate::archspec::language::Language;
 use crate::archspec::model::Model;
 use crate::archspec::spec;
+use rust_arch_test_kit::scan::{DeclaredFacts, DeclaredZone};
 use std::path::Path;
 
-pub(crate) mod csharp;
-pub(crate) mod go;
-pub(crate) mod kotlin;
-mod leg;
-pub(crate) mod python;
-mod rust;
-pub(crate) mod ts;
+// The engine surface the verbs consume unchanged: the driver-availability
+// gate, the report-surface helpers, and the driver modules the `inspect`
+// renderers walk directly.
+pub use rust_arch_test_kit::scan::{csharp, driver_available, driver_unavailable, go, report_only_report, wildcard_report};
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -66,22 +71,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // unchanged chain fallback. The nested-marker report line prints BEFORE
     // the agreement precondition so a red run carries it too.
     let pin = match &loaded {
-        Some(spec) => Some(language::from_name(&spec.project.language).ok_or_else(|| {
+        Some(spec) => Some(crate::archspec::language::from_name(&spec.project.language).ok_or_else(|| {
             format!("invalid spec: unknown language \"{}\"", spec.project.language)
         })?),
         None => None,
     };
-    let language = language::select(root_path, pin)?
+    let language = crate::archspec::language::select(root_path, pin)?
         .ok_or_else(|| format!("no supported-language sources found under: {root}"))?;
-    eprint!("{}", language::marker_report(root_path, language));
+    eprint!("{}", crate::archspec::language::marker_report(root_path, language));
 
     // The agreement check is a precondition (D14): with a spec at the root,
     // the declared language is the truth and any un-excluded foreign source
     // fails the run BEFORE any artifact or model body. Without a spec, chain
     // detection stays the whole truth — nothing is checked (D14(2)).
     if let (Some(spec), Some(declared)) = (loaded.as_ref(), pin)
-        && let Some(finding) =
-            language::agreement_finding(root_path, declared, &spec::exclusion_paths(spec))
+        && let Some(finding) = crate::archspec::language::agreement_finding(
+            root_path,
+            declared,
+            &spec::exclusion_paths(spec),
+        )
     {
         return Err(finding);
     }
@@ -90,7 +98,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         return Err(driver_unavailable(language));
     }
 
-    let model = extract(language, root_path)?;
+    let model = extract_with_spec(language, root_path, loaded.as_ref())?;
     // The wildcard facts are report-only (R2-6): one stderr line per fact,
     // never part of the machine body, never a verdict.
     eprint!("{}", wildcard_report(&model));
@@ -126,50 +134,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
     config::emit(&json, route, check, "model", "scan", None)
 }
 
+/// The verbs' entry: load the root spec the way the drivers used to
+/// (silently — an invalid spec failed the verb earlier where the verb
+/// loads it; a missing spec answers the spec-free walk) and extract with
+/// the declared facts. Byte-identical to the pre-extraction
+/// `scan::extract(language, root)`.
 pub fn extract(language: Language, root: &Path) -> Result<Model, String> {
-    match language {
-        Language::Rust => rust::extract(root),
-        Language::Csharp => csharp::extract(root),
-        Language::Go => go::extract(root),
-        Language::Kotlin => kotlin::extract(root),
-        Language::Python => python::extract(root),
-        Language::Ts => ts::extract(root),
-    }
+    let loaded = spec::load_scan(&canonical(root)).ok().flatten();
+    extract_with_spec(language, root, loaded.as_ref())
 }
 
-/// The `dynamic import wildcard` report line (D13 owner: the scan report
-/// surface — printed by `scan` and `verify`, never by artifact-only verbs):
-/// one line per fact, exact bytes
-/// `dynamic import wildcard: <file> -> <expression>`. Report-only: the
-/// fact states a blind spot, it never reddens a run (R2-6).
-pub fn wildcard_report(model: &Model) -> String {
-    let mut out = String::new();
-    for (file, expressions) in &model.dynamic_import_wildcards {
-        for expression in expressions {
-            out.push_str(&format!("dynamic import wildcard: {file} -> {expression}\n"));
-        }
-    }
-    out
-}
-
-/// The `external not installed` report line (D13 owner: the scan report
-/// surface — printed by `scan` and `verify`, never by artifact-only verbs):
-/// one line per package, exact bytes
-/// `external not installed: <package> — declared in <manifest>, absent from
-/// disk`. Report-only (ts-resolution record R7b law): the line states an
-/// install gap, it never reddens a run and it never rides the machine body.
-pub fn report_only_report(model: &Model) -> String {
-    let mut out = String::new();
-    for line in &model.report_only_lines {
-        out.push_str(line);
-        out.push('\n');
-    }
-    out
-}
-
-/// Extract with the driver-availability gate applied. Every consumer that
-/// extracts through a language driver must go through this so the
-/// env-controlled test invariant cannot be silently bypassed.
+/// Extract with the driver-availability gate applied and the root-spec
+/// facts loaded (the shipped `extract_checked` contract, preserved).
 pub fn extract_checked(language: Language, root: &Path) -> Result<Model, String> {
     if !driver_available(language) {
         return Err(driver_unavailable(language));
@@ -177,24 +153,37 @@ pub fn extract_checked(language: Language, root: &Path) -> Result<Model, String>
     extract(language, root)
 }
 
-/// Phase-1 ships all drivers in the binary, so they are available unless a
-/// test controls the environment (acceptance #11) by disabling one via
-/// `ARCHSPEC_DISABLE_DRIVERS` (comma-separated, e.g. "go").
-pub fn driver_available(language: Language) -> bool {
-    std::env::var("ARCHSPEC_DISABLE_DRIVERS")
-        .map(|value| {
-            !value
-                .split(',')
-                .any(|part| part.trim() == language.as_str())
-        })
-        .unwrap_or(true)
+fn extract_with_spec(
+    language: Language,
+    root: &Path,
+    loaded: Option<&spec::Spec>,
+) -> Result<Model, String> {
+    let declared = loaded.map(declared_facts).unwrap_or_default();
+    rust_arch_test_kit::scan::extract_with(language, root, &declared)
 }
 
-fn driver_unavailable(language: Language) -> String {
-    format!(
-        "detected language '{}' but the {} driver is not available (run 'archspec doctor')",
-        language.as_str(),
-        language.as_str()
-    )
+/// Map the loaded spec onto the engine's declared facts: the entries the
+/// adjudicating drivers consume, in the same order and values the drivers
+/// derived from the spec before the extraction.
+fn declared_facts(loaded: &spec::Spec) -> DeclaredFacts {
+    DeclaredFacts {
+        exclusions: spec::exclusion_entries(loaded),
+        zones: loaded
+            .modules
+            .iter()
+            .map(|zone| DeclaredZone {
+                name: zone.name.clone(),
+                units: zone.matches.units.clone(),
+                paths: zone.matches.paths.clone(),
+                modules: zone.matches.modules.clone(),
+            })
+            .collect(),
+        framework: loaded.project.framework.clone(),
+    }
 }
 
+/// The canonicalization every spec-reading driver applied to its root
+/// before the spec load; the glue reproduces it at the same point.
+fn canonical(root: &Path) -> std::path::PathBuf {
+    root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
+}

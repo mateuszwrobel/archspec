@@ -1,7 +1,8 @@
 //! The no_cycles arm: boundary-tier and file-tier cycle detection over
 //! the declared groups, SCC computation, and cycle path rendering.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use super::claims::{Claim, claim_unit_fallback, count_claims};
 use super::mapping::file_grained_rows;
 use super::claims::claim_owner;
@@ -35,32 +36,45 @@ pub(super) fn file_tier_report_cycles(
     claims: &[Claim<'_>],
     rows: &mut BTreeSet<(String, String)>,
 ) -> Vec<(Vec<String>, Vec<String>, &'static str)> {
+    // Issue #35: one per-sweep attribution state. The claim answer and the
+    // test-gate answer of a file identity depend only on that identity, and
+    // this sweep consults them per edge endpoint and per SCC adjacency — the
+    // memos restate NO matching law, they answer each distinct file once,
+    // the law `ClaimIndex` applies to the edge placement.
+    let attribution = FileAttribution::new(model, claims);
+    // Rust `mod` declaration rows are composition, never a dependency: the
+    // cycle graph excludes them (the diagram keeps rendering them — they ARE
+    // the file tree's structure). A pair backed by at least one non-`mod`
+    // row stays; a ring whose closing edge is a bare declaration is the
+    // parent-owns-child fact the module tier never edges (the tier-
+    // comparability law of the D6 projection dedup, ADR-023). One pass over
+    // the rows names every pair that carries a non-`mod` row — the per-pair
+    // predicate is a set lookup, never a rescan of `file_edges`.
+    let non_mod_pairs: Option<HashSet<(&str, &str)>> =
+        (language::from_name(&model.language) == Some(language::Language::Rust)).then(|| {
+            model
+                .file_edges
+                .iter()
+                .filter(|edge| edge.kind != crate::archspec::model::FileFactKind::Mod)
+                .map(|edge| (edge.from.as_str(), edge.to.as_str()))
+                .collect()
+        });
     let adjacency: BTreeSet<(String, String)> = file_grained_rows(model)
         .into_iter()
         .filter(|(from, to)| from != to)
-        .filter(|(from, to)| {
-            // Rust `mod` declaration rows are composition, never a
-            // dependency: the cycle graph excludes them (the diagram keeps
-            // rendering them — they ARE the file tree's structure). A pair
-            // backed by at least one non-`mod` row stays; a ring whose
-            // closing edge is a bare declaration is the parent-owns-child
-            // fact the module tier never edges (the tier-comparability law
-            // of the D6 projection dedup, ADR-023).
-            language::from_name(&model.language) != Some(language::Language::Rust)
-                || model.file_edges.iter().any(|edge| {
-                    edge.kind != crate::archspec::model::FileFactKind::Mod
-                        && edge.from.as_str() == *from
-                        && edge.to.as_str() == *to
-                })
+        .filter(|(from, to)| match &non_mod_pairs {
+            None => true,
+            Some(pairs) => pairs.contains(&(*from, *to)),
         })
+        // Test-gated files never participate, mirroring the module-tier
+        // exclusion (`is_test_gated`) and the go `*_test.go` / ts test-file
+        // law: the `mod tests` declaration plus the tests' import of its
+        // parent is a declaration pair, not a production ring.
         .filter(|(from, to)| {
-            // Test-gated files never participate, mirroring the module-tier
-            // exclusion (`is_test_gated`) and the go `*_test.go` / ts test-
-            // file law: the `mod tests` declaration plus the tests' import
-            // of its parent is a declaration pair, not a production ring.
-            [from, to].iter().all(|file| {
-                !model.is_test_gated(&file_module_identity(model, file))
-            })        })
+            [from, to]
+                .iter()
+                .all(|file| !attribution.test_gated(file))
+        })
         .map(|(from, to)| (from.to_string(), to.to_string()))
         .collect();
     let files: BTreeSet<String> = adjacency
@@ -68,7 +82,8 @@ pub(super) fn file_tier_report_cycles(
         .flat_map(|(from, to)| [from.clone(), to.clone()])
         .filter(|file| {
             constraint_modules.is_empty()
-                || file_claim_index(model, file, claims)
+                || attribution
+                    .claim(file)
                     .is_some_and(|index| group.contains(claims[index].name))
         })
         .collect();
@@ -80,18 +95,19 @@ pub(super) fn file_tier_report_cycles(
     rows.extend(file_induced.iter().cloned());
     let mut reports = Vec::new();
     // Issue #17: one out-edge index for the whole sweep (see adjudicate_cycles).
-    let mut file_induced_out: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for (from, to) in &file_induced {
-        file_induced_out
-            .entry(from.as_str())
-            .or_default()
-            .push(to.as_str());
-    }
+    let file_induced_out: BTreeMap<&str, Vec<&str>> = out_edges_indexed(&file_induced);
+    // Issue #22: the ring's kind from its legs' backing rows — a leg is
+    // a value edge iff at least one row backs it that is not type-only;
+    // one type-only leg makes the ring type-assisted. The leg facts are
+    // indexed once per sweep on first use (issue #35), never rescanned
+    // per leg.
+    let mut value_legs: Option<HashSet<(&str, &str)>> = None;
     for scc in strongly_connected_components(&files, &file_induced) {
         let Some(path) = find_cycle_indexed(&scc, &file_induced_out) else {
             continue;
         };
-        if projection_reports_claim_cycle(model, &scc, &file_induced, claims, claim_cycle_edges) {
+        if projection_reports_claim_cycle(&attribution, &scc, &file_induced_out, claim_cycle_edges)
+        {
             continue;
         }
         // Attribution is over the CYCLE's members (path), not the whole
@@ -103,20 +119,109 @@ pub(super) fn file_tier_report_cycles(
                 .cloned()
                 .collect()
         };
-        // Issue #22: the ring's kind from its legs' backing rows — a leg is
-        // a value edge iff at least one row backs it that is not type-only;
-        // one type-only leg makes the ring type-assisted.
-        let kind = if path
-            .windows(2)
-            .all(|leg| file_leg_is_value(model, &leg[0], &leg[1]))
-        {
-            CYCLE_KIND_RUNTIME
-        } else {
-            CYCLE_KIND_TYPE_ASSISTED
-        };
+        let kind = file_ring_kind(model, &path, &mut value_legs);
         reports.push((path, cycle_members, kind));
     }
     reports
+}
+
+/// The out-edge index of an adjacency set: successors keep the set's
+/// `(from, to)` order, so every node's successor list is ascending by `to`
+/// — exactly the order a rescan of the set visited them (issue #17's law,
+/// issue #35's reuse).
+fn out_edges_indexed(edges: &BTreeSet<(String, String)>) -> BTreeMap<&str, Vec<&str>> {
+    let mut out: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (from, to) in edges {
+        out.entry(from.as_str()).or_default().push(to.as_str());
+    }
+    out
+}
+
+/// The per-file attributions one file-tier sweep consults repeatedly: the
+/// claim owner (`file_claim_index`) and the test-gate answer. Both depend
+/// only on the file identity, so the sweep answers every distinct file once
+/// (issue #35). No matching law lives here: on a memo miss the call goes
+/// straight to the same functions the unindexed sweep called.
+struct FileAttribution<'a, 'c> {
+    model: &'a Model,
+    claims: &'a [Claim<'c>],
+    claim_index: RefCell<HashMap<String, Option<usize>>>,
+    test_gated: RefCell<HashMap<String, bool>>,
+}
+
+impl<'a, 'c> FileAttribution<'a, 'c> {
+    fn new(model: &'a Model, claims: &'a [Claim<'c>]) -> Self {
+        Self {
+            model,
+            claims,
+            claim_index: RefCell::new(HashMap::new()),
+            test_gated: RefCell::new(HashMap::new()),
+        }
+    }
+
+    fn claim(&self, file: &str) -> Option<usize> {
+        if let Some(answer) = self.claim_index.borrow().get(file) {
+            return *answer;
+        }
+        let answer = file_claim_index(self.model, file, self.claims);
+        self.claim_index
+            .borrow_mut()
+            .insert(file.to_string(), answer);
+        answer
+    }
+
+    fn test_gated(&self, file: &str) -> bool {
+        if let Some(answer) = self.test_gated.borrow().get(file) {
+            return *answer;
+        }
+        let answer = self.model.is_test_gated(&file_module_identity(self.model, file));
+        self.test_gated
+            .borrow_mut()
+            .insert(file.to_string(), answer);
+        answer
+    }
+
+    fn claim_name(&self, index: usize) -> &str {
+        self.claims[index].name
+    }
+}
+
+/// The file-tier ring kind (issue #22) from the indexed leg facts: a file
+/// pair is a value edge iff at least one row backing it is not type-only.
+/// rust file rows are `mod`/`use`/path — rust carries no lexical type/value
+/// split, so every rust leg is a value edge; the go and csharp drivers never
+/// adjudicate a file tier; the ts/python/kotlin file tier reads
+/// `module_edges` rows keyed by file identity, where the serialized
+/// `type_only` fact decides. The scan's law is `file_leg_is_value`'s,
+/// restated as one set built at most once per sweep (issue #35).
+fn file_ring_kind<'a>(
+    model: &'a Model,
+    path: &[String],
+    value_legs: &mut Option<HashSet<(&'a str, &'a str)>>,
+) -> &'static str {
+    match language::from_name(&model.language) {
+        Some(language::Language::Ts)
+        | Some(language::Language::Python)
+        | Some(language::Language::Kotlin) => {
+            let legs = value_legs.get_or_insert_with(|| {
+                model
+                    .module_edges
+                    .iter()
+                    .filter(|edge| !edge.type_only)
+                    .map(|edge| (edge.from.as_str(), edge.to.as_str()))
+                    .collect()
+            });
+            if path
+                .windows(2)
+                .all(|leg| legs.contains(&(leg[0].as_str(), leg[1].as_str())))
+            {
+                CYCLE_KIND_RUNTIME
+            } else {
+                CYCLE_KIND_TYPE_ASSISTED
+            }
+        }
+        _ => CYCLE_KIND_RUNTIME,
+    }
 }
 
 /// effective scope is the constraint's declared `scope`, derived from the
@@ -411,23 +516,6 @@ fn claim_ring_kind(path: &[String], value_pairs: &BTreeSet<(String, String)>) ->
         CYCLE_KIND_RUNTIME
     } else {
         CYCLE_KIND_TYPE_ASSISTED
-    }
-}
-
-/// The file-tier leg kind (issue #22): a file pair is a value edge iff at
-/// least one row backing it is not type-only. rust file rows are
-/// `mod`/`use`/path — rust carries no lexical type/value split, so every
-/// rust leg is a value edge; the go and csharp drivers never adjudicate a
-/// file tier; the ts/python/kotlin file tier reads `module_edges` rows keyed
-/// by file identity, where the serialized `type_only` fact decides.
-fn file_leg_is_value(model: &Model, from: &str, to: &str) -> bool {
-    match language::from_name(&model.language) {
-        Some(language::Language::Ts)
-        | Some(language::Language::Python)
-        | Some(language::Language::Kotlin) => model.module_edges.iter().any(|edge| {
-            edge.from == from && edge.to == to && !edge.type_only
-        }),
-        _ => true,
     }
 }
 
@@ -788,38 +876,47 @@ fn file_cycle_finding(
 /// constraint printed, and the projections form a cycle themselves. A
 /// projection onto edges the claim report never showed — an unreported
 /// adjacency, a containment hop, an off-territory endpoint — is not the
-/// claim tier's story: the file finding prints beside it.
+/// claim tier's story: the file finding prints beside it. The witnessed
+/// adjacencies are exactly the members' induced out-edges: the walk reads
+/// them from the sweep's index instead of rescanning the whole induced set
+/// per SCC, and the claim answers come from the attribution memo (issue
+/// #35) — the set of adjacencies, hence the verdict, is unchanged.
 fn projection_reports_claim_cycle(
-    model: &Model,
+    attribution: &FileAttribution<'_, '_>,
     members: &[String],
-    file_edges: &BTreeSet<(String, String)>,
-    claims: &[Claim<'_>],
+    file_out: &BTreeMap<&str, Vec<&str>>,
     claim_cycle_edges: &BTreeSet<(String, String)>,
 ) -> bool {
+    let member_set: HashSet<&str> = members.iter().map(String::as_str).collect();
     let mut ancestors: BTreeSet<String> = BTreeSet::new();
     let mut projected: BTreeSet<(String, String)> = BTreeSet::new();
-    for (from, to) in file_edges {
-        if !members.contains(from) || !members.contains(to) {
-            continue;
-        }
-        let (Some(from_index), Some(to_index)) = (
-            file_claim_index(model, from, claims),
-            file_claim_index(model, to, claims),
-        ) else {
+    for from in member_set.iter().copied() {
+        let Some(targets) = file_out.get(from) else {
             continue;
         };
-        let (from_claim, to_claim) = (claims[from_index].name, claims[to_index].name);
-        if from_claim == to_claim {
-            continue;
+        for to in targets {
+            if !member_set.contains(to) {
+                continue;
+            }
+            let (Some(from_index), Some(to_index)) =
+                (attribution.claim(from), attribution.claim(to))
+            else {
+                continue;
+            };
+            let (from_claim, to_claim) =
+                (attribution.claim_name(from_index), attribution.claim_name(to_index));
+            if from_claim == to_claim {
+                continue;
+            }
+            if !claim_cycle_edges.contains(&(from_claim.to_string(), to_claim.to_string())) {
+                // The claim tier never printed this edge — its report cannot
+                // stand in for this file cycle (D6), the finding stands alone.
+                return false;
+            }
+            ancestors.insert(from_claim.to_string());
+            ancestors.insert(to_claim.to_string());
+            projected.insert((from_claim.to_string(), to_claim.to_string()));
         }
-        if !claim_cycle_edges.contains(&(from_claim.to_string(), to_claim.to_string())) {
-            // The claim tier never printed this edge — its report cannot
-            // stand in for this file cycle (D6), the finding stands alone.
-            return false;
-        }
-        ancestors.insert(from_claim.to_string());
-        ancestors.insert(to_claim.to_string());
-        projected.insert((from_claim.to_string(), to_claim.to_string()));
     }
     if ancestors.len() < 2 {
         return false;
@@ -830,45 +927,53 @@ fn projection_reports_claim_cycle(
 }
 
 /// Tarjan's strongly connected components over the induced graph, each SCC
-/// sorted for deterministic iteration.
+/// sorted for deterministic iteration. The out-edges are indexed once per
+/// call (issue #35): set iteration yields every node's successors in
+/// ascending `to` order, so the walk visits in exactly the order the
+/// per-node rescan of the whole set did — the DFS, the lowlinks, the
+/// component discovery order and the returned bytes are unchanged, only
+/// the O(nodes x edges) rescan is gone. Node bookkeeping keys borrowed
+/// node strings; the components are the same owned, sorted spellings.
 pub(super) fn strongly_connected_components(
     group: &BTreeSet<String>,
     edges: &BTreeSet<(String, String)>,
 ) -> Vec<Vec<String>> {
     struct Tarjan<'a> {
-        edges: &'a BTreeSet<(String, String)>,
         group: &'a BTreeSet<String>,
+        out: BTreeMap<&'a str, Vec<&'a str>>,
         index: usize,
-        indices: BTreeMap<String, usize>,
-        lowlink: BTreeMap<String, usize>,
-        on_stack: BTreeSet<String>,
-        stack: Vec<String>,
+        indices: HashMap<&'a str, usize>,
+        lowlink: HashMap<&'a str, usize>,
+        on_stack: HashSet<&'a str>,
+        stack: Vec<&'a str>,
         components: Vec<Vec<String>>,
     }
 
     impl<'a> Tarjan<'a> {
-        fn visit(&mut self, node: &str) {
-            self.indices.insert(node.to_string(), self.index);
-            self.lowlink.insert(node.to_string(), self.index);
+        fn visit(&mut self, node: &'a str) {
+            self.indices.insert(node, self.index);
+            self.lowlink.insert(node, self.index);
             self.index += 1;
-            self.stack.push(node.to_string());
-            self.on_stack.insert(node.to_string());
+            self.stack.push(node);
+            self.on_stack.insert(node);
 
-            for (from, to) in self.edges {
-                if from != node || !self.group.contains(to) {
+            let successors: Vec<&'a str> = self
+                .out
+                .get(node)
+                .map_or_else(Vec::new, Vec::clone);
+            for to in successors {
+                if !self.group.contains(to) {
                     continue;
                 }
                 if !self.indices.contains_key(to) {
                     self.visit(to);
                     let candidate = self.lowlink[to];
                     let current = self.lowlink[node];
-                    self.lowlink
-                        .insert(node.to_string(), current.min(candidate));
+                    self.lowlink.insert(node, current.min(candidate));
                 } else if self.on_stack.contains(to) {
                     let candidate = self.indices[to];
                     let current = self.lowlink[node];
-                    self.lowlink
-                        .insert(node.to_string(), current.min(candidate));
+                    self.lowlink.insert(node, current.min(candidate));
                 }
             }
 
@@ -882,7 +987,7 @@ pub(super) fn strongly_connected_components(
                         .stack
                         .pop()
                         .expect("SCC root is still on the Tarjan stack");
-                    self.on_stack.remove(&popped);
+                    self.on_stack.remove(popped);
                     if popped == node {
                         component.push(popped);
                         break;
@@ -890,24 +995,25 @@ pub(super) fn strongly_connected_components(
                     component.push(popped);
                 }
                 component.sort();
-                self.components.push(component);
+                self.components
+                    .push(component.into_iter().map(|node| node.to_string()).collect());
             }
         }
     }
 
     let mut tarjan = Tarjan {
-        edges,
         group,
+        out: out_edges_indexed(edges),
         index: 0,
-        indices: BTreeMap::new(),
-        lowlink: BTreeMap::new(),
-        on_stack: BTreeSet::new(),
+        indices: HashMap::new(),
+        lowlink: HashMap::new(),
+        on_stack: HashSet::new(),
         stack: Vec::new(),
         components: Vec::new(),
     };
 
     for node in group {
-        if !tarjan.indices.contains_key(node) {
+        if !tarjan.indices.contains_key(node.as_str()) {
             tarjan.visit(node);
         }
     }

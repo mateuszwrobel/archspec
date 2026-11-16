@@ -111,37 +111,8 @@ pub(super) fn rel_after(path: &str, ancestor: &str) -> String {
     }
 }
 
-/// Glob match over a unit/component name or path. Supports `*` (any run of
-/// characters, including path separators) and `**` (same as `*` here). Mirrors
-/// the spec.md glob conventions (`*Entity`, `**/domain/**`).
-pub fn matches_pattern(value: &str, pattern: &str) -> bool {
-    glob_match(value.as_bytes(), pattern.as_bytes())
-}
-
-fn glob_match(value: &[u8], pattern: &[u8]) -> bool {
-    let mut v = 0;
-    let mut p = 0;
-    let mut star: Option<usize> = None;
-    let mut star_v = 0;
-
-    while v < value.len() {
-        if p < pattern.len() && (pattern[p] == b'*') {
-            star = Some(p);
-            star_v = v;
-            p += 1;
-        } else if p < pattern.len() && pattern[p] == value[v] {
-            p += 1;
-            v += 1;
-        } else if let Some(star) = star {
-            star_v += 1;
-            v = star_v;
-            p = star + 1;
-        } else {
-            return false;
-        }
-    }
-    while p < pattern.len() && pattern[p] == b'*' {
-        p += 1;
-    }
-    p == pattern.len()
-}
+/// Glob match over a unit/component name or path. The matcher's single
+/// source is the library model (the scan drivers match through the same
+/// function — one algebra); re-exported so the comparators keep their
+/// shipped import paths.
+pub use rust_arch_test_kit::model::matches_pattern;

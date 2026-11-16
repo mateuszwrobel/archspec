@@ -3,7 +3,7 @@
 //! selector symbols US 12).
 //!
 //! Parses each `.go` file through the in-binary tree-sitter grammar
-//! ([`crate::archspec::parse::grammar`]) and produces the import and selector
+//! ([`crate::parse::grammar`]) and produces the import and selector
 //! facts the shared scan layer feeds into its attribution logic — module-path
 //! prefix, stdlib list and the discovered package set are shared rules; the
 //! facts enter through grammar `import_spec` nodes, and the module-tier
@@ -64,14 +64,14 @@
 //! Error tolerance: identical to the C# side — the tree-sitter tree survives
 //! broken constructs, so a file with `ERROR`/`MISSING` nodes still contributes
 //! every import the parser located; there is deliberately NO alternate parse
-//! path when [`crate::archspec::parse::grammar::first_error_range`]
+//! path when [`crate::parse::grammar::first_error_range`]
 //! would report damage, and only a file tree-sitter cannot parse at all yields
 //! an error, propagated to the scan failure.
 
 use tree_sitter::Node;
 
-use crate::archspec::language::Language;
-use crate::archspec::parse::grammar::{node_text, parse_tree};
+use crate::language::Language;
+use crate::parse::grammar::{node_text, parse_tree};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -79,15 +79,15 @@ use std::path::Path;
 /// Grammar facts of one `.go` file (see the module docs for what feeds the
 /// edge assembly and the selector attribution).
 #[derive(Clone, Debug, Default)]
-pub(crate) struct FileFacts {
+pub struct FileFacts {
     /// The `package_clause` name (e.g. `store`). Identity stays
     /// directory-derived in the scan layer; this is the declared clause,
     /// recorded as a source fact and pinned by the unit tests below.
     #[allow(dead_code)] // declared-clause fact only — never an addressing or symbol input
-    pub(crate) package: Option<String>,
+    pub package: Option<String>,
     /// Every imported path (deduplicated across specs and blocks; the cgo
     /// marker `"C"` included — the shared stdlib rule absorbs it).
-    pub(crate) imports: BTreeSet<String>,
+    pub imports: BTreeSet<String>,
     /// Import path → local qualifier (alias / `_` / `.` / path last segment).
     /// The selector attribution keys on this map (US 12).
     pub(crate) qualifiers: BTreeMap<String, String>,
@@ -101,7 +101,7 @@ pub(crate) struct FileFacts {
 
 /// Read and parse one `.go` file, returning its grammar facts. The only
 /// error paths are an unreadable file or a tree-sitter refusal.
-pub(crate) fn scan_go_file(path: &Path) -> Result<FileFacts, String> {
+pub fn scan_go_file(path: &Path) -> Result<FileFacts, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     scan_go_source(&raw)

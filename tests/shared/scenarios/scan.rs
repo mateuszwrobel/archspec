@@ -63,7 +63,7 @@ pub fn all() -> Vec<Scenario> {
         scenario_when(
             Feature::ScanUnits,
             "test_framework_package_ids_are_the_decisive_evidence",
-            "xunit/nunit-family and Microsoft.NET.Test.Sdk package ids mark the test tier while FluentAssertions-only stays production",
+            "xunit/nunit-family, Microsoft.NET.Test.Sdk, Microsoft.Testing.Platform- and MSTest-family package ids plus an MSTest.Sdk-family csproj Sdk attribute mark the test tier while FluentAssertions-only stays production",
             csharp_project_files,
             test_framework_package_ids_are_the_decisive_evidence,
         ),
@@ -1340,12 +1340,15 @@ fn test_tier_follows_framework_evidence_not_name(
 }
 
 /// Workplan csharp_test_projects_tier, scenario "framework detection needs the
-/// actual frameworks": the pinned decisive list — xunit-family, nunit-family
-/// and Microsoft.NET.Test.Sdk ids (case-insensitively) — marks the test tier;
-/// FluentAssertions alone (no runner) is production tooling, and the MSTest
-/// packages OUTSIDE the SDK family (`MSTest.TestFramework`,
-/// `MSTest.TestAdapter`) are pinned as the documented residual: an MSTest
-/// project without `Microsoft.NET.Test.Sdk` stays production.
+/// actual frameworks" (GitHub issue #39 widened the marker table): the pinned
+/// decisive list — xunit-family, nunit-family, `Microsoft.NET.Test.Sdk`,
+/// `Microsoft.Testing.Platform`-family and `MSTest`-family ids
+/// (case-insensitively), plus the `MSTest.Sdk`-family csproj `Sdk` attribute
+/// (the MSTest 3 / testing-platform project shape, versioned spellings
+/// included) — marks the test tier; FluentAssertions alone (no runner) is
+/// production tooling. The pre-SDK MSTest packages (`MSTest.TestFramework`,
+/// `MSTest.TestAdapter`) are no longer the documented residual this scenario
+/// once pinned: the issue retired it — every `MSTest.*` id is a test marker.
 fn test_framework_package_ids_are_the_decisive_evidence(
     driver: &Driver,
     fx: &common::Fixture,
@@ -1357,10 +1360,14 @@ fn test_framework_package_ids_are_the_decisive_evidence(
         ("u_nunit_adapter", "NUnit3TestAdapter"),
         ("u_test_sdk", "Microsoft.NET.Test.Sdk"),
         ("u_test_sdk_lowercase", "microsoft.net.test.sdk"),
-    ];
-    let mstest_residual = [
         ("u_mstest_framework", "MSTest.TestFramework"),
         ("u_mstest_adapter", "MSTest.TestAdapter"),
+        ("u_mtp", "Microsoft.Testing.Platform"),
+        ("u_mtp_msbuild", "Microsoft.Testing.Platform.MSBuild"),
+    ];
+    let sdk_projects = [
+        ("u_mstest_sdk", "MSTest.Sdk"),
+        ("u_mstest_sdk_versioned", "MSTest.Sdk/3.6.4"),
     ];
     let mut tree = LogicalTree::new();
     tree.units = vec!["u_fluent".into(), "u_plain".into()];
@@ -1368,9 +1375,9 @@ fn test_framework_package_ids_are_the_decisive_evidence(
         tree.units.push(unit.into());
         tree.packages.insert(unit.into(), vec![package.into()]);
     }
-    for (unit, package) in mstest_residual {
+    for (unit, sdk) in sdk_projects {
         tree.units.push(unit.into());
-        tree.packages.insert(unit.into(), vec![package.into()]);
+        tree.csharp_sdks.insert(unit.into(), sdk.into());
     }
     tree.packages
         .insert("u_fluent".into(), vec!["FluentAssertions".into()]);
@@ -1398,17 +1405,10 @@ fn test_framework_package_ids_are_the_decisive_evidence(
             ));
         }
     }
-    for (unit, package) in mstest_residual {
-        if !names.contains(&unit.to_string()) {
+    for (unit, sdk) in sdk_projects {
+        if names.contains(&unit.to_string()) {
             return Err(format!(
-                "MSTest packages outside Microsoft.NET.Test.Sdk are the documented residual — \
-                 {unit} referencing {package} must stay a production unit: {names:?}"
-            ));
-        }
-        if !array_contains(&model["external"], package) {
-            return Err(format!(
-                "the residual keeps its package in the external tier: {:?}",
-                model["external"]
+                "project {unit} declaring Sdk=\"{sdk}\" must be test tier (GitHub issue #39): {names:?}"
             ));
         }
     }

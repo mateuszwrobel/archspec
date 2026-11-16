@@ -134,7 +134,7 @@ fn expand_segments(dir: &Path, segments: &[&str], members: &mut Vec<Member>) -> 
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if entry.path().is_dir()
-                && crate::archspec::language::DETECT_EXCLUDE_DIRS
+                && crate::language::DETECT_EXCLUDE_DIRS
                     .iter()
                     .any(|dir| dir.name == name)
             {

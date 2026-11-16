@@ -213,6 +213,23 @@ pub fn findings(diff: &Diff) -> Vec<Finding> {
 /// resolver is its only producer.
 pub const WORKSPACE_TARGET_NOT_BUILT: &str = "workspace target not built";
 
+/// The class of the csharp test-gated census lines (GitHub issue #39): one
+/// report-only `test-gated unit: <path> — <marker>` line per project the scan
+/// dropped as C#'s test tier. Its count renders the `test-gated units: <n>`
+/// note on the verdict and report surfaces; the csharp driver is its only
+/// producer.
+pub const TEST_GATED_UNIT: &str = "test-gated unit";
+
+/// The test-gated census note (GitHub issue #39): `test-gated units: <n>`
+/// stating how many units the scan excluded as test tier — a count over the
+/// census lines this run already emitted, never a second parse of the tree.
+/// Absent at zero, the same zero-inert form as the cycles census's `territory`
+/// segment, so trees without test tier keep the shipped bytes.
+pub fn test_gated_note(environment: &Environment) -> Option<String> {
+    let count = *environment.classes.get(TEST_GATED_UNIT)?;
+    Some(format!("test-gated units: {count}"))
+}
+
 /// The class of one diagnostic line: the prefix before the first `": "`,
 /// the same split the findings renderer performs — a count over facts
 /// already emitted, never a second parse of the tree.
@@ -291,6 +308,13 @@ pub fn environment_block(environment: &Environment) -> String {
             + 2;
         for (class, count) in &environment.classes {
             out.push_str(&format!("{class:<width$} {count}\n"));
+        }
+        // The test-gated census note (GitHub issue #39) rides the block: the
+        // note line follows the table it counts, absent at zero so every
+        // pre-issue run keeps its shipped bytes.
+        if let Some(note) = test_gated_note(environment) {
+            out.push_str(&note);
+            out.push('\n');
         }
     }
     out
@@ -439,6 +463,14 @@ pub fn render_markdown(
         out.push_str("\n| Class | Lines |\n|---|---|\n");
         for (class, count) in &environment.classes {
             out.push_str(&format!("| {class} | {count} |\n"));
+        }
+        // The test-gated census note (GitHub issue #39): the markdown
+        // rendering of the same fact `environment_block` states on the text
+        // surfaces, absent at zero like the text arm.
+        if let Some(note) = test_gated_note(environment) {
+            out.push('\n');
+            out.push_str(&note);
+            out.push('\n');
         }
     }
     out.push('\n');

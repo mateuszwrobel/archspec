@@ -1,5 +1,6 @@
 use crate::archspec::inspect::file_graph::FileGraph;
-use crate::archspec::scan::ts as ts_scan;
+use crate::archspec::language::Language;
+use crate::archspec::scan;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -18,7 +19,7 @@ use std::path::Path;
 /// own imports render, exactly like the go arm's law, with the go file-tier
 /// drop replaced by the ts serialized tier.
 pub fn scan(root: &Path) -> Result<FileGraph, String> {
-    let model = ts_scan::extract(root)?;
+    let model = scan::extract(Language::Ts, root)?;
     let mut nodes: BTreeSet<String> = BTreeSet::new();
     let mut edges: BTreeSet<(String, String)> = BTreeSet::new();
     for edge in &model.module_edges {

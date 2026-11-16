@@ -27,12 +27,12 @@ pub(crate) mod gradle;
 pub(crate) mod settings;
 pub(crate) mod syntax;
 
-use crate::archspec::language;
-use crate::archspec::model::{
-    FileEdge, FileFactKind, ManifestInfo, Model, ModuleEdge, ModuleDeclaration, Unit,
+use crate::language;
+use crate::model::{
+    DeclaredFacts, DeclaredZone, FileEdge, FileFactKind, ManifestInfo, Model, ModuleEdge,
+    ModuleDeclaration, Unit,
 };
-use crate::archspec::spec;
-use crate::archspec::verify::compare::matches_pattern;
+use crate::model::matches_pattern;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
@@ -47,10 +47,9 @@ use settings::UnitSpec;
 #[allow(dead_code)]
 pub const MODEL_HONESTY: &str = "Same-package references need no import in Kotlin. The kotlin driver models edges only from import statements. A vertex can depend on same-package code with no edge in the model.";
 
-pub fn extract(root: &Path) -> Result<Model, String> {
+pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let loaded = spec::load_scan(&root).ok().flatten();
-    let declared = loaded.as_ref().map(spec::exclusion_paths);
+    let declared = (!facts.exclusions.is_empty()).then(|| facts.exclusion_paths());
 
     // K-P2: the settings file IS the module list; the dual-settings class
     // is the fail-closed module-list parse (detection has already answered
@@ -87,7 +86,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // per-file leg runs across workers; the fold replays in walk order and
     // the `?` on the FIRST Err reproduces the serial early abort.
     let threads = super::leg::fact_leg_threads(files.len());
-    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::archspec::profile::phase(
+    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::profile::phase(
         "scan-facts",
         || {
             if threads > 1 {
@@ -383,10 +382,9 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // K-P5 (amended): the scan-time boundary advisory. Zone = the spec's
     // declared module grouping; the driver knows its own module map, the
     // spec grouping and the exclusions at scan time — exactly the context
-    // the verify layer lacks. Report-only, exit 0, never a finding.
-    if let Some(spec) = loaded.as_ref() {
-        advisory_lines(&spec.modules, &files, &facts_of, &units, &mut report_only);
-    }
+    // the verify layer lacks. Report-only, exit 0, never a finding. An
+    // empty zone list (no spec or a spec without modules) returns early.
+    advisory_lines(&facts.zones, &files, &facts_of, &units, &mut report_only);
 
     // Edges (rust shape, K-P2): hard unit edges from the settings-declared
     // project dependencies; module edges from the import crossings the
@@ -399,10 +397,10 @@ pub fn extract(root: &Path) -> Result<Model, String> {
             }
         }
     }
-    let edges: Vec<crate::archspec::model::Edge> = hard_edges
+    let edges: Vec<crate::model::Edge> = hard_edges
         .iter()
         .filter(|(from, to)| from != to)
-        .map(|(from, to)| crate::archspec::model::Edge {
+        .map(|(from, to)| crate::model::Edge {
             from: from.clone(),
             to: to.clone(),
         })
@@ -640,7 +638,7 @@ fn join_rel(dir: &str, tail: &str) -> String {
 /// same zones claim (however nested the zones are) state one grouping,
 /// not a split.
 fn advisory_lines(
-    modules: &[spec::Module],
+    modules: &[DeclaredZone],
     files: &[String],
     facts_of: &BTreeMap<String, syntax::FileFacts>,
     units: &[UnitSpec],
@@ -692,15 +690,14 @@ fn advisory_lines(
 
 /// Zone membership: the spec's match set over the unit name, the file path
 /// and the module identity — the shipped pattern semantics.
-fn zone_claims(zone: &spec::Module, file: &str, unit: &str) -> bool {
-    zone.matches.units.iter().any(|pattern| {
+fn zone_claims(zone: &DeclaredZone, file: &str, unit: &str) -> bool {
+    zone.units.iter().any(|pattern| {
         matches_pattern(unit, pattern) || matches_pattern(unit, &format!(":{pattern}"))
     }) || zone
-        .matches
         .paths
         .iter()
         .any(|pattern| matches_pattern(file, pattern))
-        || zone.matches.modules.iter().any(|pattern| {
+        || zone.modules.iter().any(|pattern| {
             matches_pattern(file, pattern) || matches_pattern(unit, pattern)
         })
 }
@@ -769,7 +766,7 @@ fn spell(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{basename_of, test_tier_convention, tripwire_error, unit_of, MODEL_HONESTY};
-    use crate::archspec::scan::kotlin::settings::UnitSpec;
+    use crate::scan::kotlin::settings::UnitSpec;
 
     #[test]
     fn tripwire_fires_only_on_total_silence() {

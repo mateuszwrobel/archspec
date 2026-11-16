@@ -527,6 +527,29 @@ external not installed (report-only, never a verdict — exit 0):
    decision:   none required; install the dependency when the tree needs
                its facts resolved.
 
+test-gated unit (report-only, never a verdict — exit 0):
+  pattern:    test-gated unit: <path> — <marker>
+   emitted by: csharp (one line per project the scan drops as test tier —
+               its csproj names a runner marker: an xunit- or nunit-family
+               package id, `Microsoft.NET.Test.Sdk`, a
+               `Microsoft.Testing.Platform`- or `MSTest`-family package id,
+               or a root `Sdk` attribute from the `MSTest.Sdk` family; the
+               other drivers gate test code in their own tiers and print no
+               line)
+  meaning:    the whole project is C#'s test tier — excluded at the scan
+               exactly like a go `*_test.go` file: no unit, no edge, no
+               soft tier, no manifest entry. The line states the exclusion
+               so a test project can neither vanish silently nor be
+               silently promoted to production. On `verify` and `report`
+               the environment section adds the census note
+               `test-gated units: <n>` counting the run's lines.
+   origin:     code
+   severity:   report-only (exit 0)
+   follow-up:  archspec scan      (stderr carries the lines; the model
+               artifact stays pure and carries no test field)
+   decision:   none required; the exclusion is the doctrine — test-gated
+               evidence neither satisfies the floor nor engages the ceiling.
+
 workspace link missing (report-only, never a verdict — exit 0):
   pattern:    workspace link missing: <member name> — resolved to <path> instead of the member dir
               workspace link missing: <member name> — absent from disk

@@ -1,6 +1,7 @@
 use crate::archspec::cli::{self, FlagSpec};
 use crate::archspec::language;
 use crate::archspec::scan;
+use crate::archspec::spec;
 use crate::archspec::spec::SPEC_FILE;
 use crate::archspec::update;
 use std::path::Path;
@@ -42,7 +43,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
     }
 
-    let detected = language::select(root_path, None)?
+    // Root-spec discovery BEFORE driver selection (GitHub issue #38, the
+    // scan.rs shape): a present spec is validated first — a malformed spec
+    // fails the verb with the shipped `invalid spec:` class before any
+    // source scanning — and its [project] language pin SELECTS the driver
+    // whether detection is ambiguous or not (the marker census only
+    // validates). Without a spec the detection is the unchanged one.
+    let loaded = spec::load_scan(root_path)?;
+    let pin = loaded.as_ref().map(spec::declared_driver).transpose()?;
+    let detected = language::select(root_path, pin)?
         .ok_or_else(|| format!("no supported-language sources found under: {root}"))?;
     if !scan::driver_available(detected) {
         return Err(format!(

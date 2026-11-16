@@ -6,6 +6,100 @@ only.
 
 ## [Unreleased]
 
+## [0.6.75] - 2026-11-16
+
+### Fixed
+
+- `depgraph`, `inspect` and `update` now read the root
+  `architecture.spec.toml` before the language driver is chosen (GitHub
+  issue #38). A declared `[project] language` selects the driver even when
+  the scan root carries exactly one foreign root marker; the root-marker
+  census only validates the pin (the `language mismatch:` posture stands),
+  never overrides it — the way `scan` and `verify` already honor it.
+- A malformed root spec now fails `depgraph`, `inspect` and `update` with
+  the shipped `invalid spec:` diagnostic before any source scanning, the
+  way `scan` and `verify` already report it (GitHub issue #41). Without a
+  spec the detection law is unchanged: one root marker still selects its
+  driver, several still answer the `ambiguous root markers:` line.
+
+## [0.6.74] - 2026-11-16
+
+### Fixed
+
+- The NuGet package's `build/archspec.props` now runs its unknown-RID
+  refusal as an initial target (`_ArchspecRidCheck`). MSBuild 18 (.NET 10
+  SDK) refuses an `Error` element placed directly under `<Project>` at
+  evaluation time, which made restore and build of every consumer fail
+  before the condition was consulted. The RID table, the refusal text and
+  the no-fallback contract are unchanged; consumers on older MSBuild keep
+  the same behavior. Fixes #37.
+
+## [0.6.73] - 2026-11-16
+
+### Added
+
+- C# test-tier recognition widened (GitHub issue #39): a csproj carrying
+  `Sdk="MSTest.Sdk"` (versioned spellings included) or a
+  `Microsoft.Testing.Platform`- or `MSTest`-family `PackageReference` id is
+  test tier exactly like an xunit/nunit project — dropped at the scan from
+  every production tier. The exclusion is now observable: `scan` prints one
+  `test-gated unit: <path> — <marker>` report-only line per dropped project
+  on stderr, and the `verify` and `report` text surfaces add the census note
+  `test-gated units: <n>` to the environment section. The serialized model
+  stays test-blind: the machine bytes are identical with and without test
+  projects. The `archspec help diagnostics` catalog carries the new class.
+
+### Fixed
+
+- `verify --write-exemptions` merges by entry identity into the existing
+  `[[exempt]]` ledger tables instead of writing bare entries at end of file
+  (GitHub issue #40): annotated entries keep their documented optional keys
+  (`count`, `until`, `reason`) byte-identically, comments outside a table
+  never move, a genuinely new ring lands in the ledger region after the last
+  existing entry, an entry whose keys the writer cannot read from the raw
+  ledger text is named on stderr and left untouched, and merged bytes are
+  refused (with a named stderr warning) when they do not parse — seeding
+  never loses ledger data silently.
+
+## [0.6.72] - 2026-11-14
+
+### Added
+
+- The library target now carries the scan engine: `scan::extract` (and
+  `scan::extract_with` for consumers holding declared-spec facts) walks a
+  project tree and returns the `model::Model` vocabulary with zero writes,
+  reachable from the library alone — no binary spawn. `language`, `model`,
+  `parse` and `profile` join `collector` and `render` in the exported public
+  API.
+
+### Changed
+
+- The scan drivers moved from the binary tree into the library target; the
+  binary keeps its CLI glue over them. Verb behavior is byte-identical: the
+  same model, the same report lines, the same exit codes. The spec re-prefixes
+  the scan groups to the library identities and the binary
+  model/language/profile paths became thin re-export modules.
+
+## [0.6.71] - 2026-11-11
+
+### Performance
+
+- The `cycle-detect` phase of `verify` is now indexed. The SCC walk reads
+  per-node edge lists instead of rescanning the whole edge list per node, and
+  the file-tier attribution legs memoize their per-file claim scans, the
+  `mod`-row exclusion and the value-leg set. Verdicts are unchanged: findings
+  and their order are byte-identical on the ring corpus and on the
+  first-party specs, and the exit codes are unchanged. On the committed
+  synthetic corpus the phase measures 94.8 ms median (2.3 % of `compare`),
+  against 2 966.6 ms (38.7 %) before — see `docs/archspec/performance.md`.
+
+## [0.6.70] - 2026-11-11
+
+### Build
+
+- Added a tracked `.cargo/mutants.toml` selecting the `nextest` test tool, so
+  mutation runs on this crate drive the suite through `cargo nextest`.
+
 ## [0.6.69] - 2026-11-10
 
 ### Documentation

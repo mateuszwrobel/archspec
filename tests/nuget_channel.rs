@@ -151,8 +151,11 @@ fn rid_rows_pair_with_the_matrix_and_the_props() {
 #[test]
 fn props_refuses_unknown_rids_without_a_fallback() {
     let props = load("nuget/pkg/archspec.props");
+    // The refusal pairs the empty-ArchspecPath condition with an MSBuild
+    // Error (issue 37: the condition rides the guard TARGET, not the bare
+    // Error element — see no_bare_error_or_warning_sits_outside_a_target).
     assert!(
-        props.contains("<Error Condition=\"'$(ArchspecPath)' == ''\""),
+        props.contains("Condition=\"'$(ArchspecPath)' == ''\"") && props.contains("<Error "),
         "an unset $(ArchspecPath) must raise an MSBuild error, not stay silent"
     );
     for rid in RID_ROWS {
@@ -175,6 +178,101 @@ fn props_refuses_unknown_rids_without_a_fallback() {
         props.contains("$(MSBuildThisFileDirectory)../") && props.contains("runtimes/"),
         "$(ArchspecPath) must address $(MSBuildThisFileDirectory)../runtimes/... directly"
     );
+}
+
+#[test]
+fn no_bare_error_or_warning_sits_outside_a_target() {
+    // GitHub issue 37: MSBuild 18 (.NET 10 SDK) refuses an <Error> or
+    // <Warning> element placed directly under <Project> AT EVALUATION TIME,
+    // so a consumer's restore/build fails before any condition is even
+    // consulted. Every Error/Warning element must therefore live inside a
+    // Target, and every Target that refuses must be named in the Project's
+    // InitialTargets — a guard target nothing invokes is the silent-pass
+    // hole finding M3 refuses, in its other direction. No dotnet needed:
+    // this is pure XML shape, same family as the static guards above.
+    let props = load("nuget/pkg/archspec.props");
+
+    // Strip XML comments: prose may quote tag names without becoming a tag.
+    let mut code = String::new();
+    let mut in_comment = false;
+    for line in props.lines() {
+        let mut line = line.to_owned();
+        if in_comment {
+            match line.find("-->") {
+                Some(end) => line = line[end + 3..].to_owned(),
+                None => continue,
+            }
+            in_comment = false;
+        }
+        while let Some(start) = line.find("<!--") {
+            let rest = line[start + 4..].to_owned();
+            match rest.find("-->") {
+                Some(end) => line = format!("{}{}", &line[..start], &rest[end + 3..]),
+                None => {
+                    line.truncate(start);
+                    in_comment = true;
+                    break;
+                }
+            }
+        }
+        code.push_str(&line);
+        code.push('\n');
+    }
+
+    // No Error/Warning element at Project scope: track Target nesting and
+    // flag an element seen while outside any Target.
+    let mut inside_target = false;
+    for line in code.lines() {
+        if line.contains("<Target ") {
+            inside_target = true;
+        }
+        assert!(
+            inside_target || !(line.contains("<Error") || line.contains("<Warning")),
+            "MSBuild 18 refuses a bare <Error>/<Warning> under <Project>: {line}"
+        );
+        if line.contains("</Target>") {
+            inside_target = false;
+        }
+    }
+
+    // Every Target that carries a refusal must ride InitialTargets, so the
+    // loud fail still runs before any requested target does useful work.
+    let project_line = code
+        .lines()
+        .find(|line| line.trim_start().starts_with("<Project"))
+        .expect("the props file must open with a <Project element");
+    let initial: Vec<&str> = match project_line.find("InitialTargets=\"") {
+        Some(at) => {
+            let rest = &project_line[at + "InitialTargets=\"".len()..];
+            let list = rest.split('"').next().unwrap_or_default();
+            list.split(';').map(str::trim).filter(|s| !s.is_empty()).collect()
+        }
+        None => Vec::new(),
+    };
+    let mut current: Option<String> = None;
+    let mut refusing: Vec<String> = Vec::new();
+    for line in code.lines() {
+        if let Some(at) = line.find("<Target Name=\"") {
+            let rest = &line[at + "<Target Name=\"".len()..];
+            current = Some(rest.split('"').next().unwrap_or_default().to_owned());
+        }
+        if (line.contains("<Error") || line.contains("<Warning")) && let Some(name) = &current {
+            refusing.push(name.clone());
+        }
+        if line.contains("</Target>") {
+            current = None;
+        }
+    }
+    assert!(
+        !refusing.is_empty(),
+        "the unknown-RID refusal must still exist somewhere in the props file"
+    );
+    for name in refusing.iter().map(String::as_str) {
+        assert!(
+            initial.contains(&name),
+            "the refusing target {name} must be named in InitialTargets — never-invoked guards are silent"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

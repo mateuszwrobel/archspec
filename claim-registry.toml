@@ -695,7 +695,7 @@ canonical = "Same-package references need no import in Kotlin. The kotlin driver
 signatures = ["Same-package references need no import"]
 dedicated_guard = "tests/kotlin_driver.rs"
 [[claim.guard_pin]]
-file = "src/archspec/scan/kotlin/mod.rs"
+file = "src/scan/kotlin/mod.rs"
 const_name = "MODEL_HONESTY"
 relation = "equals-canonical"
 
@@ -824,17 +824,19 @@ dedicated_guard = "src/archspec/commands/explain.rs"
 
 # GitHub issue #27 (bounds R6/R8): the [[exempt]] ratchet — the seed-only
 # ledger flag line of the verify help and the stale/expired warning pair of
-# the diagnostics catalog.
+# the diagnostics catalog. GitHub issue #40 widened the writer from a plain
+# append to a merge: the flag line states the merge, the stderr naming of
+# unreadable entries rides the guard in tests/exempt.rs.
 [[claim]]
 id = "verify-help-seed-flag"
-owner = "the `--write-exemptions` flag line of the verify help — the seed-only ledger writer"
+owner = "the `--write-exemptions` flag line of the verify help — the identity-merge ledger writer"
 owner_surfaces = ["verify --help", "help verify", "help commands"]
 relations = ["echo", "cite"]
 canonical_fragments = [
-  "--write-exemptions seed the [[exempt]] ledger: append one entry per currently violating cycle (identity + tier), never edit or remove an existing entry, never auto-grow a covered one; the run echoes `wrote <path>` and goes green for what it just named. Refused with --json (64): a machine consumer must never trigger a write",
+  "--write-exemptions seed the [[exempt]] ledger: merge one entry per currently violating cycle (identity + tier) into the ledger tables, never edit or remove an existing entry, never auto-grow a covered one; an entry whose keys the writer cannot verify is named on stderr and left untouched; the run echoes `wrote <path>` and goes green for what it just named. Refused with --json (64): a machine consumer must never trigger a write",
   "coverage: cycles: <found>, exempt: <E>, violating: <V>",
 ]
-signatures = ["never auto-grow a covered one", "coverage: cycles:"]
+signatures = ["never auto-grow a covered one", "coverage: cycles:", "seeding writer cannot read"]
 dedicated_guard = "tests/exempt.rs"
 [[claim.guard_pin]]
 file = "tests/exempt.rs"
@@ -853,3 +855,19 @@ dedicated_guard = "tests/exempt.rs"
 [[claim.guard_pin]]
 file = "tests/exempt.rs"
 relation = "named-in-file"
+
+[[claim]]
+id = "csharp-test-gated-units"
+owner = "the `test-gated unit` catalog entry of `archspec help diagnostics`, rendered by csharp scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "test-gated unit: <path> — <marker>",
+  "test-gated units: <n>",
+]
+signatures = ["test-gated unit:", "test-gated units:"]
+dedicated_guard = "tests/csharp_test_gating.rs"
+[[claim.guard_pin]]
+file = "tests/csharp_test_gating.rs"
+const_name = "CENSUS_FORMS"
+relation = "equals-fragments"

@@ -1582,3 +1582,107 @@ fn issue21_ledger_rejects_graph_format() {
         stderr(&output)
     );
 }
+
+// GitHub issue #38 cells — the [project] language pin selects the driver in
+// this verb too: the root spec is parsed BEFORE the detect()-driven driver
+// selection, exactly as scan and verify already do.
+
+/// The issue #38 repro shape: ONE foreign root marker (`package.json`) beside
+/// a csharp tree whose csproj sits below the root. Detection alone answers
+/// ts; the pin must answer csharp. The two namespaces reference each other,
+/// so the model carries the module tier this verb's views project.
+fn pinned_csharp_tree(spec_body: &str) -> Fixture {
+    let fixture = Fixture::new();
+    fixture.write("package.json", "{ \"name\": \"web\" }\n");
+    fixture.write(
+        "app/App.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+    );
+    fixture.write("app/App.cs", "namespace Demo.App;\npublic class App { }\n");
+    fixture.write(
+        "app/Helper.cs",
+        "using Demo.App;\nnamespace Demo.Helper;\npublic class Helper { }\n",
+    );
+    fixture.write("architecture.spec.toml", spec_body);
+    fixture
+}
+
+#[test]
+fn pin_honored_single_foreign_marker_selects_the_pinned_driver() {
+    // issue #38: exactly one FOREIGN root marker must not outrank the pin —
+    // the marker census validates, never overrides.
+    let fixture = pinned_csharp_tree("[project]\nlanguage = \"csharp\"\n");
+    let output = fixture.run(&["depgraph", "modules"]);
+    assert!(
+        output.status.success(),
+        "the [project] language pin must select the csharp driver: {}",
+        stderr(&output)
+    );
+    assert!(
+        !stderr(&output).contains("no ts sources found"),
+        "the foreign marker must not select the ts driver: {}",
+        stderr(&output)
+    );
+    assert!(!stdout(&output).is_empty(), "a graph body must render");
+}
+
+#[test]
+fn malformed_spec_errors_in_every_depgraph_view_before_any_scanning() {
+    // issue #41 nuance: the spec error surfaces before any source scanning,
+    // not the driver error of the mis-detected language.
+    let fixture = Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("src/lib.rs", "pub fn f() {}\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\nexcluded_sourcez = []\n",
+    );
+    for view in ["modules", "api-usage"] {
+        let output = fixture.run(&["depgraph", view]);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "depgraph {view} must refuse on a malformed spec: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).contains("invalid spec:"),
+            "depgraph {view} must name the spec error: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn no_spec_depgraph_detection_unchanged() {
+    // No spec: the shipped detection answers byte-for-byte — the polyglot
+    // root keeps the AMBIGUITY line, a single root marker keeps selecting
+    // its driver outright.
+    let polyglot = Fixture::new();
+    polyglot.write(
+        "Cargo.toml",
+        "[package]\nname = \"tool\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    polyglot.write("src/lib.rs", "pub fn f() {}\n");
+    polyglot.write("package.json", "{}\n");
+    let output = polyglot.run(&["depgraph", "modules"]);
+    assert_eq!(output.status.code(), Some(1), "stderr: {}", stderr(&output));
+    assert!(
+        stderr(&output).contains(
+            "ambiguous root markers: Cargo.toml (rust), package.json (ts) — pin [project] language or scan a single-language root"
+        ),
+        "stderr: {}",
+        stderr(&output)
+    );
+
+    let single = edge_fixture();
+    let output = single.run(&["depgraph", "modules"]);
+    assert!(
+        output.status.success(),
+        "a single root marker still selects its driver without a spec: {}",
+        stderr(&output)
+    );
+}

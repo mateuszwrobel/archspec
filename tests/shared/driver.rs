@@ -55,6 +55,11 @@ pub struct LogicalTree {
     pub packages: BTreeMap<String, Vec<String>>,
     /// Unit -> IsPackable/publish flag (C#).
     pub is_packable: BTreeMap<String, bool>,
+    /// Unit -> csproj root `Sdk` attribute (C#): overrides the default
+    /// `Microsoft.NET.Sdk` on the project's root element. The `MSTest.Sdk`
+    /// family is the project-shape dialect of test-tier evidence (GitHub
+    /// issue #39) — a test SDK attribute with no runner package at all.
+    pub csharp_sdks: BTreeMap<String, String>,
     /// External namespace/crate targets referenced by usings/imports.
     pub external_targets: Vec<String>,
     /// C# central package references: (fixture-relative dir, package). Each
@@ -325,10 +330,15 @@ impl Driver {
         // contract (capability fact orphan-census: ts granular, the other
         // drivers not-emitted). The strip is driver-scoped so a regression
         // emitting the class on another driver stays under the silence law.
+        // The test-gated census rides the csharp scan report surface by the
+        // GitHub issue #39 contract (one line per dropped test project; the
+        // other drivers state their test tier elsewhere and print nothing).
         let ts_census = matches!(self.language, Language::Ts);
+        let csharp_census = matches!(self.language, Language::Csharp);
         let stderr: String = common::stderr(&output)
             .lines()
             .filter(|line| !(ts_census && line.starts_with("orphan file")))
+            .filter(|line| !(csharp_census && line.starts_with("test-gated unit:")))
             .collect::<Vec<_>>()
             .join("\n");
         assert!(stderr.is_empty(), "scan must not write stderr: {stderr}");
@@ -491,8 +501,13 @@ fn resolve_csharp_using(tree: &LogicalTree, to: &str) -> String {
 
 fn materialize_csharp(fx: &common::Fixture, tree: &LogicalTree) {
     for unit in &tree.units {
-        let mut csproj = String::from(
-            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n",
+        let sdk = tree
+            .csharp_sdks
+            .get(unit)
+            .map(String::as_str)
+            .unwrap_or("Microsoft.NET.Sdk");
+        let mut csproj = format!(
+            "<Project Sdk=\"{sdk}\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n"
         );
         if let Some(packable) = tree.is_packable.get(unit) {
             csproj.push_str(&format!("    <IsPackable>{packable}</IsPackable>\n"));

@@ -12,7 +12,8 @@ use walkdir::WalkDir;
 /// scanner's treatment of external crates. C# has no file-level test marker,
 /// so the target side mirrors the scan driver's project classification: a
 /// file whose nearest-ancestor csproj is a test project per the scan
-/// driver's existing `cs_scan::is_test_project` predicate owns no
+/// driver's shared test-gate predicate (`cs_scan::test_gate_evidence`,
+/// package ids and the csproj `Sdk` attribute alike) owns no
 /// namespace — production `using`s never fan into test-project files, while
 /// those files stay nodes and import sources. Files are grouped into folder
 /// subgraphs by the shared renderers.
@@ -144,7 +145,8 @@ fn in_test_project(
         };
         if let Some(csproj) = nearest_csproj(&project_dir) {
             let manifest = cs_scan::manifest_info(&project_dir, root, &csproj);
-            let tier = cs_scan::is_test_project(&manifest);
+            let tier = cs_scan::test_gate_evidence(&manifest, cs_scan::project_sdk(&csproj).as_deref())
+                .is_some();
             tiers.insert(dir, tier);
             for visited in &above {
                 tiers.insert(visited.clone(), tier);

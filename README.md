@@ -4,8 +4,10 @@ The `archspec` CLI: multi-language architecture test & diagram tool. It extracts
 an architecture model from a project tree, compares it against
 `architecture.spec.toml`, and renders diagrams, dependency views and diff
 reports. The crate is the CLI binary — no longer an architecture-assertion
-library (`src/lib.rs` re-exports only the shared parse/render primitives for
-the binary itself).
+library. The library target (`src/lib.rs`) carries the shared engines the
+binary links: the scan engine with its `language`/`model`/`parse`/`profile`
+vocabulary — `scan::extract` walks a tree and returns the model with zero
+writes — plus the Rust parsing (`collector`) and rendering primitives.
 
 Guides live in [docs/archspec/](docs/archspec/); the living design is
 [docs/archspec-design.md](docs/archspec-design.md). The agent-facing relation
@@ -95,10 +97,12 @@ names itself until an aarch64-musl release asset lands.
 ## Where to edit
 
 - CLI: `src/archspec/` — `cli.rs`, `commands/`, `config.rs`, `depgraph.rs`,
-  `diagram.rs`, `init/`, `inspect/`, `language.rs`, `model.rs`, `report/`,
-  `scan/` (rust/csharp/go drivers), `spec.rs`, `update/`, `verify/`
-- Shared engine primitives: `src/collector.rs` (Rust parsing), `src/render.rs`
-  (rendering owner)
+  `diagram.rs`, `init/`, `inspect/`, `report/`, `scan.rs` (CLI glue over the
+  library scan engine), `spec.rs`, `update/`, `verify/`; `language.rs`,
+  `model.rs` and `profile.rs` are thin re-exports of the library engines
+- Shared engine: `src/scan/` (the scan host and the language drivers),
+  `src/collector.rs` (Rust parsing), `src/render.rs` (rendering owner),
+  `src/language.rs`, `src/model.rs`, `src/parse/`, `src/profile.rs`
 - Behavior tests: `tests/` (per command + `shared/` multi-language scenarios)
 - Project policy: `<project>/architecture.spec.toml`
 
@@ -108,8 +112,8 @@ names itself until an aarch64-musl release asset lands.
 
 This crate checks its own architecture: `architecture.spec.toml` declares the
 `commands`, `engines` and `foundations` groups plus the library boundary
-`rust-arch-test-kit` — and the `lib-collector` / `lib-render` prefix groups
-that let the cycle checks see inside the library unit — and polices itself
+`rust-arch-test-kit` — and the `lib-*` prefix groups and `scan-*` zones that
+let the cycle checks see inside the library unit — and polices itself
 with four of the seven constraint types: `no_cycles`, `public_api_allowlist`,
 `forbid_external_crates` and `manifest_integrity`. Test-gated modules and
 whatever only they import are excluded from the `depend_on` comparison — the

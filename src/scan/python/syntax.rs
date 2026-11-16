@@ -29,8 +29,8 @@
 
 use tree_sitter::Node;
 
-use crate::archspec::language::Language;
-use crate::archspec::parse::grammar::{node_text, parse_tree};
+use crate::language::Language;
+use crate::parse::grammar::{node_text, parse_tree};
 
 use std::collections::BTreeSet;
 use std::path::Path;

@@ -1,5 +1,6 @@
 use crate::archspec::inspect::file_graph::FileGraph;
-use crate::archspec::scan::kotlin as kotlin_scan;
+use crate::archspec::language::Language;
+use crate::archspec::scan;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -17,7 +18,7 @@ use std::path::Path;
 /// K-P6 blind spot holds here too: a same-package reference carries no
 /// import and therefore no edge — the model states what imports state.
 pub fn scan(root: &Path) -> Result<FileGraph, String> {
-    let model = kotlin_scan::extract(root)?;
+    let model = scan::extract(Language::Kotlin, root)?;
     let mut nodes: BTreeSet<String> = BTreeSet::new();
     let mut edges: BTreeSet<(String, String)> = BTreeSet::new();
     for edge in &model.file_edges {

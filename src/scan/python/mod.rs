@@ -26,10 +26,10 @@
 pub(crate) mod stdlib;
 pub(crate) mod syntax;
 
-use crate::archspec::language;
-use crate::archspec::model::{ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
-use crate::archspec::scan::python::syntax::ImportForm;
-use crate::archspec::spec;
+use crate::language;
+use crate::model::{ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
+use crate::scan::python::syntax::ImportForm;
+use crate::model::DeclaredFacts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
@@ -43,13 +43,13 @@ enum Target {
     Dir(String),
 }
 
-pub fn extract(root: &Path) -> Result<Model, String> {
+pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let declared = spec::load_scan(&root)
-        .ok()
-        .flatten()
-        .map(|loaded| spec::exclusion_paths(&loaded));
-    let files = collect_files(&root, declared.as_ref())?;
+    // The declared exclusions arrive as facts (the extraction re-homed the
+    // root-spec read to the consumer that owns the spec schema); an entry-
+    // free walk is byte-identical to the root-without-spec walk.
+    let declared_paths = facts.exclusion_paths();
+    let files = collect_files(&root, (!declared_paths.is_empty()).then_some(&declared_paths))?;
     if files.is_empty() {
         return Err(format!("no python sources found under: {}", root.display()));
     }
@@ -80,7 +80,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // Below the floor the lever returns 1 and this is literally today's
     // serial loop (no threads).
     let threads = super::leg::fact_leg_threads(files.len());
-    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::archspec::profile::phase(
+    let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::profile::phase(
         "scan-facts",
         || {
             if threads > 1 {

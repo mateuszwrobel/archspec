@@ -1,0 +1,10 @@
+# cargo-mutants configuration for the archspec crate.
+# Tool-only content: this file names the test tool and a timeout floor.
+# test_tool=nextest is a law, not a preference — a hung mutant must never
+# wait unbounded; an absent config file is a named red in the mutation gate
+# that runs this crate (MUTANTS-CONFIG-ABSENT).
+# minimum_test_timeout = 60: the tool's 20s auto-timeout sits near the
+# slowest suite legs under full contention — the false-TIMEOUT class; 60 is
+# a contention-scaled floor.
+test_tool = "nextest"
+minimum_test_timeout = 60

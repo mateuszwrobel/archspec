@@ -2,7 +2,7 @@
 //! driver (usings US 06, type positions US 08).
 //!
 //! Parses each `.cs` file through the in-binary tree-sitter grammar
-//! ([`crate::archspec::parse::grammar`]) and fills the per-unit collections
+//! ([`crate::parse::grammar`]) and fills the per-unit collections
 //! the graph layer consumes — declared namespaces and `using`
 //! targets attributed to the namespace context they appear in — so every
 //! downstream rule (prefix ownership, ambiguity and reachability guards,
@@ -122,14 +122,14 @@
 //! Error tolerance: the tree-sitter tree survives broken constructs, so a
 //! file with `ERROR`/`MISSING` nodes still contributes every using and
 //! namespace the parser located; there is deliberately NO alternate parse path
-//! when [`crate::archspec::parse::grammar::first_error_range`] reports damage.
+//! when [`crate::parse::grammar::first_error_range`] reports damage.
 //! Only a file tree-sitter cannot parse at all yields an error, propagated to
 //! the scan failure.
 
 use tree_sitter::Node;
 
-use crate::archspec::language::Language;
-use crate::archspec::parse::grammar::{node_text, parse_tree};
+use crate::language::Language;
+use crate::parse::grammar::{node_text, parse_tree};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -137,7 +137,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// from one `.cs` source into the shared per-unit maps, with the attribution
 /// semantics documented in this module. `type_facts` collects the type-position
 /// references (US 08).
-pub(crate) fn scan_cs_source(
+pub fn scan_cs_source(
     source: &str,
     namespaces: &mut BTreeSet<String>,
     usings: &mut BTreeMap<String, BTreeSet<String>>,
@@ -167,7 +167,7 @@ pub(crate) fn scan_cs_source(
 ///   interface / struct / enum / record), the precision anchor that keeps a
 ///   local `engine` from matching the type `Engine` (case-sensitive).
 #[derive(Clone, Debug, Default)]
-pub(crate) struct TypeFacts {
+pub struct TypeFacts {
     pub(crate) qualified: BTreeMap<String, BTreeSet<String>>,
     pub(crate) candidates: BTreeMap<String, BTreeSet<(String, String)>>,
     pub(crate) declared_types: BTreeMap<String, BTreeSet<String>>,

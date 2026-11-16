@@ -42,7 +42,7 @@ use oxc_resolver::{
 use super::config_chain::owning_tsconfig;
 use super::config_preload::{preload_tsconfigs, TsconfigPreloadError};
 use super::gitignore::{self, IgnoreHit};
-use crate::archspec::language;
+use crate::language;
 use super::common::{
     exclusion_verdict, is_excluded, is_virtual_spec, package_identity, relative, strip_query,
     Exclusions, Resolved,

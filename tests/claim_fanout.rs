@@ -543,7 +543,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 62] = [
+    let required: [&str; 63] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -628,6 +628,10 @@ fn registry_owns_claim_identity() {
         // stale/expired warning pair of the diagnostics catalog.
         "verify-help-seed-flag",
         "exempt-ratchet-diagnostics",
+        // Registered by GitHub issue #39 (2026-11-16): the csharp test-gated
+        // census — the per-project line and the verdict note for dropped
+        // test projects.
+        "csharp-test-gated-units",
     ];
     for required in required {
         assert!(
@@ -1183,7 +1187,8 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             | "nested-foreign-marker"
             | "dynamic-import-wildcard"
             | "orphan-file"
-            | "orphan-file-census" => {
+            | "orphan-file-census"
+            | "csharp-test-gated-units" => {
                 contains_canonical(&mut errors, claim, "help diagnostics")
             }
             "ts-vacuity-carriers" => {

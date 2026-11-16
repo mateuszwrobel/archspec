@@ -18,7 +18,7 @@
 //! line: the census rides a machine-readable artifact field, so no raw
 //! source newline enters it.
 
-use crate::archspec::parse::grammar;
+use crate::parse::grammar;
 use std::path::Path;
 use tree_sitter::Node;
 

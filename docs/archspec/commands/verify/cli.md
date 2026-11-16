@@ -15,7 +15,7 @@ archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--writ
 | `--json` | render the verdict in the `report --format json` machine schema | off |
 | `--coverage` | print the coverage census after the verdict | off |
 | `--only <class>` | hide one diagnostic class from the report-only notices; the verdict and the environment census are unchanged | off |
-| `--write-exemptions` | seed the `[[exempt]]` cycle ledger: append one entry per currently violating ring, never edit or remove an existing entry, then report green for what the run named | off |
+| `--write-exemptions` | seed the `[[exempt]]` cycle ledger: merge one entry per currently violating ring into the ledger tables, never edit or remove an existing entry, then report green for what the run named | off |
 
 ## Accepted flag values
 
@@ -84,13 +84,16 @@ found, exempt and violating rings, never a silent zero:
 archspec verify --write-exemptions
 ```
 
-Appends one `[[exempt]]` entry per currently violating cycle to
-`architecture.spec.toml` — identity and tier only; `count`, `until` and
-`reason` are human-owned and stay absent until a human adds them. The run
-never edits or removes an existing entry and never auto-grows a covered
-one; a run with nothing new to seed writes nothing and echoes nothing.
-On a write the run echoes `wrote <path>` and then reports the verdict
-over the ledger as it now stands — the exemptions it just named. Refused
+Merges one `[[exempt]]` entry per currently violating cycle into the
+ledger tables of `architecture.spec.toml` — identity and tier only;
+`count`, `until` and `reason` are human-owned and stay absent until a
+human adds them. The run never edits or removes an existing entry and the
+comments around it, never rewrites a table whose identity the ledger
+already carries, and never auto-grows a covered one; an entry whose keys
+the writer cannot verify is named on stderr and left untouched. A run with
+nothing new to seed writes nothing and echoes nothing. On a write the run
+echoes `wrote <path>` and then reports the verdict over the ledger as it
+now stands — the exemptions it just named. Refused
 with `--json` (usage class 64, see `errors.md`).
 
 ### Diagnostic class filter

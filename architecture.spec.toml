@@ -28,7 +28,9 @@ depend_on = ["engines", "foundations", "scan-core"]
 # carries no module endpoints, so attribution follows this pattern list, not
 # the code. Which files actually import the library is a source-level fact
 # owned by `tests/lib_imports_guard.rs` with an explicit allowlist: the graph
-# engines (depgraph, diagram), the inspect renderers and the rust scan driver.
+# engines (depgraph, diagram), the inspect renderers, the re-export shims
+# (mod.rs, model.rs, language.rs, profile.rs), the scan CLI glue, the spec
+# loader and the pattern shim.
 [[module]]
 name = "engines"
 matches = { units = ["archspec"], modules = [
@@ -39,14 +41,17 @@ matches = { units = ["archspec"], modules = [
   "archspec::archspec::update*",
   "archspec::archspec::inspect*",
   "archspec::archspec::init*",
-  "archspec::archspec::parse*",
 ] }
 
 [module.allowed]
-depend_on = ["foundations", "rust-arch-test-kit", "scan-core", "scan-ts", "scan-python", "scan-kotlin"]
+depend_on = ["foundations", "rust-arch-test-kit", "scan-core"]
 
-# Shared foundations: the extracted model, the spec schema, CLI parsing, config
-# and language detection. Depends on nothing.
+# Shared foundations: the spec schema, CLI parsing, config and capability, and
+# the language-detection/help surfaces. Depends on nothing. The model,
+# language and profile identities also appear here: their engines compile into
+# the library, and the binary's thin re-export modules keep every
+# `crate::archspec::model::…` spelling as an edge to this group while the
+# files themselves live in the lib groups below.
 [[module]]
 name = "foundations"
 matches = { modules = [
@@ -77,66 +82,114 @@ matches = { units = ["rust-arch-test-kit"] }
 # `rust-arch-test-kit::*` and these groups claim them directly (before that fix
 # the tie landed them under the bin unit and only `engines` co-declared in the
 # `no_cycles` constraint kept lib file visibility engaged). These groups exist
-# for that cycle visibility only — the lib is one shared parsing/rendering
-# engine, and it is the `engines` modules that import it; nothing beyond
-# acyclicity is policed between collector and render.
+# for that cycle visibility only — the lib is one shared engine, and it is the
+# `engines` modules that import it; nothing beyond acyclicity is policed
+# between them. The scan engine moved into the lib (extraction rung one): the
+# scan groups below claim the lib identities, and the binary keeps only the
+# CLI glue module `archspec::archspec::scan`, which `scan-core` also claims.
 [[module]]
 name = "lib-collector"
 matches = { modules = ["rust-arch-test-kit::collector*"] }
+
+[module.allowed]
+depend_on = []
 
 [[module]]
 name = "lib-render"
 matches = { modules = ["rust-arch-test-kit::render*"] }
 
+[module.allowed]
+depend_on = []
+
+[[module]]
+name = "lib-model"
+matches = { modules = ["rust-arch-test-kit::model*"] }
+
+[module.allowed]
+depend_on = []
+
+[[module]]
+name = "lib-language"
+matches = { modules = ["rust-arch-test-kit::language*"] }
+
+[module.allowed]
+depend_on = []
+
+[[module]]
+name = "lib-parse"
+matches = { modules = ["rust-arch-test-kit::parse*"] }
+
+[module.allowed]
+depend_on = ["lib-language"]
+
+[[module]]
+name = "lib-profile"
+matches = { modules = ["rust-arch-test-kit::profile*"] }
+
+[module.allowed]
+depend_on = []
 
 # Scan-internal zones (self-audit F1 cycle break): the scan host and the
 # language drivers are separate boundaries so the driver -> host helper ring
 # can never come back — `no_cycles` below and the exact `depend_on` tables
 # gate recurrence. `leg` is the leaf both the host and the drivers call for
 # the parallel fact leg; `scan-ts` folds `ts::common`, the vocabulary leaf
-# `ts` and `ts::resolution` share. `engines` keeps no scan pattern: the
-# `scan*` catch-all would tie with the exact `scan` entry on every scan
-# descendant (ancestor scoring in verify's specificity) and report
-# ambiguity.
+# `ts` and `ts::resolution` share. The driver identities moved into the lib
+# with the scan engine; the binary's CLI glue `archspec::archspec::scan`
+# rides `scan-core` as the host's report-surface twin, and the textual
+# re-export endpoints (`scan::csharp`, `scan::go`) score through its exact
+# entry. `engines` keeps no scan pattern: a `scan*` catch-all would tie with
+# the exact `scan` entry on every scan descendant (ancestor scoring in
+# verify's specificity) and report ambiguity.
 [[module]]
 name = "scan-core"
 matches = { modules = [
   "archspec::archspec::scan",
-  "archspec::archspec::scan::csharp*",
-  "archspec::archspec::scan::go*",
-  "archspec::archspec::scan::rust*",
+  "rust-arch-test-kit::scan",
+  "rust-arch-test-kit::scan::csharp*",
+  "rust-arch-test-kit::scan::go*",
+  "rust-arch-test-kit::scan::rust*",
 ] }
 
 [module.allowed]
-depend_on = ["foundations", "engines", "scan-ts", "scan-python", "scan-kotlin"]
+depend_on = [
+  "foundations",
+  "lib-collector",
+  "lib-language",
+  "lib-model",
+  "lib-parse",
+  "scan-kotlin",
+  "scan-python",
+  "scan-ts",
+]
 
 [[module]]
 name = "scan-leg"
-matches = { modules = ["archspec::archspec::scan::leg"] }
+matches = { modules = ["rust-arch-test-kit::scan::leg"] }
 
 [module.allowed]
 depend_on = []
 
 [[module]]
 name = "scan-ts"
-matches = { modules = ["archspec::archspec::scan::ts*"] }
+matches = { modules = ["rust-arch-test-kit::scan::ts*"] }
 
 [module.allowed]
-depend_on = ["foundations", "engines", "scan-leg"]
+depend_on = ["lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"]
 
 [[module]]
 name = "scan-python"
-matches = { modules = ["archspec::archspec::scan::python*"] }
+matches = { modules = ["rust-arch-test-kit::scan::python*"] }
 
 [module.allowed]
-depend_on = ["foundations", "engines", "scan-leg"]
+depend_on = ["lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"]
 
 [[module]]
 name = "scan-kotlin"
-matches = { modules = ["archspec::archspec::scan::kotlin*"] }
+matches = { modules = ["rust-arch-test-kit::scan::kotlin*"] }
 
 [module.allowed]
-depend_on = ["foundations", "engines", "scan-leg"]
+depend_on = ["lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"]
 
 # --- The crate's own constraint surface --------------------------------------
 # Four of the seven constraint types are declared on this crate: `no_cycles`
@@ -157,18 +210,35 @@ modules = ["commands", "engines", "foundations", "rust-arch-test-kit"]
 
 [[constraint]]
 type = "no_cycles"
-modules = ["engines", "rust-arch-test-kit", "lib-collector", "lib-render"]
+modules = [
+  "engines",
+  "rust-arch-test-kit",
+  "lib-collector",
+  "lib-render",
+  "lib-model",
+  "lib-language",
+  "lib-parse",
+  "lib-parse",
+  "scan-core",
+  "scan-leg",
+  "scan-ts",
+  "scan-python",
+  "scan-kotlin",
+]
 
-# The library root re-exports exactly the collector and the render primitives —
-# nothing else, named or glob-resolved.
+# The library root re-exports exactly the collector, the render primitives,
+# the scan engine and the model/language/parse/profile vocabulary it walks
+# with — nothing else, named or glob-resolved.
 [[constraint]]
 type = "public_api_allowlist"
-allowed = ["collector", "render"]
+allowed = ["collector", "render", "language", "model", "parse", "profile", "scan"]
 
 # Grammar machinery is the parse engine's job, not layer zero's: the modules
 # that model, spec-schema, CLI-parsing, config, capability, language detection
 # and the diagnostics-help catalog live in must not import tree-sitter (or its
-# grammars) or syn. The pinned ts resolution layer lives in the scan layer and
+# grammars) or syn. The model and language identities moved into the library,
+# so the lib spellings join the from-list next to the facade-endpoint
+# spellings. The pinned ts resolution layer lives in the scan layer and
 # nowhere else (ADR-024): oxc_resolver joins the forbid list so a resolver
 # import outside the scan arm reddens this crate's own verify — law, not
 # convention. walkdir deliberately stays off this list — foundations'
@@ -177,10 +247,12 @@ allowed = ["collector", "render"]
 type = "forbid_external_crates"
 from = [
   "archspec::archspec::model",
+  "rust-arch-test-kit::model",
   "archspec::archspec::spec",
   "archspec::archspec::cli",
   "archspec::archspec::config",
   "archspec::archspec::language",
+  "rust-arch-test-kit::language",
   "archspec::archspec::capability",
   "archspec::archspec::helptext",
 ]

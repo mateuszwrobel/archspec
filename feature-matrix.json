@@ -118,7 +118,7 @@
         },
         {
           "name": "test_framework_package_ids_are_the_decisive_evidence",
-          "description": "xunit/nunit-family and Microsoft.NET.Test.Sdk package ids mark the test tier while FluentAssertions-only stays production",
+          "description": "xunit/nunit-family, Microsoft.NET.Test.Sdk, Microsoft.Testing.Platform- and MSTest-family package ids plus an MSTest.Sdk-family csproj Sdk attribute mark the test tier while FluentAssertions-only stays production",
           "status": {
             "csharp": "pass",
             "go": "skipped",

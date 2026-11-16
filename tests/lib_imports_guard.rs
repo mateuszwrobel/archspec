@@ -12,14 +12,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// The files allowed to reference the library crate: the two graph engines,
-/// the inspect renderers (one directory, all members) and the rust scan
-/// driver. Keep this list and the engines-group comment in
+/// the inspect renderers (one directory, all members), the re-export facade
+/// (`mod.rs`), the scan CLI glue over the library scan engine, the spec
+/// loader consuming the model's exclusion vocabulary, and the pattern shim.
+/// Keep this list and the engines-group comment in
 /// `architecture.spec.toml` in step.
 const LIB_IMPORT_ALLOWLIST: &[&str] = &[
     "src/archspec/depgraph.rs",
     "src/archspec/diagram.rs",
     "src/archspec/inspect/*.rs",
-    "src/archspec/scan/rust.rs",
+    "src/archspec/language.rs",
+    "src/archspec/model.rs",
+    "src/archspec/profile.rs",
+    "src/archspec/mod.rs",
+    "src/archspec/scan.rs",
+    "src/archspec/spec.rs",
+    "src/archspec/verify/compare/pattern.rs",
 ];
 
 /// The import marker: a path into the library crate. Matching on the `::`

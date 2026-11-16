@@ -1,6 +1,6 @@
-pub(crate) mod syntax;
+pub mod syntax;
 
-use crate::archspec::model::{Edge, Model, ModuleEdge, Role, Unit};
+use crate::model::{Edge, Model, ModuleEdge, Role, Unit};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -533,7 +533,7 @@ fn collect_packages(root: &Path) -> BTreeMap<String, Vec<PathBuf>> {
 /// is hidden (dot-prefixed), `vendor`, or `testdata`. Shared by every walk of
 /// a Go tree (the scan collectors and the file-level inspector) so the node
 /// sets cannot drift — the csharp `is_excluded_cs` precedent.
-pub(crate) fn is_excluded_go(rel: &Path) -> bool {
+pub fn is_excluded_go(rel: &Path) -> bool {
     rel.components().filter_map(|component| component.as_os_str().to_str()).any(
         |component| component.starts_with('.') || component == "vendor" || component == "testdata",
     )
@@ -561,7 +561,7 @@ fn edge_selector_symbols<'a>(
 /// contract every Go consumer (scan and inspect alike) must agree on: the
 /// `go.work` members when a root go.work names two or more, otherwise the
 /// single module from the root `go.mod` (mirrored as the `.` member).
-pub(crate) fn module_members(root: &Path) -> Result<Vec<(String, String)>, String> {
+pub fn module_members(root: &Path) -> Result<Vec<(String, String)>, String> {
     let members = workspace_members(root)?;
     if members.len() >= 2 {
         return Ok(members);
@@ -581,14 +581,14 @@ pub(crate) fn module_members(root: &Path) -> Result<Vec<(String, String)>, Strin
 /// at the scan with no serialized fact — a test-only import simply does not
 /// exist in the model, exactly like a rust integration test under `tests/`,
 /// and the JSON shape is unchanged for every tree.
-pub(crate) fn is_test_file(path: &Path) -> bool {
+pub fn is_test_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.ends_with("_test.go"))
 }
 
 /// Full package import path for a rel dir: `module/rel` (or `module` for `.`).
-pub(crate) fn package_name(module: &str, rel_dir: &str) -> String {
+pub fn package_name(module: &str, rel_dir: &str) -> String {
     if rel_dir == "." {
         module.to_string()
     } else {

@@ -47,7 +47,7 @@
   - ts: skipped (project shape not applicable)
   - python: skipped (project shape not applicable)
   - kotlin: skipped (project shape not applicable)
-- **test_framework_package_ids_are_the_decisive_evidence** — xunit/nunit-family and Microsoft.NET.Test.Sdk package ids mark the test tier while FluentAssertions-only stays production
+- **test_framework_package_ids_are_the_decisive_evidence** — xunit/nunit-family, Microsoft.NET.Test.Sdk, Microsoft.Testing.Platform- and MSTest-family package ids plus an MSTest.Sdk-family csproj Sdk attribute mark the test tier while FluentAssertions-only stays production
   - rust: skipped (project shape not applicable)
   - csharp: pass
   - go: skipped (project shape not applicable)

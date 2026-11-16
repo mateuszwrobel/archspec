@@ -1,6 +1,6 @@
-pub(crate) mod syntax;
+pub mod syntax;
 
-use crate::archspec::model::{Edge, ManifestInfo, Model, ModuleEdge, Role, Unit};
+use crate::model::{Edge, ManifestInfo, Model, ModuleEdge, Role, Unit};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -38,11 +38,14 @@ type ScannedFiles = BTreeMap<String, ProjectSources>;
 /// reference-reachable (directly or transitively) — anything else cannot
 /// compile and is no source fact: unresolvable targets keep flowing to the
 /// external attribution rule, ambiguous or unreachable ones emit nothing.
-/// A project whose resolved package set names a test runner (see
-/// [`is_test_project`]) is C#'s test tier: whole projects
+/// A project the test-tier predicate recognizes (see [`is_test_project`] and
+/// [`is_test_sdk`]) is C#'s test tier: whole projects
 /// are the test unit here, so like go's `*_test.go` files they are excluded at
 /// the scan from every production tier — no serialized marker, by the go
 /// precedent of excluding at the scan when the fact cannot be module-path data.
+/// Every dropped project is stated on the report surface with one
+/// `test-gated unit:` line (GitHub issue #39: a silent disappearance is an
+/// audit hazard, like a silent promotion).
 pub fn extract(root: &Path) -> Result<Model, String> {
     // Absolute base so Include references (which may be absolute or use `..`
     // back to the tree) resolve identically regardless of how the root was
@@ -55,21 +58,33 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     }
 
     // Test-tier classification precedes every production fact; the predicate
-    // is [`is_test_project`]. Like the go driver a test project is excluded at
+    // is [`is_test_project`] (package evidence) and [`is_test_sdk`] (the csproj
+    // `Sdk` attribute). Like the go driver a test project is excluded at
     // the scan with no serialized fact — no unit, no edge, no soft tier, no
     // external attribution, no manifest entry — so a tree with test projects
     // scans to the same model as the same tree without them, and
     // `verify`/`update` consume the shape unchanged (nothing left to gate).
+    // The exclusion is never silent (GitHub issue #39): every dropped project
+    // renders one report-only census line, in sorted project order.
     // Dropped projects keep their declared namespaces as DEAD prefixes: a
     // production `using App.Tests.Specs;` names the test tier, not a module of
     // the referencing unit, and prefix-owner resolution must not resurrect the
     // dropped project as a phantom edge, module, or seeded boundary.
     let mut production: Vec<(String, std::path::PathBuf, ManifestInfo)> = Vec::new();
     let mut dropped_namespaces: BTreeSet<String> = BTreeSet::new();
+    let mut test_gated_lines: Vec<String> = Vec::new();
     for (rel_path, full_path) in &projects {
         let project_dir = full_path.parent().unwrap_or(&root);
         let manifest = manifest_info(project_dir, &root, full_path);
-        if is_test_project(&manifest) {
+        let evidence = test_gate_evidence(&manifest, project_sdk(full_path).as_deref());
+        if let Some(marker) = evidence {
+            let unit_path = match Path::new(rel_path).parent() {
+                Some(parent) if !parent.as_os_str().is_empty() => {
+                    parent.to_string_lossy().into_owned()
+                }
+                _ => ".".to_string(),
+            };
+            test_gated_lines.push(format!("test-gated unit: {unit_path} — {marker}"));
             dropped_namespaces.extend(scan_project_sources(project_dir)?.0);
             continue;
         }
@@ -551,6 +566,7 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         module_external: module_external_model,
         unit_manifests,
         roles,
+        report_only_lines: test_gated_lines,
         ..Model::new("csharp")
     })
 }
@@ -578,28 +594,34 @@ fn collect_projects(root: &Path) -> Vec<(String, std::path::PathBuf)> {
     projects
 }
 
-/// The C# test-tier predicate: a project is a test project when its resolved
-/// package set (csproj `PackageReference` items plus the nearest central
-/// props — the same vocabulary `manifest_info` reports) names a test runner
-/// or test SDK: the project-tier mirror of rust's `#[cfg(test)]` modules and
-/// go's `*_test.go` files. Runner-package evidence, evaluated per resolved
-/// dependency id:
+/// The C# test-tier predicate (package evidence): a project is a test project
+/// when its resolved package set (csproj `PackageReference` items plus the
+/// nearest central props — the same vocabulary `manifest_info` reports) names
+/// a test runner or test host: the project-tier mirror of rust's `#[cfg(test)]`
+/// modules and go's `*_test.go` files. Runner-package evidence, evaluated per
+/// resolved dependency id:
 /// - the xunit family (`xunit`, `Xunit.Runner.VisualStudio`, …) or the nunit
 ///   family (`NUnit`, `NUnit3TestAdapter`, …) — a family PREFIX match, so
 ///   satellites (`xunit.analyzers`, `NUnit.Analyzers`) count as evidence by
 ///   design: they appear only in test projects;
-/// - exactly `Microsoft.NET.Test.Sdk` — the SDK shape modern MSTest is
-///   declared in. MSTest is recognized ONLY through this id; a pre-SDK
-///   MSTest project naming `MSTest.TestFramework`/`MSTest.TestAdapter`
-///   without the SDK stays production — a documented residual pinned by the
-///   framework-list scenario.
+/// - exactly `Microsoft.NET.Test.Sdk` — the classic MSTest SDK shape;
+/// - the Microsoft.Testing.Platform family (`Microsoft.Testing.Platform`,
+///   `Microsoft.Testing.Platform.MSBuild`, …) and the MSTest family
+///   (`MSTest.TestFramework`, `MSTest.TestAdapter`, …) — prefix matches, the
+///   satellites-by-design law applied to the MSTest 3 / testing-platform
+///   shape (GitHub issue #39: every `MSTest.*` id appears only in test
+///   projects, so the pre-SDK MSTest residual is retired).
+///
+/// The project-shape half of the evidence — a csproj whose root `Sdk` attribute
+/// names the `MSTest.Sdk` family — is [`is_test_sdk`] and reaches the tier
+/// through [`test_gate_evidence`], the predicate every consumer uses.
 ///
 /// NuGet ids are case-insensitive, so the match lowercases. An assertion
 /// library without a runner (`FluentAssertions`) is NOT evidence — production
 /// tooling uses it too. Project names play no part: `.Tests` is lore, a
 /// runner-free `LegacyTests` stays production and a `Helpers` project
 /// referencing xunit is test tier.
-pub(crate) fn is_test_project(manifest: &ManifestInfo) -> bool {
+pub fn is_test_project(manifest: &ManifestInfo) -> bool {
     manifest
         .dependencies
         .iter()
@@ -607,14 +629,75 @@ pub(crate) fn is_test_project(manifest: &ManifestInfo) -> bool {
         .any(is_test_framework_package)
 }
 
-/// The id-level runner evidence behind [`is_test_project`]: the xunit and
-/// nunit families by case-insensitive prefix, and the Microsoft test host
-/// SDK by exact id. The full evidence rules — satellites, the MSTest SDK
-/// shape, assertion libraries, and the irrelevance of project names — are
-/// stated on [`is_test_project`].
+/// The csproj test-SDK predicate: the root `Project` element's `Sdk` attribute
+/// names the MSTest SDK (GitHub issue #39) — the `MSTest.Sdk` family by
+/// case-insensitive prefix, so the versioned spelling `MSTest.Sdk/3.6.4`
+/// counts the same as bare `MSTest.Sdk`. An MSTest 3 / Microsoft.Testing.
+/// Platform project declares its SDK this way and carries no runner package
+/// at all, so the attribute alone must mark the tier.
+pub fn is_test_sdk(sdk: &str) -> bool {
+    sdk.to_ascii_lowercase().starts_with("mstest.sdk")
+}
+
+/// The combined test-gate evidence (GitHub issue #39): the first test marker
+/// the project carries, `Some(marker)` verbatim — a matched package id in
+/// sorted order, else the `Sdk` attribute value. `None` is production. Every
+/// consumer of the C# test tier adjudicates through this one predicate: the
+/// scan driver (drop + census line) and the inspect renderer (namespace
+/// ownership), so the two can never disagree.
+pub fn test_gate_evidence(manifest: &ManifestInfo, sdk: Option<&str>) -> Option<String> {
+    manifest
+        .dependencies
+        .iter()
+        .find(|dependency| is_test_framework_package(dependency.as_str()))
+        .cloned()
+        .or_else(|| sdk.filter(|value| is_test_sdk(value)).map(str::to_string))
+}
+
+/// The root `Project` element's `Sdk` attribute of one csproj, if any. Only
+/// the root element counts: an `Sdk` attribute on an `Import` element is an
+/// import mechanism, not the project's SDK identity. Consumed by the scan
+/// driver and the inspect renderer through [`test_gate_evidence`].
+pub fn project_sdk(full_path: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(full_path).ok()?;
+    let mut reader = quick_xml::Reader::from_str(&raw);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(quick_xml::events::Event::Start(ref e)) | Ok(quick_xml::events::Event::Empty(ref e)) => {
+                if e.name().as_ref() == "Project" {
+                    for attr in e.attributes().flatten() {
+                        if attr.key.as_ref() == "Sdk" {
+                            let value = attr.value.to_string();
+                            if !value.is_empty() {
+                                return Some(value);
+                            }
+                        }
+                    }
+                    return None;
+                }
+            }
+            Ok(quick_xml::events::Event::Eof) => return None,
+            Err(_) => return None,
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+/// The id-level runner evidence behind [`is_test_project`]: the xunit, nunit,
+/// Microsoft.Testing.Platform and MSTest families by case-insensitive prefix,
+/// and the Microsoft test host SDK by exact id. The full evidence rules —
+/// satellites, the SDK shapes, assertion libraries, and the irrelevance of
+/// project names — are stated on [`is_test_project`].
 fn is_test_framework_package(dependency: &str) -> bool {
     let id = dependency.to_ascii_lowercase();
-    id.starts_with("xunit") || id.starts_with("nunit") || id == "microsoft.net.test.sdk"
+    id.starts_with("xunit")
+        || id.starts_with("nunit")
+        || id == "microsoft.net.test.sdk"
+        || id.starts_with("microsoft.testing.platform")
+        || id.starts_with("mstest.")
 }
 
 /// Unit name for a csproj: the file stem (e.g. `Orders.csproj` -> `Orders`).
@@ -697,7 +780,7 @@ fn project_references(_project_dir: &Path, full_path: &Path) -> Result<Vec<Strin
 /// management — under CPM the versions live in props `PackageVersion` items,
 /// so a csproj reference may carry no version; both shapes resolve to the
 /// same name tier). `features` has no C# analog and stays empty.
-pub(crate) fn manifest_info(project_dir: &Path, root: &Path, full_path: &Path) -> ManifestInfo {
+pub fn manifest_info(project_dir: &Path, root: &Path, full_path: &Path) -> ManifestInfo {
     let raw = std::fs::read_to_string(full_path).unwrap_or_default();
     let mut publish = None;
     let mut dependencies = BTreeSet::new();
@@ -938,7 +1021,7 @@ fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
 /// True when any rel-path component is `bin`, `obj`, `node_modules`, or starts
 /// with `.`. Matches the inspect exclusion rule so `scan` and `inspect` see the
 /// same source tree.
-pub(crate) fn is_excluded_cs(rel: &std::path::Path) -> bool {
+pub fn is_excluded_cs(rel: &std::path::Path) -> bool {
     rel.components().any(|component| {
         let name = component.as_os_str().to_string_lossy();
         name.starts_with('.') || name == "bin" || name == "obj" || name == "node_modules"
@@ -951,7 +1034,7 @@ pub(crate) fn is_excluded_cs(rel: &std::path::Path) -> bool {
 /// rule, shared by [`resolve_owner_prefix`], [`falls_under_namespace`], and the
 /// inspect file graph so the scan and the inspect map can never drift on
 /// which declaration owns a `using` target.
-pub(crate) fn namespace_prefixes(target: &str) -> impl Iterator<Item = &str> + '_ {
+pub fn namespace_prefixes(target: &str) -> impl Iterator<Item = &str> + '_ {
     let mut remaining = target.matches('.').count() + 1;
     let mut end = target.len();
     std::iter::from_fn(move || {

@@ -5,8 +5,10 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use crate::archspec::{language, spec};
-use crate::archspec::spec::Spec;
+use crate::language;
+use crate::model::{
+    matching_exclusion, ExclusionEntry,
+};
 
 /// The source extensions the ts driver reads and the resolution law infers.
 pub(super) const TS_SOURCE_EXTS: &[&str] =
@@ -102,15 +104,14 @@ fn nodext_substitutions(base: &Path) -> Vec<PathBuf> {
 pub(super) struct Exclusions {
     /// `excluded_sources` entries (trimmed root + resolved mode). Precedence
     /// at every hit site resolves by specificity through
-    /// `spec::matching_exclusion` — never spec order (decision-check MAJOR-1).
-    pub(super) declared: Vec<spec::ExclusionEntry>,
+    /// `model::matching_exclusion` — never spec order (decision-check MAJOR-1).
+    pub(super) declared: Vec<ExclusionEntry>,
 }
 
-
 impl Exclusions {
-    pub(super) fn new(loaded: &Spec) -> Self {
+    pub(super) fn new(exclusions: &[ExclusionEntry]) -> Self {
         Self {
-            declared: spec::exclusion_entries(loaded),
+            declared: exclusions.to_vec(),
         }
     }
 }
@@ -139,7 +140,7 @@ pub(super) fn mechanically_excluded(rel: &Path) -> bool {
 /// at load) — TOML order decides nothing (decision-check MAJOR-1).
 pub(super) fn exclusion_hit(rel: &Path, declared: Option<&Exclusions>) -> String {
     if let Some(exclusions) = declared
-        && let Some(entry) = spec::matching_exclusion(&exclusions.declared, rel)
+        && let Some(entry) = matching_exclusion(&exclusions.declared, rel)
     {
         return entry.path.to_string_lossy().replace('\\', "/");
     }
@@ -164,7 +165,7 @@ pub(super) fn exclusion_hit(rel: &Path, declared: Option<&Exclusions>) -> String
 /// warning-severity finding and never aborts (decision-check BLOCKER-2).
 pub(super) fn exclusion_verdict(rel: &Path, declared: Option<&Exclusions>) -> (String, &'static str) {
     if let Some(exclusions) = declared
-        && let Some(entry) = spec::matching_exclusion(&exclusions.declared, rel)
+        && let Some(entry) = matching_exclusion(&exclusions.declared, rel)
     {
         return (
             entry.path.to_string_lossy().replace('\\', "/"),

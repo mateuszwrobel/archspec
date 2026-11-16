@@ -1,5 +1,6 @@
 use crate::archspec::inspect::file_graph::FileGraph;
-use crate::archspec::scan::python as python_scan;
+use crate::archspec::language::Language;
+use crate::archspec::scan;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -17,7 +18,7 @@ use std::path::Path;
 /// test-tier law is the ts arm's: a production edge never TARGETS a
 /// test-tier file, while test files stay nodes and import sources.
 pub fn scan(root: &Path) -> Result<FileGraph, String> {
-    let model = python_scan::extract(root)?;
+    let model = scan::extract(Language::Python, root)?;
     let mut nodes: BTreeSet<String> = BTreeSet::new();
     let mut edges: BTreeSet<(String, String)> = BTreeSet::new();
     for edge in &model.module_edges {

@@ -49,7 +49,15 @@ fn issue_repro_tree() -> common::Fixture {
 fn model_of(fixture: &common::Fixture) -> Value {
     let output = fixture.run(&["scan"]);
     assert_eq!(output.status.code(), Some(0), "scan must exit 0");
-    assert!(stderr(&output).is_empty(), "stderr should be empty");
+    // The test-gated census lines (GitHub issue #39) are the report surface
+    // naming dropped test projects — expected noise here; the census itself is
+    // welded by tests/csharp_test_gating.rs. Everything else must stay silent.
+    let noise = stderr(&output)
+        .lines()
+        .filter(|line| !line.starts_with("test-gated unit: "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(noise.is_empty(), "stderr should be empty: {noise}");
     serde_json::from_str(&stdout(&output)).expect("stdout must be JSON")
 }
 

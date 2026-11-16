@@ -1,7 +1,7 @@
-use crate::archspec::model::{
+use crate::model::{
     Edge, FileEdge, FileFactKind, ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Role, Unit,
 };
-use rust_arch_test_kit::collector::{
+use crate::collector::{
     cfg_feature_name, flatten_use_tree, glob_token, has_cfg, is_cfg_test, is_public,
     is_reserved_segment, path_segments, pub_use_glob_paths, pub_use_names,
 };

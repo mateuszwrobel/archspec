@@ -19,7 +19,7 @@ workspace packages, 25 files each, 20 000 `.ts` files (~80 MB), byte-pinned
 by `scripts/bench/corpus-manifest.txt`; the guard runs before timing. The
 corpus verifies with findings (the file-tier rings are its point), so the
 timed runs carry the full compare cost. Page cache warm after the discarded
-warmup run. Date of measurement: 2026-11-09.
+warmup run. Date of measurement: 2026-11-11.
 
 Commands (from the crate root; pipeline stdout is discarded, the table
 prints on stderr):
@@ -32,22 +32,22 @@ $ cargo run --release --features profile-phases --example phase-probe -- \
       /var/tmp/hot34/corpus 5 hotpath_report.json >/dev/null
 ```
 
-5 runs, median of the per-run spans; `share` is the phase median over the sum
-of the top-level phase medians (11 876 ms), and nested phases state their
-share of the enclosing phase:
+9 runs, median of the per-run spans; `share` is the phase median over the sum
+of the top-level phase medians (7 537 ms), and nested phases state their share
+of the enclosing phase:
 
 | phase | median ms | share |
 |---|---:|---|
-| `spec-load` | 3.7 | < 0.1 % |
-| `scan` | 2 758.6 | 23.2 % |
-| — `scan-facts` (inside `scan`) | 171.3 | 6.2 % of `scan` |
-| `mapping` | 1.8 | < 0.1 % |
-| `compare` | 7 661.0 | 64.5 % |
-| — `cycle-detect` (inside `compare`) | 2 966.6 | 38.7 % of `compare`, 25.0 % of the total |
-| `report` | 1 451.0 | 12.2 % |
+| `spec-load` | 3.3 | < 0.1 % |
+| `scan` | 2 398.1 | 31.8 % |
+| — `scan-facts` (inside `scan`) | 102.8 | 4.3 % of `scan` |
+| `mapping` | 1.6 | < 0.1 % |
+| `compare` | 4 108.0 | 54.5 % |
+| — `cycle-detect` (inside `compare`) | 94.8 | 2.3 % of `compare`, 1.3 % of the total |
+| `report` | 1 026.2 | 13.6 % |
 
-Whole-run wall for the same runs: 12 130 ms mean (hotpath `verify-total`
-histogram) — the ~2 % above the phase sum is dispatch plumbing outside the
+Whole-run wall for the same runs: 7 600 ms mean (hotpath `verify-total`
+histogram) — the ~1 % above the phase sum is dispatch plumbing outside the
 declared boundaries (argument parsing, language selection, the agreement
 precondition).
 
@@ -56,9 +56,14 @@ precondition).
 CONTEXT, superseded by the table above: an earlier fleet figure put a
 "cold-report" cycle-detect share at ~59 %. It measured a different shape
 (cold filesystem state, different tree) and has no record in this repository.
-The measured share on the committed corpus is 38.7 % of `compare` and 25.0 %
-of the verify total on the machine class above. Treat only the table as
-data.
+The 2026-11-09 table measured 2 966.6 ms on this corpus — 38.7 % of `compare`,
+25.0 % of the verify total — on the machine class above. The phase then
+rescanned the whole edge list per node inside its graph walks. The walks are
+indexed now: the SCC walk reads per-node edge lists, and the file-tier
+attribution legs memoize their per-file claim scans. Verdicts are unchanged —
+findings and their order are byte-identical on the ring corpus and on the
+first-party specs. The same corpus now measures 94.8 ms — 2.3 % of `compare`,
+1.3 % of the total. Treat only the table as data.
 
 ## What the harness is not
 

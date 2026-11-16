@@ -1488,3 +1488,134 @@ fn inspect_unresolved_and_inline_declarations_emit_no_edge_or_node() {
     );
     assert!(stderr(&output).is_empty(), "stderr should be empty");
 }
+
+// GitHub issue #38 cells — the [project] language pin selects the driver in
+// both inspect modes: the root spec is parsed BEFORE the detect()-driven
+// driver selection, exactly as scan and verify already do.
+
+/// The issue #38 repro shape: ONE foreign root marker (`package.json`) beside
+/// a csharp tree whose csproj sits below the root. Detection alone answers
+/// ts; the pin must answer csharp. The two namespaces reference each other,
+/// so the model carries the module tier the tree view projects.
+fn pinned_csharp_tree(spec_body: &str) -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write("package.json", "{ \"name\": \"web\" }\n");
+    fixture.write(
+        "app/App.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+    );
+    fixture.write("app/App.cs", "namespace Demo.App;\npublic class App { }\n");
+    fixture.write(
+        "app/Helper.cs",
+        "using Demo.App;\nnamespace Demo.Helper;\npublic class Helper { }\n",
+    );
+    fixture.write("architecture.spec.toml", spec_body);
+    fixture
+}
+
+#[test]
+fn pin_honored_single_foreign_marker_selects_the_pinned_driver() {
+    // issue #38: exactly one FOREIGN root marker must not outrank the pin —
+    // the marker census validates, never overrides. Both modes take the
+    // pinned driver.
+    for mode in [vec!["inspect"], vec!["inspect", "scanner"]] {
+        let fixture = pinned_csharp_tree("[project]\nlanguage = \"csharp\"\n");
+        let output = fixture.run(&mode);
+        assert!(
+            output.status.success(),
+            "`{mode:?}` must honor the pin: {}",
+            stderr(&output)
+        );
+        assert!(
+            !stderr(&output).contains("no ts sources found"),
+            "the foreign marker must not select the ts driver in `{mode:?}`: {}",
+            stderr(&output)
+        );
+        assert!(!stdout(&output).is_empty(), "`{mode:?}` must render a body");
+    }
+}
+
+#[test]
+fn malformed_spec_errors_in_every_inspect_mode_before_any_scanning() {
+    // issue #41 nuance: the spec error surfaces before any source scanning,
+    // not the driver error of the mis-detected language.
+    let base = || {
+        let fixture = common::Fixture::new();
+        fixture.write(
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        );
+        fixture.write("src/lib.rs", "pub fn f() {}\n");
+        fixture.write(
+            "architecture.spec.toml",
+            "[project]\nlanguage = \"rust\"\nexcluded_sourcez = []\n",
+        );
+        fixture
+    };
+    for mode in [
+        vec!["inspect"],
+        vec!["inspect", "tree"],
+        vec!["inspect", "scanner"],
+    ] {
+        let fixture = base();
+        let output = fixture.run(&mode);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "`{mode:?}` must refuse on a malformed spec: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).contains("invalid spec:"),
+            "`{mode:?}` must name the spec error: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn no_spec_inspect_detection_unchanged() {
+    // No spec: the shipped detection answers byte-for-byte — the polyglot
+    // root keeps the AMBIGUITY line, a single root marker keeps selecting
+    // its driver outright, and a marker-less root keeps the chain fallback
+    // (file-level modes are model-free, so the chain arm runs here).
+    let polyglot = common::Fixture::new();
+    polyglot.write(
+        "Cargo.toml",
+        "[package]\nname = \"tool\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    polyglot.write("src/lib.rs", "pub fn f() {}\n");
+    polyglot.write("package.json", "{}\n");
+    let output = polyglot.run(&["inspect"]);
+    assert_eq!(output.status.code(), Some(1), "stderr: {}", stderr(&output));
+    assert!(
+        stderr(&output).contains(
+            "ambiguous root markers: Cargo.toml (rust), package.json (ts) — pin [project] language or scan a single-language root"
+        ),
+        "stderr: {}",
+        stderr(&output)
+    );
+
+    let single = common::Fixture::new();
+    single.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    single.write("src/lib.rs", "pub mod a;\n");
+    single.write("src/a.rs", "pub struct A;\n");
+    let output = single.run(&["inspect"]);
+    assert!(
+        output.status.success(),
+        "a single root marker still selects its driver without a spec: {}",
+        stderr(&output)
+    );
+
+    let chain = common::Fixture::new();
+    chain.write("src/lib.rs", "pub struct A;\n");
+    let output = chain.run(&["inspect"]);
+    assert!(
+        output.status.success(),
+        "a marker-less root keeps the chain fallback without a spec: {}",
+        stderr(&output)
+    );
+}

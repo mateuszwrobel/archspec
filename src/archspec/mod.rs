@@ -2,13 +2,12 @@ pub mod capability;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod language;
+pub mod model;
+pub mod profile;
 pub mod depgraph;
 pub mod diagram;
 pub mod helptext;
-pub mod language;
-pub mod model;
-pub mod parse;
-pub mod profile;
 pub mod report;
 pub mod scan;
 pub mod spec;
@@ -17,6 +16,13 @@ pub mod verify;
 
 pub mod init;
 pub mod inspect;
+
+// The model, language and profile engines compile into the library target
+// (discovery-extraction rung one); the three modules declared below re-export
+// them so every `crate::archspec::<name>` path in the modules above keeps
+// resolving — single source of truth, no duplication. The `scan` module
+// above is the binary's CLI glue over the library engine
+// (`rust_arch_test_kit::scan`).
 
 use cli::EX_USAGE;
 use commands::registry::CommandInfo;

@@ -40,7 +40,7 @@ Formats are deterministic text; no images, no timestamps.
 Every report contains, in order:
 
 1. **Header** — identifies the spec (file name and declared language).
-2. **Environment** — the build state the verdict declares: `adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N specifiers resolved to src instead of dist`. A `Environment lines by class` census table follows **only where the scan emitted report-only lines**, making each diagnostic class countable (class names: `archspec help diagnostics`).
+2. **Environment** — the build state the verdict declares: `adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N specifiers resolved to src instead of dist`. A `Environment lines by class` census table follows **only where the scan emitted report-only lines**, making each diagnostic class countable (class names: `archspec help diagnostics`). Where the run's scan excluded C# test projects, the census note `test-gated units: <n>` follows the table, counting the scan's `test-gated unit: <path> — <marker>` lines (see `../scan/input.md`).
 3. **Metrics** — model-derived numbers from the extracted model.
 4. **Roles** — the role facts carried by the extracted model, in closed-vocabulary order (`facades`, then `composition roots`), model paths sorted inside each group. The section appears **only when the model carries at least one role**; an empty roles map renders nothing at all.
 5. **Violations by category** — the per-category violation counts, in a separate table that appears **only when the run reports at least one violation** (omitted from a clean report).

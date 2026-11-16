@@ -3,6 +3,10 @@ graph TD
   engines
   foundations
   lib_collector_f6e3372d["lib-collector"]
+  lib_language_a19b45bf["lib-language"]
+  lib_model_2c8e5d4c["lib-model"]
+  lib_parse_bdb7bf31["lib-parse"]
+  lib_profile_a1652a73["lib-profile"]
   lib_render_e7a72dae["lib-render"]
   rust_arch_test_kit_35b16f27["rust-arch-test-kit"]
   scan_core_15ce7974["scan-core"]
@@ -16,20 +20,27 @@ graph TD
   engines --> foundations
   engines --> rust_arch_test_kit_35b16f27
   engines --> scan_core_15ce7974
-  engines --> scan_kotlin_bbaecaa3
-  engines --> scan_python_3afe26b9
-  engines --> scan_ts_333931d0
-  scan_core_15ce7974 --> engines
+  lib_parse_bdb7bf31 --> lib_language_a19b45bf
   scan_core_15ce7974 --> foundations
+  scan_core_15ce7974 --> lib_collector_f6e3372d
+  scan_core_15ce7974 --> lib_language_a19b45bf
+  scan_core_15ce7974 --> lib_model_2c8e5d4c
+  scan_core_15ce7974 --> lib_parse_bdb7bf31
   scan_core_15ce7974 --> scan_kotlin_bbaecaa3
   scan_core_15ce7974 --> scan_python_3afe26b9
   scan_core_15ce7974 --> scan_ts_333931d0
-  scan_kotlin_bbaecaa3 --> engines
-  scan_kotlin_bbaecaa3 --> foundations
+  scan_kotlin_bbaecaa3 --> lib_language_a19b45bf
+  scan_kotlin_bbaecaa3 --> lib_model_2c8e5d4c
+  scan_kotlin_bbaecaa3 --> lib_parse_bdb7bf31
+  scan_kotlin_bbaecaa3 --> lib_profile_a1652a73
   scan_kotlin_bbaecaa3 --> scan_leg_9104ed81
-  scan_python_3afe26b9 --> engines
-  scan_python_3afe26b9 --> foundations
+  scan_python_3afe26b9 --> lib_language_a19b45bf
+  scan_python_3afe26b9 --> lib_model_2c8e5d4c
+  scan_python_3afe26b9 --> lib_parse_bdb7bf31
+  scan_python_3afe26b9 --> lib_profile_a1652a73
   scan_python_3afe26b9 --> scan_leg_9104ed81
-  scan_ts_333931d0 --> engines
-  scan_ts_333931d0 --> foundations
+  scan_ts_333931d0 --> lib_language_a19b45bf
+  scan_ts_333931d0 --> lib_model_2c8e5d4c
+  scan_ts_333931d0 --> lib_parse_bdb7bf31
+  scan_ts_333931d0 --> lib_profile_a1652a73
   scan_ts_333931d0 --> scan_leg_9104ed81

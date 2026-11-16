@@ -7,7 +7,7 @@
 
 use tree_sitter::{Node, Parser, Tree};
 
-use crate::archspec::language::Language;
+use crate::language::Language;
 
 /// Why a syntax-tree parse could not start or produced no tree.
 #[derive(Debug)]
@@ -149,7 +149,7 @@ pub fn node_text<'a>(node: &Node<'_>, source: &'a str) -> &'a str {
 mod tests {
     // Import through the same path the scanners will call: archspec::parse::grammar.
     use super::{first_error_range, grammar_for, node_text, parse_tree, ts_grammar_for, ParseError};
-    use crate::archspec::language::Language;
+    use crate::language::Language;
 
     #[test]
     fn registry_answers_compiled_grammars_per_language() {
