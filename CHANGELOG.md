@@ -6,6 +6,20 @@ only.
 
 ## [Unreleased]
 
+## [0.6.77] - 2026-11-17
+
+### Fixed
+
+- The perf probe now fires on the release workflow completing, not on the
+  release event. The release page is created with `GITHUB_TOKEN`, and
+  GitHub's loop-prevention suppresses workflow runs for events that token
+  creates, so a `release: published` trigger produced zero probe runs (the
+  v0.6.76 release chain was green yet benched nothing). The probe now
+  watches the `Release archspec binaries` workflow and benches only a
+  successful completion on a `v*` ref, downloading the same release assets
+  with the established naming. The first probe run under this arm is
+  expected on the next release.
+
 ## [0.6.76] - 2026-11-17
 
 ### Changed

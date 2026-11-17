@@ -1,16 +1,17 @@
 name: Perf probe (issue #33 guard)
 
 # Release witness, gate-free and build-free (operator decision 2026-11-17):
-# this workflow gates NOTHING and compiles NOTHING. It fires ONLY when a
-# release is published. The retired push-tags arm raced the release's own
-# asset upload — the download step met release pages whose assets were not
-# up yet (run ids 43931896825, 43798104263) — and the retired schedule arm
-# benched nothing anybody had shipped. The release event removes both: the
-# assets exist by construction and every measurement names a real binary.
+# this workflow gates NOTHING and compiles NOTHING. It fires ONLY when the
+# release workflow completes successfully on a vX.Y.Z ref. The retired
+# push-tags arm raced the release's own asset upload — the download step met
+# release pages whose assets were not up yet (run ids 43931896825,
+# 43798104263) — and the retired schedule arm benched nothing anybody had
+# shipped. Watching the completed release workflow removes both: the assets
+# exist by construction and every measurement names a real binary.
 #
-# Each matrix leg downloads its platform binary FROM THE TRIGGERING RELEASE
+# Each matrix leg downloads its platform binary FROM THE COMPLETED RELEASE
 # with the established asset naming (archspec-<version>-<target-triple>.tar.gz
-# plus the msvc zip, version stripped from the tag), extracts it and benches
+# plus the msvc zip, version stripped from the release ref) and benches
 # THAT binary with the committed corpus and the established protocol —
 # medians of 3 after one discarded warmup. Legs are native (M1: cross-arch
 # timing under emulation fabricates the table), so every asset runs on the
@@ -25,18 +26,35 @@ name: Perf probe (issue #33 guard)
 # belongs to the perf program).
 
 on:
-  release:
-    types: [published]
+  # A release:published trigger NEVER fires here: release.yml creates the
+  # release with GH_TOKEN=${{ github.token }}, and GitHub's loop-prevention
+  # suppresses workflow runs for events created by GITHUB_TOKEN, so the
+  # release event produced zero probe runs (v0.6.76 chain: release run
+  # 44033038817 green, no event=release run). workflow_run fires AFTER the
+  # release workflow completes — the release and its assets exist by then,
+  # so the asset download stays simple — and it is not subject to that
+  # suppression because it keys off the workflow run, not the token that
+  # made the release. The version/tag is the completion's head_branch (the
+  # vX.Y.Z tag), guarded below to successful runs on v refs only. NOTE: a
+  # workflow_run-triggered workflow only fires from the file as it exists on
+  # the DEFAULT branch, so the first probe run under this arm is expected on
+  # the NEXT release after this file lands on the mirror main branch.
+  workflow_run:
+    workflows: ["Release archspec binaries"]
+    types: [completed]
 
 permissions:
   contents: read
 
 concurrency:
-  group: perf-probe-${{ github.ref }}
+  group: perf-probe-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: true
 
 jobs:
   bench:
+    # Only a SUCCESSFUL release-workflow completion on a vX.Y.Z ref benches
+    # anything; a failed or untagged completion skips before any runner cost.
+    if: github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')
     strategy:
       fail-fast: false
       matrix:
@@ -78,12 +96,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          ver="${GITHUB_REF_NAME#v}"
+          ver="${RELEASE_REF#v}"
           asset="archspec-${ver}-${{ matrix.asset }}"
           mkdir -p bench-bin bench-extract
-          gh release download "${GITHUB_REF_NAME}" -p "${asset}" -D bench-bin
+          gh release download "${RELEASE_REF}" -p "${asset}" -D bench-bin
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
             powershell -NoProfile -Command "Expand-Archive -Force -Path bench-bin/$asset -DestinationPath bench-extract"
           else
