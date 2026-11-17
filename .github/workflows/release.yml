@@ -30,6 +30,12 @@ jobs:
   release:
     needs: build-matrix
     runs-on: ubuntu-latest
+    # Job-level permissions REPLACE the workflow-level set: contents:write
+    # mirrors the workflow level (release page + assets), actions:write is
+    # the perf-probe dispatch step below (gh workflow run) and nothing else.
+    permissions:
+      contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -55,6 +61,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: sh release-assets.sh "${GITHUB_REF_NAME}" dist
+      # Perf-probe dispatch (operator decision 2026-11-17): the probe workflow
+      # benches THIS release's assets from the release page. It runs LAST in
+      # this job, after the page exists, so the assets are there by
+      # construction. Two automatic arms are proven dead on GitHub — do not
+      # re-try them: on: release is muted by GITHUB_TOKEN loop-prevention
+      # (v0.6.76 chain, release run 44033038817, zero probe runs) and
+      # on: workflow_run silently never dispatches when the parent run ran
+      # from a non-default-branch ref — every release run runs from the tag
+      # ref (v0.6.77 chain, release run 44039817941, zero probe runs). An
+      # explicit workflow_dispatch through the API is the one arm
+      # loop-prevention does not mute. --ref "$GITHUB_REF_NAME" (the tag)
+      # makes the dispatched run execute the probe file AT the release's own
+      # tree, so the bench machinery matches the bytes that shipped. The step
+      # is non-fatal by design: a dispatch failure never reddens a shipped
+      # release (continue-on-error plus the named PROBE-DISPATCH rows).
+      - name: Dispatch the perf probe for this release (non-fatal)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          if [ ! -f .github/workflows/perf-probe.yaml ]; then
+            echo "PROBE-DISPATCH skip reason=probe-file-absent"
+            exit 0
+          fi
+          if gh workflow run perf-probe.yaml --repo "$GITHUB_REPOSITORY" \
+              --ref "$GITHUB_REF_NAME" -f tag="$GITHUB_REF_NAME"; then
+            echo "PROBE-DISPATCH ok ref=$GITHUB_REF_NAME"
+          else
+            echo "PROBE-DISPATCH fail reason=workflow-run-refused" >&2
+            exit 1
+          fi
 
   # npm channel (ADR-051): one downloader package per release, published via
   # npm Trusted Publishing — OIDC from the runner, no NPM_TOKEN anywhere.

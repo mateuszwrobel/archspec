@@ -6,6 +6,21 @@ only.
 
 ## [Unreleased]
 
+## [0.6.78] - 2026-11-17
+
+### Fixed
+
+- The perf probe now parses on GitHub and is dispatched by the release
+  workflow itself. The workflow file carried an unquoted `name:` scalar whose
+  `#` character truncated the workflow display name, and an unquoted step
+  name containing a colon — together these made the file invalid YAML, and
+  every probe run was a zero-job parse failure. Both trigger arms proven on
+  GitHub are retired: `release` events are muted by GITHUB_TOKEN
+  loop-prevention, and `workflow_run` completions from a run that ran on a
+  tag ref are silently never dispatched. The release job now dispatches the
+  probe as its final, non-fatal step on the release tag's own ref, so each
+  release benches its own assets with the machinery from its own tree.
+
 ## [0.6.77] - 2026-11-17
 
 ### Fixed

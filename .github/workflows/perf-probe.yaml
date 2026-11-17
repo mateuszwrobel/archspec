@@ -1,13 +1,25 @@
-name: Perf probe (issue #33 guard)
+name: "Perf probe (issue #33 guard)"
 
 # Release witness, gate-free and build-free (operator decision 2026-11-17):
-# this workflow gates NOTHING and compiles NOTHING. It fires ONLY when the
-# release workflow completes successfully on a vX.Y.Z ref. The retired
-# push-tags arm raced the release's own asset upload — the download step met
-# release pages whose assets were not up yet (run ids 43931896825,
+# this workflow gates NOTHING and compiles NOTHING. It benches the assets of
+# a completed release and is dispatched BY release.yml as that workflow's
+# final step (gh workflow run perf-probe.yaml --ref <tag> -f tag=<tag>).
+# TWO AUTOMATIC TRIGGER ARMS ARE PROVEN DEAD ON-GITHUB — do not re-try them:
+#   1. on: release (published) — muted by GITHUB_TOKEN loop-prevention. The
+#      release page is created with github.token, and GitHub suppresses
+#      workflow runs for events that token creates: the v0.6.76 chain had a
+#      green release run (44033038817) and ZERO event=release probe runs.
+#   2. on: workflow_run of "Release archspec binaries" completed — GitHub
+#      silently never dispatches workflow_run when the PARENT run ran from a
+#      non-default-branch ref, and every release run runs from the tag ref:
+#      the v0.6.77 chain had a green release run (44039817941) and ZERO
+#      event=workflow_run probe runs.
+# An explicit workflow_dispatch through the API is the one arm loop-prevention
+# does not mute, and the tag ref it carries is the release's own tree. The
+# retired push-tags arm raced the release's own asset upload — the download
+# step met release pages whose assets were not up yet (run ids 43931896825,
 # 43798104263) — and the retired schedule arm benched nothing anybody had
-# shipped. Watching the completed release workflow removes both: the assets
-# exist by construction and every measurement names a real binary.
+# shipped.
 #
 # Each matrix leg downloads its platform binary FROM THE COMPLETED RELEASE
 # with the established asset naming (archspec-<version>-<target-triple>.tar.gz
@@ -26,35 +38,31 @@ name: Perf probe (issue #33 guard)
 # belongs to the perf program).
 
 on:
-  # A release:published trigger NEVER fires here: release.yml creates the
-  # release with GH_TOKEN=${{ github.token }}, and GitHub's loop-prevention
-  # suppresses workflow runs for events created by GITHUB_TOKEN, so the
-  # release event produced zero probe runs (v0.6.76 chain: release run
-  # 44033038817 green, no event=release run). workflow_run fires AFTER the
-  # release workflow completes — the release and its assets exist by then,
-  # so the asset download stays simple — and it is not subject to that
-  # suppression because it keys off the workflow run, not the token that
-  # made the release. The version/tag is the completion's head_branch (the
-  # vX.Y.Z tag), guarded below to successful runs on v refs only. NOTE: a
-  # workflow_run-triggered workflow only fires from the file as it exists on
-  # the DEFAULT branch, so the first probe run under this arm is expected on
-  # the NEXT release after this file lands on the mirror main branch.
-  workflow_run:
-    workflows: ["Release archspec binaries"]
-    types: [completed]
+  # The ONLY trigger (operator decision 2026-11-17, after the two proven-dead
+  # arms named at the top of this file). release.yml dispatches this workflow
+  # after the release page exists:
+  #   gh workflow run perf-probe.yaml --ref "$GITHUB_REF_NAME" -f tag="$GITHUB_REF_NAME"
+  # A dispatched run executes the workflow file AS IT EXISTS AT --ref, so
+  # passing the tag makes the probe machinery match the release's own tree.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to bench (vX.Y.Z — the release whose assets are benched)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: perf-probe-${{ github.event.workflow_run.head_branch }}
+  group: perf-probe-${{ inputs.tag }}
   cancel-in-progress: true
 
 jobs:
   bench:
-    # Only a SUCCESSFUL release-workflow completion on a vX.Y.Z ref benches
-    # anything; a failed or untagged completion skips before any runner cost.
-    if: github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')
+    # Only a vX.Y.Z ref benches anything; an untagged dispatch skips before
+    # any runner cost (the tag input is required, so it is never empty).
+    if: startsWith(inputs.tag, 'v')
     strategy:
       fail-fast: false
       matrix:
@@ -96,7 +104,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_REF: ${{ github.event.workflow_run.head_branch }}
+          RELEASE_REF: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           ver="${RELEASE_REF#v}"
@@ -127,7 +135,7 @@ jobs:
             --corpus bench-tree --manifest scripts/bench/corpus-manifest.txt \
             --reps 3 --deadline 900 --out metrics.json \
             --bin "${{ matrix.bin }}=bench-bin/${{ matrix.bin }}${exe}" | tee bench-report.tsv
-      - name: Assert ratios (observe-never-block: a breach annotates, never fails)
+      - name: "Assert ratios (observe-never-block: a breach annotates, never fails)"
         shell: bash
         run: |
           set -euo pipefail
