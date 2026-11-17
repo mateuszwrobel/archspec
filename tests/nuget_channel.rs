@@ -96,6 +96,15 @@ const RID_ROWS: &[(&str, &str, &str)] = &[
     ("win-x64", "x86_64-pc-windows-msvc.zip", "archspec.exe"),
 ];
 
+/// folded rid | routed rid — RIDs with no own runtimes/ member that the RID
+/// graph folds onto a shipped binary (issue #42 decision-check: a row lands
+/// only for a RID the graph folds onto a shipped binary AND some SDK build
+/// is measured to report it). linux-musl-x64 rides the static musl binary
+/// (finding R4); arch-x64 is the Arch Linux system SDK RID, graph-backed
+/// through runtime.json arch-x64 -> arch -> linux-x64, measured on both
+/// system-SDK builds (10.0.112 and 8.0.131 report it at execution time).
+const FOLD_ROWS: &[(&str, &str)] = &[("linux-musl-x64", "linux-x64"), ("arch-x64", "linux-x64")];
+
 #[test]
 fn rid_rows_pair_with_the_matrix_and_the_props() {
     let pack = load("nuget/scripts/pack-tools.sh");
@@ -122,16 +131,22 @@ fn rid_rows_pair_with_the_matrix_and_the_props() {
             "the props table must route {rid} to runtimes/{rid}/native/{member}"
         );
     }
-    // The musl-x64 edge (finding R4): linux-musl-x64 is folded onto the
-    // static musl binary under linux-x64, never onto a missing row.
-    let fold_line = props
-        .lines()
-        .find(|line| line.contains("<ArchspecPath") && line.contains("'linux-musl-x64'"))
-        .expect("the props table must fold linux-musl-x64 onto a row");
-    assert!(
-        fold_line.contains("runtimes/linux-x64/native/archspec"),
-        "linux-musl-x64 must route to the static musl binary under linux-x64"
-    );
+    // The fold edges (finding R4 + issue #42 decision-check): each folded
+    // RID routes onto the static musl binary under linux-x64, never onto a
+    // missing runtimes/<rid>/ member — a RID_ROWS entry for a fold would
+    // demand a nonexistent member and is therefore the wrong list.
+    for (folded, routed) in FOLD_ROWS {
+        let fold_line = props
+            .lines()
+            .find(|line| {
+                line.contains("<ArchspecPath") && line.contains(&format!("'{folded}'"))
+            })
+            .unwrap_or_else(|| panic!("the props table must fold {folded} onto a row"));
+        assert!(
+            fold_line.contains(&format!("runtimes/{routed}/native/archspec")),
+            "{folded} must route to the static musl binary under {routed}"
+        );
+    }
     // No asset ⇒ no RID: a row without a matrix asset would be a lie.
     for line in props.lines().filter(|l| l.contains("<ArchspecPath")) {
         for absent in ["linux-musl-arm64", "win-arm64", "win-x86", "linux-x86", "any"] {
@@ -163,6 +178,15 @@ fn props_refuses_unknown_rids_without_a_fallback() {
             props.contains(rid.0),
             "the refusal text must list the supported RID {0}",
             rid.0
+        );
+    }
+    // The refusal text also names the folded RIDs it serves (issue #42:
+    // arch-x64 resolves through the fold, so the error must not claim it
+    // ships nothing for it).
+    for (folded, _) in FOLD_ROWS {
+        assert!(
+            props.contains(folded),
+            "the refusal text must name the served fold {folded}"
         );
     }
     // Every ArchspecPath assignment is conditional — an unconditional

@@ -1,5 +1,7 @@
-<Project InitialTargets="_ArchspecRidCheck">
-  <!-- archspec tools-package selection (decision-check record 2026-11-06).
+<Project InitialTargets="_ArchspecSelectAndCheck">
+  <!-- archspec tools-package selection (decision-check record 2026-11-06;
+       target-time RID selection for GitHub issue #42, decision-check
+       record 2026-11-17).
 
        The package is tools-only: restore does not copy its files to the
        consumer output, so $(ArchspecPath) addresses the package folder
@@ -8,11 +10,35 @@
        native-files layout).
 
        Selection follows the .NET SDK's own runtime identifier — the machine
-       running the build, not the target runtime.
+       running the build, not the target runtime — READ AT TARGET-EXECUTION
+       TIME. Issue #42 proved $(NETCoreSdkRuntimeIdentifier) evaluates to
+       the empty string at the nuget.g.props import position on every SDK,
+       so an evaluation-time seed resolves nothing; the seed, the RID table
+       and the unknown-RID error therefore ride ONE InitialTargets target,
+       where the property carries its real value. An evaluation-time
+       loud-fail is impossible: restore evaluation never runs targets, so a
+       restore-time error element would break every consumer (the issue #37
+       class). Read ArchspecPath at target-execution time — an
+       evaluation-time capture (-getProperty) is empty by design.
+
+       $(NETCoreSdkPortableRuntimeIdentifier) was considered and REJECTED:
+       it is libc-blind — a build on Alpine collapses musl onto the plain
+       linux-arm64 value, the glibc-only row the GAP below refuses — where
+       the SDK RID reports linux-musl-arm64 and falls into the loud
+       unknown-RID error instead of a silent exec failure.
+
+        RID-table maintenance law: a row lands only for a RID the RID graph
+        folds onto a shipped binary AND some SDK build is measured to report
+        it. arch-x64 joins on that evidence: the runtime.json graph folds
+        arch-x64 -> arch -> linux-x64 (the Arch Linux system SDK RID), so an
+        Arch SDK build selects the static musl binary. alpine-x64 is the
+        named candidate class: the graph folds it onto a shipped binary
+        through linux-musl-x64, but no SDK build is measured to report it —
+        no row until a measurement lands.
 
        The linux-x64 binary is a static musl build: it runs on glibc and musl
-       x64 hosts alike, so linux-musl-x64 is folded onto it here the way the
-       RID graph folds it at restore time (finding R4/M3).
+       x64 hosts alike, so linux-musl-x64 and arch-x64 are folded onto it
+       here the way the RID graph folds them at restore time (finding R4/M3).
 
        GAP: Alpine on arm64 (linux-musl-arm64) has no binary. The
        linux-arm64 binary is a glibc build that will not execute there, so
@@ -22,22 +48,23 @@
 
        An unknown RID fails loud: there is no fallback to linux, unix or any
        — a props file that picked some binary anyway would be a silent-pass
-       hole (finding M3). -->
+       hole (finding M3). The <Error> rides the target because MSBuild 18
+       (.NET 10 SDK) refuses an <Error> directly under <Project> at
+       evaluation time (issue #37), and because at evaluation time there is
+       no RID at all (issue #42) — the target runs before any requested
+       target does useful work, and restore stays green. -->
   <PropertyGroup>
     <ArchspecPackageRoot>$(MSBuildThisFileDirectory)../</ArchspecPackageRoot>
-    <_ArchspecRid Condition="'$(_ArchspecRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</_ArchspecRid>
-    <ArchspecPath Condition="'$(_ArchspecRid)' == 'linux-x64' or '$(_ArchspecRid)' == 'linux-musl-x64'">$(ArchspecPackageRoot)runtimes/linux-x64/native/archspec</ArchspecPath>
-    <ArchspecPath Condition="'$(_ArchspecRid)' == 'linux-arm64'">$(ArchspecPackageRoot)runtimes/linux-arm64/native/archspec</ArchspecPath>
-    <ArchspecPath Condition="'$(_ArchspecRid)' == 'osx-x64'">$(ArchspecPackageRoot)runtimes/osx-x64/native/archspec</ArchspecPath>
-    <ArchspecPath Condition="'$(_ArchspecRid)' == 'osx-arm64'">$(ArchspecPackageRoot)runtimes/osx-arm64/native/archspec</ArchspecPath>
-    <ArchspecPath Condition="'$(_ArchspecRid)' == 'win-x64'">$(ArchspecPackageRoot)runtimes/win-x64/native/archspec.exe</ArchspecPath>
   </PropertyGroup>
-  <!-- MSBuild 18 (.NET 10 SDK) refuses an <Error> directly under <Project> at
-       evaluation time, so the loud unknown-RID fail (finding M3) rides an
-       initial target: it runs before any requested target, keeping the
-       fail-before-useful-work contract, and it is skipped whenever
-       ArchspecPath resolved non-empty. -->
-  <Target Name="_ArchspecRidCheck" Condition="'$(ArchspecPath)' == ''">
-    <Error Text="archspec: the archspec tools package ships no binary for .NET SDK runtime identifier '$(_ArchspecRid)'. It ships linux-x64 (static musl — also serves linux-musl-x64), linux-arm64 (glibc — no Alpine arm64 build yet), osx-x64, osx-arm64 and win-x64, and falls back to nothing by design. Set _ArchspecRid explicitly only when you have proven that binary runs on this machine." />
+  <Target Name="_ArchspecSelectAndCheck">
+    <PropertyGroup>
+      <_ArchspecRid Condition="'$(_ArchspecRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</_ArchspecRid>
+      <ArchspecPath Condition="'$(_ArchspecRid)' == 'linux-x64' or '$(_ArchspecRid)' == 'linux-musl-x64' or '$(_ArchspecRid)' == 'arch-x64'">$(ArchspecPackageRoot)runtimes/linux-x64/native/archspec</ArchspecPath>
+      <ArchspecPath Condition="'$(_ArchspecRid)' == 'linux-arm64'">$(ArchspecPackageRoot)runtimes/linux-arm64/native/archspec</ArchspecPath>
+      <ArchspecPath Condition="'$(_ArchspecRid)' == 'osx-x64'">$(ArchspecPackageRoot)runtimes/osx-x64/native/archspec</ArchspecPath>
+      <ArchspecPath Condition="'$(_ArchspecRid)' == 'osx-arm64'">$(ArchspecPackageRoot)runtimes/osx-arm64/native/archspec</ArchspecPath>
+      <ArchspecPath Condition="'$(_ArchspecRid)' == 'win-x64'">$(ArchspecPackageRoot)runtimes/win-x64/native/archspec.exe</ArchspecPath>
+    </PropertyGroup>
+    <Error Condition="'$(ArchspecPath)' == ''" Text="archspec: the archspec tools package ships no binary for .NET SDK runtime identifier '$(_ArchspecRid)'. It ships linux-x64 (static musl — also serves linux-musl-x64 and arch-x64), linux-arm64 (glibc — no Alpine arm64 build yet), osx-x64, osx-arm64 and win-x64, and falls back to nothing by design. ArchspecPath resolves at target-execution time — an evaluation-time capture is empty by design, not a missing install. Set _ArchspecRid explicitly only when you have proven that binary runs on this machine." />
   </Target>
 </Project>

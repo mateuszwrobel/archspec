@@ -6,6 +6,22 @@ only.
 
 ## [Unreleased]
 
+## [0.6.94] - 2026-11-17
+
+### Fixed
+
+- The NuGet tools package `build/archspec.props` now selects the native
+  binary at target-execution time (GitHub issue #42): the SDK runtime
+  identifier resolves to the empty string at the props import position on
+  every SDK, so the RID seed, the RID table and the unknown-RID error all
+  ride one `InitialTargets` target (`_ArchspecSelectAndCheck`) instead of an
+  evaluation-time property group — the pre-fix props failed every consumer
+  on every SDK. `arch-x64` (the Arch Linux system SDK RID, graph-backed
+  `arch-x64 -> arch -> linux-x64`) folds onto the static musl `linux-x64`
+  binary beside `linux-musl-x64`. `$(ArchspecPath)` reads empty at
+  evaluation time by design (`-getProperty` captures included); read it
+  inside a target.
+
 ## [0.6.93] - 2026-11-17
 
 ### Fixed
