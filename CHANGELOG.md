@@ -6,6 +6,33 @@ only.
 
 ## [Unreleased]
 
+## [0.6.76] - 2026-11-17
+
+### Changed
+
+- The perf probe now fires only when a release is published and benches the
+  published release binaries directly — no leg builds from source anymore.
+  The schedule and tag-push triggers are retired: a tag-triggered run raced
+  the release's own asset upload and the schedule benched unshipped code
+  (operator decision 2026-11-17). Ratio breaches are observed, annotated
+  and never fail the probe; only probe breakage goes red. The darwin leg
+  moved to the `macos-26` label — the retired `macos-14` label no longer
+  resolves — and a linux aarch64 leg benches the gnu tarball on native
+  hardware beside the x86_64 musl leg.
+- Releases dual-publish to GitHub Packages after the npmjs and NuGet.org
+  channels succeed: the same staged tarball goes to the GitHub npm
+  registry and the same nupkg to the GitHub NuGet feed. A GitHub-registry
+  failure is named (`GH-PKGS-NPM` / `GH-PKGS-NUGET` lines) and annotated,
+  and never reddens the release.
+
+### Fixed
+
+- `gen_corpus.py` writes its files as UTF-8 explicitly. On Windows the
+  locale default (cp1252) encoded the header comment's em dash as a
+  different byte, so the corpus aggregate hash drifted from the pinned
+  manifest and the corpus guard refused every windows perf-probe run
+  before timing.
+
 ## [0.6.75] - 2026-11-16
 
 ### Fixed

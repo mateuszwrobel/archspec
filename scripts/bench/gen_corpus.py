@@ -73,10 +73,13 @@ def main(argv: list[str]) -> int:
         "private": True,
         "workspaces": ["packages/*"],
     }
-    # newline="\n" everywhere: the corpus bytes must be identical on every
-    # platform, or the pinned aggregate hash would reject a windows/darwin
-    # generation for newline reasons instead of content ones.
-    with open(os.path.join(outdir, "package.json"), "w", newline="\n") as fh:
+    # newline="\n" and encoding="utf-8" everywhere: the corpus bytes must be
+    # identical on every platform, or the pinned aggregate hash would reject a
+    # windows/darwin generation for newline or code-page reasons instead of
+    # content ones. Without the explicit utf-8 the file header's em dash
+    # follows the locale code page — cp1252 on Windows — and drifts the
+    # aggregate hash there.
+    with open(os.path.join(outdir, "package.json"), "w", newline="\n", encoding="utf-8") as fh:
         json.dump(root_manifest, fh, indent=2)
         fh.write("\n")
 
@@ -89,11 +92,11 @@ def main(argv: list[str]) -> int:
             "version": "0.0.0",
             "main": "src/f0.ts",
         }
-        with open(os.path.join(pkg_dir, "package.json"), "w", newline="\n") as fh:
+        with open(os.path.join(pkg_dir, "package.json"), "w", newline="\n", encoding="utf-8") as fh:
             json.dump(pkg_manifest, fh, indent=2)
             fh.write("\n")
         for idx in range(files):
-            with open(os.path.join(src_dir, f"f{idx}.ts"), "w", newline="\n") as fh:
+            with open(os.path.join(src_dir, f"f{idx}.ts"), "w", newline="\n", encoding="utf-8") as fh:
                 fh.write(file_source(pkg, idx, files, packages))
 
     print(f"{packages * files} .ts files under {outdir}")

@@ -3,4 +3,4 @@
 # computed from the corpus root — path-independent across machines.
 ts_files = 20000
 aggregate_sha256 = 1c85b2388e64e1224c84a434721f006bd9061b9959895416965d7bd482bf7bd6
-gen_corpus_sha256 = f00be26f64c67fb695b7e9e3e540cd5a89a1f584a0b8a4f2aaa3bbb253cee3a0
+gen_corpus_sha256 = 9600146fae13e3c149e0f5e267c472d7fdc3261b7b1eb1647f143407ba72aeb3

@@ -70,6 +70,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      packages: write # the GitHub Packages mirror step only (dual-publish 2026-11-17)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -150,6 +151,46 @@ jobs:
           sh npm/scripts/assert-attestations.sh \
             --pkg "@${{ steps.scope.outputs.scope }}/archspec" \
             --version "${GITHUB_REF_NAME#v}"
+      # GitHub Packages npm mirror (operator decision 2026-11-17): dual-publish
+      # the same staged package to GHCR AFTER the npmjs channel succeeded. The
+      # npmjs publish above IS the release — this step must never redden it:
+      # every failure arm prints a named line plus an annotation and exits 0.
+      # No account literals in the payload: the registry owner and the scope
+      # comparison ride github.repository_owner, the env indirection the
+      # scope-resolution step uses for vars.NPM_SCOPE.
+      - name: Dual-publish to GitHub Packages npm (observe-never-block)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          NPM_SCOPE: ${{ vars.NPM_SCOPE }}
+        run: |
+          set -uo pipefail
+          fail() {
+            echo "GH-PKGS-NPM fail reason=$1" >&2
+            echo "::error::GitHub Packages npm registry publish failed ($1) — the npmjs channel above is unaffected"
+            exit 0
+          }
+          skip() {
+            echo "GH-PKGS-NPM skip reason=$1"
+            exit 0
+          }
+          if [ -z "${NPM_SCOPE:-}" ]; then
+            skip "scope-unset (the npmjs publish above would have refused first)"
+          fi
+          if [ "$(printf '%s' "${NPM_SCOPE}" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "${OWNER:-}" | tr '[:upper:]' '[:lower:]')" ]; then
+            skip "scope-not-repository-owner (GHCR npm requires the package scope to name the account)"
+          fi
+          mkdir -p ghpkgs
+          packed="$(npm pack --silent ./pkg --pack-destination ghpkgs)" \
+            || fail "pack of the staged directory"
+          printf "@%s:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}\n" \
+            "${NPM_SCOPE}" > "${RUNNER_TEMP}/ghpkgs.npmrc" \
+            || fail "npmrc write"
+          npm publish ./ghpkgs/"$(basename "${packed}")" \
+            --registry https://npm.pkg.github.com --access public \
+            --userconfig "${RUNNER_TEMP}/ghpkgs.npmrc" \
+            || fail "ghcr npm-registry publish"
+          echo "GH-PKGS-NPM ok"
 
   # NuGet channel (decision-check record 2026-11-06): a tools package whose
   # bytes ARE the release assets, packed inside the release transaction
@@ -170,6 +211,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      packages: write # the GitHub Packages mirror step only (dual-publish 2026-11-17)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -238,4 +280,30 @@ jobs:
           set -euo pipefail
           sh nuget/scripts/assert-registration.sh --pkg archspec \
             --version "${GITHUB_REF_NAME#v}" --timeout-secs 1500 --space-secs 30
+      # GitHub Packages NuGet mirror (operator decision 2026-11-17): push the
+      # same nupkg bytes to the owner's GitHub Packages feed AFTER the nuget.org
+      # channel succeeded. The nuget.org push above IS the release — this step
+      # must never redden it: every failure arm prints a named line plus an
+      # annotation and exits 0. The feed's owner segment rides
+      # github.repository_owner — no account literals in the payload.
+      - name: Dual-push to GitHub Packages NuGet (observe-never-block)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -uo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          fail() {
+            echo "GH-PKGS-NUGET fail reason=$1" >&2
+            echo "::error::GitHub Packages NuGet feed push failed ($1) — the nuget.org channel above is unaffected"
+            exit 0
+          }
+          [ -n "${OWNER:-}" ] || fail "owner-unresolved"
+          [ -f "./assets/archspec-${ver}.nupkg" ] || fail "nupkg-absent"
+          dotnet nuget push "./assets/archspec-${ver}.nupkg" \
+            --api-key "${GITHUB_TOKEN}" \
+            --source "https://nuget.pkg.github.com/${OWNER}/index.json" \
+            --skip-duplicate \
+            || fail "ghcr nuget-registry push"
+          echo "GH-PKGS-NUGET ok"
 
