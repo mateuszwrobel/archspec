@@ -3,10 +3,10 @@
 ## Invocation
 
 ```
-archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--write-exemptions]
+archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--write-exemptions] [--emit-repro]
 ```
 
-`path` is optional and positional. `--strict`, `--json`, `--coverage`, `--only` and `--write-exemptions` are optional.
+`path` is optional and positional. `--strict`, `--json`, `--coverage`, `--only`, `--write-exemptions` and `--emit-repro` are optional.
 
 | Part | Meaning | Default |
 |---|---|---|
@@ -16,6 +16,7 @@ archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--writ
 | `--coverage` | print the coverage census after the verdict | off |
 | `--only <class>` | hide one diagnostic class from the report-only notices; the verdict and the environment census are unchanged | off |
 | `--write-exemptions` | seed the `[[exempt]]` cycle ledger: merge one entry per currently violating ring into the ledger tables, never edit or remove an existing entry, then report green for what the run named | off |
+| `--emit-repro` | print the repro section after the verdict: one `repro:` line per violating runtime file cycle states the ring path and the two import orders as runnable node one-liners | off |
 
 ## Accepted flag values
 
@@ -24,6 +25,7 @@ archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--writ
 - `--coverage`: boolean, takes no value.
 - `--only <class>`: takes exactly one value, the diagnostic class to exclude from the report-only notices — the prefix before the first `": "` of a notice line. An unknown or empty class excludes nothing and still echoes. Any other flag is an error (see `errors.md`).
 - `--write-exemptions`: boolean, takes no value. Refused in combination with `--json` (usage class 64): a machine consumer must never trigger a write.
+- `--emit-repro`: boolean, takes no value. Prints after the verdict body (after the environment line, before a `--coverage` census) on every non-json path; a `--json` run omits the section and keeps the machine body clean.
 
 ## Usage examples
 
@@ -95,6 +97,32 @@ nothing new to seed writes nothing and echoes nothing. On a write the run
 echoes `wrote <path>` and then reports the verdict over the ledger as it
 now stands — the exemptions it just named. Refused
 with `--json` (usage class 64, see `errors.md`).
+
+### Import-order repro
+
+```bash
+archspec verify --emit-repro
+```
+
+Prints the repro section after the verdict: for every violating runtime
+file-tier cycle one line states the ring path, then one line per import
+order states a runnable `node` one-liner (run from the audited project
+root) and the file that order is expected to fail in — the file whose
+value access reads the ring entry's uninitialized binding:
+
+```
+repro: src/a.ts -> src/b.ts -> src/a.ts (runtime)
+repro: node --input-type=module -e "import './src/a.ts'; import './src/b.ts'" — expect: TDZ ReferenceError in src/b.ts
+repro: node --input-type=module -e "import './src/b.ts'; import './src/a.ts'" — expect: TDZ ReferenceError in src/a.ts
+```
+
+The one-liners use node's type stripping, which resolves import specifiers
+that carry file extensions; a tree importing without extensions fails node
+resolution before any TDZ failure and needs its own bundler to run the
+repro. Type-assisted rings carry no import-order semantics and print
+nothing; a module-tier ring names modules, not files, and prints nothing;
+a runtime cycle on a language whose driver has no one-liner form prints
+one named line stating the missing form instead of silence.
 
 ### Diagnostic class filter
 

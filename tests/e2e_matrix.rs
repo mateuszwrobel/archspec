@@ -425,6 +425,22 @@ fn registry() -> Vec<Cell> {
             None,
             "seed-only writer on a tree with no uncovered cycle: no write, verdict unchanged"
         ),
+        // --- import-order repro (GitHub issue #28: runnable repro emitter) ---
+        cell!(
+            "verify/emit-repro",
+            "verify",
+            "--emit-repro",
+            "mode",
+            "rust-violating",
+            NO_PRE,
+            &["verify", "--emit-repro"],
+            1,
+            &["does not match source model", "adjudicated against BUILT tree"],
+            &[],
+            &["repro:"],
+            None,
+            "a tree without runtime cycles prints no repro line: the flag never invents output"
+        ),
         // --- explain (GitHub issue #26: renderer over the verify path) ---
         cell!(
             "explain/default",

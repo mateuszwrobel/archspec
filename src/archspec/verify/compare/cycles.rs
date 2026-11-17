@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use super::claims::{Claim, claim_unit_fallback, count_claims};
+use super::diff::CycleRing;
 use super::mapping::file_grained_rows;
 use super::claims::claim_owner;
 use crate::archspec::{capability, language};
@@ -275,6 +276,12 @@ pub(super) struct CycleCheck {
     /// Violating findings as sorted, deduplicated `(tier, identity)` pairs —
     /// the input of the `--write-exemptions` seed writer (R8).
     pub debts: Vec<(String, String)>,
+    /// The structured facts behind every violating (never-suppressed) cycle
+    /// finding, keyed and sorted by finding string — the input of the
+    /// `verify --emit-repro` renderer (GitHub issue #28). Pure data: it never
+    /// renders by itself, never enters the verdict, never moves a byte of
+    /// the default output.
+    pub rings: Vec<CycleRing>,
 }
 
 /// The tier labels an `[[exempt]]` entry matches against (issue #27 R2): the
@@ -305,6 +312,10 @@ pub(super) fn check_cycles(
     // issue #27: the (tier, identity) behind each finding string — the
     // exemption matching reads this, the finding lists stay the shipped bytes.
     let mut finding_meta: BTreeMap<String, (&'static str, String)> = BTreeMap::new();
+    // issue #28: the structured facts behind each finding string — the
+    // `--emit-repro` renderer's input, keyed by the finding bytes so the
+    // suppression pass filters it exactly like the finding lists.
+    let mut ring_facts: BTreeMap<String, CycleRing> = BTreeMap::new();
     let mut census = CycleCensus::default();
 
     let mut declared = false;
@@ -346,6 +357,7 @@ pub(super) fn check_cycles(
             &mut error_cycles,
             &mut warning_cycles,
             &mut finding_meta,
+            &mut ring_facts,
             &mut census,
         );
     }
@@ -377,6 +389,7 @@ pub(super) fn check_cycles(
             &mut error_cycles,
             &mut warning_cycles,
             &mut finding_meta,
+            &mut ring_facts,
             &mut census,
         );
     }
@@ -473,6 +486,14 @@ pub(super) fn check_cycles(
         census,
         exempt: exempt_count,
         debts: debts.into_iter().collect(),
+        // issue #28: the violating rings only — a suppressed finding prints
+        // no repro, exactly as it prints no finding (the census keeps it
+        // counted, R5; the repro surface never renders an exempt ring).
+        rings: ring_facts
+            .into_iter()
+            .filter(|(finding, _)| !suppressed.contains(finding.as_str()))
+            .map(|(_, ring)| ring)
+            .collect(),
     }
 }
 
@@ -606,6 +627,7 @@ fn adjudicate_cycles(
     error_cycles: &mut BTreeSet<String>,
     warning_cycles: &mut BTreeSet<String>,
     finding_meta: &mut BTreeMap<String, (&'static str, String)>,
+    ring_facts: &mut BTreeMap<String, CycleRing>,
     census: &mut CycleCensus,
 ) {
     let CycleRow {
@@ -651,6 +673,14 @@ fn adjudicate_cycles(
                 finding.clone(),
                 (TIER_MODULE, path.join(" -> ")),
             );
+            ring_facts.insert(
+                finding.clone(),
+                CycleRing {
+                    tier: TIER_MODULE,
+                    kind,
+                    path: path.clone(),
+                },
+            );
             if severity_is_warning {
                 warning_cycles.insert(finding);
             } else {
@@ -682,6 +712,14 @@ fn adjudicate_cycles(
         let mut finding = file_cycle_finding(context.model, &members, &path, context.claims);
         finding.push_str(&format!(" ({kind})"));
         finding_meta.insert(finding.clone(), (TIER_FILE, path.join(" -> ")));
+        ring_facts.insert(
+            finding.clone(),
+            CycleRing {
+                tier: TIER_FILE,
+                kind,
+                path,
+            },
+        );
         if severity_is_warning {
             warning_cycles.insert(finding);
         } else {
@@ -867,6 +905,77 @@ fn file_cycle_finding(
     match common_claim_ancestor(model, members, claims) {
         Some(claim) => format!("{claim}: {}", path.join(" -> ")),
         None => path.join(" -> "),
+    }
+}
+
+/// The `verify --emit-repro` surface (GitHub issue #28): one greppable
+/// `repro:` block per violating RUNTIME FILE-tier ring — the ring path, then
+/// BOTH import orders as runnable `node` one-liners, each stating its static
+/// expectation. The TDZ law behind the expectation: an ESM module's
+/// dependencies initialize before its own body, so importing a ring's entry
+/// first initializes every other ring file first — the file whose import
+/// closes the ring then reads the entry's still-uninitialized binding and
+/// fails with a TDZ `ReferenceError` (issue #22's runtime label is exactly
+/// this class). The reversed order is the same law on the reversed listing:
+/// the entry's predecessor in the ring is the file that fails. A
+/// type-assisted ring prints NOTHING (shape decision c: its type-only leg
+/// carries no import-order semantics); a claim-tier ring names modules, not
+/// files, and prints nothing; on a language without the one-liner form one
+/// named skip row replaces silence. Pure render: reads the rings, writes no
+/// file, moves no verdict byte.
+pub(crate) fn cycle_repro_report(language: &str, rings: &[CycleRing]) -> String {
+    let mut out = String::new();
+    let mut skipped = false;
+    for ring in rings {
+        if ring.kind != CYCLE_KIND_RUNTIME {
+            continue;
+        }
+        if language != "ts" {
+            skipped = true;
+            continue;
+        }
+        if ring.tier != TIER_FILE {
+            continue;
+        }
+        repro_block(&ring.path, &mut out);
+    }
+    if skipped {
+        out.push_str(
+            "repro: import-order one-liners are implemented for the ts driver — no runnable form for ",
+        );
+        out.push_str(language);
+        out.push('\n');
+    }
+    out
+}
+
+/// The three lines of one runtime file ring's repro block: the ring path,
+/// the forward import order, the reverse. The failing file of an order is
+/// the ring file that imports the order's first import — the entry's
+/// predecessor in the ring. The one-liners run from the audited project
+/// root; the file spellings are the repo's own (D4), prefixed `./`.
+fn repro_block(path: &[String], out: &mut String) {
+    let mut ring: Vec<&str> = path.iter().map(String::as_str).collect();
+    if ring.len() > 1 && ring.first() == ring.last() {
+        ring.pop();
+    }
+    if ring.len() < 2 {
+        return;
+    }
+    out.push_str(&format!("repro: {} (runtime)\n", path.join(" -> ")));
+    let mut reverse = ring.clone();
+    reverse.reverse();
+    for order in [&ring, &reverse] {
+        let imports = order
+            .iter()
+            .map(|file| format!("import './{file}'"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let entry_at = ring.iter().position(|file| *file == order[0]).unwrap_or(0);
+        let failure = ring[(entry_at + ring.len() - 1) % ring.len()];
+        out.push_str(&format!(
+            "repro: node --input-type=module -e \"{imports}\" — expect: TDZ ReferenceError in {failure}\n"
+        ));
     }
 }
 

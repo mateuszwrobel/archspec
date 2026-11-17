@@ -882,6 +882,7 @@ mod tests {
             cycles_census: None,
             cycles_exempt: 0,
             cycle_debts: Vec::new(),
+            cycle_rings: Vec::new(),
         }
     }
 
@@ -932,7 +933,9 @@ mod tests {
     /// is the one named informational field — a summary line, never a
     /// finding, rendered by the verify text renderer alone; `cycles_exempt`
     /// and `cycle_debts` are the exempt-ratchet split (GitHub issue #27) —
-    /// counts and seeds, never findings, never verdict inputs.
+    /// counts and seeds, never findings, never verdict inputs; `cycle_rings`
+    /// is the `--emit-repro` carrier (GitHub issue #28) — pure data behind
+    /// the finding bytes, never a finding, never a verdict input.
     #[test]
     fn the_exit_gate_and_the_renderers_share_one_field_list() {
         let manifest = env!("CARGO_MANIFEST_DIR");
@@ -963,6 +966,7 @@ mod tests {
                     | "cycles_census"
                     | "cycles_exempt"
                     | "cycle_debts"
+                    | "cycle_rings"
             ) {
                 continue;
             }

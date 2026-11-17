@@ -95,11 +95,15 @@ class PeakRss(threading.Thread):
         super().__init__(daemon=True)
         self.pid = pid
         self.kb = 0
-        self._stop = threading.Event()
+        # NOT `self._stop`: Thread._stop() is a base-class member that
+        # join() calls internally once the thread has terminated; an
+        # instance attribute named _stop shadows it and join() then
+        # "calls" this Event — TypeError: 'Event' object is not callable.
+        self._stop_evt = threading.Event()
         self.path = f"/proc/{pid}/status"
 
     def run(self):
-        while not self._stop.is_set():
+        while not self._stop_evt.is_set():
             try:
                 with open(self.path) as fh:
                     for line in fh:
@@ -111,7 +115,7 @@ class PeakRss(threading.Thread):
             time.sleep(0.02)
 
     def stop(self):
-        self._stop.set()
+        self._stop_evt.set()
 
 
 def timed_run(binary: str, corpus: str, env: dict, deadline: float) -> tuple[float, int]:

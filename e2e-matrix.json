@@ -2,7 +2,7 @@
   "schema": "archspec-e2e-matrix-v0",
   "generated_by": "tests/e2e_matrix.rs (generated, never hand-edited)",
   "denominator": {
-    "mode_cells": 71,
+    "mode_cells": 72,
     "exit_class_cells": 9,
     "line_class_rows": 19,
     "note": "the proposal heading says 58 verb-mode cells; the registry enumerates the table rows, which is the honest denominator"
@@ -323,6 +323,20 @@
       ],
       "exit_class": 1,
       "witness": "seed-only writer on a tree with no uncovered cycle: no write, verdict unchanged",
+      "status": "pass"
+    },
+    {
+      "id": "verify/emit-repro",
+      "verb": "verify",
+      "mode": "--emit-repro",
+      "kind": "mode",
+      "corpus": "rust-violating",
+      "args": [
+        "verify",
+        "--emit-repro"
+      ],
+      "exit_class": 1,
+      "witness": "a tree without runtime cycles prints no repro line: the flag never invents output",
       "status": "pass"
     },
     {

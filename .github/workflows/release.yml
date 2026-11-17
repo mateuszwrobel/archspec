@@ -195,8 +195,12 @@ jobs:
       # every failure arm prints a named line plus an annotation and exits 0.
       # No account literals in the payload: the registry owner and the scope
       # comparison ride github.repository_owner, the env indirection the
-      # scope-resolution step uses for vars.NPM_SCOPE.
+      # scope-resolution step uses for vars.NPM_SCOPE. The mirror= step
+      # output tells the Publish summary step below what actually happened:
+      # this step never reddens the job, so its outcome alone cannot tell
+      # ok from fail (operator request 2026-11-17).
       - name: Dual-publish to GitHub Packages npm (observe-never-block)
+        id: ghpkgs
         env:
           GITHUB_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
@@ -206,10 +210,12 @@ jobs:
           fail() {
             echo "GH-PKGS-NPM fail reason=$1" >&2
             echo "::error::GitHub Packages npm registry publish failed ($1) — the npmjs channel above is unaffected"
+            echo "mirror=failed" >> "$GITHUB_OUTPUT"
             exit 0
           }
           skip() {
             echo "GH-PKGS-NPM skip reason=$1"
+            echo "mirror=failed" >> "$GITHUB_OUTPUT"
             exit 0
           }
           if [ -z "${NPM_SCOPE:-}" ]; then
@@ -229,6 +235,36 @@ jobs:
             --userconfig "${RUNNER_TEMP}/ghpkgs.npmrc" \
             || fail "ghcr npm-registry publish"
           echo "GH-PKGS-NPM ok"
+          echo "mirror=ok" >> "$GITHUB_OUTPUT"
+      # Publish summary (operator request 2026-11-17): the release run names
+      # the published VERSION next to each channel's package name. The
+      # version rides the tag — the matrix publish-gate job has already
+      # proved tag == manifest version before any build ran — so the tag
+      # minus its prefix IS the published version. The GitHub Packages row
+      # reads the mirror step's output mapping: that step is
+      # observe-never-block, so its outcome alone cannot tell ok from fail;
+      # a failed mirror prints its row with status failed-to-mirror instead
+      # of hiding it.
+      - name: Publish summary
+        env:
+          NPM_PKG: ${{ steps.scope.outputs.scope }}
+          MIRROR: ${{ steps.ghpkgs.outputs.mirror }}
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          if [ "${MIRROR:-}" = "ok" ]; then
+            gh_status=""
+          else
+            gh_status=" (failed-to-mirror)"
+          fi
+          {
+            echo "Published versions for ${GITHUB_REF_NAME}:"
+            echo
+            echo "| Channel | Package | Version |"
+            echo "| --- | --- | --- |"
+            echo "| npm | @${NPM_PKG}/archspec | ${ver} |"
+            echo "| GitHub Packages (npm) | @${NPM_PKG}/archspec | ${ver}${gh_status} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # NuGet channel (decision-check record 2026-11-06): a tools package whose
   # bytes ARE the release assets, packed inside the release transaction
@@ -323,8 +359,12 @@ jobs:
       # channel succeeded. The nuget.org push above IS the release — this step
       # must never redden it: every failure arm prints a named line plus an
       # annotation and exits 0. The feed's owner segment rides
-      # github.repository_owner — no account literals in the payload.
+      # github.repository_owner — no account literals in the payload. The
+      # mirror= step output rides the same mapping law as the npm job's
+      # mirror step: this step never reddens the job, so the Publish summary
+      # step below reads the output, not the outcome.
       - name: Dual-push to GitHub Packages NuGet (observe-never-block)
+        id: ghpkgs
         env:
           GITHUB_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
@@ -334,6 +374,7 @@ jobs:
           fail() {
             echo "GH-PKGS-NUGET fail reason=$1" >&2
             echo "::error::GitHub Packages NuGet feed push failed ($1) — the nuget.org channel above is unaffected"
+            echo "mirror=failed" >> "$GITHUB_OUTPUT"
             exit 0
           }
           [ -n "${OWNER:-}" ] || fail "owner-unresolved"
@@ -344,4 +385,29 @@ jobs:
             --skip-duplicate \
             || fail "ghcr nuget-registry push"
           echo "GH-PKGS-NUGET ok"
+          echo "mirror=ok" >> "$GITHUB_OUTPUT"
+      # Publish summary (operator request 2026-11-17): the same law as the
+      # npm job's step of the same name — publish-gate has already proved
+      # tag == manifest version, so the tag minus its prefix IS the
+      # published version, and the mirror row rides the mirror step's
+      # output mapping (failed-to-mirror never hides the row).
+      - name: Publish summary
+        env:
+          MIRROR: ${{ steps.ghpkgs.outputs.mirror }}
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          if [ "${MIRROR:-}" = "ok" ]; then
+            gh_status=""
+          else
+            gh_status=" (failed-to-mirror)"
+          fi
+          {
+            echo "Published versions for ${GITHUB_REF_NAME}:"
+            echo
+            echo "| Channel | Package | Version |"
+            echo "| --- | --- | --- |"
+            echo "| NuGet | archspec | ${ver} |"
+            echo "| GitHub Packages (NuGet) | archspec | ${ver}${gh_status} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 

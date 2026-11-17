@@ -12,7 +12,7 @@ use std::path::Path;
 /// it to stderr — a rule violation is not an operational error.
 pub const RULE_VIOLATION_REPORTED: &str = "\u{1}archspec-rule-violation-reported";
 
-pub const HELP: &str = "usage: archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--write-exemptions]\nextract the model and compare against architecture.spec.toml; exit 1 on violations\n\n  path          project directory to extract and compare (default: current directory)\n  --strict      promote every warning to an error (CI gate); a green run means zero\n                findings of any kind\n  --json        emit the verdict as machine-readable json: the metrics and findings\n                body of `archspec report --format json` — the same findings, the same\n                verdict, the same exit codes; a renderer, not a second adjudication\n  --coverage    print the coverage census after the verdict: one line per constraint\n                row stating the facts its check adjudicates in its declared territory\n                versus the model totals; with the [[exempt]] ratchet active one\n                further line states `coverage: cycles: <found>, exempt: <E>,\n                violating: <V>`\n  --only <class>  hide one diagnostic class from the report-only notices; findings,\n                the verdict and the environment census are unchanged; the run echoes\n                `only: excluding class \"<class>\" — verdict unchanged`\n  --write-exemptions  seed the [[exempt]] ledger: merge one entry per currently\n                violating cycle (identity + tier) into the ledger tables, never\n                edit or remove an existing entry, never auto-grow a covered one;\n                an entry whose keys the writer cannot verify is named on stderr\n                and left untouched; the run echoes `wrote <path>` and goes green\n                for what it just named. Refused with --json (64): a machine\n                consumer must never trigger a write\n\nEvery verdict declares the environment it was adjudicated against: the line\n`adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N\nspecifiers resolved to src instead of dist` when the scan resolved declared\nbuild targets to source. `--json` states the same fact as the `environment`\nfield; a summary-by-class census follows the header whenever the scan\nemitted report-only lines.\n\nsee 'archspec help workflow' for the audit recipe and 'archspec help diagnostics'\nfor what each finding category means\n";
+pub const HELP: &str = "usage: archspec verify [path] [--strict] [--json] [--coverage] [--only <class>] [--write-exemptions] [--emit-repro]\nextract the model and compare against architecture.spec.toml; exit 1 on violations\n\n  path          project directory to extract and compare (default: current directory)\n  --strict      promote every warning to an error (CI gate); a green run means zero\n                findings of any kind\n  --json        emit the verdict as machine-readable json: the metrics and findings\n                body of `archspec report --format json` — the same findings, the same\n                verdict, the same exit codes; a renderer, not a second adjudication\n  --coverage    print the coverage census after the verdict: one line per constraint\n                row stating the facts its check adjudicates in its declared territory\n                versus the model totals; with the [[exempt]] ratchet active one\n                further line states `coverage: cycles: <found>, exempt: <E>,\n                violating: <V>`\n  --only <class>  hide one diagnostic class from the report-only notices; findings,\n                the verdict and the environment census are unchanged; the run echoes\n                `only: excluding class \"<class>\" — verdict unchanged`\n  --write-exemptions  seed the [[exempt]] ledger: merge one entry per currently\n                violating cycle (identity + tier) into the ledger tables, never\n                edit or remove an existing entry, never auto-grow a covered one;\n                an entry whose keys the writer cannot verify is named on stderr\n                and left untouched; the run echoes `wrote <path>` and goes green\n                for what it just named. Refused with --json (64): a machine\n                consumer must never trigger a write\n  --emit-repro  print an import-order repro section after the verdict: one\n                greppable `repro:` line per runtime file cycle states the ring\n                path, then runnable node one-liners for both import orders with\n                the file each order is expected to fail in; type-assisted rings\n                print nothing; omitted with --json, stdout stays the machine body\n\nEvery verdict declares the environment it was adjudicated against: the line\n`adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N\nspecifiers resolved to src instead of dist` when the scan resolved declared\nbuild targets to source. `--json` states the same fact as the `environment`\nfield; a summary-by-class census follows the header whenever the scan\nemitted report-only lines.\n\nsee 'archspec help workflow' for the audit recipe and 'archspec help diagnostics'\nfor what each finding category means\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -36,6 +36,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             },
             FlagSpec {
                 name: "write-exemptions",
+                takes_value: false,
+            },
+            FlagSpec {
+                name: "emit-repro",
                 takes_value: false,
             },
         ],
@@ -233,6 +237,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
         // field and keeps stdout byte-clean.
         if !json {
             print!("{}", crate::archspec::report::environment_block(&environment));
+            // The import-order repro section (GitHub issue #28): one greppable
+            // `repro:` block per violating runtime file-tier cycle — the ring
+            // path plus BOTH import orders as runnable node one-liners with
+            // their TDZ expectations. Pure output: it renders the findings this
+            // run already made, writes no file and moves no verdict byte; a
+            // json run omits it so stdout stays the pure machine body.
+            if parsed.switches.contains("emit-repro") {
+                print!("{}", compare::cycle_repro_report(language.as_str(), &diff.cycle_rings));
+            }
         }
         // The coverage census (GitHub issue #23) rides the verdict surface on
         // stdout: the verdict body first, the census after it, on every verdict

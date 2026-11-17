@@ -6,6 +6,50 @@ only.
 
 ## [Unreleased]
 
+## [0.6.81] - 2026-11-17
+
+### Added
+
+- `verify --emit-repro` prints an import-order reproduction section after
+  the verdict: one greppable `repro:` line per violating runtime file-tier
+  cycle states the ring path, then one line per import order with a
+  runnable `node` one-liner and the file that order is expected to fail in
+  with a TDZ `ReferenceError` (GitHub issue #28). The flag is pure output:
+  with it off the shipped bytes do not move, type-assisted rings print
+  nothing, a `--json` run omits the section, and a runtime cycle on a
+  language whose driver has no one-liner form states one named line
+  instead of silence.
+
+## [0.6.80] - 2026-11-17
+
+### Changed
+
+- The release workflow now names the published VERSION per channel, not
+  only the package name. The npm and NuGet publish jobs each end with a
+  `Publish summary` step. It appends one table to the run's job summary:
+  a header line `Published versions for <tag>:`, then one row per channel
+  — npm, NuGet, and their GitHub Packages mirrors — with the package name
+  and the version derived from the release tag. The publish-gate job
+  already proves tag == manifest version, so the tag minus its prefix IS
+  the published version and the summary reads standalone. A GitHub
+  Packages mirror that fails its publish keeps its row with status
+  `failed-to-mirror` — the mirror never reddens a release, and the
+  summary never hides a channel.
+
+## [0.6.79] - 2026-11-17
+
+### Fixed
+
+- The perf probe bench legs no longer crash with
+  `TypeError: 'Event' object is not callable`. The `PeakRss` monitor is a
+  `threading.Thread` subclass and its stop flag was named `self._stop`,
+  shadowing the base-class member `Thread._stop()`. On the runner's Python
+  3.12, `Thread.join()` calls `self._stop()` once the thread has terminated;
+  the Event instance then "was called" instead. The flag is now
+  `self._stop_evt`; timing, sampling and output are unchanged. The race only
+  fires when the monitor has already exited at the `join(timeout=1)` call,
+  so slower legs crashed and faster legs never hit it.
+
 ## [0.6.78] - 2026-11-17
 
 ### Fixed

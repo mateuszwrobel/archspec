@@ -23,7 +23,7 @@ pub use claims::{flatten_claims};
 // re-exported for the renderer — never a second adjudication.
 pub(crate) use adjudicate::{composition_sources, resolve_module_edges};
 pub(crate) use claims::{Claim, ClaimIndex};
-pub(crate) use cycles::{file_claim_index, file_module_identity};
+pub(crate) use cycles::{cycle_repro_report, file_claim_index, file_module_identity};
 pub use adjudicate::{Adjudicator, ModuleRender};
 pub use contracts::adjudicate_expose;
 pub use mapping::file_grained_rows;
@@ -157,6 +157,7 @@ pub fn compare(
     diff.cycles_census = cycle_check.census;
     diff.cycles_exempt = cycle_check.exempt;
     diff.cycle_debts = cycle_check.debts;
+    diff.cycle_rings = cycle_check.rings;
     diff.warnings.append(&mut cycle_check.warnings);
 
     let (leaks, glob_leaks, empty_globs, mut warning_leaks) =

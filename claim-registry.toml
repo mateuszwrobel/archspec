@@ -871,3 +871,49 @@ dedicated_guard = "tests/csharp_test_gating.rs"
 file = "tests/csharp_test_gating.rs"
 const_name = "CENSUS_FORMS"
 relation = "equals-fragments"
+
+# GitHub issue #28 (2026-11-17): the import-order repro emitter — the verify
+# help flag line, the repro block the flag renders per runtime file ring,
+# and the named skip row a language without the one-liner form states.
+[[claim]]
+id = "verify-help-repro-flag"
+owner = "the `--emit-repro` flag line of the verify help — the import-order repro emitter"
+owner_surfaces = ["verify --help", "help verify"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "--emit-repro print an import-order repro section after the verdict: one greppable `repro:` line per runtime file cycle states the ring path, then runnable node one-liners for both import orders with the file each order is expected to fail in; type-assisted rings print nothing; omitted with --json, stdout stays the machine body",
+]
+signatures = ["import-order repro section"]
+dedicated_guard = "tests/cycle_repro.rs"
+[[claim.guard_pin]]
+file = "tests/cycle_repro.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "cycle-repro-lines"
+owner = "the `repro:` block `verify --emit-repro` renders per violating runtime file-tier ts ring — the ring path plus both import orders as runnable node one-liners"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "repro: src/a.ts -> src/b.ts -> src/a.ts (runtime)",
+  "repro: node --input-type=module -e \"import './src/a.ts'; import './src/b.ts'\" — expect: TDZ ReferenceError in src/b.ts",
+  "repro: node --input-type=module -e \"import './src/b.ts'; import './src/a.ts'\" — expect: TDZ ReferenceError in src/a.ts",
+]
+signatures = ["TDZ ReferenceError in"]
+dedicated_guard = "tests/cycle_repro.rs"
+[[claim.guard_pin]]
+file = "tests/cycle_repro.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "cycle-repro-language-skip"
+owner = "the `repro:` skip row `verify --emit-repro` states for a runtime cycle on a language without the node one-liner form"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "repro: import-order one-liners are implemented for the ts driver — no runnable form for <path>"
+template = true
+signatures = ["no runnable form for"]
+dedicated_guard = "tests/cycle_repro.rs"
+[[claim.guard_pin]]
+file = "tests/cycle_repro.rs"
+relation = "named-in-file"

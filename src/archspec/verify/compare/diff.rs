@@ -6,6 +6,30 @@ use std::collections::{BTreeSet};
 use super::claims::count_claims;
 use crate::archspec::spec::Module;
 
+/// The structured facts behind one violating (never-suppressed) file-tier
+/// cycle finding, collected in the same pass that renders the finding
+/// (GitHub issue #28). A pure data carrier for the `verify --emit-repro`
+/// renderer: `path` is the finding's ring path — first file == last file,
+/// each consecutive pair a source-sorted dependency edge — and `kind` says
+/// whether a one-liner driver exists for the ring. It lives here, beside
+/// the `Diff` field that carries it, so no module in the compare tree
+/// imports a sibling for it: the import graph stays acyclic (the rust
+/// scanner builds file facts from `use` paths too, so a cross-sibling
+/// import would close a runtime cycle through the module facade).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CycleRing {
+    /// Engine tier of the finding: `"module"` or `"file"` — only the file
+    /// tier is a runnable import order.
+    pub tier: &'static str,
+    /// Dependency kind of the finding: `"runtime"` or `"artifact"` — only
+    /// runtime rings print lines.
+    pub kind: &'static str,
+    /// The ring path — first file == last file, each consecutive pair a
+    /// source-sorted dependency edge — exactly as the finding line renders
+    /// it.
+    pub path: Vec<String>,
+}
+
 /// Every difference across all checks, in canonical report order (ADR-010,
 /// output.md). Each field is a sorted list of the rendered item bodies.
 #[derive(Debug, Clone, Default)]
@@ -62,6 +86,12 @@ pub struct Diff {
     /// (GitHub issue #27, R8). Informational: never a finding, never a
     /// verdict input; the finding lists already carry the rendered bytes.
     pub cycle_debts: Vec<(String, String)>,
+    /// The structured facts behind every violating (never-suppressed) cycle
+    /// finding, sorted by finding string — the input of the
+    /// `verify --emit-repro` renderer (GitHub issue #28). Informational:
+    /// never a finding, never a verdict input; the finding lists already
+    /// carry the rendered bytes, and the default output never reads this.
+    pub cycle_rings: Vec<CycleRing>,
     /// `public_api_allowlist` violation: a public export not in `allowed`.
     pub public_api_leaks: Vec<String>,
     /// `public_api_allowlist` violation: a glob re-export at a unit root whose

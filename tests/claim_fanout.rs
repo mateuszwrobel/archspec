@@ -543,7 +543,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 63] = [
+    let required: [&str; 66] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -632,6 +632,13 @@ fn registry_owns_claim_identity() {
         // census — the per-project line and the verdict note for dropped
         // test projects.
         "csharp-test-gated-units",
+        // Registered by GitHub issue #28 (2026-11-17): the import-order repro
+        // emitter — the verify help flag line, the repro block per runtime
+        // file ring, and the named skip row of a language without the
+        // one-liner form.
+        "verify-help-repro-flag",
+        "cycle-repro-lines",
+        "cycle-repro-language-skip",
     ];
     for required in required {
         assert!(
@@ -1282,6 +1289,68 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             "verify-help-seed-flag" => {
                 contains_canonical(&mut errors, claim, "verify --help");
                 contains_canonical(&mut errors, claim, "help verify");
+            }
+            "verify-help-repro-flag" => {
+                contains_canonical(&mut errors, claim, "verify --help");
+                contains_canonical(&mut errors, claim, "help verify");
+            }
+            "cycle-repro-lines" => {
+                // Live probe, not a prose echo: the flagged run of the canonical
+                // TDZ pair must render every registered repro line, and the
+                // emitter source must still carry the expectation template.
+                let fx = Fixture::new();
+                fx.write(
+                    "package.json",
+                    "{\n  \"name\": \"demo-ui\",\n  \"dependencies\": {}\n}\n",
+                );
+                fx.write("src/a.ts", "import { b } from \"./b\";\nexport const a = b;\n");
+                fx.write("src/b.ts", "import { a } from \"./a\";\nexport const b = a;\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"ui\"\nmatches = { units = [\"demo-ui\"], modules = [\"src/**\"] }\n\n[[constraint]]\ntype = \"no_cycles\"\n",
+                );
+                let emitted = stdout(&fx.run(&["verify", ".", "--emit-repro"]));
+                for fragment in &claim.canonical_fragments {
+                    if !emitted.contains(fragment.as_str()) {
+                        errors.push(format!(
+                            "claim `{}` drifted: the flagged verify probe does not render the registered repro line {fragment:?}",
+                            claim.id
+                        ));
+                    }
+                }
+                let emitter_src = load("src/archspec/verify/compare/cycles.rs");
+                if !emitter_src.contains("TDZ ReferenceError in") {
+                    errors.push(format!(
+                        "claim `{}` drifted: the repro emitter source no longer carries the expectation template",
+                        claim.id
+                    ));
+                }
+            }
+            "cycle-repro-language-skip" => {
+                // Live probe on a non-ts runtime ring: the named skip row must
+                // render with the language spelled into the registered shape.
+                let fx = Fixture::new();
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"python\"\n\n[[module]]\nname = \"app\"\nmatches = { modules = [\"**\"] }\n\n[[constraint]]\ntype = \"no_cycles\"\n",
+                );
+                fx.write("a.py", "from b import b\nvalue = b\n");
+                fx.write("b.py", "from a import a\nvalue = a\n");
+                let emitted = stdout(&fx.run(&["verify", ".", "--emit-repro"]));
+                let skip = "repro: import-order one-liners are implemented for the ts driver — no runnable form for python";
+                if !emitted.contains(skip) {
+                    errors.push(format!(
+                        "claim `{}` drifted: the flagged python probe does not render the registered skip row: {emitted}",
+                        claim.id
+                    ));
+                }
+                let emitter_src = load("src/archspec/verify/compare/cycles.rs");
+                if !emitter_src.contains("no runnable form for ") {
+                    errors.push(format!(
+                        "claim `{}` drifted: the repro emitter source no longer carries the skip row",
+                        claim.id
+                    ));
+                }
             }
             "exempt-ratchet-diagnostics" => {
                 contains_canonical(&mut errors, claim, "help diagnostics");
