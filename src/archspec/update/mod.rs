@@ -1,4 +1,5 @@
 use crate::archspec::model::Model;
+use crate::archspec::spec;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Render the seed `architecture.spec.toml` snapshotting the extracted model
@@ -42,16 +43,23 @@ use std::collections::{BTreeMap, BTreeSet};
 /// `seed_go_packages`); keying on `has_module_tier()` alone would route that
 /// tree into the member path and seed an empty module section (US 17 audit,
 /// deviation D-1).
-pub fn seed_spec(model: &Model) -> String {
+///
+/// `preserved` carries the loaded spec's `[project]` `excluded_sources`
+/// entries (GitHub issue #43 part 2): a reseed restates them exactly as it
+/// restates the language, because both keys are consumer declarations the
+/// model cannot derive. An empty slice — every seed without a prior spec,
+/// and every spec without entries — emits no key, so those seeds stay
+/// byte-identical to the shape shipped before.
+pub fn seed_spec(model: &Model, preserved: &[spec::ExcludedSource]) -> String {
     if model.language == "go" {
         // Member facts (go.work) seed members; package-level module facts
         // without members (single go.mod) seed packages; a tree with no
         // package crossing keeps the general shape.
         if model.soft_structure.values().any(|paths| !paths.is_empty()) {
-            return seed_go_members(model);
+            return seed_go_members(model, preserved);
         }
         if !model.module_edges.is_empty() {
-            return seed_go_packages(model);
+            return seed_go_packages(model, preserved);
         }
     }
     // The ts module tier is file identity (D10): the fold below keys on
@@ -71,7 +79,7 @@ pub fn seed_spec(model: &Model) -> String {
                 .values()
                 .any(|declarations| !declarations.is_empty()))
     {
-        return seed_ts_files(model);
+        return seed_ts_files(model, preserved);
     }
     let mut units = model.units.clone();
     units.sort_by(|left, right| left.name.cmp(&right.name));
@@ -173,13 +181,7 @@ pub fn seed_spec(model: &Model) -> String {
         }
     }
 
-    let mut out = String::new();
-    out.push_str("[project]\n");
-    out.push_str(&format!(
-        "language = \"{}\"\n",
-        toml_escape(&model.language)
-    ));
-    out.push('\n');
+    let mut out = project_header(model, preserved);
 
     for (index, unit) in units.iter().enumerate() {
         if index > 0 {
@@ -312,7 +314,7 @@ pub fn seed_spec(model: &Model) -> String {
 /// The single package is claimed by unit name. The result verifies clean
 /// against its own tree: ceiling, floor and endpoint ownership all read the
 /// same scan facts the seed was derived from.
-fn seed_ts_files(model: &Model) -> String {
+fn seed_ts_files(model: &Model, preserved: &[spec::ExcludedSource]) -> String {
     let mut units = model.units.clone();
     units.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -332,13 +334,7 @@ fn seed_ts_files(model: &Model) -> String {
         }
     }
 
-    let mut out = String::new();
-    out.push_str("[project]\n");
-    out.push_str(&format!(
-        "language = \"{}\"\n",
-        toml_escape(&model.language)
-    ));
-    out.push('\n');
+    let mut out = project_header(model, preserved);
 
     for (index, unit) in units.iter().enumerate() {
         if index > 0 {
@@ -389,7 +385,7 @@ fn seed_ts_files(model: &Model) -> String {
 /// on the members it imports across boundaries. A test-gated path is excluded
 /// as everywhere in the seed. The result verifies clean against its own tree:
 /// the boundary pairs it declares are exactly the real cross-member imports.
-fn seed_go_members(model: &Model) -> String {
+fn seed_go_members(model: &Model, preserved: &[spec::ExcludedSource]) -> String {
     let mut packages_by_member: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
     let mut member_of_path: BTreeMap<&str, &str> = BTreeMap::new();
     for (member, paths) in &model.soft_structure {
@@ -421,13 +417,7 @@ fn seed_go_members(model: &Model) -> String {
         }
     }
 
-    let mut out = String::new();
-    out.push_str("[project]\n");
-    out.push_str(&format!(
-        "language = \"{}\"\n",
-        toml_escape(&model.language)
-    ));
-    out.push('\n');
+    let mut out = project_header(model, preserved);
 
     for (index, member) in packages_by_member.keys().enumerate() {
         if index > 0 {
@@ -477,7 +467,7 @@ fn seed_go_members(model: &Model) -> String {
 /// round-trip is clean by construction: every package lands in exactly one
 /// boundary, every module edge endpoint is claimed through the unit match,
 /// and every observed boundary pair is allowed.
-fn seed_go_packages(model: &Model) -> String {
+fn seed_go_packages(model: &Model, preserved: &[spec::ExcludedSource]) -> String {
     let mut dependencies: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for edge in &model.edges {
         if edge.from != edge.to {
@@ -501,13 +491,7 @@ fn seed_go_packages(model: &Model) -> String {
     let mut units: Vec<&str> = model.units.iter().map(|unit| unit.name.as_str()).collect();
     units.sort_unstable();
 
-    let mut out = String::new();
-    out.push_str("[project]\n");
-    out.push_str(&format!(
-        "language = \"{}\"\n",
-        toml_escape(&model.language)
-    ));
-    out.push('\n');
+    let mut out = project_header(model, preserved);
 
     for (index, unit) in units.iter().enumerate() {
         if index > 0 {
@@ -549,5 +533,48 @@ fn toml_escape(value: &str) -> String {
             other => out.push(other),
         }
     }
+    out
+}
+
+/// The ONE shared `[project]` header emission for every seed shape (general
+/// fold, go-members, go-packages, ts/python file identity): the language line
+/// always, then — ONLY when the loaded spec declared entries — the preserved
+/// `[project] `excluded_sources`` entries in the shipped entry shape
+/// `excluded_sources = [{ path = …, reason = … }, …]` (GitHub issue #43
+/// part 2: consumer declarations survive the reseed exactly like the pin).
+/// An empty preserved slice emits no key, so seeds without prior entries
+/// stay byte-identical to the shape shipped before.
+fn project_header(model: &Model, preserved: &[spec::ExcludedSource]) -> String {
+    let mut out = String::from("[project]\n");
+    out.push_str(&format!(
+        "language = \"{}\"\n",
+        toml_escape(&model.language)
+    ));
+    if !preserved.is_empty() {
+        let entries = preserved
+            .iter()
+            .map(|entry| {
+                // The schema validator admits only entries with both keys
+                // present and non-empty by the time a seed runs; the
+                // fallbacks keep this writer total, mirroring
+                // `excluded_sources_report`.
+                let mut table = format!(
+                    "{{ path = \"{}\", reason = \"{}\"",
+                    toml_escape(entry.path.as_deref().unwrap_or_default()),
+                    toml_escape(entry.reason.as_deref().unwrap_or_default())
+                );
+                // A declared `mode` rides along — dropping it would silently
+                // move the entry from its declared dial back to `abort`.
+                if let Some(mode) = entry.mode.as_deref() {
+                    table.push_str(&format!(", mode = \"{}\"", toml_escape(mode)));
+                }
+                table.push_str(" }");
+                table
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("excluded_sources = [{entries}]\n"));
+    }
+    out.push('\n');
     out
 }

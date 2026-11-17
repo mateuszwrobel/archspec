@@ -911,3 +911,41 @@ fn a_publisher_field_the_subscriber_never_binds_prints_nothing() {
         "the silent run prints no warning line of any class:\n{report}"
     );
 }
+
+#[test]
+fn a_declared_string_field_the_handler_never_reads_prints_nothing() {
+    // The bind-site weld (consumer verdict on 0.6.91 — the liveness-probe
+    // shape of entry #14): the enum→string projection census keys on HANDLER
+    // USAGE SITES ("binds"), not on the subscriber record's DECLARATION
+    // site. The worker's copy of `OrderPlaced` still DECLARES `Status` as a
+    // plain string, but no handler body reads it — declaration alone is
+    // SILENT, the subset-consumption-silent law (eShop proves it: 0 rows,
+    // and a one-line handler read makes exactly 1 row appear). The
+    // read-armed sibling — `a_duplicated_contract_enum_to_string_projection_
+    // prints_the_named_row_once` — is that probe: the same tree speaks
+    // EXACTLY ONE named row once a handler body reads the member.
+    let tree = duplicated_projection_tree(false, "OrderId");
+    tree.write(
+        "App.Worker/OrderPlacedHandler.cs",
+        "using App.Worker.Events;\nnamespace App.Worker;\npublic class OrderPlacedHandler : \
+         IIntegrationEventHandler<OrderPlaced>\n{\n    public Task Handle(OrderPlaced \
+         integrationEvent, CancellationToken cancellationToken)\n    {\n        return \
+         Task.CompletedTask;\n    }\n}\n",
+    );
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a declared-but-unread string field keeps the run green:\n{report}"
+    );
+    let projection_lines: Vec<&str> = report
+        .lines()
+        .filter(|line| line.contains("async drift enum projection:"))
+        .collect();
+    assert!(
+        projection_lines.is_empty(),
+        "the subscriber record DECLARES the string field but no handler body \
+         reads it — the census keys on bindsites, not declarations:\n{report}"
+    );
+}

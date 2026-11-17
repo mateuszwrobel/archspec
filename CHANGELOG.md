@@ -6,6 +6,50 @@ only.
 
 ## [Unreleased]
 
+## [0.6.93] - 2026-11-17
+
+### Fixed
+
+- `update` now consults the same language-mismatch census `scan` and `verify`
+  apply (workplan archspec_issue43_update_seed scenario 11, issue #43) BEFORE
+  choosing the seed driver and before writing anything — one shared
+  `language::agreement_finding` call over the driver about to be seeded: the
+  `[project]` language pin when a spec is present, the marker-detected
+  language when it is not (the `scan` / `verify` call shape). On a specless
+  polyglot root where marker-led detection lands on the MINORITY language the
+  verb REFUSES with the shipped `language mismatch:` class naming both
+  languages, the per-language file counts and the remedies, and writes no
+  `architecture.spec.toml` — the silent exit-0 minority misseed is closed and
+  the loud contract of 0.6.69 is restored at the seeding verb. Where the
+  census finds agreement the seed proceeds exactly as before, and the issue
+  #38 pin law stands: the pin selects the driver, the census only validates.
+- A reseed now preserves the loaded spec's `[project]` `excluded_sources`
+  entries EXACTLY as it preserves `language` — both keys are CONSUMER
+  declarations, not model-derived facts. The regenerated spec restates every
+  entry (same count, same paths, same reasons, a declared `mode` rides
+  along) through one shared `[project]` header emission, so the `archspec
+  scan` that follows passes the mismatch check clean with nothing left to
+  hand-restore; the grep-count 1 -> 0 entry drop is closed. A seed generated
+  where no prior spec declared entries emits no `excluded_sources` key and
+  stays byte-identical to the previous shape.
+
+## [0.6.92] - 2026-11-17
+
+### Added
+
+- Bind-site semantics pin (no behavior change; workplan archspec_async_depends
+  scenario 10, consumer verdict on 0.6.91 — the entry #14 liveness-probe
+  shape). The `async drift enum projection` census keys on HANDLER USAGE
+  SITES ("binds"), not on the subscriber record's DECLARATION site: a
+  duplicated-contract subscriber record that declares the projected field as
+  a string while no handler body reads it prints NOTHING, and the first
+  handler read arms the row. The shipped duplicated-contract arm already
+  iterates the handler's bound-field set, so this release adds coverage
+  only: a new `async_drift` cell
+  (`a_declared_string_field_the_handler_never_reads_prints_nothing`) pins the
+  zero-row silent arm; the firing arm stays pinned by the shipped
+  once-per-entry cell, green untouched.
+
 ## [0.6.91] - 2026-11-17
 
 ### Fixed

@@ -1533,3 +1533,145 @@ fn no_spec_update_detection_unchanged() {
         stderr(&output)
     );
 }
+
+// GitHub issue #43 cells — the seed path consults the SAME language-mismatch
+// census scan and verify apply (one shared `agreement_finding` call over the
+// driver about to be seeded, the scan.rs / verify.rs shape) BEFORE writing
+// anything: a marker-led minority seed is a loud refusal naming the remedies,
+// never a silent exit-0 misseed (the loud 0.6.69 contract restored); and a
+// reseed preserves the loaded spec's `[project]` `excluded_sources` entries
+// exactly as it preserves the language — both are CONSUMER declarations.
+
+/// The issue #43 repro (1) tree: a root `package.json` marker and ONE ts
+/// spec file beside a csharp tree carrying the MAJORITY of the sources.
+/// Marker-led detection lands on the minority ts; the census does not.
+fn polyglot_minority_ts_tree() -> common::Fixture {
+    let fixture = common::Fixture::new();
+    fixture.write("package.json", "{ \"name\": \"e2e\" }\n");
+    fixture.write("e2e/a.spec.ts", "test(\"t\", () => {});\n");
+    fixture.write(
+        "app/App.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+    );
+    fixture.write("app/App.cs", "namespace App { public class A {} }\n");
+    fixture.write("app/Helper.cs", "namespace App { public class B {} }\n");
+    fixture
+}
+
+#[test]
+fn issue43_seed_refuses_minority_language_on_specless_polyglot_root() {
+    // Repro (1): the census runs over the marker-detected seed driver BEFORE
+    // the seed write, so the minority language is never seeded — the verb
+    // REFUSES with the shipped `language mismatch:` class, naming both
+    // languages, both file counts and both remedies, and writes NO spec.
+    let fixture = polyglot_minority_ts_tree();
+    let output = fixture.run(&["update", "--force"]);
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "the seed verb must refuse a minority-language seed loud, not exit 0: {}",
+        stderr(&output)
+    );
+    let err = stderr(&output);
+    let lines: Vec<&str> = err
+        .lines()
+        .filter(|line| line.contains("language mismatch:"))
+        .collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "exactly one `language mismatch:` line must name the refusal:\n{err}"
+    );
+    for fragment in [
+        "ts vs csharp",
+        "ts: 1 files",
+        "csharp: 2 files",
+        "excluded_sources",
+        "[project] language",
+    ] {
+        assert!(
+            lines[0].contains(fragment),
+            "the refusal must name `{fragment}` (both languages, both counts, \
+             both remedies):\n{}",
+            lines[0]
+        );
+    }
+    assert!(
+        !fixture.path("architecture.spec.toml").exists(),
+        "a refused seed must write no architecture.spec.toml"
+    );
+}
+
+#[test]
+fn issue43_reseed_preserves_excluded_sources_entries() {
+    // Repro (2): the same tree plus the consumer declarations — the pin
+    // selects the csharp driver, the entry excludes the ts e2e subtree, so
+    // the census answers None and the reseed proceeds. The regenerated spec
+    // preserves the entries EXACTLY like the language (grep-count identical,
+    // entry bytes preserved), and the following `archspec scan` passes the
+    // mismatch check clean — nothing is left to hand-restore.
+    let fixture = polyglot_minority_ts_tree();
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\nexcluded_sources = [{ path = \"e2e\", reason = \"e2e\" }]\n",
+    );
+    let before = fixture.read("architecture.spec.toml");
+    let count = |text: &str| {
+        text.lines()
+            .filter(|line| line.contains("excluded_sources"))
+            .count()
+    };
+    let output = fixture.run(&["update", "--force"]);
+    assert!(
+        output.status.success(),
+        "the pinned majority tree must seed (the entry excludes the ts subtree): {}",
+        stderr(&output)
+    );
+    let after = fixture.read("architecture.spec.toml");
+    assert!(
+        after.starts_with("[project]\nlanguage = \"csharp\""),
+        "the reseed must restate the pinned language:\n{after}"
+    );
+    assert_eq!(
+        count(&before),
+        count(&after),
+        "the `excluded_sources` line count must be identical across the reseed \
+         (the grep-count 1 -> 0 drop is the defect):\nbefore:\n{before}\nafter:\n{after}"
+    );
+    assert_eq!(
+        count(&after),
+        1,
+        "the one declared entry must survive the reseed:\n{after}"
+    );
+    assert!(
+        after.contains("excluded_sources = [{ path = \"e2e\", reason = \"e2e\" }]"),
+        "the entry bytes must be preserved in the shipped entry shape:\n{after}"
+    );
+    let scan = fixture.run(&["scan"]);
+    assert!(
+        scan.status.success(),
+        "the scan after the reseed must pass the mismatch check clean: {}",
+        stderr(&scan)
+    );
+}
+
+#[test]
+fn issue43_seed_without_prior_entries_emits_no_excluded_sources_key() {
+    // Preservation runs ONLY when the loaded spec carries entries: a fresh
+    // seed — no prior spec, or a spec without the key — emits no
+    // `excluded_sources` key, so a clean-tree seed stays byte-identical to
+    // the shape shipped before.
+    let fixture = workspace_fixture();
+    let output = fixture.run(&["update"]);
+    assert!(
+        output.status.success(),
+        "a monolingual fresh seed must stay green: {}",
+        stderr(&output)
+    );
+    let spec = fixture.read("architecture.spec.toml");
+    assert!(
+        !spec.contains("excluded_sources"),
+        "a seed generated where no prior spec declared entries emits no \
+         `excluded_sources` key:\n{spec}"
+    );
+}

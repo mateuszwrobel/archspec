@@ -53,6 +53,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let pin = loaded.as_ref().map(spec::declared_driver).transpose()?;
     let detected = language::select(root_path, pin)?
         .ok_or_else(|| format!("no supported-language sources found under: {root}"))?;
+
+    // The seed driver passes the SAME language-mismatch census scan and
+    // verify apply (GitHub issue #43 part 1, the scan.rs / verify.rs call
+    // shape): `agreement_finding` runs over the driver about to be seeded —
+    // the [project] pin when a spec is present, the marker-detected language
+    // when it is not — BEFORE the extraction and before anything is written.
+    // On a specless polyglot root where the marker-led detection lands on
+    // the MINORITY language the verb REFUSES with the shipped
+    // `language mismatch:` class, never a silent exit-0 misseed (the loud
+    // 0.6.69 contract). The pin law of issue #38 stands: the pin selects
+    // the driver; the census only validates.
+    let exclusions = loaded
+        .as_ref()
+        .map(spec::exclusion_paths)
+        .unwrap_or_default();
+    if let Some(finding) = language::agreement_finding(root_path, detected, &exclusions) {
+        return Err(finding);
+    }
+
     if !scan::driver_available(detected) {
         return Err(format!(
             "{} toolchain not found (run 'archspec doctor' to diagnose drivers)",
@@ -62,7 +81,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let model = scan::extract(detected, root_path)?;
 
-    let content = update::seed_spec(&model);
+    // Both [project] keys the loaded spec carries are CONSUMER
+    // declarations, not model-derived facts, so the reseed preserves the
+    // `excluded_sources` entries EXACTLY as it preserves the language
+    // (GitHub issue #43 part 2): the following `archspec scan` passes the
+    // mismatch check clean instead of losing the entries to hand-restore.
+    // Without a prior spec nothing is preserved and the seed bytes stay
+    // identical to the shape shipped before.
+    let preserved: &[spec::ExcludedSource] = loaded
+        .as_ref()
+        .map(|loaded_spec| loaded_spec.project.excluded_sources.as_slice())
+        .unwrap_or_default();
+    let content = update::seed_spec(&model, preserved);
     std::fs::write(&spec_path, content)
         .map_err(|err| format!("failed to write spec: {}: {err}", spec_path.display()))?;
 
