@@ -111,6 +111,7 @@ graph TD
         src_archspec_verify_mod_rs_76886026["src/archspec/verify/mod.rs"]
         subgraph src_archspec_verify_compare_4a3d3485["src/archspec/verify/compare"]
           src_archspec_verify_compare_adjudicate_rs_44538ae0["src/archspec/verify/compare/adjudicate.rs"]
+          src_archspec_verify_compare_async_depends_rs_4d4322c5["src/archspec/verify/compare/async_depends.rs"]
           src_archspec_verify_compare_boundaries_rs_543a12f6["src/archspec/verify/compare/boundaries.rs"]
           src_archspec_verify_compare_claims_rs_ff31945a["src/archspec/verify/compare/claims.rs"]
           src_archspec_verify_compare_contracts_rs_6f1e6784["src/archspec/verify/compare/contracts.rs"]
@@ -123,7 +124,8 @@ graph TD
           src_archspec_verify_compare_mod_rs_0fce8512["src/archspec/verify/compare/mod.rs"]
           src_archspec_verify_compare_pattern_rs_7d04036f["src/archspec/verify/compare/pattern.rs"]
           src_archspec_verify_compare_surfaces_rs_6cbe1d13["src/archspec/verify/compare/surfaces.rs"]
-          src_archspec_verify_compare_adjudicate_rs_44538ae0 ~~~ src_archspec_verify_compare_boundaries_rs_543a12f6
+          src_archspec_verify_compare_adjudicate_rs_44538ae0 ~~~ src_archspec_verify_compare_async_depends_rs_4d4322c5
+          src_archspec_verify_compare_async_depends_rs_4d4322c5 ~~~ src_archspec_verify_compare_boundaries_rs_543a12f6
           src_archspec_verify_compare_boundaries_rs_543a12f6 ~~~ src_archspec_verify_compare_claims_rs_ff31945a
           src_archspec_verify_compare_claims_rs_ff31945a ~~~ src_archspec_verify_compare_contracts_rs_6f1e6784
           src_archspec_verify_compare_contracts_rs_6f1e6784 ~~~ src_archspec_verify_compare_cycles_rs_7a16f3ee
@@ -212,6 +214,11 @@ graph TD
   subgraph tests
     tests_agents_guide_reporting_rs_c2c89bc7["tests/agents_guide_reporting.rs"]
     tests_alloc_gate_rs_e9a95b36["tests/alloc_gate.rs"]
+    tests_async_cycles_rs_c16a121f["tests/async_cycles.rs"]
+    tests_async_depends_spec_rs_b971bc3f["tests/async_depends_spec.rs"]
+    tests_async_drift_rs_7c173806["tests/async_drift.rs"]
+    tests_async_model_surface_rs_3182212a["tests/async_model_surface.rs"]
+    tests_async_render_rs_8451d6f7["tests/async_render.rs"]
     tests_blind4_check_ok_line_rs_dcb37f3e["tests/blind4_check_ok_line.rs"]
     tests_blind4_fold_pointer_rs_4b371a86["tests/blind4_fold_pointer.rs"]
     tests_blind4_oneliners_rs_b0a3960e["tests/blind4_oneliners.rs"]
@@ -301,7 +308,12 @@ graph TD
     tests_verify_expose_rs_869304f2["tests/verify_expose.rs"]
     tests_verify_submodules_rs_c8522173["tests/verify_submodules.rs"]
     tests_agents_guide_reporting_rs_c2c89bc7 ~~~ tests_alloc_gate_rs_e9a95b36
-    tests_alloc_gate_rs_e9a95b36 ~~~ tests_blind4_check_ok_line_rs_dcb37f3e
+    tests_alloc_gate_rs_e9a95b36 ~~~ tests_async_cycles_rs_c16a121f
+    tests_async_cycles_rs_c16a121f ~~~ tests_async_depends_spec_rs_b971bc3f
+    tests_async_depends_spec_rs_b971bc3f ~~~ tests_async_drift_rs_7c173806
+    tests_async_drift_rs_7c173806 ~~~ tests_async_model_surface_rs_3182212a
+    tests_async_model_surface_rs_3182212a ~~~ tests_async_render_rs_8451d6f7
+    tests_async_render_rs_8451d6f7 ~~~ tests_blind4_check_ok_line_rs_dcb37f3e
     tests_blind4_check_ok_line_rs_dcb37f3e ~~~ tests_blind4_fold_pointer_rs_4b371a86
     tests_blind4_fold_pointer_rs_4b371a86 ~~~ tests_blind4_oneliners_rs_b0a3960e
     tests_blind4_oneliners_rs_b0a3960e ~~~ tests_blind4_pretty_rs_2a7a821e
@@ -514,6 +526,7 @@ graph TD
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_capability_rs_d60fec76
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_cli_rs_a6998732
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_language_rs_232ea882
+  src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_model_rs_b8d77281
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_profile_rs_36763afc
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_report_mod_rs_2a583ff5
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_scan_rs_4ece116a
@@ -521,6 +534,7 @@ graph TD
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_verify_compare_mod_rs_0fce8512
   src_archspec_depgraph_rs_8874051e --> src_archspec_model_rs_b8d77281
   src_archspec_depgraph_rs_8874051e --> src_render_rs_8e751ed1
+  src_archspec_diagram_rs_5eacff0a --> src_archspec_depgraph_rs_8874051e
   src_archspec_diagram_rs_5eacff0a --> src_archspec_model_rs_b8d77281
   src_archspec_diagram_rs_5eacff0a --> src_archspec_spec_rs_a8194740
   src_archspec_diagram_rs_5eacff0a --> src_archspec_verify_compare_mod_rs_0fce8512
@@ -616,6 +630,13 @@ graph TD
   src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_verify_compare_cycles_rs_7a16f3ee
   src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
   src_archspec_verify_compare_adjudicate_rs_44538ae0 --> src_archspec_verify_compare_pattern_rs_7d04036f
+  src_archspec_verify_compare_async_depends_rs_4d4322c5 --> src_archspec_capability_rs_d60fec76
+  src_archspec_verify_compare_async_depends_rs_4d4322c5 --> src_archspec_language_rs_232ea882
+  src_archspec_verify_compare_async_depends_rs_4d4322c5 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_async_depends_rs_4d4322c5 --> src_archspec_scan_rs_4ece116a
+  src_archspec_verify_compare_async_depends_rs_4d4322c5 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_async_depends_rs_4d4322c5 --> src_archspec_verify_compare_claims_rs_ff31945a
+  src_archspec_verify_compare_async_depends_rs_4d4322c5 --> src_archspec_verify_compare_diff_rs_1ea7ac2e
   src_archspec_verify_compare_boundaries_rs_543a12f6 --> src_archspec_capability_rs_d60fec76
   src_archspec_verify_compare_boundaries_rs_543a12f6 --> src_archspec_language_rs_232ea882
   src_archspec_verify_compare_boundaries_rs_543a12f6 --> src_archspec_model_rs_b8d77281
@@ -673,6 +694,7 @@ graph TD
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_profile_rs_36763afc
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_spec_rs_a8194740
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_adjudicate_rs_44538ae0
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_async_depends_rs_4d4322c5
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_boundaries_rs_543a12f6
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_claims_rs_ff31945a
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_contracts_rs_6f1e6784
@@ -761,6 +783,7 @@ graph TD
   src_scan_ts_resolution_rs_4f1fcd3e --> src_scan_ts_workspace_rs_0ebb7c73
   src_scan_ts_syntax_rs_bdff06f7 --> src_parse_grammar_rs_2a04bdca
   src_scan_ts_workspace_rs_0ebb7c73 --> src_language_rs_430ffc26
+  tests_async_model_surface_rs_3182212a --> src_model_rs_cf804a5b
   tests_lib_scan_surface_rs_c7411cd1 --> src_language_rs_430ffc26
   tests_lib_scan_surface_rs_c7411cd1 --> src_scan_mod_rs_0952d595
   tests_shared_mod_rs_2c3ed550 --> tests_shared_capability_rs_19c683be

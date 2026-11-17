@@ -543,7 +543,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 66] = [
+    let required: [&str; 75] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -610,6 +610,19 @@ fn registry_owns_claim_identity() {
         // finding class naming a pair with code import evidence and no
         // declared edge, and the suppression of the zero-evidence reason.
         "used-but-undeclared-import",
+        "async-event-unresolved",
+        "async-publish-not-derived",
+        "async-subscribe-not-derived",
+        "async-endpoint-unclaimed",
+        "async-cycle-advisory",
+        "async-depends-inert-notes",
+        "async-drift-field-absent",
+        "async-drift-enum-projection",
+        // Registered by the archspec_async_depends scenario 05 (2026-11-17):
+        // the ONE async census section of the report renderers and the
+        // verify --json machine body, rendered iff the declared table
+        // resolves a pair.
+        "async-census-section",
         // Registered by the issue-8 fail-closed law (2026-11-05): the one
         // shared key-shape table behind the emitted schema and the runtime
         // unknown-key refusal.
@@ -1195,8 +1208,90 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             | "dynamic-import-wildcard"
             | "orphan-file"
             | "orphan-file-census"
-            | "csharp-test-gated-units" => {
+            | "csharp-test-gated-units"
+            | "async-event-unresolved"
+            | "async-publish-not-derived"
+            | "async-subscribe-not-derived"
+            | "async-drift-field-absent"
+            | "async-drift-enum-projection"
+            | "async-endpoint-unclaimed"
+            | "async-cycle-advisory" => {
                 contains_canonical(&mut errors, claim, "help diagnostics")
+            }
+            "async-depends-inert-notes" => {
+                // Live probe: a rust run with a NON-EMPTY async_depends table
+                // and no declared-type census facts prints both notes
+                // verbatim, exit 0 — rust derives nothing (capability row
+                // not-emitted) and the fixture's lib declares no public item.
+                let canonicals: Vec<&str> = claim.canonical_fragments.iter().map(String::as_str).collect();
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"asyncweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "fn hidden() {}\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"asyncweld\"\nmatches = { units = [\"asyncweld\"] }\n\n[[async_depends]]\nfrom = \"asyncweld\"\nto = \"asyncweld\"\nevent = \"Ghost.Events.OrderPlaced\"\n",
+                );
+                let run = fx.run(&["verify"]);
+                if run.status.code() != Some(0) {
+                    errors.push(format!(
+                        "claim `{}` drifted: a rust run with an async_depends table did not exit 0: {}",
+                        claim.id,
+                        stdout(&run)
+                    ));
+                }
+                for canonical in canonicals {
+                    if !stdout(&run).contains(canonical) {
+                        errors.push(format!(
+                            "claim `{}` drifted: a rust verify run does not emit the registered inert note verbatim: {}",
+                            claim.id,
+                            stdout(&run)
+                        ));
+                    }
+                }
+            }
+            "async-census-section" => {
+                contains_canonical(&mut errors, claim, "help diagnostics");
+                // Live probe, both sides: a rust run whose declared table
+                // resolves one pair renders the section header on the report
+                // surface; a run with no async table renders no section
+                // bytes at all (D8 — absence is the contract).
+                let spec_with = "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"censusweld\"\nmatches = { units = [\"censusweld\"] }\n\n[[async_depends]]\nfrom = \"censusweld\"\nto = \"censusweld\"\nevent = \"Ghost.Events.OrderPlaced\"\n";
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"censusweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub fn api() {}\n");
+                fx.write("architecture.spec.toml", spec_with);
+                let declaring = fx.run(&["report"]);
+                if !stdout(&declaring).contains("Async census") {
+                    errors.push(format!(
+                        "claim `{}` drifted: a declaring rust report does not render the section header: {}",
+                        claim.id,
+                        stdout(&declaring)
+                    ));
+                }
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"censusweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub fn api() {}\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"censusweld\"\nmatches = { units = [\"censusweld\"] }\n",
+                );
+                let bare = fx.run(&["report"]);
+                if stdout(&bare).contains("Async census") {
+                    errors.push(format!(
+                        "claim `{}` drifted: a non-declaring rust report renders async census bytes: {}",
+                        claim.id,
+                        stdout(&bare)
+                    ));
+                }
             }
             "ts-vacuity-carriers" => {
                 // The four carriers are emitted by the ts legs of scan,

@@ -175,6 +175,14 @@ pub fn plantuml_violation_edge(from: &str, to: &str, label: &str) -> String {
     format!("{from} -[#red]-> {to} : {label}")
 }
 
+/// Render a plantuml dashed edge with a trailing label — the PlantUML parity
+/// of `mermaid_labeled_edge` (workplan archspec_async_depends, follow-up 6):
+/// the async renderer draws the same event identity through ONE implementation
+/// per grammar, so mermaid and plantuml cannot drift on which edges are async.
+pub fn plantuml_labeled_edge(from: &str, to: &str, label: &str) -> String {
+    format!("{from} ..> {to} : {label}")
+}
+
 /// Mermaid-safe id for a module-tier node: the same sanitization as
 /// `mermaid_id`, but the hash input is salted with the tier, so a module
 /// node whose identity equals a unit's raw name can never share an id with

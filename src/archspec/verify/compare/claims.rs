@@ -136,6 +136,33 @@ pub(super) fn claim_unit_named(unit: &str, claims: &[Claim<'_>]) -> Option<usize
     })
 }
 
+/// The `[[async_depends]]` territory predicate (workplan archspec_async_depends,
+/// D7): TRUE when an entry endpoint spelling is a claim name or matches any
+/// claim's `matches.units` or `matches.modules` glob. CHECK-only — the async
+/// arm READS the `matches` machinery, it never adds a member to it (D7: an
+/// async edge owns no territory, it only proves its endpoints are claimed).
+/// The entry endpoint names a UNIT, so the unit glob is the primary answer;
+/// the claim name and the module selectors stay accepted spellings of the
+/// same territory.
+pub(super) fn async_endpoint_claimed(name: &str, claims: &[Claim<'_>]) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    claims.iter().any(|claim| {
+        claim.name == name
+            || claim
+                .matches
+                .units
+                .iter()
+                .any(|pattern| matches_pattern(name, pattern))
+            || claim
+                .matches
+                .modules
+                .iter()
+                .any(|pattern| matches_pattern(name, pattern))
+    })
+}
+
 /// The dependency policy governing a claim: its own declared `allowed` table,
 /// else the nearest ancestor's (D2); the root without any declared table
 /// keeps today's implicit deny-all ceiling.

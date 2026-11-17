@@ -106,6 +106,129 @@ signatures = ["facade dependency rule inert for", "no derivable role-facade idio
 dedicated_guard = "tests/shared/scenarios/verify.rs"
 
 [[claim]]
+id = "async-event-unresolved"
+owner = "the `async event unresolved` catalog entry of `archspec help diagnostics`, rendered by verify runs on stdout"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "async event unresolved: <event> — <from> -> <to> (entry #N)"
+canonical_fragments = ["async event unresolved"]
+signatures = ["async event unresolved"]
+dedicated_guard = "tests/async_depends_spec.rs"
+[[claim.guard_pin]]
+file = "tests/async_depends_spec.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "async-publish-not-derived"
+owner = "the `async publish not derived` catalog entry of `archspec help diagnostics`, rendered by verify runs on stdout"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "async publish not derived: <from> -> <to> — event <event> (entry #N)"
+canonical_fragments = ["async publish not derived"]
+signatures = ["async publish not derived"]
+dedicated_guard = "tests/async_depends_spec.rs"
+[[claim.guard_pin]]
+file = "tests/async_depends_spec.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "async-subscribe-not-derived"
+owner = "the `async subscribe not derived` catalog entry of `archspec help diagnostics`, rendered by verify runs on stdout"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "async subscribe not derived: <from> -> <to> — event <event> (entry #N)"
+canonical_fragments = ["async subscribe not derived"]
+signatures = ["async subscribe not derived"]
+dedicated_guard = "tests/async_depends_spec.rs"
+[[claim.guard_pin]]
+file = "tests/async_depends_spec.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "async-endpoint-unclaimed"
+owner = "the `async endpoint unclaimed` catalog entry of `archspec help diagnostics`, rendered by verify runs on stdout (D7 territory check: CHECKED, never claimed)"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "async endpoint unclaimed: <endpoint> — <from> -> <to> (entry #N)"
+canonical_fragments = ["async endpoint unclaimed"]
+signatures = ["async endpoint unclaimed"]
+dedicated_guard = "tests/async_cycles.rs"
+[[claim.guard_pin]]
+file = "tests/async_cycles.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "async-cycle-advisory"
+owner = "the `async cycle` catalog entry of `archspec help diagnostics`, the union-graph ring census row (warning severity; the no_cycles adjudication stays direct-only)"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "async cycle: <A -> B -> A> (mixed)"
+canonical_fragments = ["async cycle"]
+signatures = ["async cycle"]
+dedicated_guard = "tests/async_cycles.rs"
+[[claim.guard_pin]]
+file = "tests/async_cycles.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "async-depends-inert-notes"
+owner = "the notes `archspec verify` prints on a run whose `[[async_depends]]` table is non-empty while the driver derives nothing (capability row not-emitted) or the model states no declared-type census facts"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "note: async_depends publish and subscribe arms inert for rust: event-declaration-derivation = not-emitted",
+  "note: async_depends event-type arm inert: the model states no declared-type census facts",
+]
+signatures = ["async_depends publish and subscribe arms inert", "async_depends event-type arm inert"]
+dedicated_guard = "tests/async_depends_spec.rs"
+[[claim.guard_pin]]
+file = "tests/async_depends_spec.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "async-drift-field-absent"
+owner = "the `async drift field absent` catalog entry of `archspec help diagnostics`, rendered by verify runs on the warnings channel"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "async drift field absent: <consumer> binds <event>.<field> — the publisher record declares no such field (entry #N)"
+canonical_fragments = ["async drift field absent"]
+signatures = ["async drift field absent"]
+dedicated_guard = "tests/async_drift.rs"
+[[claim.guard_pin]]
+file = "tests/async_drift.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "async-drift-enum-projection"
+owner = "the `async drift enum projection` catalog entry of `archspec help diagnostics`, rendered by verify runs on the warnings channel"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "async drift enum projection: <consumer> binds <event>.<field> as a string projection of the publisher's enum field (entry #N)"
+canonical_fragments = ["async drift enum projection"]
+signatures = ["async drift enum projection"]
+dedicated_guard = "tests/async_drift.rs"
+[[claim.guard_pin]]
+file = "tests/async_drift.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "async-census-section"
+owner = "the `async census section` catalog entry of `archspec help diagnostics`, rendered by the report renderers and by verify --json when the declared `[[async_depends]]` table resolves at least one pair"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "Async census",
+  "<from> -> <to> — event <event>",
+  "per service: <service> fan-in <n>, fan-out <n>",
+  "per event: <event> fan-in <n>, fan-out <n>",
+]
+signatures = ["async census", "per service:", "per event:"]
+dedicated_guard = "tests/async_render.rs"
+[[claim.guard_pin]]
+file = "tests/async_render.rs"
+relation = "named-in-file"
+
+[[claim]]
 id = "ts-vacuity-carriers"
 owner = "the named `vacuous constraint` carrier lines the ts driver prints on an EMPTY evidence set for the flipped capability rows (R8 vacuity law) — report-surface lines, never findings, never red without `--strict`"
 owner_surfaces = []

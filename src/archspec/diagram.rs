@@ -2,8 +2,8 @@ use crate::archspec::model::{Model, Role, Unit};
 use rust_arch_test_kit::render::{
     mermaid_edge, mermaid_labeled_edge, mermaid_module_edge, mermaid_module_labeled_edge,
     mermaid_module_node, mermaid_node, mermaid_node_marked, mermaid_subgraph,
-    plantuml_component, plantuml_component_marked, plantuml_edge, plantuml_quoted_component,
-    plantuml_quoted_violation_edge, plantuml_violation_edge,
+    plantuml_component, plantuml_component_marked, plantuml_edge, plantuml_labeled_edge,
+    plantuml_quoted_component, plantuml_quoted_violation_edge, plantuml_violation_edge,
 };
 use crate::archspec::spec::{Module, Spec, Stereotype};
 use crate::archspec::verify::compare::{Adjudicator, ModuleRender};
@@ -15,6 +15,15 @@ struct SpecGraph {
     clusters: Vec<(String, Vec<String>)>,
     allowed_edges: BTreeSet<(String, String)>,
     forbidden_edges: BTreeSet<(String, String)>,
+    /// The declared `[[async_depends]]` rows, `(from, to, label)` — endpoints
+    /// are the declared UNIT names, the label the short `from::SimpleName`
+    /// form (scenario 08), and the set order IS the `(from, to, event)` law
+    /// (N6). Empty for every spec without the table, and the renderers draw
+    /// it only when non-empty: a non-declaring spec's diagram bytes stand
+    /// unchanged (workplan archspec_async_depends, N2/D8). An entry with an
+    /// unresolved key contributes nothing — a half-declared row is the
+    /// validator's refusal, never the renderer's guess.
+    async_edges: BTreeSet<(String, String, String)>,
 }
 
 fn build_graph(spec: &Spec) -> SpecGraph {
@@ -89,11 +98,34 @@ fn build_graph(spec: &Spec) -> SpecGraph {
     forbidden_edges.retain(|(from, to)| !contained(from, to));
     clusters.sort_by(|a, b| a.0.cmp(&b.0));
 
+    // The declared async rows draw intent, like the declared allowed edges
+    // do — no containment fold, no validation (N2: the renderer states the
+    // table, `verify` adjudicates it). One declared entry is one row with
+    // unit endpoints and the short label (scenario 08); an entry whose
+    // endpoints name one unit draws nothing (the self-edge law).
+    let mut async_edges: BTreeSet<(String, String, String)> = BTreeSet::new();
+    for entry in &spec.async_depends {
+        if let (Some(from), Some(to), Some(event)) =
+            (entry.from.as_deref(), entry.to.as_deref(), entry.event.as_deref())
+            && !from.is_empty()
+            && !to.is_empty()
+            && !event.is_empty()
+            && from != to
+        {
+            async_edges.insert((
+                from.to_string(),
+                to.to_string(),
+                crate::archspec::depgraph::async_event_label(from, event),
+            ));
+        }
+    }
+
     SpecGraph {
         nodes,
         clusters,
         allowed_edges,
         forbidden_edges,
+        async_edges,
     }
 }
 
@@ -115,6 +147,13 @@ pub fn render_spec_mermaid(spec: &Spec) -> String {
     }
     for (from, to) in &graph.forbidden_edges {
         let _ = writeln!(out, "  {}", mermaid_labeled_edge(from, to, "forbidden"));
+    }
+    // The declared async rows render dashed and event-labelled after every
+    // direct arrow (workplan archspec_async_depends, N2/D8/follow-up 6;
+    // scenario 08: unit endpoints, short label, one line per entry); an
+    // empty set renders no bytes.
+    for (from, to, event) in &graph.async_edges {
+        let _ = writeln!(out, "  {}", mermaid_labeled_edge(from, to, event));
     }
     out
 }
@@ -138,6 +177,11 @@ pub fn render_spec_plantuml(spec: &Spec) -> String {
     for (from, to) in &graph.forbidden_edges {
         let _ = writeln!(out, "{}", plantuml_violation_edge(from, to, "forbidden"));
     }
+    // PlantUML parity with the mermaid arm (follow-up 6): same rows, same
+    // order, dashed labelled grammar; empty renders no bytes.
+    for (from, to, event) in &graph.async_edges {
+        let _ = writeln!(out, "{}", plantuml_labeled_edge(from, to, event));
+    }
     let _ = writeln!(out, "@enduml");
     out
 }
@@ -156,6 +200,15 @@ struct ScanGraph {
     /// Module-tier arrows: (from identity, to identity, violates). One entry
     /// per distinct resolved endpoint pair; symbols multiplicity collapses.
     module_arrows: BTreeSet<(String, String, bool)>,
+    /// The model's derived async rows, `(from, to, label)` — unit endpoints,
+    /// the short `from::SimpleName` label (scenario 08), and the set order IS
+    /// the `(from, to, event)` law (N6). The scan source draws the DERIVED
+    /// facts (N2); an artefact without async rows — every artefact a
+    /// no-derivation driver writes, and every artefact shipped before this
+    /// feature — carries an empty set and renders its exact shipped bytes
+    /// (D8). Renderers draw these at the unit tier; the module tier's
+    /// territory math is untouched.
+    async_arrows: BTreeSet<(String, String, String)>,
 }
 
 fn build_scan_graph(model: &Model, governing: Option<&Spec>, tiers: &TierSelection) -> ScanGraph {
@@ -235,6 +288,18 @@ fn build_scan_graph(model: &Model, governing: Option<&Spec>, tiers: &TierSelecti
         external_edges,
         module_nodes,
         module_arrows,
+        async_arrows: model
+            .async_edges
+            .iter()
+            .filter(|row| row.from != row.to) // the self-edge law (scenario 08)
+            .map(|row| {
+                (
+                    row.from.clone(),
+                    row.to.clone(),
+                    crate::archspec::depgraph::async_event_label(&row.from, &row.event),
+                )
+            })
+            .collect(),
     }
 }
 
@@ -795,6 +860,13 @@ pub fn render_scan_mermaid(
                 mermaid_labeled_edge(from, to, "violates spec")
             );
         }
+        // The derived async rows render dashed and event-labelled after the
+        // direct and violating arrows (workplan archspec_async_depends,
+        // N2/D8/follow-up 6; scenario 08: short label); an empty set renders
+        // no bytes.
+        for (from, to, event) in &graph.async_arrows {
+            let _ = writeln!(out, "    {}", mermaid_labeled_edge(from, to, event));
+        }
         let _ = writeln!(out, "  end");
     }
     if !graph.external_nodes.is_empty() {
@@ -857,6 +929,11 @@ pub fn render_scan_plantuml(
                 "{}",
                 plantuml_violation_edge(from, to, "violates spec")
             );
+        }
+        // PlantUML parity with the mermaid scan arm (follow-up 6): the same
+        // derived async rows, the same order, dashed labelled grammar.
+        for (from, to, event) in &graph.async_arrows {
+            let _ = writeln!(out, "{}", plantuml_labeled_edge(from, to, event));
         }
         let _ = writeln!(out, "}}");
     }

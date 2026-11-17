@@ -1,6 +1,9 @@
 pub mod syntax;
 
-use crate::model::{Edge, ManifestInfo, Model, ModuleEdge, Role, Unit};
+use crate::model::{
+    Edge, EventBoundShape, EventRecordMember, EventShapes, ManifestInfo, Model, ModuleEdge, Role,
+    Unit,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -18,6 +21,7 @@ type ProjectSources = (
     BTreeSet<String>,
     BTreeMap<String, BTreeSet<String>>,
     Option<syntax::TypeFacts>,
+    syntax::ShapeFacts,
     bool,
     bool,
     bool,
@@ -190,13 +194,25 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // when `Engine` lives in the referenced project. Dropped test projects
     // contribute nothing (their references are no production fact anyway).
     let mut declared_types: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // Event payload-shape accumulators (workplan archspec_async_depends,
+    // D2/M5, scenario 04): the publisher record census attributed like the
+    // public-API facts above (namespace -> `::` module; root declarations
+    // -> the unit-root key), the enum census likewise, and the consumer
+    // bound shapes keyed by UNIT — a bind is code in a unit, so its owner-
+    // ship needs no namespace resolution. Merge is union: the same record
+    // declared as a partial in two files states the union of its members.
+    let mut event_records: BTreeMap<String, BTreeMap<String, Vec<EventRecordMember>>> =
+        BTreeMap::new();
+    let mut event_bases: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+    let mut event_enums: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut event_bounds: BTreeMap<String, BTreeMap<String, EventBoundShape>> = BTreeMap::new();
     for unit in &units {
         let project_dir = if unit.path == "." {
             root.to_path_buf()
         } else {
             root.join(&unit.path)
         };
-        let (namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded) =
+        let (namespaces, usings, type_facts, shape_facts, entrypoint_file, registration_family, forwarded) =
             scan_project_sources(&project_dir)?;
         // The unit's root address resolves from its csproj identity properties
         // and its declared namespaces BEFORE any fact is attributed (US 01).
@@ -228,12 +244,70 @@ pub fn extract(root: &Path) -> Result<Model, String> {
                     .extend(names.iter().cloned());
             }
         }
+        // Shape-fact attribution (scenario 04): records and enums mirror
+        // the public-API attribution above; bounds key on the unit. The
+        // merge is a UNION — a partial record's members join across files,
+        // and a bound field observed in any file of the unit is bound by
+        // the unit.
+        for (ns, records) in &shape_facts.records {
+            let module = if ns.is_empty() {
+                root_key.clone()
+            } else {
+                ns_to_module(ns)
+            };
+            let by_name = event_records.entry(module).or_default();
+            for (name, members) in records {
+                let entry = by_name.entry(name.clone()).or_default();
+                for (member, field_type) in members {
+                    let member = EventRecordMember {
+                        name: member.clone(),
+                        field_type: field_type.clone(),
+                    };
+                    if !entry.contains(&member) {
+                        entry.push(member);
+                    }
+                }
+                entry.sort();
+                entry.dedup();
+            }
+        }
+        for (ns, bases) in &shape_facts.bases {
+            let module = if ns.is_empty() {
+                root_key.clone()
+            } else {
+                ns_to_module(ns)
+            };
+            let by_name = event_bases.entry(module).or_default();
+            for (name, list) in bases {
+                let entry = by_name.entry(name.clone()).or_default();
+                entry.extend(list.iter().cloned());
+                entry.sort();
+                entry.dedup();
+            }
+        }
+        for (ns, names) in &shape_facts.enums {
+            let module = if ns.is_empty() {
+                root_key.clone()
+            } else {
+                ns_to_module(ns)
+            };
+            event_enums.entry(module).or_default().extend(names.iter().cloned());
+        }
+        if !shape_facts.bounds.is_empty() {
+            let unit_bounds = event_bounds.entry(unit.name.clone()).or_default();
+            for (name, (fields, projected)) in &shape_facts.bounds {
+                let entry = unit_bounds.entry(name.clone()).or_default();
+                entry.fields.extend(fields.iter().cloned());
+                entry.projected.extend(projected.iter().cloned());
+            }
+        }
         scanned.insert(
             unit.name.clone(),
             (
                 namespaces.clone(),
                 usings.clone(),
                 type_facts,
+                shape_facts,
                 entrypoint_file,
                 registration_family,
                 forwarded,
@@ -276,11 +350,21 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // Cross-project namespace ownership is only fully known after every unit is
     // scanned, so resolve usings in a second pass.
     for unit in &units {
-        let (_namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded) =
+        let (_namespaces, usings, type_facts, _shape_facts, entrypoint_file, registration_family, forwarded) =
             scanned
             .get(&unit.name)
             .cloned()
-            .unwrap_or_else(|| (BTreeSet::new(), BTreeMap::new(), None, false, false, false));
+            .unwrap_or_else(|| {
+                (
+                    BTreeSet::new(),
+                    BTreeMap::new(),
+                    None,
+                    syntax::ShapeFacts::default(),
+                    false,
+                    false,
+                    false,
+                )
+            });
         let referenced: Vec<String> = unit_manifests
             .get(&unit.name)
             .map(|manifest| manifest.dependencies.clone())
@@ -567,6 +651,15 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         unit_manifests,
         roles,
         report_only_lines: test_gated_lines,
+        // The drift census reads these rows from `verify`'s own scan; no
+        // serialized byte carries them (serde-skip in `model.rs`), so every
+        // non-csharp and every non-declaring model byte stays identical.
+        event_shapes: EventShapes {
+            records: event_records,
+            bases: event_bases,
+            enums: event_enums,
+            bounds: event_bounds,
+        },
         ..Model::new("csharp")
     })
 }
@@ -962,9 +1055,14 @@ fn has_condition(event: &quick_xml::events::BytesStart<'_>) -> bool {
 /// `using` targets (both attributed to the namespace they appear in) and the
 /// type-position reference map ([`syntax::TypeFacts`]). Per file the grammar
 /// walk ([`syntax::scan_cs_source`]) fills the namespace/using collections and
-/// the type facts with the attribution semantics the graph assembly expects.
+/// the type facts with the attribution semantics the graph assembly expects,
+/// and the shape pass ([`syntax::scan_cs_shapes`]) derives the event payload
+/// shapes (record members, enum census, bound fields — workplan
+/// archspec_async_depends, D2/M5; the join of bindings with member-access
+/// chains happens per FILE, so a variable name in one file can never borrow
+/// another file's bindings).
 ///
-/// Returns `(namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded)`
+/// Returns `(namespaces, usings, type_facts, shape_facts, entrypoint_file, registration_family, forwarded)`
 /// where `usings` maps a namespace (dotted, as written) to the set of `using`
 /// target namespaces in files of that namespace. A file-scoped `namespace Foo.Bar;`
 /// owns all usings in the file; usings in a file with no namespace at all are
@@ -980,6 +1078,7 @@ fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
     let mut namespaces: BTreeSet<String> = BTreeSet::new();
     let mut usings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut type_facts = Some(syntax::TypeFacts::default());
+    let mut shape_facts = syntax::ShapeFacts::default();
     let mut entrypoint_file = false;
     let mut registration_family = false;
     let mut forwarded = false;
@@ -1014,8 +1113,25 @@ fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
                 collected.merge(per_file);
             }
         }
+        // The shape pass (workplan archspec_async_depends, D2/M5): its
+        // join of bindings with chains runs INSIDE the per-file call, so
+        // merging below only unions already-joined results — a variable
+        // name in one file never borrows another file's bindings.
+        let per_file_shapes =
+            syntax::scan_cs_shapes(&source).map_err(|err| {
+                format!("failed to parse {}: {err}", path.display())
+            })?;
+        shape_facts.merge(per_file_shapes);
     }
-    Ok((namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded))
+    Ok((
+        namespaces,
+        usings,
+        type_facts,
+        shape_facts,
+        entrypoint_file,
+        registration_family,
+        forwarded,
+    ))
 }
 
 /// True when any rel-path component is `bin`, `obj`, `node_modules`, or starts
@@ -1193,6 +1309,121 @@ fn is_dotted_prefix(prefix: &str, whole: &str) -> bool {
 /// Convert a dotted C# namespace to a `::`-separated module path.
 fn ns_to_module(ns: &str) -> String {
     ns.replace('.', "::")
+}
+
+/// The pilot driver's event-participation derivation (workplan
+/// archspec_async_depends, D3): does this unit's CODE participate in the
+/// event type named by the fully-qualified dotted `event` identity — as
+/// producer or consumer? True when either serialized model fact carries it:
+/// (a) the unit OWNS the type — its `soft_structure` modules contain the
+/// event's namespace module and the `module_public_types` census names the
+/// type there; (b) the unit has a `module_edge` whose `to` module is the
+/// event's namespace module — the cross-project (or same-project) `using`
+/// that references it. Reads only the serialized model, never the tree; the
+/// `verify::compare::async_depends` arms call it for the from-unit (arm (b))
+/// of each `[[async_depends]]` entry, and the to-unit arm (arm (c)) calls it
+/// as its exact-FQN leg of [`derives_subscribe_participation`].
+pub fn derives_event_participation(model: &Model, unit: &str, event: &str) -> bool {
+    let (namespace, name) = match event.rsplit_once('.') {
+        Some((namespace, name)) => (namespace, name),
+        None => ("", event),
+    };
+    let module = ns_to_module(namespace);
+    let owns = model
+        .soft_structure
+        .get(unit)
+        .is_some_and(|modules| modules.contains(&module))
+        && model
+            .module_public_types
+            .get(&module)
+            .is_some_and(|types| types.iter().any(|declared| declared == name));
+    owns || {
+        model
+            .module_edges
+            .iter()
+            .any(|edge| edge.unit == unit && edge.to == module)
+    }
+}
+
+/// The to-unit (arm (c)) subscribe side (workplan archspec_async_depends,
+/// scenario 06, consumer verdict on 0.6.86): participates when the exact-FQN
+/// predicate above holds OR the unit carries the event by SIMPLE NAME — the
+/// type-name tail after the last `.`/`:`, the same resolution rule the drift
+/// census uses at `verify::compare::async_depends::event_resolves` and
+/// `check_shape_drift` (one rule, two spelling sites: the census's model-wide
+/// lookup and the unit-scoped leg of [`unit_holds_type_by_simple_name`],
+/// shared with the drift pairing since scenario 10). The duplicated-contract idiom gives each
+/// unit its own namespaced copy of the event, so the declared FQN's namespace
+/// names the PUBLISHER's module and cannot address the consumer's copy; the
+/// simple-name facts that do address it are exactly the two the model already
+/// derives:
+/// - the unit's own declared-type census names that simple name in one of the
+///   unit's modules (a copy under the unit's own namespace), or
+/// - the unit's derived bound shapes carry an entry for that simple name
+///   (`event_shapes.bounds`, keyed unit -> declaration simple name) — a typed
+///   handler variable, an `IIntegrationEventHandler<T>` implementation's
+///   `Handle(T, …)` parameter, binds fields and registers without any literal
+///   `Subscribe` call.
+///
+/// The exact-FQN leg stays byte-for-byte the shipped shared-contracts and
+/// direct-reference path; a to-unit with neither fact is still refused by
+/// name (arm (c) never degrades into unconditional silence). The from-unit
+/// arm (b) keeps the exact-FQN law alone.
+///
+/// Scenario 10 extracted the simple-name leg into [`unit_holds_type_by_simple_name`]
+/// so the drift projection pairing of
+/// `verify::compare::async_depends::check_shape_drift` calls the SAME
+/// implementation — the pairing rule is shared, never mirrored.
+pub fn derives_subscribe_participation(model: &Model, unit: &str, event: &str) -> bool {
+    derives_event_participation(model, unit, event)
+        || unit_holds_type_by_simple_name(model, unit, event_type_simple_name(event))
+}
+
+/// The census's tail rule (scenario 10, the extraction scenario 06 deferred):
+/// the type's SIMPLE NAME inside an event identity — rust spells identities
+/// with `::`, csharp with `.`; either separator's last segment is the type's
+/// name. ONE implementation: arm (c) above and the drift projection pairing
+/// call this — a second hand-written copy of the tail rule is the defect
+/// class this function closes.
+pub fn event_type_simple_name(event: &str) -> &str {
+    event.rsplit(['.', ':']).next().unwrap_or(event)
+}
+
+/// The simple-name leg of scenario 06's rule as ONE implementation (arm (c)
+/// is its identity caller; scenario 10 routes the drift projection pairing
+/// through the same unit scoping): True when the unit's derived facts hold
+/// the type named by the SIMPLE name `name` — either its derived bound shapes
+/// (`event_shapes.bounds`, keyed unit -> declaration simple name) or the
+/// declared-type census of one of the unit's modules (its own namespaced
+/// copy, the duplicated-contract idiom).
+pub fn unit_holds_type_by_simple_name(model: &Model, unit: &str, name: &str) -> bool {
+    model
+        .event_shapes
+        .bounds
+        .get(unit)
+        .is_some_and(|bounds| bounds.contains_key(name))
+        || unit_module_census_holds(model, unit, &model.module_public_types, |types| {
+            types.iter().any(|declared| declared == name)
+        })
+}
+
+/// The unit-scoped half of the simple-name pairing: True when some module
+/// `unit` owns carries a census entry satisfying `holds`. The scoping rule
+/// scenario 06 spelled inline and scenario 10 extracted — ONE implementation
+/// serving every module-keyed census (the identity arms' declared-type
+/// census, the drift pairing's record-shape census), so no caller re-mirrors
+/// the loop (a second hand-written copy is a scenario-10 done-when failure).
+pub fn unit_module_census_holds<T>(
+    model: &Model,
+    unit: &str,
+    census: &BTreeMap<String, T>,
+    holds: impl Fn(&T) -> bool,
+) -> bool {
+    model.soft_structure.get(unit).is_some_and(|modules| {
+        modules
+            .iter()
+            .any(|module| census.get(module).is_some_and(&holds))
+    })
 }
 
 /// Resolve a unit's root namespace (roles reality US 01) — the module every
@@ -1607,7 +1838,7 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
         crate_ids: BTreeSet::new(),
     };
 
-    let (namespaces, usings, type_facts, entrypoint_file, registration_family, forwarded) =
+    let (namespaces, usings, type_facts, _shape_facts, entrypoint_file, registration_family, forwarded) =
         scan_project_sources(&canonical)?;
     let mut soft_structure: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut sorted: Vec<String> = namespaces.iter().map(|ns| ns_to_module(ns)).collect();

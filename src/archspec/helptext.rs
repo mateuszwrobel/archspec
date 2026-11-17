@@ -889,7 +889,115 @@ orphan file (report-only, never a verdict — exit 0):
                its tree — the census states the class, it gates nothing)
   decision:   none required; the census is a census, not a verdict.
 
-===== warning-level categories (exit 0 now, exit 1 under --strict) =====
+async drift enum projection
+  pattern:    async drift enum projection: <consumer> binds <event>.<field> as a string
+              projection of the publisher's enum field (entry #N)
+  emitted by: csharp (both payload shapes derive: the publisher's record members
+              and enum census from parsed declarations, the consumer's bound
+              fields from member accesses on variables of the event type);
+              drivers whose row reads not-emitted derive no shape and stay
+              silent with the capability-named inert note
+              [capability event-declaration-derivation rust="not-emitted" csharp="granular" go="not-emitted" ts="not-emitted" python="not-emitted" kotlin="not-emitted"]
+  meaning:    the consumer's handler binds a publisher field that EXISTS and is
+              enum-typed, but binds it AS A STRING (`<var>.<field>.ToString()`,
+              `<var>.<field> == "<literal>"`). A projection, not an equality
+              failure — its own named class, never folded into the
+              field-absent class. Subset consumption and un-derivable sides
+              (not a record, a dynamic or map binding) print nothing.
+  origin:     code × code (two derived shapes disagree on one member's kind)
+  severity:   warning (exit 0 in BOTH modes; `--strict` never promotes this
+              census row — scenario 09 severity law)
+  follow-up:  archspec scan      (both shapes come from the scan's derived
+               event-shape facts; the spec declares identity only)
+  decision:   code-fix — bind the enum (or project deliberately and accept the
+               gate); the declared entry itself names no shape anywhere.
+
+async drift field absent
+  pattern:    async drift field absent: <consumer> binds <event>.<field> — the publisher
+              record declares no such field (entry #N)
+  emitted by: csharp (same two derived shapes as the projection class);
+              drivers whose row reads not-emitted derive no shape and stay
+              silent with the capability-named inert note
+              [capability event-declaration-derivation rust="not-emitted" csharp="granular" go="not-emitted" ts="not-emitted" python="not-emitted" kotlin="not-emitted"]
+  meaning:    the consumer's handler binds a field that is ABSENT from the
+              publisher's derived record shape — the only drift shape that
+              speaks (legitimate subset consumption — fewer fields bound, all
+              present — stays silent, and so does any side whose shape is not
+              derivable, never a guess). The finding never enters the
+              `[[exempt]]` ratchet or the seed writer.
+  origin:     code × code (consumer handler references a member the publisher
+               record does not declare)
+  severity:   warning (exit 0 in BOTH modes; `--strict` never promotes this
+              census row — scenario 09 severity law)
+  follow-up:  archspec scan      (both shapes come from the scan's derived
+               event-shape facts; the spec declares identity only)
+  decision:   code-fix — publish the field or stop binding it; spec-fix is
+              impossible, the table declares identity only.
+
+async event unresolved
+  pattern:    async event unresolved: <event> — <from> -> <to> (entry #N)
+  meaning:    a [[async_depends]] entry names an event type that resolves in
+              no declared-type census fact of the model. The census is
+              model-wide, not unit-scoped — a type declared in a shared
+              contracts project resolves for every unit (an entry pointing
+              between two units through a third unit's type refuses nothing
+              in this arm). The model stating no census facts at all keeps
+              the arm inert with a note instead of guessing.
+  origin:     spec (the declared identity names a type the source does not declare)
+  severity:   error (exit 1)
+  follow-up:  archspec scan      (the model's declared-type census)
+  decision:   spec-fix — name the fully-qualified type the source declares,
+              or declare the type; the entry's from/to never enter this arm.
+
+async publish not derived
+  pattern:    async publish not derived: <from> -> <to> — event <event> (entry #N)
+  emitted by: csharp (per-unit event participation derives from the model's
+              declared-type ownership and namespace-import facts); drivers
+              whose row reads not-emitted skip the arm with the
+              capability-named inert note
+              [capability event-declaration-derivation rust="not-emitted" csharp="granular" go="not-emitted" ts="not-emitted" python="not-emitted" kotlin="not-emitted"]
+  meaning:    the from-unit of a [[async_depends]] entry carries no derived
+              publish fact for the event identity: it neither declares the
+              event type nor references the namespace that owns it.
+  origin:     code
+  severity:   error (exit 1)
+  follow-up:  archspec scan      (the from-unit's module facts)
+  decision:   code-fix — wire the publish so the from-unit references the
+              event type; spec-fix when the declared edge itself is wrong.
+
+async subscribe not derived
+  pattern:    async subscribe not derived: <from> -> <to> — event <event> (entry #N)
+  emitted by: csharp (the same participation derivation read from the other
+              side); drivers whose row reads not-emitted skip the arm with
+              the capability-named inert note
+              [capability event-declaration-derivation rust="not-emitted" csharp="granular" go="not-emitted" ts="not-emitted" python="not-emitted" kotlin="not-emitted"]
+  meaning:    the to-unit of a [[async_depends]] entry carries no derived
+              subscribe fact for the event identity: it neither declares the
+              event type nor references the namespace that owns it.
+  origin:     code
+  severity:   error (exit 1)
+  follow-up:  archspec scan      (the to-unit's module facts)
+  decision:   code-fix — wire the subscribe so the to-unit references the
+              event type; spec-fix when the declared edge itself is wrong.
+
+async endpoint unclaimed
+  pattern:    async endpoint unclaimed: <endpoint> — <from> -> <to> (entry #N)
+  meaning:    an endpoint of a `[[async_depends]]` entry is claimed by no
+              unit claim: no `[[module]]` names it and no `matches.units` or
+              matches.modules glob reaches it. The check is CHECK-ONLY — an
+              async edge never claims territory and the `matches` machinery
+              gains no member from it; the refusal asks for the claim that
+              owns the endpoint, never for the edge to be dropped. One line
+              per failing side.
+  origin:     spec (the declared edge names a unit no claim declares)
+  severity:   error (exit 1)
+  follow-up:  archspec verify --coverage  (which claims exist and what they
+              declare)
+  decision:   spec-fix — declare the unit claim that owns the endpoint, or
+              fix the entry's from/to; a non-declaring repo never reaches
+              this arm at all (the empty table runs no async code).
+
+===== warning-level categories (exit 0 now, exit 1 under --strict — except the async census rows, which stay exit 0 under --strict) =====
 
 cycle (warning severity)
   pattern:    cycle: <A -> B -> A> (runtime)   (rendered 'warning: cycle: ...';
@@ -1047,6 +1155,57 @@ vacuous constraint
               archspec help capabilities for the fact source a driver states
   decision:   spec-fix — fix the 'from'/'modules'/targets so it engages, or
               delete the constraint.
+
+async cycle
+  pattern:    async cycle: <A -> B -> A> (mixed)    (rendered 'warning: async cycle: ...')
+              async cycle: <A -> B -> A> (async)    (rendered 'warning: async cycle: ...')
+  meaning:    a ring of the UNION graph (direct dependency legs plus the
+              declared `[[async_depends]]` event legs) that contains at
+              least one async leg. The label states the class: (mixed) when
+              some leg is also a direct edge, (async) when every leg is a
+              declared event hop. This is the CENSUS voice, never the
+              no_cycles verdict — the cycle adjudication stays direct-only,
+              so an async ring is advisory here and never a `cycle detected`
+              finding; it seeds no [[exempt]] row and prints no repro: line.
+              Pure-direct rings never get this row (the adjudicator above
+              owns them); an entry alone is never a ring, and a repo with no
+              async table never reaches this row at all.
+  origin:     spec (the declared event table closes a cycle the direct graph
+              does not report)
+  severity:   warning (exit 0 in BOTH modes; `--strict` never promotes this
+              census row — scenario 09 severity law)
+  follow-up:  archspec explain <from> <to>  (the per-pair async trace)
+  decision:   spec-fix or code-fix — break the event round trip, or accept
+              the feedback loop knowingly; the [[exempt]] ledger has no
+              effect on this row by design.
+
+async census section (report-only, never a verdict — exit 0):
+  pattern:    Async census
+              <from> -> <to> — event <event>
+              per service: <service> fan-in <n>, fan-out <n>
+              per event: <event> fan-in <n>, fan-out <n>
+  emitted by: report and verify --json (the ONE async census section of
+              `archspec report` and `archspec verify --json`; a table in
+              voice, never a second diagram — the renderers draw it only
+              when the declared `[[async_depends]]` table resolves at
+              least one pair, so a non-declaring run's report bytes are
+              unchanged)
+  meaning:    the adjudicated PAIR census over the declared table: one
+              `<from> -> <to> — event <event>` row per pair (deduplicated,
+              `(from, to, event)` order), then the fan numbers. For a
+              SERVICE, fan-out counts the pairs it publishes (rows it
+              addresses as `from`) and fan-in the pairs it subscribes to
+              (rows it addresses as `to`); for an EVENT TYPE, fan-out
+              counts the distinct publishing units and fan-in the distinct
+              subscribing units. `--format json` carries the same numbers
+              as an `async_census` member, omitted when the table is
+              empty; the machine census of the DERIVED facts rides
+              `scan.json` as the model's `async_edges` collection instead.
+   origin:     spec × adjudication (the declared table this run adjudicated)
+  severity:   report-only (exit 0)
+  follow-up:  archspec depgraph modules  (the same pairs as dashed
+              event-labelled arrows in the graph view)
+  decision:   none required; the census is a census, not a verdict.
 
 note: the model tiers root_public_exports and root_glob_exports are not reported
 as standalone lines; they surface through public api leak, unverifiable glob

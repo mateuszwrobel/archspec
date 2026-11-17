@@ -253,6 +253,9 @@ fn file_ring_kind<'a>(
 /// visibility. `verify` without the constraint therefore stays green on
 /// cycles (only `--strict` promotes the advisory warnings like any other
 /// warning), and `report` never states a lying zero for a cyclic tree.
+/// The async ring census rows are the one named warnings-channel exception
+/// to that strict promotion — `--strict` never promotes them (scenario 09
+/// severity law; see `async_depends`).
 /// Every finding line carries its issue #22 ring label — `(runtime)` when
 /// all legs are value edges, `(type-assisted)` when any leg is type-only —
 /// and a `kinds = [...]` list on the constraint narrows which ring classes
@@ -922,7 +925,11 @@ fn file_cycle_finding(
 /// carries no import-order semantics); a claim-tier ring names modules, not
 /// files, and prints nothing; on a language without the one-liner form one
 /// named skip row replaces silence. Pure render: reads the rings, writes no
-/// file, moves no verdict byte.
+/// file, moves no verdict byte. The async sibling of the nothing-law
+/// (workplan archspec_async_depends, N1): a ring containing a declared event
+/// hop never enters `CycleRing` at all — the adjudication feeding `rings` is
+/// DIRECT-ONLY (D6) — so an async-containing ring prints no `repro:` line
+/// here and is named by the async census instead.
 pub(crate) fn cycle_repro_report(language: &str, rings: &[CycleRing]) -> String {
     let mut out = String::new();
     let mut skipped = false;

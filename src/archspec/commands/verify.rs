@@ -143,6 +143,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &loaded.stereotype,
             &loaded.constraint,
             &loaded.exempt,
+            &loaded.async_depends,
         )
     });
     // `--write-exemptions` (GitHub issue #27, R8; merge semantics per GitHub
@@ -168,6 +169,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         &loaded.stereotype,
                         &loaded.constraint,
                         &loaded.exempt,
+                        &loaded.async_depends,
                     )
                 });
             }
@@ -184,7 +186,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let strict = parsed.switches.contains("strict");
     let json = parsed.switches.contains("json");
     let coverage = parsed.switches.contains("coverage");
-    let notes = inert_rule_notes(language, &diff);
+    let notes = inert_rule_notes(language, &diff, &loaded.async_depends, &model);
 
     // One adjudication, two renderers (GitHub issue #25): the verdict below is
     // computed once from this run's diff; `--json` only replaces the stdout
@@ -200,6 +202,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
         if json {
             let metrics =
                 crate::archspec::report::compute_metrics(&model, &mapping, &loaded.modules, &diff);
+            // The machine verdict body carries the adjudicated PAIR census
+            // (workplan archspec_async_depends, D10): the same numbers the
+            // report's census section renders, computed over the same
+            // declared table this run adjudicated; empty table, absent field.
+            let async_census =
+                crate::archspec::report::AsyncCensus::from_declared(&loaded.async_depends);
             print!(
                 "{}",
                 crate::archspec::report::render_json(
@@ -207,7 +215,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     &metrics,
                     &diff,
                     &model.roles,
-                    &environment
+                    &environment,
+                    &async_census,
                 )
             );
         } else if diff.is_empty() {
@@ -552,7 +561,12 @@ fn strip_inline_comment(value: &str) -> &str {
 /// saw. Notes are output, not findings: they never enter the diff, never
 /// change the verdict or exit status, and keep rust runs byte-identical (rust
 /// emits every rule fact).
-fn inert_rule_notes(language: Language, diff: &compare::Diff) -> Vec<String> {
+fn inert_rule_notes(
+    language: Language,
+    diff: &compare::Diff,
+    async_depends: &[spec::AsyncDepend],
+    model: &crate::archspec::model::Model,
+) -> Vec<String> {
     let mut notes = Vec::new();
     for (rule, fact) in capability::RULES {
         if rule_reported(rule, diff) {
@@ -565,6 +579,33 @@ fn inert_rule_notes(language: Language, diff: &compare::Diff) -> Vec<String> {
                  recorded in ADR-017",
                 language.as_str()
             ));
+        }
+    }
+    // The `[[async_depends]]` inert arms (workplan archspec_async_depends,
+    // D3): stated only when the table is non-empty — an absent table keeps
+    // the shipped bytes (D8). Arms (b)/(c) state the driver's capability
+    // row; arm (a) states the model's census silence. A note is suppressed
+    // whenever its own findings fired — a fired arm is not inert.
+    if !async_depends.is_empty() {
+        if capability::emission(language, capability::FACT_EVENT_DECLARATION_DERIVATION)
+            == Some(capability::NOT_EMITTED)
+            && diff.async_publish_not_derived.is_empty()
+            && diff.async_subscribe_not_derived.is_empty()
+        {
+            notes.push(format!(
+                "note: async_depends publish and subscribe arms inert for {}: \
+                 event-declaration-derivation = not-emitted",
+                language.as_str()
+            ));
+        }
+        if !compare::census_present(model)
+            && diff.async_event_unresolved.is_empty()
+        {
+            notes.push(
+                "note: async_depends event-type arm inert: the model states no \
+                 declared-type census facts"
+                    .to_string(),
+            );
         }
     }
     notes

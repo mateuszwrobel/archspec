@@ -108,6 +108,57 @@ On C# casing is asymmetric inside `forbid_external_crates`: scan attributes pack
 | `[[module.submodules]]` | A nested claim inside a declared boundary: `matches.modules` package/module paths and an optional `[module.allowed]`; a submodule claims the module tier only — `matches.units` on a submodule is a schema error at parse. Submodule names are claim names, globally unique and addressable by `depend_on`/`forbidden` at any depth; with `[module.allowed]` present a submodule owns its territory's dependency adjudication (most-specific claim wins at every depth), without it the nearest ancestor's policy applies. Ancestors' `contract.forbid` and `allowed.forbidden` bind downward cumulatively. |
 | `[[constraint]]` | Named dependency checks over the resolved module graph (see table above) |
 | `[[exempt]]` | Cycle ratchet ledger: one entry per exempted cycle ring — `cycle` (the ring identity exactly as reported, e.g. `a -> b -> a`), `tier` (`file`, `module` or `both`), optional `count` (shrink-only cap on how many findings the entry may suppress), optional `until` (`YYYY-MM-DD` expiry), optional `reason` (free text). See *Cycle ratchet ledger* below |
+| `[[async_depends]]` | Asynchronous (event) dependency edge: the event IDENTITY only — `from` (publishing unit), `to` (consuming unit) and `event` (the event type's fully-qualified dotted name), all three mandatory per entry; payload shape is derived from source on both sides, never declared. See *Async event dependencies* below |
+
+## Async event dependencies
+
+`[[async_depends]]` declares one row per asynchronous (event) dependency edge.
+The entry carries the event IDENTITY only: `from`, `to` and `event` are each
+required and non-empty — an entry without one is refused as `invalid spec`
+naming the key and the entry (`[async_depends] entry #N: missing mandatory
+key "<key>"`), and a fourth key is refused by the shared unknown-key law.
+`verify` adjudicates every entry with three named arms whenever the table is
+non-empty; an absent or empty table changes nothing in any run.
+
+- **The event type resolves.** The event type must resolve in the model's
+  declared-type census — model-wide, not unit-scoped, so an event declared in
+  a THIRD unit (a shared contracts project) is a resolved identity for every
+  unit and refuses nothing on its own. A census the model does not state at
+  all keeps this arm inert with a note instead of guessing.
+  `async event unresolved: <event> — <from> -> <to> (entry #N)`
+- **The publish fact is derived.** The from-unit must carry a derived publish
+  fact for the identity: it declares the event type or references the
+  namespace that owns it, derived from source — never from the declaration.
+  `async publish not derived: <from> -> <to> — event <event> (entry #N)`
+- **The subscribe fact is derived.** The to-unit must carry the same derived
+  participation fact read from the consuming side.
+  `async subscribe not derived: <from> -> <to> — event <event> (entry #N)`
+- **The endpoints are claimed.** Each declared endpoint must be claimed: a
+  claim name or a claim's `matches` selector resolves it. The territory is
+  CHECKED, never claimed — the `matches` machinery gains no member from an
+  async edge. An endpoint claimed by nowhere is a spec typo and is refused
+  by name, one line per failing side.
+  `async endpoint unclaimed: <endpoint> — <from> -> <to> (entry #N)`
+
+Beyond the per-entry arms, a ring census walks the UNION graph — the direct
+unit-tier legs plus one directed leg per declared entry — and names each
+strongly-connected component that carries at least one async leg as ONE
+advisory row: `async cycle: <path> (mixed)` when a direct leg joins the
+ring, `async cycle: <path> (async)` when every leg is a declared event hop.
+The row is a warning (green without `--strict`), never a `cycle detected`
+finding: the `no_cycles` adjudication stays DIRECT-ONLY, so a lawful
+pub→sub→pub round trip with no manifest dependency verifies green at error
+class. Async rings seed no `[[exempt]]` row and print no `repro:` line —
+the ratchet and the repro machinery read direct findings only. A single
+declared entry is never a ring; pure-direct cycles stay owned by the
+`no_cycles` adjudication and are never named twice.
+
+The two derivation arms are driver-conditional: the capability table's
+`event-declaration-derivation` row states which drivers derive participation.
+Where a driver's row reads `not-emitted` the arms skip with the
+capability-named inert note (see `../commands/verify/output.md`, Capability
+notes). Payload shapes of events are never declared and never diffed — this
+table adjudicates identities and participation, not message structure.
 
 ## Cycle ratchet ledger
 

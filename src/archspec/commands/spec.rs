@@ -87,6 +87,18 @@ tier = \"module\"                                # required: \"file\" | \"module
 # nothing is named by the ratchet warning channel (see `archspec help
 # diagnostics`); `archspec verify --write-exemptions` seeds missing entries —
 # it appends only, never edits or removes, never auto-grows
+
+[[async_depends]]                                     # optional; one row per asynchronous (event) dependency edge
+from = \"api\"                                        # required; the publishing unit's name
+to = \"worker\"                                       # required; the consuming unit's name
+event = \"Orders.Events.OrderPlaced\"                 # required; the event type's fully-qualified dotted name — IDENTITY only;
+                                                     # payload shape is derived from source on both sides, never declared
+# verify validates each row with three named arms: the event type resolves in
+# the model's declared-type census, the from-unit carries a derived publish
+# fact, the to-unit carries a derived subscribe fact — arms two and three
+# skip with a capability-named inert note where the driver's
+# event-declaration-derivation row reads not-emitted (see `archspec help
+# diagnostics`)
 ";
 
 const ALL_TYPES: [&str; 7] = [
@@ -238,10 +250,42 @@ fn schema_json() -> String {
                     },
                     "required": ["cycle", "tier"]
                 }
+            },
+            // The `[[async_depends]]` event-identity table (workplan
+            // archspec_async_depends, D1): properties AND required derive from
+            // `SPEC_KEY_SHAPES["async_depends"]` itself — the schema carries
+            // the table automatically from the one constant the runtime
+            // unknown-key validator reads (M8: reference and validator cannot
+            // drift; `schema_key_sets_match_shared_shape_table` welds it).
+            "async_depends": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": shape_properties("async_depends"),
+                    "required": spec::shape_keys("async_depends").to_vec(),
+                    "description": "one asynchronous (event) dependency edge, declaring the event IDENTITY only: from and to are unit names, event is the event type's fully-qualified dotted name; payload shape is derived from source on both sides, never declared (D2); all three keys are mandatory and non-empty per entry (the runtime refuses a missing one as invalid spec naming the entry and key); verify validates each entry with three named arms: the event type resolves in the model's declared-type census, the from-unit carries a derived publish fact, the to-unit carries a derived subscribe fact — arms two and three skip with a capability-named inert note where the driver's event-declaration-derivation row reads not-emitted"
+                }
             }
         }
     });
     serde_json::to_string_pretty(&schema).expect("schema serializes")
+}
+
+/// One shape's property fragments, keyed straight off `SPEC_KEY_SHAPES`:
+/// every key reads as a non-empty string. Used by shapes whose whole value
+/// domain is exactly that (`async_depends`) so the schema holds no per-key
+/// list that could drift from the validator's constant.
+fn shape_properties(shape: &str) -> serde_json::Map<String, serde_json::Value> {
+    spec::shape_keys(shape)
+        .iter()
+        .map(|key| {
+            (
+                (*key).to_string(),
+                serde_json::json!({ "type": "string", "minLength": 1 }),
+            )
+        })
+        .collect()
 }
 
 /// The shared match vocabulary (`MatchSet`): `units`/`modules` resolve the
@@ -443,6 +487,10 @@ mod tests {
         assert_shape(&schema["properties"]["constraint"]["items"], "constraint");
         assert_shape(&schema["properties"]["stereotype"]["items"], "stereotype");
         assert_shape(&schema["properties"]["exempt"]["items"], "exempt");
+        assert_shape(
+            &schema["properties"]["async_depends"]["items"],
+            "async_depends",
+        );
         assert_shape(
             &schema["properties"]["stereotype"]["items"]["properties"]["match"],
             "match",

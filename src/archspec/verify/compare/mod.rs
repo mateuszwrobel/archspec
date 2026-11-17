@@ -4,6 +4,7 @@
 // verdict. Diff categories are grouped in canonical report order (output.md).
 
 mod adjudicate;
+mod async_depends;
 mod boundaries;
 mod claims;
 mod contracts;
@@ -29,9 +30,11 @@ pub use contracts::adjudicate_expose;
 pub use mapping::file_grained_rows;
 pub use pattern::matches_pattern;
 pub use diff::{Diff, pass_confirmation, render_report};
+pub(crate) use async_depends::census_present;
 pub(crate) use engagement::coverage_report;
 pub use mapping::{count_model_edges};
 
+use async_depends::check_async_depends;
 use boundaries::check_feature_boundary;
 use boundaries::check_forbid_submodule;
 use claims::check_ambiguous_module_matches;
@@ -55,7 +58,7 @@ use external::check_manifest_integrity;
 use surfaces::check_public_api;
 
 use crate::archspec::model::{Model, Role};
-use crate::archspec::spec::{Constraint, Exempt, Module, Stereotype};
+use crate::archspec::spec::{AsyncDepend, Constraint, Exempt, Module, Stereotype};
 use std::collections::{BTreeSet};
 
 /// Structural compare (ADR-010): extracted vs declared component sets, plus
@@ -68,6 +71,7 @@ pub fn compare(
     stereotypes: &[Stereotype],
     constraints: &[Constraint],
     exempt: &[Exempt],
+    async_depends: &[AsyncDepend],
 ) -> Diff {
     let soft_verifiable = soft_visibility_verifiable(model);
     let mapping = augment_with_modules(mapping, model, modules);
@@ -216,6 +220,17 @@ pub fn compare(
     );
     diff.dead_references.append(&mut dead_errors);
     diff.warnings.append(&mut dead_warnings);
+
+    // The `[[async_depends]]` identity arms, the territory check and the
+    // union-ring census (workplan archspec_async_depends, D3/D6/D7):
+    // conditional on a non-empty table, arm (a) resolves each event identity
+    // in the model-wide declared-type census, arms (b)/(c) read the driver's
+    // derived publish/subscribe participation (capability-gated; the
+    // inert-note voice lives in `commands::verify`), the territory check
+    // names endpoints no claim owns, and the census reports each
+    // async-containing ring of the union graph as one advisory warning.
+    // An empty table runs nothing here — the shipped bytes stand (D8).
+    check_async_depends(model, &claims, async_depends, &mut diff);
 
     diff.vacuous_constraints =
         check_vacuous_constraints(model, modules, submodule_constraints, &graph.pairs, &submodule_edges, &claims);

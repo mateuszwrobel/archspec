@@ -43,16 +43,18 @@ Every report contains, in order:
 2. **Environment** — the build state the verdict declares: `adjudicated against BUILT tree`, or `adjudicated against UNBUILT tree — N specifiers resolved to src instead of dist`. A `Environment lines by class` census table follows **only where the scan emitted report-only lines**, making each diagnostic class countable (class names: `archspec help diagnostics`). Where the run's scan excluded C# test projects, the census note `test-gated units: <n>` follows the table, counting the scan's `test-gated unit: <path> — <marker>` lines (see `../scan/input.md`).
 3. **Metrics** — model-derived numbers from the extracted model.
 4. **Roles** — the role facts carried by the extracted model, in closed-vocabulary order (`facades`, then `composition roots`), model paths sorted inside each group. The section appears **only when the model carries at least one role**; an empty roles map renders nothing at all.
-5. **Violations by category** — the per-category violation counts, in a separate table that appears **only when the run reports at least one violation** (omitted from a clean report).
-6. **Diff** — the full structural difference between the extracted and the declared model (ADR-010, `../../../archspec-design.md` §9).
-7. **Summary line** — total violations by category, or a clean-result statement.
+5. **Async census** — the adjudicated PAIR census over the spec's declared `[[async_depends]]` table: one `<from> -> <to> — event <event>` row per resolved pair (deduplicated, `(from, to, event)` order), then the fan numbers — `per service: <service> fan-in <n>, fan-out <n>` and `per event: <event> fan-in <n>, fan-out <n>`. For a service, fan-out counts the pairs it publishes (rows it addresses as `from`) and fan-in the pairs it subscribes to (rows it addresses as `to`); for an event type, fan-out counts the distinct publishing units and fan-in the distinct subscribing units. The section appears **only when the declared table resolves at least one pair**; a non-declaring run renders nothing at all (catalog: `archspec help diagnostics`, the `async census section` entry).
+6. **Violations by category** — the per-category violation counts, in a separate table that appears **only when the run reports at least one violation** (omitted from a clean report).
+7. **Diff** — the full structural difference between the extracted and the declared model (ADR-010, `../../../archspec-design.md` §9).
+8. **Summary line** — total violations by category, or a clean-result statement.
 
 The Markdown format inserts, between the metrics and the diff:
 
 1. **Roles** (`## Roles`) — the same rows as the text section, as a two-column table (`| Role | Model paths |`), immediately after the metrics table.
-2. **Diagram** — the current file-level import-map diagram as a Mermaid code fence (`## Diagram`). Every supported language has a file-level scanner, so the section carries a diagram on any tree.
-3. **Forbidden imports** (`## Forbidden imports`) — every forbidden edge present, disallowed cross-component dependency, and facade dependency, each on its own line.
-4. **Cycles** (`## Cycles`) — every cycle detected, each on its own line.
+2. **Async census** (`## Async census`) — the same pairs and fan numbers as the text section, as three tables (`| From | To | Event |`, `| Service | Fan in | Fan out |`, `| Event | Fan in | Fan out |`), immediately after the roles table and under the same iff-the-table-resolves-a-pairs gate.
+3. **Diagram** — the current file-level import-map diagram as a Mermaid code fence (`## Diagram`). Every supported language has a file-level scanner, so the section carries a diagram on any tree.
+4. **Forbidden imports** (`## Forbidden imports`) — every forbidden edge present, disallowed cross-component dependency, and facade dependency, each on its own line.
+5. **Cycles** (`## Cycles`) — every cycle detected, each on its own line.
 
 ### JSON format
 
@@ -92,6 +94,7 @@ The Markdown format inserts, between the metrics and the diff:
 - **`findings` is the contract.** One entry per diff line, in the same canonical order the text renderers print, with `category` equal to the label the text report prints (and `help diagnostics` catalogs), `severity` of `error` or `warning` (warning-level entries and vacuous guards are `warning`; everything else `error`), and `message` the rendered detail. Consumers key on categories and severities; the prose inside `message` may evolve, the category ids may not.
 - **`metrics` is informational** — the model-summary numbers mirroring the scan model tiers (components, units, internal/external edges, cycles) plus per-category violation counts.
 - **`roles` is the model's roles map** (model path → role), positioned between `metrics` and `findings` and serialized **only when the map has entries** — the same skip-when-empty contract the scan model JSON honors. It mirrors scan's `roles` verbatim; the report adds no role facts of its own.
+- **`async_census` is the adjudicated PAIR census** of the spec's declared `[[async_depends]]` table: the same numbers the text and markdown Async census section renders — `pairs` (`from`/`to`/`event` rows in `(from, to, event)` order) plus the `per_service` and `per_event` maps with `fan_in`/`fan_out` — positioned after `findings` and serialized **only when the table resolves at least one pair** (the same skip-when-empty contract as `roles`). `verify --json` carries the field with the same bytes; an audit narrative quotes this field, never a hand-scripted census. The machine census of the DERIVED facts rides `scan.json` as the model's `async_edges` collection instead.
 - **`language`** is the spec's declared language.
 - The canonical model JSON stays `scan`'s output: the report JSON embeds a summary, never a second full model encoding.
 

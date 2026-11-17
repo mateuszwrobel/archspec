@@ -127,6 +127,32 @@ pub struct Diff {
     /// the message body; the renderer attaches the `dead reference: `
     /// category label, exactly like the other error fields.
     pub dead_references: Vec<String>,
+    /// `[[async_depends]]` arm (a) (workplan archspec_async_depends, D3): the
+    /// declared event type resolves to nothing in the model's declared-type
+    /// census (model-wide, not unit-scoped). Entries store the message body
+    /// `<event> — <from> -> <to> (entry #N)`; the renderer attaches the
+    /// `async event unresolved: ` category label.
+    pub async_event_unresolved: Vec<String>,
+    /// `[[async_depends]]` arm (b): the from-unit carries no derived publish
+    /// fact for the declared event identity. Entries store the body
+    /// `<from> -> <to> — event <event> (entry #N)`; the renderer attaches the
+    /// `async publish not derived: ` category label. Skipped (with the
+    /// capability-named inert note) where the driver's
+    /// event-declaration-derivation row reads `not-emitted`.
+    pub async_publish_not_derived: Vec<String>,
+    /// `[[async_depends]]` arm (c): the to-unit carries no derived subscribe
+    /// fact for the declared event identity. Entries store the body
+    /// `<from> -> <to> — event <event> (entry #N)`; the renderer attaches the
+    /// `async subscribe not derived: ` category label. Skipped under the same
+    /// capability condition as arm (b).
+    pub async_subscribe_not_derived: Vec<String>,
+    /// `[[async_depends]]` territory check (workplan archspec_async_depends,
+    /// D7): an entry endpoint claimed by no unit claim — the CHECK names the
+    /// endpoint by name, it never CREATES a claim (the `[[module]]` `matches`
+    /// machinery gains no member from an async edge). Entries store the body
+    /// `<endpoint> — <from> -> <to> (entry #N)`, one line per failing side;
+    /// the renderer attaches the `async endpoint unclaimed: ` category label.
+    pub async_endpoint_unclaimed: Vec<String>,
     /// Warning-level items (design §9): divergences whose constraint declared
     /// `severity = "warning"`, and the advisory cycle entries of a spec with no
     /// `no_cycles` constraint (visibility is constraint-independent, severity
@@ -135,6 +161,11 @@ pub struct Diff {
     /// Each entry is already fully rendered as `<category>: <detail>` (e.g.
     /// `cycle: A -> B -> A`); the report prefixes it with `warning: ` unless
     /// `--strict` promotes it to an error line. Listed after all error items.
+    /// The named exception is the async census rows — [`is_async_census_row`]
+    /// (ring, field-absent, enum-projection): they ride this channel as
+    /// advisories in BOTH modes, keep their `warning: ` prefix under
+    /// `--strict` and never move the verdict (the severity law of consumer-fix
+    /// round 2, scenario 09, issue #44; the direct promotion is unchanged).
     pub warnings: Vec<String>,
     /// Vacuous-guard findings (plan_model_driven_workflow.md, Feature 2): a
     /// constraint whose effective domain is empty — no module/edge/manifest/
@@ -154,10 +185,18 @@ impl Diff {
 
     /// Run verdict: an error-level divergence always fails; a warning-level
     /// divergence (including a vacuous constraint) fails only under `--strict`
-    /// (which promotes it to an error).
+    /// (which promotes it to an error) — except the async census rows: the
+    /// severity law of consumer-fix round 2 (scenario 09, issue #44) keeps
+    /// `--strict` a census DETECTION dial for those rows, never a severity
+    /// promotion. Direct warnings keep the shipped promotion byte-for-byte.
     pub fn fails(&self, strict: bool) -> bool {
         self.has_errors()
-            || (strict && (!self.warnings.is_empty() || !self.vacuous_constraints.is_empty()))
+            || (strict
+                && (self
+                    .warnings
+                    .iter()
+                    .any(|warning| !is_async_census_row(warning))
+                    || !self.vacuous_constraints.is_empty()))
     }
 
     /// Every error-tier field in canonical report order (ADR-010), each paired
@@ -191,6 +230,10 @@ impl Diff {
             ("feature boundary", &self.feature_boundaries),
             ("forbidden submodule dependency", &self.forbidden_submodule_dependencies),
             ("dead reference", &self.dead_references),
+            ("async event unresolved", &self.async_event_unresolved),
+            ("async publish not derived", &self.async_publish_not_derived),
+            ("async subscribe not derived", &self.async_subscribe_not_derived),
+            ("async endpoint unclaimed", &self.async_endpoint_unclaimed),
         ]
     }
 
@@ -203,6 +246,23 @@ impl Diff {
             .iter()
             .any(|(_, entries)| !entries.is_empty())
     }
+}
+
+/// True when a rendered warnings-channel entry is one of the three async
+/// census rows — the ring row (`async cycle: `), the field-absent row
+/// (`async drift field absent: `) and the enum-projection row
+/// (`async drift enum projection: `), all pushed by `async_depends` (the
+/// drift census and the ring census). The severity law of consumer-fix
+/// round 2 (scenario 09, issue #44): `--strict` arms census DETECTION depth
+/// only and NEVER promotes these rows to errors — the consumer CI is
+/// `verify --strict`, and an advisory census row must not red it. Every
+/// other warning keeps the shipped strict promotion byte-for-byte. The
+/// identity arms (a)/(b)/(c) and the territory check are error-tier fields
+/// (`error_fields`), untouched by this predicate and by the law.
+fn is_async_census_row(entry: &str) -> bool {
+    entry.starts_with("async cycle: ")
+        || entry.starts_with("async drift field absent: ")
+        || entry.starts_with("async drift enum projection: ")
 }
 
 /// Route a finding into the error bucket (detail only; the report adds the
@@ -234,9 +294,12 @@ pub fn pass_confirmation(modules: &[Module], constraints_checked: usize) -> Stri
 /// Full diff report: header plus every divergence, canonically ordered and
 /// byte-stable (output.md). Error items keep the plain `<category>: <detail>`
 /// lines; warning items (design §9) are listed after all errors, each prefixed
-/// with `warning: ` unless `--strict` promotes them to error lines. `strict`
-/// only changes how warnings are labelled and whether the run fails — it does
-/// not reorder or drop any item.
+/// with `warning: ` unless `--strict` promotes them to error lines — except
+/// the async census rows ([`is_async_census_row`]), which keep their
+/// `warning: ` prefix in BOTH modes (the scenario 09 severity law: strict
+/// arms detection depth, never async-row severity). `strict` only changes how
+/// the promoted warnings are labelled and whether the run fails — it does not
+/// reorder or drop any item.
 pub fn render_report(diff: &Diff, strict: bool) -> String {
     let vacuous_only =
         !diff.has_errors() && diff.warnings.is_empty() && !diff.vacuous_constraints.is_empty();
@@ -320,8 +383,20 @@ pub fn render_report(diff: &Diff, strict: bool) -> String {
     for reference in &diff.dead_references {
         out.push_str(&format!("  dead reference: {reference}\n"));
     }
+    for entry in &diff.async_event_unresolved {
+        out.push_str(&format!("  async event unresolved: {entry}\n"));
+    }
+    for entry in &diff.async_publish_not_derived {
+        out.push_str(&format!("  async publish not derived: {entry}\n"));
+    }
+    for entry in &diff.async_subscribe_not_derived {
+        out.push_str(&format!("  async subscribe not derived: {entry}\n"));
+    }
+    for entry in &diff.async_endpoint_unclaimed {
+        out.push_str(&format!("  async endpoint unclaimed: {entry}\n"));
+    }
     for warning in &diff.warnings {
-        if strict {
+        if strict && !is_async_census_row(warning) {
             out.push_str(&format!("  {warning}\n"));
         } else {
             out.push_str(&format!("  warning: {warning}\n"));

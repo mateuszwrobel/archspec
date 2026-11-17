@@ -11,6 +11,7 @@ use crate::archspec::verify::compare::{self, Diff, Mapping};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 /// Model-derived metrics plus per-category violation counts. Metrics are read
 /// straight off the extracted model and the mapping — no scoring, no extra
@@ -372,6 +373,7 @@ pub fn render_text(
     diff: &Diff,
     roles: &BTreeMap<String, Role>,
     environment: &Environment,
+    async_census: &AsyncCensus,
 ) -> String {
     let mut out = String::new();
     out.push_str("Architecture report\n");
@@ -398,6 +400,37 @@ pub fn render_text(
         out.push('\n');
         for (label, paths) in role_rows(roles) {
             out.push_str(&format!("{label}: {paths}\n"));
+        }
+        out.push('\n');
+    }
+
+    // The ONE async census section (workplan archspec_async_depends, D9): a
+    // table in voice, never a second diagram; rendered only when the census
+    // carries pairs, so a non-declaring run's report bytes are unchanged (D8).
+    if !async_census.is_empty() {
+        out.push_str("Async census\n");
+        out.push_str(&"-".repeat("Async census".len()));
+        out.push('\n');
+        for pair in &async_census.pairs {
+            let _ = writeln!(
+                out,
+                "{} -> {} — event {}",
+                pair.from, pair.to, pair.event
+            );
+        }
+        for (service, fan) in &async_census.per_service {
+            let _ = writeln!(
+                out,
+                "per service: {service} fan-in {}, fan-out {}",
+                fan.fan_in, fan.fan_out
+            );
+        }
+        for (event, fan) in &async_census.per_event {
+            let _ = writeln!(
+                out,
+                "per event: {event} fan-in {}, fan-out {}",
+                fan.fan_in, fan.fan_out
+            );
         }
         out.push('\n');
     }
@@ -450,6 +483,7 @@ pub fn render_markdown(
     roles: &BTreeMap<String, Role>,
     diagram: Option<&str>,
     environment: &Environment,
+    async_census: &AsyncCensus,
 ) -> String {
     let mut out = String::new();
     out.push_str("# Architecture report\n\n");
@@ -489,6 +523,30 @@ pub fn render_markdown(
         out.push_str("|---|---|\n");
         for (name, paths) in role_rows(roles) {
             out.push_str(&format!("| {name} | {paths} |\n"));
+        }
+        out.push('\n');
+    }
+
+    // The ONE async census section (workplan archspec_async_depends, D9):
+    // markdown tables over the same census rows and numbers the text arm
+    // states — a table, never a second diagram — rendered only when pairs
+    // exist, so a non-declaring report.md keeps its exact bytes (D8).
+    if !async_census.is_empty() {
+        out.push_str("## Async census\n\n");
+        out.push_str("| From | To | Event |\n|---|---|---|\n");
+        for pair in &async_census.pairs {
+            out.push_str(&format!(
+                "| {} | {} | {} |\n",
+                pair.from, pair.to, pair.event
+            ));
+        }
+        out.push_str("\n| Service | Fan in | Fan out |\n|---|---|---|\n");
+        for (service, fan) in &async_census.per_service {
+            out.push_str(&format!("| {service} | {} | {} |\n", fan.fan_in, fan.fan_out));
+        }
+        out.push_str("\n| Event | Fan in | Fan out |\n|---|---|---|\n");
+        for (event, fan) in &async_census.per_event {
+            out.push_str(&format!("| {event} | {} | {} |\n", fan.fan_in, fan.fan_out));
         }
         out.push('\n');
     }
@@ -574,6 +632,7 @@ pub fn render_json(
     diff: &Diff,
     roles: &BTreeMap<String, Role>,
     environment: &Environment,
+    async_census: &AsyncCensus,
 ) -> String {
     #[derive(Serialize)]
     struct ReportJson<'a> {
@@ -583,6 +642,14 @@ pub fn render_json(
         #[serde(skip_serializing_if = "BTreeMap::is_empty")]
         roles: &'a BTreeMap<String, Role>,
         findings: Vec<Finding>,
+        /// The adjudicated PAIR census (workplan archspec_async_depends,
+        /// D10): the declared async pairs with fan-in/fan-out per service
+        /// and per event type — the machine numbers of the rendered census
+        /// section, so an audit quotes this field, never a hand-scripted
+        /// census. Absent when the table declares no pair (D8), the same
+        /// skip-when-empty contract as `roles`.
+        #[serde(skip_serializing_if = "AsyncCensus::is_empty")]
+        async_census: &'a AsyncCensus,
     }
     let report = ReportJson {
         language,
@@ -590,6 +657,7 @@ pub fn render_json(
         metrics,
         roles,
         findings: findings(diff),
+        async_census,
     };
     format!("{}\n", serde_json::to_string_pretty(&report).expect("report serializes"))
 }
@@ -619,6 +687,106 @@ fn category_rows(metrics: &Metrics) -> Vec<(&'static str, usize)> {
         ("contracts", metrics.violations_contracts),
         ("cycles", metrics.violations_cycles),
     ]
+}
+
+/// One declared async pair of the PAIR census (workplan
+/// archspec_async_depends, D9/D10, scenario 05): the event-identity row
+/// `from -> to` over `event`, stated exactly as the declared table states
+/// it — the census counts rows, it never re-derives a verdict (N2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AsyncPair {
+    pub from: String,
+    pub to: String,
+    pub event: String,
+}
+
+/// The fan counts one service or one event type carries in the census.
+/// For a SERVICE: `fan_out` is the pairs it publishes (rows it addresses as
+/// `from`), `fan_in` the pairs it subscribes to (rows it addresses as `to`).
+/// For an EVENT TYPE: `fan_out` is the distinct publishing units, `fan_in`
+/// the distinct subscribing units.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct AsyncFan {
+    pub fan_in: usize,
+    pub fan_out: usize,
+}
+
+/// The adjudicated async PAIR census (workplan archspec_async_depends,
+/// D9/D10): the declared event-dependency pairs with fan-in/fan-out per
+/// service and per event type, so an audit narrative quotes numbers, never
+/// a hand-scripted census (Consumer-constraints 6). Computed from the
+/// spec's `[[async_depends]]` rows — the verdict-side surface (D10's split:
+/// the machine census of DERIVED facts rides `scan.json` as the model's own
+/// `async_edges` collection, never a second encoding here). Every renderer
+/// draws this ONE section only when it carries rows; a non-declaring run
+/// serializes and prints no async bytes (D8).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AsyncCensus {
+    pub pairs: Vec<AsyncPair>,
+    pub per_service: BTreeMap<String, AsyncFan>,
+    pub per_event: BTreeMap<String, AsyncFan>,
+}
+
+impl AsyncCensus {
+    /// The section/skip predicate every renderer consults.
+    pub fn is_empty(&self) -> bool {
+        self.pairs.is_empty()
+    }
+
+    /// The declared-table fold both the report and the verify json arms use:
+    /// entries with all three keys present and non-empty become `(from, to,
+    /// event)` rows fed to `compute`; an absent or empty table computes the
+    /// empty census, so every renderer skips the section (D8/D10).
+    pub fn from_declared(async_depends: &[crate::archspec::spec::AsyncDepend]) -> Self {
+        Self::compute(async_depends.iter().filter_map(|entry| {
+            match (
+                entry.from.as_deref(),
+                entry.to.as_deref(),
+                entry.event.as_deref(),
+            ) {
+                (Some(from), Some(to), Some(event))
+                    if !from.is_empty() && !to.is_empty() && !event.is_empty() =>
+                {
+                    Some((from.to_string(), to.to_string(), event.to_string()))
+                }
+                _ => None,
+            }
+        }))
+    }
+
+    /// Build the census over `(from, to, event)` rows. The `BTreeSet`
+    /// deduplicates and establishes the `(from, to, event)` order (N6) the
+    /// pair list and every renderer follow; per-service and per-event maps
+    /// are `BTreeMap`s, so the census bytes never depend on row order.
+    pub fn compute(rows: impl IntoIterator<Item = (String, String, String)>) -> Self {
+        let pairs: Vec<AsyncPair> = rows
+            .into_iter()
+            .collect::<std::collections::BTreeSet<(String, String, String)>>()
+            .into_iter()
+            .map(|(from, to, event)| AsyncPair { from, to, event })
+            .collect();
+        let mut per_service: BTreeMap<String, AsyncFan> = BTreeMap::new();
+        let mut publishers: std::collections::BTreeSet<(String, String)> = Default::default();
+        let mut subscribers: std::collections::BTreeSet<(String, String)> = Default::default();
+        for pair in &pairs {
+            per_service.entry(pair.from.clone()).or_default().fan_out += 1;
+            per_service.entry(pair.to.clone()).or_default().fan_in += 1;
+            publishers.insert((pair.event.clone(), pair.from.clone()));
+            subscribers.insert((pair.event.clone(), pair.to.clone()));
+        }
+        let mut per_event: BTreeMap<String, AsyncFan> = BTreeMap::new();
+        for (event, _) in &publishers {
+            per_event.entry(event.clone()).or_default().fan_out += 1;
+        }
+        for (event, _) in &subscribers {
+            per_event.entry(event.clone()).or_default().fan_in += 1;
+        }
+        AsyncCensus {
+            pairs,
+            per_service,
+            per_event,
+        }
+    }
 }
 
 /// Role rows in closed-vocabulary order: `facades` then `composition roots`,
@@ -781,6 +949,7 @@ mod tests {
             &Diff::default(),
             &BTreeMap::default(),
             &environment,
+            &AsyncCensus::default(),
         );
         let value: serde_json::Value = serde_json::from_str(&json).expect("json");
         assert_eq!(value["environment"]["state"].as_str(), Some("unbuilt"));
@@ -802,6 +971,7 @@ mod tests {
             &Diff::default(),
             &BTreeMap::default(),
             &env(),
+            &AsyncCensus::default(),
         );
         assert!(clean.contains("\"state\": \"built\""), "built body: {clean}");
         assert!(!clean.contains("\"classes\""), "no report-only lines => no key: {clean}");
@@ -822,6 +992,7 @@ mod tests {
             &BTreeMap::default(),
             None,
             &environment,
+            &AsyncCensus::default(),
         );
         assert!(rendered.contains("## Environment"), "section: {rendered}");
         assert!(rendered.contains(&environment.header), "header: {rendered}");
@@ -864,8 +1035,21 @@ mod tests {
                  fix the reference"
                     .into(),
             ],
+            async_event_unresolved: vec![
+                "Ghost.Events.OrderPlaced — api -> worker (entry #1)".into(),
+            ],
+            async_publish_not_derived: vec![
+                "App.Api -> App.Worker — event App.Contracts.OrderPlaced (entry #1)".into(),
+            ],
+            async_subscribe_not_derived: vec![
+                "App.Api -> App.Worker — event App.Contracts.OrderPlaced (entry #2)".into(),
+            ],
+            async_endpoint_unclaimed: vec![
+                "App.Ghost — App.Api -> App.Ghost (entry #1)".into(),
+            ],
             warnings: vec![
                 "cycle: a -> b -> a".into(),
+                "async cycle: api -> core -> api (mixed)".into(),
                 "dead reference: module 'app' allowed.depend_on target \"app::storage\" exists \
                  in source but undeclared — references resolve to declared claim names at any \
                  depth"
@@ -873,6 +1057,13 @@ mod tests {
                 "laundered forbidden edge: a -> b via hidden".into(),
                 "unresolved module file: app::ghost".into(),
                 "unowned module edge endpoint: app::hidden".into(),
+                "async drift field absent: App.Worker binds App.Contracts.OrderPlaced.Status \
+                 — the publisher record declares no such field (entry #1)"
+                    .into(),
+                "async drift enum projection: App.Worker binds \
+                 App.Contracts.OrderPlaced.Status as a string projection of the publisher's \
+                 enum field (entry #1)"
+                    .into(),
                 "exempt stale: module a -> b -> a".into(),
                 "exempt expired: file src/a.rs -> src/b.rs -> src/a.rs".into(),
             ],
@@ -1073,7 +1264,14 @@ mod tests {
     fn json_findings_equal_the_text_rendered_findings() {
         let diff = populated_diff();
         let metrics = Metrics::default();
-        let rendered = render_json("rust", &metrics, &diff, &BTreeMap::default(), &env());
+        let rendered = render_json(
+            "rust",
+            &metrics,
+            &diff,
+            &BTreeMap::default(),
+            &env(),
+            &AsyncCensus::default(),
+        );
         let value: serde_json::Value = serde_json::from_str(&rendered).expect("json parses");
         let json_findings: Vec<(String, String)> = value["findings"]
             .as_array()
@@ -1088,7 +1286,14 @@ mod tests {
             .collect();
         assert_eq!(
             json_findings,
-            text_findings(&render_text("rust", &metrics, &diff, &BTreeMap::default(), &env()))
+            text_findings(&render_text(
+                "rust",
+                &metrics,
+                &diff,
+                &BTreeMap::default(),
+                &env(),
+                &AsyncCensus::default(),
+            ))
         );
         assert_eq!(value["language"].as_str(), Some("rust"));
     }
@@ -1135,7 +1340,14 @@ mod tests {
     /// order, with paths sorted inside each group (roles US 06).
     #[test]
     fn text_roles_section_names_facades_then_composition_roots() {
-        let rendered = render_text("rust", &Metrics::default(), &Diff::default(), &roles_map(), &env());
+        let rendered = render_text(
+            "rust",
+            &Metrics::default(),
+            &Diff::default(),
+            &roles_map(),
+            &env(),
+            &AsyncCensus::default(),
+        );
         let section: Vec<&str> = rendered
             .lines()
             .skip_while(|line| !line.starts_with("Roles"))
@@ -1159,6 +1371,7 @@ mod tests {
             &roles_map(),
             None,
             &env(),
+            &AsyncCensus::default(),
         );
         assert!(rendered.contains("## Roles"), "roles section:\n{rendered}");
         assert!(rendered.contains("| facades | kit |"), "roles table:\n{rendered}");
@@ -1175,15 +1388,37 @@ mod tests {
     fn empty_roles_map_prints_no_section_and_omits_the_json_key() {
         let empty = BTreeMap::default();
         for rendered in [
-            render_text("rust", &Metrics::default(), &Diff::default(), &empty, &env()),
-            render_markdown("rust", &Metrics::default(), &Diff::default(), &empty, None, &env()),
+            render_text(
+                "rust",
+                &Metrics::default(),
+                &Diff::default(),
+                &empty,
+                &env(),
+                &AsyncCensus::default(),
+            ),
+            render_markdown(
+                "rust",
+                &Metrics::default(),
+                &Diff::default(),
+                &empty,
+                None,
+                &env(),
+                &AsyncCensus::default(),
+            ),
         ] {
             assert!(
                 !rendered.contains("Roles"),
                 "no role facts => no roles section:\n{rendered}"
             );
         }
-        let json = render_json("rust", &Metrics::default(), &Diff::default(), &empty, &env());
+        let json = render_json(
+            "rust",
+            &Metrics::default(),
+            &Diff::default(),
+            &empty,
+            &env(),
+            &AsyncCensus::default(),
+        );
         assert!(!json.contains("\"roles\""), "no role facts => no key:\n{json}");
     }
 
@@ -1192,7 +1427,14 @@ mod tests {
     /// the model JSON (`Role::as_str` guards the word).
     #[test]
     fn json_roles_map_is_path_keyed_after_metrics() {
-        let json = render_json("rust", &Metrics::default(), &Diff::default(), &roles_map(), &env());
+        let json = render_json(
+            "rust",
+            &Metrics::default(),
+            &Diff::default(),
+            &roles_map(),
+            &env(),
+            &AsyncCensus::default(),
+        );
         let value: serde_json::Value = serde_json::from_str(&json).expect("json");
         assert_eq!(value["roles"]["kit"].as_str(), Some("facade"));
         assert_eq!(

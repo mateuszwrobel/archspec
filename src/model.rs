@@ -126,6 +126,20 @@ pub struct Model {
     /// serde-skipped in-house `facade_roots` field.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub roles: BTreeMap<String, Role>,
+    /// Asynchronous (event) dependency rows of the `[[async_depends]]` feature
+    /// (workplan archspec_async_depends, B1): one row per event-identity edge
+    /// from a publishing unit to a subscribing unit. These rows NEVER enter
+    /// `edges` — the edge comparison, the exempt ledger and the `update` writer
+    /// adjudicate every `edges` row, and a pub/sub pair has no manifest basis,
+    /// so riding `edges` would redden lawful pub/sub and inject phantom
+    /// `allowed.depend_on` entries (B1). Consumers read the rows here, never
+    /// through `edges`. Absent from JSON when empty — the `roles` convention —
+    /// so every non-declaring repo's model bytes stay untouched (D8). Rows are
+    /// keyed and ordered by `(from, to, event)` before any consumer reads them
+    /// (N6); the collection's own rows are the only serialized carriers of the
+    /// `kind` key (B2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub async_edges: Vec<AsyncEdge>,
     /// Driver-rendered report-only lines (ts-resolution record R7b law,
     /// GitHub issue #39 for the csharp producer): the rendered
     /// `external not installed` lines — packages a scanned tree declares in
@@ -147,6 +161,77 @@ pub struct Model {
     /// must.
     #[serde(skip, default)]
     pub warnings: Vec<String>,
+    /// The event payload-shape facts the derived drift census diffs
+    /// (workplan archspec_async_depends, D2/M5, scenario 04): TWO derived
+    /// facts — the publisher's record-declaration shape and the consumer's
+    /// bound-field shape — never declared anywhere (payload SHAPE is
+    /// derived from source, a declared shape would rot silently). Kept off
+    /// the serialized model (JSON shape unchanged), like
+    /// `test_gated_modules`: only `verify`'s drift arm reads it and
+    /// `verify` reads the model straight from its own scan, so a stale or
+    /// hand-authored model never opens a drift warning (fail closed, the
+    /// same law). A driver without the shape derivations leaves every map
+    /// empty and the census stays silent there (M5).
+    #[serde(skip, default)]
+    pub event_shapes: EventShapes,
+}
+
+/// Container of the two event-shape derivations the drift census diffs
+/// (workplan archspec_async_depends, D2/M5). Determinism follows the
+/// shipped collection law: BTree ordering everywhere, no source order
+/// reaches a consumer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EventShapes {
+    /// Dotted module path -> record type name -> its members sorted by
+    /// member name: the PUBLISHER-side derivation, read from parsed record
+    /// declarations (positional parameters and field/property declarations
+    /// of the record body). A type that is not a record carries no entry —
+    /// its payload shape derives NOTHING, and the census stays silent on
+    /// such a side (M5 silence law).
+    pub records: BTreeMap<String, BTreeMap<String, Vec<EventRecordMember>>>,
+    /// Dotted module path -> record type name -> the simple names the
+    /// declaration lists after `:` (its base list): the base chain the drift
+    /// census follows when it resolves the publisher's members (scenario 07,
+    /// the base-blind cure). Non-serialized with the rest of EventShapes, so
+    /// a non-declaring repo's `scan.json` bytes stay unchanged (D8). A
+    /// record with no base list carries no entry.
+    pub bases: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    /// Dotted module path -> the type names that module declares as enums.
+    /// The projection class reads this census to tell an enum-typed
+    /// publisher member from any other member.
+    pub enums: BTreeMap<String, BTreeSet<String>>,
+    /// Unit name -> event type name (the declaration's simple name) ->
+    /// the fields that unit's code binds on variables of that type, and
+    /// which of those bind as a string projection: the CONSUMER-side
+    /// derivation (M5, the second fact). A handler binds a field by naming
+    /// it on a variable of the record type (`order.Total`,
+    /// `order.Status.ToString()`, `order.Status == "…"`); a dynamic,
+    /// `JsonDocument` or map binding binds no variable of the event type
+    /// and derives NOTHING — the census stays silent there, never a guess.
+    pub bounds: BTreeMap<String, BTreeMap<String, EventBoundShape>>,
+}
+
+/// One member of a derived record shape: the member name and its declared
+/// type as written (the drift projection class resolves the type name's
+/// tail against the enum census).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EventRecordMember {
+    pub name: String,
+    pub field_type: String,
+}
+
+/// What one unit binds on variables of one event type: the field names the
+/// code references directly, and the set bound as a string projection
+/// (`.ToString()` on the field, a comparison against a string literal, or
+/// a `.ToString()`/literal comparison one member down a chain — scenario
+/// 07). `projected ⊆ fields ∪ nested`: every direct projection is a bound
+/// field, while a field projected HOP-FURTHER (`Data.Status.ToString()`)
+/// joins `projected` alone — the drift census reads it as a projection
+/// candidate and never as a direct reference the record must declare.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EventBoundShape {
+    pub fields: BTreeSet<String>,
+    pub projected: BTreeSet<String>,
 }
 
 /// The closed structural-role vocabulary of the model's `roles` map (ADR-017
@@ -305,6 +390,58 @@ pub struct Edge {
     pub to: String,
 }
 
+/// The closed edge-kind vocabulary of the async feature (workplan
+/// archspec_async_depends, D5/B2): the `direct|async` label. `kind` is NOT a
+/// serialized field of `Edge` — a direct edge serializes as `{from, to}`
+/// exactly as shipped, and an absent `kind` means `direct` (the
+/// `ModuleEdge::type_only` skip-when-false and `roles` absence precedent). The
+/// label rides the renderers and the async collection's own rows only:
+/// `AsyncEdge` below is the single serialized carrier of a `kind` key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum EdgeKind {
+    /// Absent kind means direct: the default a row without a `kind` key
+    /// states, so the shipped `edges` bytes (no key at all) are exactly the
+    /// `direct` statement (B2 — a serialized `kind` on every edge would move
+    /// every committed `scan.json`).
+    #[default]
+    Direct,
+    /// The row is an asynchronous (event) dependency — the state only a row
+    /// of the `async_edges` collection carries.
+    Async,
+}
+
+impl EdgeKind {
+    /// The closed-vocabulary word for this kind — the same lowercase text the
+    /// serialized model uses (the `Role::as_str` law). Renderers print the
+    /// label through this one source, never a local string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EdgeKind::Direct => "direct",
+            EdgeKind::Async => "async",
+        }
+    }
+}
+
+/// One asynchronous (event) dependency row of the `async_edges` collection
+/// (workplan archspec_async_depends, B1): the event-identity edge from the
+/// publishing unit `from` to the subscribing unit `to` over the event type
+/// `event` (the fully-qualified dotted name — identity only, payload shape
+/// derives from source, never declared here). Rows never reach `edges`, the
+/// edge comparison, the exempt ledger or the `update` writer (B1); they ride
+/// the async renderer and the async census alone. Determinism follows the
+/// shipped law for model collections (the `FileEdge` sort law above): rows
+/// order by `(from, to, event)` — see `Model::sort_async_edges` (N6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AsyncEdge {
+    pub from: String,
+    pub to: String,
+    pub event: String,
+    /// The kind label — the ONLY serialized `kind` key in the model (B2).
+    /// Rows of this collection state `async`; a direct edge carries no key.
+    pub kind: EdgeKind,
+}
+
 impl Model {
     /// The scaffold every scan driver builds its model on (self-audit F3):
     /// schema version 1, the scanned language, and no facts anywhere else —
@@ -339,9 +476,23 @@ impl Model {
             test_gated_modules: BTreeSet::new(),
             file_edges: Vec::new(),
             roles: BTreeMap::new(),
+            async_edges: Vec::new(),
             report_only_lines: Vec::new(),
             warnings: Vec::new(),
+            event_shapes: EventShapes::default(),
         }
+    }
+
+    /// Order the async collection by `(from, to, event)` — the determinism
+    /// law of N6: derived async rows and rendered async edges sort before any
+    /// renderer reads them (the `FileEdge` sort law, same shape). Producers
+    /// build rows in whatever order their facts arrive; every consumer calls
+    /// this once after building the collection, so a run's async bytes depend
+    /// on the facts, never on the scan order.
+    pub fn sort_async_edges(&mut self) {
+        self.async_edges.sort_by(|a, b| {
+            (&a.from, &a.to, &a.event).cmp(&(&b.from, &b.to, &b.event))
+        });
     }
 
     /// True when `module_path` is, or lives under, a module the scan proved

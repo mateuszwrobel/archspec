@@ -16,8 +16,8 @@
 
 use crate::archspec::model::{Model, Role};
 use rust_arch_test_kit::render::{
-    markdown_table_escape, mermaid_edge, mermaid_node, mermaid_node_marked, plantuml_component,
-    plantuml_component_marked, plantuml_edge,
+    markdown_table_escape, mermaid_edge, mermaid_labeled_edge, mermaid_node, mermaid_node_marked,
+    plantuml_component, plantuml_component_marked, plantuml_edge, plantuml_labeled_edge,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
@@ -50,6 +50,16 @@ pub const MODULE_TIER_REQUIREMENT: &str = "depgraph needs the module tier, which
 pub struct ModuleGraph {
     pub nodes: BTreeSet<String>,
     pub edges: BTreeSet<(String, String)>,
+    /// Async (event) rows this render draws (workplan archspec_async_depends,
+    /// N2, follow-up 6; row shape corrected by scenario 08):
+    /// `(from, to, label)` — endpoints are the declared UNIT names, the label
+    /// the short `from::SimpleName` form, and the `BTreeSet` order IS the
+    /// `(from, to, event)` law of N6 on the deduped unit-endpoint rows.
+    /// Populated by [`attach_async_rows`] at the command seam; the builders
+    /// never touch it, so a graph built directly (every existing test and
+    /// view) keeps its exact pre-async bytes — the renderers draw this set
+    /// only when it is non-empty (D8).
+    pub async_edges: BTreeSet<(String, String, String)>,
     pub markers: BTreeMap<String, Role>,
     /// Role facts that folded onto one node with a DIFFERENT role and so
     /// state no marker (roles reality US 05): the renderers state this count
@@ -63,6 +73,43 @@ impl ModuleGraph {
     fn add_node(&mut self, node: &str) {
         if !node.is_empty() {
             self.nodes.insert(node.to_string());
+        }
+    }
+}
+
+/// The short arrow label of one async row (scenario 08): the entry's
+/// from-unit, `::`, and the event type's simple name — the name tail after
+/// the last `.` or `:` (the same tail rule the drift census and arm (c)
+/// pair on). The declared FQN is never a label: it produced the ~120-character
+/// arrow lines the consumer verdict names.
+pub fn async_event_label(from: &str, event: &str) -> String {
+    let simple = event.rsplit(['.', ':']).next().unwrap_or(event);
+    format!("{from}::{simple}")
+}
+
+/// Attach async rows to a built graph (workplan archspec_async_depends, N2;
+/// row shape corrected by scenario 08, consumer verdict on 0.6.86) — the
+/// depgraph seam's ONLY async writer. One row renders EXACTLY ONE arrow:
+/// the endpoints are the declared UNIT names (`from`, `to`) — never the
+/// several folded module nodes a unit's paths address under
+/// [`projection_node`] (the projected-pair fan-out of 0.6.86 rendered 18
+/// declared entries as 26 lines) — and the label is the short
+/// [`async_event_label`] form. Rows deduplicate and order by
+/// `(from, to, event)` through the set (N6, on the unit-endpoint rows); a
+/// row whose endpoints are one unit renders no arrow (a self-edge says
+/// nothing, the direct-edge law). Callers assemble the rows from BOTH
+/// sources — the model's derived `async_edges` and the governing spec's
+/// declared table — and call this once after the graph is built; async
+/// renders one line per fact on every projection, at the unit tier the
+/// facts are stated at.
+pub fn attach_async_rows(
+    graph: &mut ModuleGraph,
+    rows: impl IntoIterator<Item = (String, String, String)>,
+) {
+    for (from, to, event) in rows {
+        if from != to {
+            let label = async_event_label(&from, &event);
+            graph.async_edges.insert((from, to, label));
         }
     }
 }
@@ -786,6 +833,14 @@ pub fn render_mermaid(graph: &ModuleGraph) -> String {
     for (from, to) in &graph.edges {
         let _ = writeln!(out, "  {}", mermaid_edge(from, to));
     }
+    // Async rows render dashed and event-labelled after every direct arrow,
+    // in the set's own `(from, to, event)` order (N6); one declared entry is
+    // one line with unit endpoints and the short label (scenario 08); an
+    // empty set renders no bytes, so every non-declaring graph keeps its
+    // exact shipped render (D8, follow-up 6).
+    for (from, to, event) in &graph.async_edges {
+        let _ = writeln!(out, "  {}", mermaid_labeled_edge(from, to, event));
+    }
     out
 }
 
@@ -804,6 +859,13 @@ pub fn render_plantuml(graph: &ModuleGraph) -> String {
     }
     for (from, to) in &graph.edges {
         let _ = writeln!(out, "{}", plantuml_edge(from, to));
+    }
+    // PlantUML parity with the mermaid arm above (workplan
+    // archspec_async_depends, follow-up 6; scenario 08): the same rows, the
+    // same order, one line per entry, the dashed labelled grammar of this
+    // target; empty renders no bytes.
+    for (from, to, event) in &graph.async_edges {
+        let _ = writeln!(out, "{}", plantuml_labeled_edge(from, to, event));
     }
     let _ = writeln!(out, "@enduml");
     out
@@ -1219,6 +1281,7 @@ mod tests {
                 crate_ids: BTreeSet::from([unit.to_string()]),
             }],
             edges: Vec::new(),
+            async_edges: Vec::new(),
             usage: Default::default(),
             soft_structure: BTreeMap::from([(
                 unit.to_string(),
@@ -1247,6 +1310,7 @@ mod tests {
             test_gated_modules: Default::default(),
             file_edges: Vec::new(),
             roles: Default::default(),
+            event_shapes: Default::default(),
         }
     }
 

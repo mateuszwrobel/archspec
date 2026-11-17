@@ -703,6 +703,511 @@ fn chain_tail(node: &Node<'_>, source: &str) -> Option<String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Event payload-shape derivations (workplan archspec_async_depends, D2/M5,
+// scenario 04). TWO facts, one per side of a declared `[[async_depends]]`
+// edge, and shape is never declared: the PUBLISHER side is the parsed
+// record-declaration shape (positional parameters and field/property
+// declarations of records; the enum census names the enum-typed members the
+// projection class reads), the CONSUMER side is the bound-field shape (which
+// fields the unit's code references on variables of the record type). A
+// dynamic, `JsonDocument` or map binding binds no variable of the event type
+// and derives NOTHING — the drift census stays silent on such a side, never
+// a guess (M5). The walk is deliberately a separate pass over a freshly
+// parsed tree: it reads member structure, cannot perturb the reference
+// facts of `FileFacts::walk` above, and keeps the byte law of every other
+// surface trivially intact.
+// ---------------------------------------------------------------------------
+
+/// Per-file (merged to per-unit by the scan layer) shape facts. BTree
+/// ordering everywhere; a file that carries no record declaration, no enum
+/// and no typed binding contributes an empty value.
+#[derive(Clone, Debug, Default)]
+pub struct ShapeFacts {
+    /// namespace -> record name -> members sorted by member name.
+    pub(crate) records: BTreeMap<String, BTreeMap<String, Vec<MemberShape>>>,
+    /// namespace -> record name -> the simple names written on the
+    /// declaration's base list, sorted and deduped (scenario 07: the base
+    /// chain the drift census follows on the publisher side). A record with
+    /// no base list carries no entry.
+    pub(crate) bases: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    /// namespace -> declared enum type names.
+    pub(crate) enums: BTreeMap<String, BTreeSet<String>>,
+    /// event type name (simple name, as declared or written) -> the fields
+    /// the file's code binds on variables of that type, and which of them
+    /// are bound as a string projection.
+    pub(crate) bounds: BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)>,
+}
+
+/// One member of a derived record shape: `(name, declared type as written)`.
+type MemberShape = (String, String);
+
+impl ShapeFacts {
+    pub(crate) fn merge(&mut self, other: ShapeFacts) {
+        for (ns, records) in other.records {
+            let entry = self.records.entry(ns).or_default();
+            for (name, members) in records {
+                entry.entry(name).or_default().extend(members);
+            }
+        }
+        for (ns, bases) in other.bases {
+            let entry = self.bases.entry(ns).or_default();
+            for (name, list) in bases {
+                let entry = entry.entry(name).or_default();
+                entry.extend(list);
+                entry.sort();
+                entry.dedup();
+            }
+        }
+        for (ns, names) in other.enums {
+            self.enums.entry(ns).or_default().extend(names);
+        }
+        for (name, (fields, projected)) in other.bounds {
+            let entry = self.bounds.entry(name).or_default();
+            entry.0.extend(fields);
+            entry.1.extend(projected);
+        }
+    }
+}
+
+/// Shape facts of one `.cs` source (see the module section above): parses the
+/// file a second time on purpose — the shape walk is independent of the
+/// reference walk, and an independence a reader can verify beats a shared
+/// walker with two jobs.
+pub fn scan_cs_shapes(source: &str) -> Result<ShapeFacts, String> {
+    let tree = parse_tree(Language::Csharp, source).map_err(|err| err.to_string())?;
+    let mut walk = ShapeWalk::default();
+    walk.walk(&tree.root_node(), source);
+    Ok(walk.finish())
+}
+
+/// Chain segment of a flattened member access: either a dotted name piece or
+/// the receiver root. Kept as plain strings — the join reads names only.
+type Chain = (String, Vec<String>);
+
+/// Collection state: the document-order namespace stack with the same
+/// attribution semantics as `FileFacts` above (block declarations push,
+/// file-scoped declarations reset), the pending facts recorded while the
+/// stack was empty (folded like `FileFacts::finish` folds), the variable
+/// bindings (type tail -> variable names), the member-access chains and the
+/// string-literal comparisons awaiting the end-of-file join.
+#[derive(Default)]
+struct ShapeWalk {
+    ns_stack: Vec<String>,
+    declared: BTreeSet<String>,
+    saw_namespace: bool,
+    pending_records: Vec<(String, String, Vec<MemberShape>)>,
+    pending_bases: Vec<(String, String, Vec<String>)>,
+    records: BTreeMap<String, BTreeMap<String, Vec<MemberShape>>>,
+    bases: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    pending_enums: Vec<(String, String)>,
+    enums: BTreeMap<String, BTreeSet<String>>,
+    /// type tail -> variable names bound to that type in this file.
+    binds: BTreeMap<String, BTreeSet<String>>,
+    /// member-access chains rooted at a bare identifier: (root, segments).
+    chains: BTreeSet<Chain>,
+    /// `(root, field, direct)` pairs compared against a string literal with
+    /// `==`/`!=`; `direct` says the compared field hangs off the bound
+    /// variable itself (scenario 07: a property-hop comparison binds the
+    /// projected field, not a direct reference of the event record).
+    string_comparisons: BTreeSet<(String, String, bool)>,
+}
+
+impl ShapeWalk {
+    fn walk(&mut self, node: &Node<'_>, source: &str) {
+        match node.kind() {
+            "namespace_declaration" => {
+                self.declare_ns(node, source, false);
+                self.walk_children(node, source, &["name"]);
+                return;
+            }
+            "file_scoped_namespace_declaration" => {
+                self.declare_ns(node, source, true);
+                self.walk_children(node, source, &["name"]);
+                return;
+            }
+            // A using directive contains no declarations and no bindings.
+            "using_directive" => return,
+            "class_declaration" | "interface_declaration" | "struct_declaration"
+            | "enum_declaration" | "record_declaration" => {
+                // declare_type descends the declaration itself (skipping its
+                // name, which is a declaration, not a binding); no second
+                // descent below — the subtree is walked exactly once.
+                self.declare_type(node, source);
+                return;
+            }
+            "parameter" => {
+                if let (Some(name), Some(type_node)) = (
+                    node.child_by_field_name("name"),
+                    node.child_by_field_name("type"),
+                ) {
+                    self.bind(&type_node, source, node_text(&name, source));
+                }
+            }
+            "variable_declaration" => {
+                if let Some(type_node) = node.child_by_field_name("type") {
+                    let mut cursor = node.walk();
+                    for declarator in node.named_children(&mut cursor) {
+                        if declarator.is_named() && declarator.kind() == "variable_declarator"
+                            && let Some(name) = declarator.child_by_field_name("name")
+                        {
+                            self.bind(&type_node, source, node_text(&name, source));
+                        }
+                    }
+                }
+                if let (Some(type_node), Some(name)) = (
+                    node.child_by_field_name("type"),
+                    node.child_by_field_name("name"),
+                ) {
+                    self.bind(&type_node, source, node_text(&name, source));
+                }
+            }
+            "field_declaration" | "property_declaration" => {
+                if let Some(type_node) = node.child_by_field_name("type") {
+                    if let Some(name) = node.child_by_field_name("name") {
+                        self.bind(&type_node, source, node_text(&name, source));
+                    }
+                    let mut cursor = node.walk();
+                    for declarator in node.named_children(&mut cursor) {
+                        if declarator.is_named() && declarator.kind() == "variable_declarator"
+                            && let Some(name) = declarator.child_by_field_name("name")
+                        {
+                            self.bind(&type_node, source, node_text(&name, source));
+                        }
+                    }
+                }
+            }
+            "member_access_expression" => {
+                let mut segments = Vec::new();
+                flatten_chain(node, source, &mut segments);
+                if segments.len() >= 2 {
+                    self.chains
+                        .insert((segments[0].clone(), segments.clone()));
+                }
+            }
+            "binary_expression" => {
+                let operator = node
+                    .child_by_field_name("operator")
+                    .map(|token| node_text(&token, source).to_string())
+                    .unwrap_or_default();
+                if (operator == "==" || operator == "!=")
+                    && let Some((root, field, direct)) = string_compared_field(node, source) {
+                    self.string_comparisons
+                        .insert((root, field, direct));
+                }
+            }
+            _ => {}
+        }
+        self.walk_children(node, source, &[]);
+    }
+
+    fn walk_children(&mut self, node: &Node<'_>, source: &str, skip: &[&str]) {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if skip.contains(&child.kind()) {
+                continue;
+            }
+            self.walk(&child, source);
+        }
+    }
+
+    fn declare_ns(&mut self, node: &Node<'_>, source: &str, file_scoped: bool) {
+        if let Some(name) = node.child_by_field_name("name") {
+            let ns = dotted_name(node_text(&name, source));
+            if !ns.is_empty() {
+                if file_scoped {
+                    self.ns_stack.clear();
+                }
+                self.ns_stack.push(ns.clone());
+                self.declared.insert(ns);
+                self.saw_namespace = true;
+            }
+        }
+    }
+
+    /// Classify one type declaration: enums join the enum census, records
+    /// carry their member shape (positional parameters AND field/property
+    /// declarations of the body — the two spellings the grammar gives a
+    /// record), and every declaration still descends so nested types,
+    /// parameters and member chains inside any body join the walk.
+    fn declare_type(&mut self, node: &Node<'_>, source: &str) {
+        let Some(name_node) = node.child_by_field_name("name") else {
+            return;
+        };
+        let name = node_text(&name_node, source).to_string();
+        let is_record = node.kind() == "record_declaration" || has_modifier(node, source, "record");
+        let is_enum = node.kind() == "enum_declaration" || has_modifier(node, source, "enum");
+        let ns = self.ns_stack.last().cloned().unwrap_or_default();
+        if is_enum {
+            if ns.is_empty() {
+                self.pending_enums.push((String::new(), name.clone()));
+            } else {
+                self.enums.entry(ns.clone()).or_default().insert(name.clone());
+            }
+        }
+        if is_record {
+            let mut members: Vec<(String, String)> = Vec::new();
+            let mut bases: Vec<String> = Vec::new();
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                match child.kind() {
+                    "parameter_list" => {
+                        let mut inner = child.walk();
+                        for parameter in child.named_children(&mut inner) {
+                            if parameter.kind() != "parameter" {
+                                continue;
+                            }
+                            if let (Some(field), Some(type_node)) = (
+                                parameter.child_by_field_name("name"),
+                                parameter.child_by_field_name("type"),
+                            ) {
+                                members.push((
+                                    node_text(&field, source).to_string(),
+                                    node_text(&type_node, source).trim().to_string(),
+                                ));
+                            }
+                        }
+                    }
+                    // The base list (scenario 07): every name the declaration
+                    // writes after `:` is a base the drift census follows.
+                    // Generics and dotted spellings cut to the simple name
+                    // (the same type-tail law as bindings); a base_list node
+                    // carries both base classes and interfaces, and the
+                    // census follows only names a record census declares.
+                    "base_list" => {
+                        let mut inner = child.walk();
+                        for base in child.named_children(&mut inner) {
+                            let name = type_tail(node_text(&base, source));
+                            if !name.is_empty() {
+                                bases.push(name);
+                            }
+                        }
+                    }
+                    "declaration_list" => {
+                        let mut inner = child.walk();
+                        for member in child.named_children(&mut inner) {
+                            if matches!(
+                                member.kind(),
+                                "field_declaration" | "property_declaration"
+                            ) {
+                                member_shape(&member, source, &mut members);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            members.sort();
+            members.dedup();
+            bases.sort();
+            bases.dedup();
+            if ns.is_empty() {
+                self.pending_records
+                    .push((String::new(), name.clone(), members));
+                if !bases.is_empty() {
+                    self.pending_bases.push((String::new(), name, bases));
+                }
+            } else {
+                self.records
+                    .entry(ns.clone())
+                    .or_default()
+                    .insert(name.clone(), members);
+                if !bases.is_empty() {
+                    self.bases.entry(ns).or_default().insert(name, bases);
+                }
+            }
+        }
+        // Descend: nested declarations, the body's fields and properties,
+        // parameters and expression chains all belong to the other arms.
+        self.walk_children(node, source, &["name"]);
+    }
+
+    /// Bind a variable name to the simple name of its declared type. Only
+    /// identifier and qualified-name type spellings bind (generics, arrays
+    /// and pointer types bind NOTHING — a binding the census would have to
+    /// guess through is a binding it does not have, M5 silence).
+    fn bind(&mut self, type_node: &Node<'_>, source: &str, variable: &str) {
+        if !matches!(type_node.kind(), "identifier" | "qualified_name" | "alias_qualified_name") {
+            return;
+        }
+        let tail = type_tail(node_text(type_node, source));
+        if !tail.is_empty() && !variable.is_empty() {
+            self.binds.entry(tail).or_default().insert(variable.to_string());
+        }
+    }
+
+    /// End-of-file join, with the same attribution fold `FileFacts::finish`
+    /// applies (single namespace -> that one; none -> the unit-root sentinel
+    /// `""`; several -> every declared namespace owns the fact): pending
+    /// root-scope declarations fold, then every chain rooted at a bound
+    /// variable contributes its second segment to that type's bound fields,
+    /// projected at the segment before a `ToString` call — at any hop
+    /// (scenario 07). A string comparison joins the compared field the
+    /// same way: direct accesses name a bound field, property-hop accesses
+    /// project their last segment alone.
+    fn finish(mut self) -> ShapeFacts {
+        let declared: Vec<String> = self.declared.iter().cloned().collect();
+        let fold: Vec<String> = if self.ns_stack.len() == 1 {
+            vec![self.ns_stack[0].clone()]
+        } else if !self.saw_namespace || declared.is_empty() {
+            vec![String::new()]
+        } else {
+            declared.clone()
+        };
+        for (ns, name, members) in self.pending_records.drain(..) {
+            let _ = ns;
+            for target in &fold {
+                self.records
+                    .entry(target.clone())
+                    .or_default()
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(members.iter().cloned());
+            }
+        }
+        for (ns, name, bases) in self.pending_bases.drain(..) {
+            let _ = ns;
+            for target in &fold {
+                let entry = self
+                    .bases
+                    .entry(target.clone())
+                    .or_default()
+                    .entry(name.clone())
+                    .or_default();
+                entry.extend(bases.iter().cloned());
+                entry.sort();
+                entry.dedup();
+            }
+        }
+        for (_, name) in self.pending_enums.drain(..) {
+            for target in &fold {
+                self.enums.entry(target.clone()).or_default().insert(name.clone());
+            }
+        }
+        let mut out = ShapeFacts {
+            records: self.records.clone(),
+            bases: self.bases.clone(),
+            enums: self.enums.clone(),
+            bounds: BTreeMap::new(),
+        };
+        for (typ, variables) in &self.binds {
+            let entry = out.bounds.entry(typ.clone()).or_default();
+            for (root, segments) in &self.chains {
+                if segments.len() >= 2 && variables.contains(root) {
+                    entry.0.insert(segments[1].clone());
+                    // The projected field is the segment BEFORE the first
+                    // `ToString` call, at any hop (scenario 07): hop 1 keeps
+                    // the shipped shape (the field is also a bound field);
+                    // a deeper hop joins `projected` alone.
+                    if let Some(pos) = (2..segments.len()).find(|&i| segments[i] == "ToString") {
+                        entry.1.insert(segments[pos - 1].clone());
+                    }
+                }
+            }
+            for (root, field, direct) in &self.string_comparisons {
+                if variables.contains(root) {
+                    // `direct` (scenario 07): a two-segment access names a
+                    // bound field AND projects it; a property-hop access
+                    // projects its last segment only — never a direct
+                    // reference the record must declare.
+                    if *direct {
+                        entry.0.insert(field.clone());
+                    }
+                    entry.1.insert(field.clone());
+                }
+            }
+        }
+        out.bounds.retain(|_, (fields, _)| !fields.is_empty());
+        out
+    }
+}
+
+/// True when the declaration's modifiers carry the given keyword (`record`
+/// rides the class rule in this grammar — see the module header).
+fn has_modifier(node: &Node<'_>, source: &str, keyword: &str) -> bool {
+    let mut cursor = node.walk();
+    node.children(&mut cursor).any(|child| {
+        child.kind() == "modifier" && node_text(&child, source).trim() == keyword
+    })
+}
+
+/// Members carried by a record body's field or property declaration.
+fn member_shape(node: &Node<'_>, source: &str, members: &mut Vec<(String, String)>) {
+    let Some(type_node) = node.child_by_field_name("type") else {
+        return;
+    };
+    let field_type = node_text(&type_node, source).trim().to_string();
+    if let Some(name) = node.child_by_field_name("name") {
+        members.push((node_text(&name, source).to_string(), field_type.clone()));
+        return;
+    }
+    let mut cursor = node.walk();
+    for declarator in node.named_children(&mut cursor) {
+        if declarator.is_named() && declarator.kind() == "variable_declarator"
+            && let Some(name) = declarator.child_by_field_name("name")
+        {
+            members.push((node_text(&name, source).to_string(), field_type.clone()));
+        }
+    }
+}
+
+/// Flatten a member-access chain through its receiver side: identifier and
+/// member-access nodes contribute their names; anything deeper (an
+/// invocation receiver, `this`, a parenthesized expression) contributes
+/// nothing, so a chain rooted anywhere but a bare identifier never joins.
+fn flatten_chain(node: &Node<'_>, source: &str, segments: &mut Vec<String>) {
+    match node.kind() {
+        "identifier" => segments.push(node_text(node, source).to_string()),
+        "member_access_expression" => {
+            if let Some(receiver) = node.child_by_field_name("expression") {
+                flatten_chain(&receiver, source, segments);
+            }
+            if let Some(name) = node.child_by_field_name("name") {
+                segments.push(node_text(&name, source).to_string());
+            }
+        }
+        _ => {}
+    }
+}
+
+/// One operand of an equality is a member access on a bare identifier and
+/// the other is a string literal: the field is bound AS A STRING on this
+/// side (`order.Status == "Placed"`). A multi-segment access names the
+/// string-bound field at its LAST segment (`order.Data.Status == "…"`
+/// projects `Status`, scenario 07) with `direct = false`, so the census
+/// reads it as a projection of a nested field and never as a direct
+/// reference the record must declare; an access whose receiver chain is
+/// not rooted at a bare identifier derives nothing, M5 silence.
+fn string_compared_field(node: &Node<'_>, source: &str) -> Option<(String, String, bool)> {
+    let left = node.child_by_field_name("left")?;
+    let right = node.child_by_field_name("right")?;
+    for (access, other) in [(&left, &right), (&right, &left)] {
+        if other.kind() != "string_literal" {
+            continue;
+        }
+        if access.kind() != "member_access_expression" {
+            continue;
+        }
+        let mut segments = Vec::new();
+        flatten_chain(access, source, &mut segments);
+        let (first, field) = (segments.first()?, segments.last()?.clone());
+        if segments.len() < 2 {
+            continue;
+        }
+        let direct = segments.len() == 2;
+        return Some((first.clone(), field, direct));
+    }
+    None
+}
+
+/// The simple name of a written type: generics cut at `<`, a dotted name at
+/// its last segment (`List<Item>` and `App.Contracts.OrderPlaced` yield
+/// `Item` and `OrderPlaced`).
+fn type_tail(text: &str) -> String {
+    let plain = text.split('<').next().unwrap_or(text).trim();
+    plain.rsplit('.').next().unwrap_or(plain).trim().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{scan_cs_source, TypeFacts};

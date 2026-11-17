@@ -138,11 +138,38 @@ pub fn run(args: &[String]) -> Result<(), String> {
         return Err(depgraph::MODULE_TIER_REQUIREMENT.to_string());
     }
 
+    // The async rows ride BOTH sources (workplan archspec_async_depends, N2,
+    // follow-up 6; scenario 08): the model's derived `async_edges` and,
+    // wherever a governing spec is present, its declared `[[async_depends]]`
+    // table. A set deduplicates and orders by `(from, to, event)` (N6); the
+    // rows carry UNIT endpoints and the renderer draws one labelled arrow per
+    // row (no projected-node fan-out). A non-declaring tree carries no rows,
+    // so every graph renders its exact shipped bytes (D8). Validation stays
+    // in `verify` — this view draws, never adjudicates (N2: a diagram is not
+    // a second adjudicator).
+    let mut async_rows: std::collections::BTreeSet<(String, String, String)> = model
+        .async_edges
+        .iter()
+        .map(|row| (row.from.clone(), row.to.clone(), row.event.clone()))
+        .collect();
+    if let Some(loaded_spec) = loaded.as_ref() {
+        for entry in &loaded_spec.async_depends {
+            if let (Some(from), Some(to), Some(event)) =
+                (entry.from.as_deref(), entry.to.as_deref(), entry.event.as_deref())
+                && !from.is_empty()
+                && !to.is_empty()
+                && !event.is_empty()
+            {
+                async_rows.insert((from.to_string(), to.to_string(), event.to_string()));
+            }
+        }
+    }
+
     let body = match view {
         "api-usage" => depgraph::api_usage_markdown(&model),
         "ledger" => depgraph::ledger_markdown(&model),
         "modules" => {
-            let graph = match aggregate {
+            let mut graph = match aggregate {
                 // An explicit level is never capped: the user chose this
                 // projection, so the automatic rule has nothing to report.
                 Some("units") => depgraph::units_graph(&model),
@@ -160,11 +187,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     graph
                 }
             };
+            depgraph::attach_async_rows(&mut graph, async_rows.iter().cloned());
             render_graph(&graph, format)?
         }
         "submodules" => {
             let parent = parent.expect("checked above");
-            let graph = depgraph::submodules_graph(&model, parent)?;
+            let mut graph = depgraph::submodules_graph(&model, parent)?;
+            depgraph::attach_async_rows(&mut graph, async_rows.iter().cloned());
             render_graph(&graph, format)?
         }
         _ => unreachable!("view validated above"),

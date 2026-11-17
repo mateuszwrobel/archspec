@@ -24,6 +24,32 @@ pub struct Spec {
     /// `helptext::DIAGNOSTICS_HELP` for the emitted categories.
     #[serde(default)]
     pub exempt: Vec<Exempt>,
+    /// The `[[async_depends]]` declaration table (workplan
+    /// archspec_async_depends, D1): one entry per asynchronous (event)
+    /// dependency edge, carrying the event IDENTITY only — `from`, `to`
+    /// and `event`. Payload shapes are derived from source on both sides,
+    /// never declared (D2). Validated by the three identity arms of
+    /// `verify::compare::async_depends` whenever the table is non-empty;
+    /// an empty table leaves every code path byte-identical to the
+    /// pre-table binary (D8).
+    #[serde(default)]
+    pub async_depends: Vec<AsyncDepend>,
+}
+
+/// One `[[async_depends]]` entry: the event identity of one asynchronous
+/// dependency. The keys are mandatory per entry — `validate_unknown_keys`
+/// refuses an absent or empty one in the shipped invalid-spec class,
+/// naming the key and the entry (the `parse_allowed_entry` message class).
+/// Fields are `Option` on purpose: the walker runs BEFORE deserialization
+/// at every loader, so the walker — not serde — owns the missing-key voice.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AsyncDepend {
+    #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
+    #[serde(default)]
+    pub event: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -633,6 +659,7 @@ pub fn exclusion_paths(spec: &Spec) -> Vec<std::path::PathBuf> {
 /// deserialization.
 pub const SPEC_KEY_SHAPES: &[(&str, &[&str])] = &[
     ("allowed", &["depend_on", "forbidden"]),
+    ("async_depends", &["event", "from", "to"]),
     (
         "constraint",
         &[
@@ -660,7 +687,7 @@ pub const SPEC_KEY_SHAPES: &[(&str, &[&str])] = &[
     ("module", &["allowed", "contract", "matches", "name", "submodules"]),
     ("project", &["excluded_sources", "framework", "language"]),
     ("stereotype", &["match", "name"]),
-    ("top", &["constraint", "exempt", "module", "project", "stereotype"]),
+    ("top", &["async_depends", "constraint", "exempt", "module", "project", "stereotype"]),
 ];
 
 /// The declared keys of one shape. Panics on an unknown shape name — the
@@ -723,6 +750,13 @@ fn validate_unknown_keys(content: &str, spec_path: &std::path::Path) -> Result<(
         let location = format!("in [exempt] #{}", index + 1);
         if let Some(table) = entry.as_table() {
             check_spec_keys(table, "exempt", &location, spec_path)?;
+        }
+    }
+    for (index, entry) in array_items(root.get("async_depends")).iter().enumerate() {
+        let location = format!("in [async_depends] #{}", index + 1);
+        if let Some(table) = entry.as_table() {
+            check_spec_keys(table, "async_depends", &location, spec_path)?;
+            check_async_depend_entry(table, index, spec_path)?;
         }
     }
     Ok(())
@@ -796,6 +830,35 @@ fn check_exclusion_mode(
         spec_path.display(),
         index + 1,
     ))
+}
+
+/// The mandatory-key law of one `[[async_depends]]` entry (workplan
+/// archspec_async_depends, D1): `from`, `to` and `event` are each required
+/// and non-empty — an entry without one is the shipped `invalid spec` class
+/// naming the entry (1-indexed) and the key, the `validate_exempt` message
+/// shape. The check rides the walker (like `check_exclusion_mode`) so every
+/// loader refuses before deserialization. A fourth key is refused by
+/// `check_spec_keys` against the `async_depends` shape; nothing here
+/// duplicates that voice.
+fn check_async_depend_entry(
+    table: &toml::map::Map<String, toml::Value>,
+    index: usize,
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    for key in ["from", "to", "event"] {
+        match table.get(key).and_then(toml::Value::as_str) {
+            None | Some("") => {
+                return Err(format!(
+                    "invalid spec: {}: [async_depends] entry #{}: missing mandatory key \
+                     \"{key}\" — an entry declares the event identity with from, to and event",
+                    spec_path.display(),
+                    index + 1,
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(())
 }
 
 /// Module claims and their nested submodules, depth-first; `location` carries

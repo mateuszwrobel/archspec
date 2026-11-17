@@ -510,6 +510,56 @@ fn update_nested_seed_verifies_clean_against_itself() {
 // (that is #7), so the faithful realization is two identical fixtures (init #8
 // precedent). A bare `update` from the fixture cwd prints `./architecture.spec.toml`,
 // so the summaries are byte-identical too.
+/// The async-only-pair counter-cell (workplan archspec_async_depends, B1):
+/// a publisher and a subscriber with NO manifest reference between them, in
+/// a repo whose existing spec declares the pair via `[[async_depends]]`.
+/// The `update` writer seeds from the model's hard edges and module facts
+/// only — async rows live in their own collection and never reach it — so
+/// even with the table declared, the rewrite emits ZERO `allowed.depend_on`
+/// rows for the pair.
+#[test]
+fn update_emits_no_depend_on_for_an_async_only_pair() {
+    let fixture = common::Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/orders\", \"crates/audit\"]\n",
+    );
+    fixture.write(
+        "crates/orders/Cargo.toml",
+        "[package]\nname = \"orders\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "crates/orders/src/lib.rs",
+        "pub struct OrderPlaced;\n\npub fn publish() -> OrderPlaced { OrderPlaced }\n",
+    );
+    fixture.write(
+        "crates/audit/Cargo.toml",
+        "[package]\nname = \"audit\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "crates/audit/src/lib.rs",
+        "pub struct OrderPlaced;\n\npub fn handle(event: OrderPlaced) {\n    let _ = event;\n}\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"orders\"\nmatches = { units = [\"orders\"] }\n\n[[module]]\nname = \"audit\"\nmatches = { units = [\"audit\"] }\n\n[[constraint]]\ntype = \"no_cycles\"\n\n[[async_depends]]\nfrom = \"orders\"\nto = \"audit\"\nevent = \"orders::OrderPlaced\"\n",
+    );
+
+    let output = fixture.run(&["update", "--force"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "update must exit 0 (stderr: {})",
+        stderr(&output)
+    );
+
+    let spec = fixture.read("architecture.spec.toml");
+    assert!(
+        !spec.contains("allowed") && !spec.contains("depend_on"),
+        "an async-only pair must seed zero depend_on rows from the writer:\n{spec}"
+    );
+}
+
 #[test]
 fn update_behavior_5_identical_fixtures_byte_identical_spec_and_summary() {
     let first = workspace_fixture();

@@ -146,8 +146,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
         &loaded.stereotype,
         &loaded.constraint,
         &loaded.exempt,
+        &loaded.async_depends,
     );
     let metrics = report::compute_metrics(&model, &mapping, &loaded.modules, &diff);
+    // The async PAIR census (workplan archspec_async_depends, D9/D10):
+    // declared rows with all three keys resolved; an absent or empty table
+    // computes the empty census and every renderer skips the section (D8).
+    let async_census = report::AsyncCensus::from_declared(&loaded.async_depends);
 
     let config = config::load(root_path)?;
     let diagram = if format == "markdown" {
@@ -163,6 +168,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &model.roles,
             diagram.as_deref(),
             &environment,
+            &async_census,
         ),
         "json" => report::render_json(
             &loaded.project.language,
@@ -170,6 +176,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &diff,
             &model.roles,
             &environment,
+            &async_census,
         ),
         _ => report::render_text(
             &loaded.project.language,
@@ -177,6 +184,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &diff,
             &model.roles,
             &environment,
+            &async_census,
         ),
     };
 

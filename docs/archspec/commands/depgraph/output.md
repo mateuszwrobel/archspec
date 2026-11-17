@@ -29,6 +29,8 @@ The model stores module edges at full dotted granularity (`unit::parent::child`)
 
 Output is a `graph TD` (Mermaid) or a PlantUML component list — nodes first, then edges, in canonical order.
 
+**Async event arrows.** When the run carries async rows — the model's derived `async_edges` plus the resolved entries of a present spec's `[[async_depends]]` table, deduplicated as `(from, to, event)` — the graph gains one dashed, event-labelled arrow per row after the import edges, in `(from, to, event)` order: `A -.->|unit::SimpleName| B` in Mermaid, `A ..> B : unit::SimpleName` in PlantUML (the labelled-edge grammar the forbidden-edge marks already use). The arrow endpoints are the row's declared UNIT names (`from`, `to`) — never the several folded module nodes a unit's paths address under this view's projection — and the label names the publishing unit and the event type's simple name (the tail after the last `.` or `:`), never the declared FQN: one declared entry renders exactly one line, whatever the view folds (scenario 08). A row whose endpoints name the same unit emits no arrow. A run with no async rows renders no async bytes: the graph is byte-identical to the pre-async rendering (committed artefacts of non-declaring repos regenerate unchanged).
+
 **Role markers.** Each rendered node carries at most one role marker: every key of the model's `roles` map is projected through this view's own fold — the same separator lift and the same granularity decision that project the edges — and the node is marked iff the roles landing on it are exactly one distinct role. The marker is the roles label syntax of `inspect tree`: a ` [facade]` / ` [composition]` suffix inside the quoted label in Mermaid, a `<<facade>>` / `<<composition>>` stereotype on the declaration in PlantUML, node ids and edge lines otherwise byte-identical. A node onto which two different roles fold carries no marker at all — the fold is too coarse to state one role, and silence beats an aggregate claim — and a key whose projection names a node the view does not render (a unit-root path folding to `root`) contributes nothing: the rule never invents a node to carry a role. A model with an empty `roles` map renders the pre-marker graph byte for byte.
 
 ### `submodules` — parent-scoped graph
@@ -37,6 +39,7 @@ Output is a `graph TD` (Mermaid) or a PlantUML component list — nodes first, t
 - A dependency leaving the parent's subtree is excluded.
 - `parent` resolves by full module name (`unit::first-segment`, either separator) first, with the bare first segment as a compatibility fallback. A name matching no module is an error listing the module names the model knows.
 - Role markers follow the same projection rule: each roles key projects through the parent-scoped fold and a child node marks only when the roles folding onto it are exactly one distinct role — keys below or outside the parent's subtree contribute nothing.
+- Async event arrows follow the same rule at the parent-scoped fold: the rows assemble once, so a declared entry renders the same one dashed event-labelled arrow here — unit endpoints, short label — whatever the fold does to the direct edges, and a run with no async rows renders byte-identically.
 
 ### `api-usage` — Markdown table
 

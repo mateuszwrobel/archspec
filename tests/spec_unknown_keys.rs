@@ -247,3 +247,23 @@ fn matches_names_and_paths_stay_accepted_on_module_claims() {
         stderr(&output)
     );
 }
+
+/// The `[[async_depends]]` top-level table is a KNOWN table (workplan
+/// archspec_async_depends, M9): the unknown-key law must not refuse it, and
+/// the same walker arm that lets it through is the arm an OLDER binary
+/// applies to it — an archspec predating the table refuses the spec LOUD,
+/// naming `async_depends` at the top level. The forward-compat law rests on
+/// this boundary: table known here, unknown (refused) there, never silent.
+#[test]
+fn async_depends_is_a_known_top_level_table() {
+    let tree = rust_tree(
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"demo\"\nmatches = { units = [\"demo\"] }\n\n[[async_depends]]\nfrom = \"demo\"\nto = \"demo\"\nevent = \"demo::f\"\n",
+    );
+    let output = tree.run(&["verify", "."]);
+
+    assert!(
+        output.status.success(),
+        "the table must parse as a known top-level table:\n{}",
+        stderr(&output)
+    );
+}

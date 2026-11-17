@@ -90,6 +90,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         &loaded.stereotype,
         &loaded.constraint,
         &loaded.exempt,
+        &loaded.async_depends,
     );
 
     let source_ep = resolve_endpoint(source, model_ref, &loaded.modules, &claims, &claims_index);
@@ -138,6 +139,36 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
         for (from, to, kind) in file_rows_listing(&source_ep, &target_ep, model_ref) {
             out.push_str(&format!("    {from} -> {to}{}\n", kind.map(|k| format!(" ({k})")).unwrap_or_default()));
+        }
+    }
+
+    // The `[[async_depends]]` trace arm (workplan archspec_async_depends,
+    // decision-check N3): where the spec declares the table and an entry
+    // addresses this pair (either direction), explain prints the async edge
+    // facts — an async-only pair traces the async arm, not a bare
+    // direct-pair verdict, and a pair carrying both kinds traces both. The
+    // table's absence or a pair no entry names prints nothing here (D8).
+    let async_entries: Vec<(usize, &spec::AsyncDepend)> = loaded
+        .async_depends
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| {
+            let from = entry.from.as_deref().unwrap_or_default();
+            let to = entry.to.as_deref().unwrap_or_default();
+            (source_ids.iter().any(|id| id == from) && target_ids.iter().any(|id| id == to))
+                || (source_ids.iter().any(|id| id == to) && target_ids.iter().any(|id| id == from))
+        })
+        .collect();
+    if !async_entries.is_empty() {
+        out.push_str("async edges ([[async_depends]]):\n");
+        for (index, entry) in async_entries {
+            out.push_str(&format!(
+                "  {} -> {} — event {} (entry #{})\n",
+                entry.from.as_deref().unwrap_or_default(),
+                entry.to.as_deref().unwrap_or_default(),
+                entry.event.as_deref().unwrap_or_default(),
+                index + 1,
+            ));
         }
     }
 

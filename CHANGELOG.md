@@ -6,6 +6,226 @@ only.
 
 ## [Unreleased]
 
+## [0.6.91] - 2026-11-17
+
+### Fixed
+
+- The `async drift enum projection` class now fires on the DUPLICATED-CONTRACT
+  idiom (workplan archspec_async_depends scenario 10, issue #44, consumer
+  verdict on 0.6.89 — RESIDUAL 2). The subscriber unit declaring its own
+  namespaced copy of the event record with the field typed as a string, while
+  the publisher's copy declares the member as an enum, printed ZERO rows: the
+  projection rides the pair of per-unit declarations, so the binding carries
+  no `ToString` or literal-comparison syntax and the projection arms — keyed
+  on the shared-FQN binding — stayed silent. The consumer-side pairing now
+  resolves the subscriber's own same-simple-name record copy by the census's
+  simple-name cross-unit rule: a bound field the subscriber's copy declares
+  as `string` and the publisher's member census declares as an enum prints the
+  shipped `async drift enum projection` row EXACTLY ONCE per qualifying entry,
+  whichever unit hosts the enum (publisher's unit or a third one — the
+  model-wide enum leg is unchanged). The cross-unit pairing SHARES scenario
+  06's resolver implementation (`derives_subscribe_participation`'s simple-name
+  legs, extracted to one shared home) — no second hand-written tail-rule copy.
+  Row strings, the once-per-entry law and every silence arm stand: legitimate
+  subset consumption, a field the subscriber never binds and any
+  un-derivable side print NOTHING; the shared-FQN projection path is byte-
+  for-byte unchanged. Three new `async_drift` cells (enum-in-publisher-unit,
+  enum-in-third-unit, never-bound-field silence); the shipped projection cells
+  and the `async_depends_spec` roster stay green untouched.
+
+## [0.6.90] - 2026-11-17
+
+### Fixed
+
+- `--strict` never promotes an async census row (workplan
+  `archspec_async_depends` scenario 09, issue #44, consumer verdict on
+  0.6.89). The severity law: `--strict` arms the async census's DETECTION
+  depth only and NEVER raises the severity of a census row — the ring row
+  (`async cycle:`), the field-absent row (`async drift field absent:`) and
+  the enum-projection row (`async drift enum projection:`) now print WITH
+  their `warning: ` prefix and exit `0` in BOTH modes, byte-identical
+  between a plain and a strict run. The consumer rerun diff was exactly the
+  ring line losing its prefix and adjudicating as a finding — and consumer
+  CI IS `verify --strict`, so a legitimate event round trip reds a gate on
+  a row the census itself declares advisory. Direct-dependency strict
+  promotion is UNCHANGED byte-for-byte: every shipped direct warning (the
+  `cycle: ` advisories, vacuous constraints, the rest of the warnings
+  channel) still promotes under `--strict` with the shipped bytes and exit
+  `1`. The identity arms (a)/(b)/(c) and the territory check stay error
+  findings, promoted exactly as today. This supersedes scenario 07's
+  evidence wording "strict flips exit" for async rows; that scenario's
+  DETECTION law — which rows print, on which shapes, how often — stands
+  unchanged.
+
+## [0.6.89] - 2026-11-17
+
+### Fixed
+
+- Async arrows render EXACTLY ONE line per declared entry (workplan
+  archspec_async_depends scenario 08, issue #44, consumer verdict on 0.6.86).
+  The projected-module-node-pair fan-out is gone: on a tree where an endpoint
+  unit's paths fold to several rendered module nodes, the same unit pair
+  repeated its arrow once per node pair (18 declared entries rendered 26
+  mermaid lines). Arrow endpoints are now the declared UNIT names (`from`,
+  `to`) on every depgraph view, and the event label takes the short form
+  `unit::SimpleName` — the from-unit, `::`, and the event type's simple name
+  (the tail after the last `.` or `:`) — never the declared FQN (the
+  ~120-character line class the verdict names). PlantUML parity holds: the
+  same rows, the same order, one line per entry on both targets. An
+  identical `(from, to, event)` fact still renders one line (the set law),
+  an entry whose endpoints name one unit renders none (the self-edge law),
+  and a non-declaring repo's render bytes stay byte-identical (the D8 gate,
+  untouched). The `diagram` spec-source and scan-source arrows keep their
+  endpoints and move to the short label.
+
+## [0.6.88] - 2026-11-17
+
+### Fixed
+
+- The derived drift census follows the publisher's record BASES (workplan
+  archspec_async_depends scenario 07, issue #44). The publisher-side member
+  resolution now walks every same-simple-name copy of the declared record
+  census and the base lists those copies chain to — transitively, model-wide,
+  the same name law as the census head — so a field declared on a shared base
+  (`IntegrationEvent`-style) resolves as PRESENT and a consumer binding it
+  prints NOTHING (the 13 base-blind "the publisher record declares no such
+  field" rows are closed). An identical-name, identical-type field declared on
+  both sides of a declared entry — the duplicated-contract idiom — never
+  warns: no absent row, no projection row. The scan records the record-to-
+  base fact (the parsed base list) as a non-serialized shape fact, so a
+  non-declaring repo's `scan.json` bytes stay unchanged.
+- The `async drift enum projection` class is LIVE (same scenario): a
+  base-declared enum member bound as a string — `.ToString()`, or a string
+  comparison, at any chain depth — now reaches the arm that was never
+  reachable when the member lookup missed the base, and the row prints
+  EXACTLY ONCE per qualifying entry; `--strict` gates it unchanged. String
+  projections observed one member down a chain (`Data.Status.ToString()`,
+  `Data.Status == "…"`) join the projection census without ever speaking
+  the absent class. The shipped row strings, the subset, un-derivable-side
+  and `not-emitted` silence laws, and the one named `async drift field
+  absent` row for a truly-absent field are unchanged.
+
+## [0.6.87] - 2026-11-17
+
+### Fixed
+
+- Arm (c) of `[[async_depends]]` now resolves the event for the to-unit by
+  SIMPLE NAME — the type-name tail the drift census already pairs on
+  (workplan archspec_async_depends scenario 06, issue #44, consumer verdict
+  on 0.6.86). The duplicated-contract idiom gives each unit its own
+  namespaced copy of the event contract, and handlers register through
+  `IIntegrationEventHandler<T>` implementations with zero literal
+  `Subscribe` calls; the old exact-FQN keying refused every such subscriber
+  (`async subscribe not derived` on subscriptions that are real). A to-unit
+  holding its own copy under its own namespace, or carrying a derived bound
+  shape for the type, now participates exactly as a shared-contracts unit
+  does. The exact-FQN path stays green untouched, arm (b) keeps its
+  exact-FQN namespace-ownership predicate unchanged, and a to-unit with
+  neither fact is still refused by name — the shipped refusal string stands.
+
+## [0.6.86] - 2026-11-17
+
+### Added
+
+- Async renders where the arrows render (workplan archspec_async_depends
+  scenario 05, issue #44). `depgraph modules` and `diagram` draw every async
+  dependency as a dashed, event-labelled arrow — `A -.->|event| B` in mermaid,
+  `A ..> B : event` in the PlantUML arms — over the union of the scan-derived
+  model rows and the governing spec's declared table, deduplicated and ordered
+  by `(from, to, event)`; an endpoint no rendered node answers stays
+  unrendered, and a row whose legs fold onto one node renders no arrow. The
+  renderers state the rows, they never adjudicate them (the `verify` verdicts
+  stand unchanged). `report` gains ONE async census section — in the text,
+  markdown and json renderers — rendered only when async rows exist: the pair
+  table (`<from> -> <to> — event <event>`), then `per service:` and
+  `per event:` fan-in/fan-out lines. `verify --json` and
+  `report --format json` carry the same census as an `async_census` field,
+  skipped when empty so a non-declaring run's bytes are unchanged.
+
+## [0.6.85] - 2026-11-17
+
+### Added
+
+- The `[[async_depends]]` table gained its verdict arms (workplan
+  archspec_async_depends scenario 03, issue #44). The `no_cycles`
+  adjudication stays DIRECT-ONLY: a pub→sub→pub round trip with no manifest
+  dependency verifies GREEN at error class. A ring census over the UNION
+  graph (direct ∪ declared async legs) names each async-containing ring as
+  ONE advisory row — `async cycle: <path> (mixed)` when a direct leg joins
+  the ring, `async cycle: <path> (async)` when every leg is an async leg —
+  green without `--strict`, promoted by it, never a `cycle detected`
+  finding, never an `[[exempt]]` seed and never a `repro:` line. The
+  declared endpoints are CHECKED against the claims table: an endpoint no
+  unit claim names or selects is the new error category `async endpoint
+  unclaimed`, named with its entry index — a spec typo never buys silence.
+  An empty or absent table keeps every path byte-identical. `archspec
+  explain` traces a pair with async legs through a dedicated `async edges
+  ([[async_depends]])` section listing the matching entries.
+
+## [0.6.84] - 2026-11-17
+
+### Added
+
+- The derived drift census for `[[async_depends]]` entries: `verify` now
+  member-diffs two facts derived from source — the publisher's record shape
+  (record members, plus the enum census for member kinds) and the consumer
+  unit's bound-field shape (fields referenced on variables of the event
+  type) — and speaks on exactly two shapes. A bound field absent from the
+  publisher record prints one `async drift field absent` row naming the
+  consumer, the event identity and the field; an enum member bound as a
+  string (`.ToString()` or a string-literal comparison) prints its own
+  named `async drift enum projection` class — a projection, not an
+  equality failure. Both rows ride the warning channel: the run stays
+  green without `--strict` and exits 1 under it, naming the category.
+  Legitimate subset consumption (fewer fields bound, all present), sides
+  whose shape is not derivable (non-record payloads, dynamic or map
+  bindings) and drivers whose event-declaration-derivation row reads
+  `not-emitted` print nothing — the census never guesses. The shape facts
+  never enter the serialized model bytes and never enter the `[[exempt]]`
+  ratchet or the seed writer (workplan archspec_async_depends scenario 04,
+  issue #44).
+
+## [0.6.83] - 2026-11-17
+
+### Added
+
+- The model gained an async fact collection: `async_edges`, one row per
+  asynchronous (event) dependency with `from`, `to`, `event` and a `kind`
+  label, skip-when-empty like `roles` — a repo that declares no
+  `[[async_depends]]` serializes no async bytes, so every committed
+  `scan.json` (and every emitted portfolio artifact reading it) stays
+  byte-identical, sha256-pinned by a new cell. Async rows never enter
+  `edges`: the edge comparison, the exempt ledger and the `update` writer
+  adjudicate `edges` rows only, so a lawful pub/sub pair with no manifest
+  reference verifies GREEN at error class and seeds no `allowed.depend_on`
+  entry. A serialized direct edge carries no `kind` key — absent `kind`
+  means `direct` — and the label rides the async collection's rows and the
+  renderers only. Collection rows sort by `(from, to, event)` before any
+  consumer reads them (workplan archspec_async_depends scenario 02, issue
+  #44).
+
+## [0.6.82] - 2026-11-17
+
+### Added
+
+- `[[async_depends]]` spec table: one row per asynchronous (event) dependency
+  edge, declaring the event IDENTITY only — mandatory non-empty `from`, `to`
+  and `event` (the event type's fully-qualified dotted name); payload shape
+  is derived from source on both sides, never declared. `verify` adjudicates
+  each entry with three named arms whenever the table is non-empty: the event
+  type resolves in the model's declared-type census (model-wide — a type
+  declared in a shared contracts project resolves for every unit), the
+  from-unit carries a derived publish fact, and the to-unit carries a derived
+  subscribe fact; the new categories `async event unresolved`,
+  `async publish not derived` and `async subscribe not derived` each name
+  themselves with one refusal line. The derivation arms are
+  capability-gated by the new `event-declaration-derivation` fact: csharp
+  derives participation (pilot, `granular`); every other driver skips with
+  the capability-named inert note. The JSON schema and the runtime
+  unknown-key validator read the same shared shape table; an absent or empty
+  table leaves every run byte-identical (workplan archspec_async_depends,
+  issue #44).
+
 ## [0.6.81] - 2026-11-17
 
 ### Added

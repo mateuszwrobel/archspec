@@ -80,6 +80,16 @@ pub const FACT_TYPE_ONLY_DEPENDENCY_FACTS: &str = "type-only-dependency-facts";
 /// row — every dependency row it serializes is a value edge.
 pub const NO_LEXICAL_SPLIT: &str = "no lexical type/value split (every row a value edge)";
 
+/// The `[[async_depends]]` publish/subscribe derivation (workplan
+/// archspec_async_depends, D3): can the driver tell, per unit, that the code
+/// participates in an event type — it declares the type or imports the
+/// namespace that owns it? The csharp driver answers from its serialized
+/// model facts (`soft_structure`, `module_public_types`, `module_edges`), so
+/// its row reads `granular` (the pilot); every driver without the arm reads
+/// `not-emitted` and its two derivation arms skip with the capability-named
+/// inert note (the orphan-census single-pilot precedent).
+pub const FACT_EVENT_DECLARATION_DERIVATION: &str = "event-declaration-derivation";
+
 /// The structural facade-role check of `verify` (rule name unchanged; the
 /// fact source is the model's roles map).
 pub const RULE_FACADE_DEPENDENCY: &str = "facade dependency";
@@ -228,6 +238,17 @@ pub const CAPABILITIES: &[(Language, &str, &str)] = &[
     (Language::Ts, FACT_TYPE_ONLY_DEPENDENCY_FACTS, GRANULAR),
     (Language::Python, FACT_TYPE_ONLY_DEPENDENCY_FACTS, GRANULAR),
     (Language::Kotlin, FACT_TYPE_ONLY_DEPENDENCY_FACTS, GRANULAR),
+    // The async event-derivation fact (workplan archspec_async_depends, D3):
+    // the csharp pilot derives per-unit event participation from its
+    // serialized model facts; every other driver derives nothing, so its
+    // row reads not-emitted and the two derivation arms skip with the
+    // capability-named inert note (the orphan-census single-pilot shape).
+    (Language::Rust, FACT_EVENT_DECLARATION_DERIVATION, NOT_EMITTED),
+    (Language::Csharp, FACT_EVENT_DECLARATION_DERIVATION, GRANULAR),
+    (Language::Go, FACT_EVENT_DECLARATION_DERIVATION, NOT_EMITTED),
+    (Language::Ts, FACT_EVENT_DECLARATION_DERIVATION, NOT_EMITTED),
+    (Language::Python, FACT_EVENT_DECLARATION_DERIVATION, NOT_EMITTED),
+    (Language::Kotlin, FACT_EVENT_DECLARATION_DERIVATION, NOT_EMITTED),
 ];
 
 /// Checks that consume a capability fact: `(rule, required fact)`. A rule is
@@ -276,7 +297,7 @@ mod tests {
                 .filter(|(row_language, _, _)| *row_language == language)
                 .map(|(_, fact, emission)| (*fact, *emission))
                 .collect();
-            assert_eq!(rows.len(), 11, "{language:?} must state all eleven facts");
+            assert_eq!(rows.len(), 12, "{language:?} must state all twelve facts");
             for (fact, value) in rows {
                 assert_eq!(
                     emission(language, fact),
