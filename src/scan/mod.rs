@@ -32,7 +32,7 @@ pub fn extract_with(
 ) -> Result<Model, String> {
     match language {
         Language::Rust => rust::extract(root),
-        Language::Csharp => csharp::extract(root),
+        Language::Csharp => csharp::extract(root, declared),
         Language::Go => go::extract(root),
         Language::Kotlin => kotlin::extract(root, declared),
         Language::Python => python::extract(root, declared),

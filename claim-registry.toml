@@ -1040,6 +1040,26 @@ file = "tests/csharp_test_gating.rs"
 const_name = "CONDITION_FORMS"
 relation = "equals-fragments"
 
+# GitHub issue #49 (2026-11-19): declared `excluded_sources` entries now
+# adjudicate at csharp project discovery — every project whose csproj sits
+# at or under an entry is dropped (no unit, no unit edge, no module edge,
+# DEAD namespace prefixes) and states itself with one census line. The
+# entry liveness report stays driver-independent ("any file counts").
+[[claim]]
+id = "csharp-excluded-units"
+owner = "the `excluded unit` catalog entry of `archspec help diagnostics`, rendered by csharp scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "excluded unit: <path> — excluded_sources",
+]
+signatures = ["excluded unit:"]
+dedicated_guard = "tests/csharp_excluded_projects.rs"
+[[claim.guard_pin]]
+file = "tests/csharp_excluded_projects.rs"
+const_name = "CENSUS_FORMS"
+relation = "equals-fragments"
+
 # GitHub issue #28 (2026-11-17): the import-order repro emitter — the verify
 # help flag line, the repro block the flag renders per runtime file ring,
 # and the named skip row a language without the one-liner form states.

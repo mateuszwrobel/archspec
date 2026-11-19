@@ -572,6 +572,29 @@ test marker under unevaluated condition (report-only, never a verdict — exit 0
    decision:   none required; evaluate the condition in the build when the
                marker's tier matters.
 
+excluded unit (report-only, never a verdict — exit 0):
+  pattern:    excluded unit: <path> — excluded_sources
+   emitted by: csharp (one line per project the scan drops because its
+               csproj sits at or under a declared `excluded_sources` entry,
+               GitHub issue #49; the entry matches component-wise —
+               `external` matches `external/Ext.csproj`, never
+               `externalapp/Ext.csproj`; the `.cs` file walk keeps its
+               mechanical predicate — file-level pruning inside a kept
+               project is issue #60)
+  meaning:    the whole project is declared out of the architecture: no
+               unit, no unit edge, no module edge; its namespaces stay DEAD
+               prefixes (the test-gated law), so a production `using` that
+               names one resolves to nothing. The drop is never silent —
+               the census line states it (GitHub issue #39). Entry liveness
+               is unchanged: an entry that matched nothing anywhere still
+               prints its `excluded source matched nothing` advisory.
+   origin:     code
+   severity:   report-only (exit 0)
+   follow-up:  archspec scan      (stderr carries the lines; the model
+               artifact stays pure — census bytes are serde-skip, so
+               non-declaring trees keep their machine body byte-identical)
+   decision:   none required; the entry with a reason is the declaration.
+
 workspace link missing (report-only, never a verdict — exit 0):
   pattern:    workspace link missing: <member name> — resolved to <path> instead of the member dir
               workspace link missing: <member name> — absent from disk

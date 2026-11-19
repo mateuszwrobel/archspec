@@ -1,8 +1,8 @@
 pub mod syntax;
 
 use crate::model::{
-    Edge, EventBoundShape, EventRecordMember, EventShapes, ManifestInfo, Model, ModuleEdge, Role,
-    Unit,
+    DeclaredFacts, Edge, EventBoundShape, EventRecordMember, EventShapes, ManifestInfo, Model,
+    ModuleEdge, Role, Unit, matching_exclusion,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -50,7 +50,19 @@ type ScannedFiles = BTreeMap<String, ProjectSources>;
 /// Every dropped project is stated on the report surface with one
 /// `test-gated unit:` line (GitHub issue #39: a silent disappearance is an
 /// audit hazard, like a silent promotion).
-pub fn extract(root: &Path) -> Result<Model, String> {
+/// A project the author declared out of the architecture with an
+/// `excluded_sources` entry joins the same never-silent discipline at
+/// project discovery (GitHub issue #49): one `excluded unit: <path> —
+/// excluded_sources` census line per dropped project, its namespaces kept
+/// as DEAD prefixes exactly like the test-gated drop, and no unit, no unit
+/// edge and no module edge from it. The consult is the existing component-
+/// wise form of `model::matching_exclusion` (entry `external` matches
+/// `external/Ext.csproj`, never `externalapp/Ext.csproj`); glob-form
+/// entries match no csproj path and keep the zero-match liveness advisory
+/// unchanged. File-level pruning INSIDE a kept project is a separate class
+/// (issue #60): this arm prunes at the project tier only, and the entry
+/// liveness report (`spec.rs`, "any file counts") stays driver-independent.
+pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     // Absolute base so Include references (which may be absolute or use `..`
     // back to the tree) resolve identically regardless of how the root was
     // given (relative, `.`, or absolute).
@@ -81,9 +93,36 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     // dropped projects included — so a marker the conditions hide states
     // itself once whatever gate its project lands on (issue #45, rung 1).
     let mut marker_facts: Vec<(std::path::PathBuf, usize, String)> = Vec::new();
+    // Declared-exclusion census lines (GitHub issue #49), the never-silent
+    // law's second class at the project tier, sorted before rendering.
+    let mut excluded_lines: Vec<String> = Vec::new();
     for (rel_path, full_path) in &projects {
         let project_dir = full_path.parent().unwrap_or(&root);
         let manifest = manifest_info(project_dir, &root, full_path, &mut marker_facts);
+        // The declared-exclusion consult precedes the test gate: an entry the
+        // author declared is the stronger statement, and one dropped project
+        // prints exactly one census line. The consult is the existing
+        // component-wise prefix/dir form over the project-relative csproj
+        // path (issue #49) — no second matcher, no glob semantics here (glob
+        // entries match no csproj path and keep the liveness advisory); the
+        // mechanical `is_excluded_cs` gate in `collect_projects` stays the
+        // first door and this consult only adds drops. The manifest above
+        // still rode out of `manifest_info` (the marker law), but the project
+        // enters no tier from here.
+        if matching_exclusion(&facts.exclusions, Path::new(rel_path)).is_some() {
+            let unit_path = match Path::new(rel_path).parent() {
+                Some(parent) if !parent.as_os_str().is_empty() => {
+                    parent.to_string_lossy().into_owned()
+                }
+                _ => ".".to_string(),
+            };
+            excluded_lines.push(format!("excluded unit: {unit_path} — excluded_sources"));
+            // DEAD prefixes, the test-gated law: a production `using` that
+            // names an excluded project's namespace must not resurrect it as
+            // a phantom edge, module or seeded boundary.
+            dropped_namespaces.extend(scan_project_sources(project_dir)?.0);
+            continue;
+        }
         let evidence = test_gate_evidence(&manifest, project_sdk(full_path).as_deref());
         if let Some(marker) = evidence {
             let unit_path = match Path::new(rel_path).parent() {
@@ -654,11 +693,15 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         module_external: module_external_model,
         unit_manifests,
         roles,
-        // The `test-gated unit` census first, then one sorted line per
-        // suppressed test marker under an unevaluated condition (GitHub
-        // issue #45, rung 1) — report-only bytes, serde-skipped, never the
-        // machine body.
+        // The `test-gated unit` census first (project order, unchanged
+        // bytes), then the declared-exclusion census sorted by line (GitHub
+        // issue #49 — deterministic, one line per dropped project), then one
+        // sorted line per suppressed test marker under an unevaluated
+        // condition (GitHub issue #45, rung 1) — report-only bytes,
+        // serde-skipped, never the machine body.
         report_only_lines: {
+            excluded_lines.sort();
+            test_gated_lines.extend(excluded_lines);
             test_gated_lines.extend(test_marker_lines(&marker_facts, &root));
             test_gated_lines
         },

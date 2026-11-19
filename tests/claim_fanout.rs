@@ -543,7 +543,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 80] = [
+    let required: [&str; 81] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -654,6 +654,10 @@ fn registry_owns_claim_identity() {
         // conditioned test-marker suppression line — a test marker under an
         // unevaluated MSBuild Condition gates nothing and says so.
         "csharp-conditioned-test-markers",
+        // Registered by GitHub issue #49 (2026-11-19): the csharp declared
+        // exclusion — the per-project census line of `excluded_sources` at
+        // project discovery.
+        "csharp-excluded-units",
         // Registered by GitHub issue #28 (2026-11-17): the import-order repro
         // emitter — the verify help flag line, the repro block per runtime
         // file ring, and the named skip row of a language without the
@@ -1272,6 +1276,7 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             | "orphan-file-census"
             | "csharp-test-gated-units"
             | "csharp-conditioned-test-markers"
+            | "csharp-excluded-units"
             | "async-event-unresolved"
             | "async-publish-not-derived"
             | "async-subscribe-not-derived"

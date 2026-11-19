@@ -6,6 +6,27 @@ only.
 
 ## [Unreleased]
 
+## [0.6.109] - 2026-11-19
+
+### Fixed
+
+- The C# scanner honors `excluded_sources` at project discovery (GitHub
+  issue #49): the entries were loaded at the seam and never passed to the
+  csharp driver, so a declared exclusion was a silent no-op for `*.csproj`
+  discovery at every tier. The driver now receives the declared facts and
+  consults the existing component-wise matcher on each project-relative
+  csproj path before a project enters production: a project at or under an
+  entry contributes no unit, no unit edge and no module edge, its
+  namespaces stay DEAD prefixes (the test-gated law), and the drop states
+  itself with one `excluded unit: <path> — excluded_sources` census line,
+  sorted, on the report surface (the issue #39 never-silent law). The
+  mechanical `bin`/`obj` gate stays; entry liveness stays
+  driver-independent — an entry matching no csproj (a file-level entry or
+  a glob-form entry) changes no model byte, and glob-form entries keep
+  their `excluded source matched nothing` advisory unchanged. A tree
+  without entries scans byte-identical. File-level pruning inside a kept
+  project stays issue #60.
+
 ## [0.6.108] - 2026-11-19
 
 ### Fixed
