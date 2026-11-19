@@ -333,12 +333,19 @@ impl Driver {
         // The test-gated census rides the csharp scan report surface by the
         // GitHub issue #39 contract (one line per dropped test project; the
         // other drivers state their test tier elsewhere and print nothing).
+        // The conditioned test-marker census rides the same surface by the
+        // GitHub issue #45 rung-1 contract (one report-only line per test
+        // marker the scan suppresses under an unevaluated Condition; the
+        // other drivers never model or diagnose such markers).
         let ts_census = matches!(self.language, Language::Ts);
         let csharp_census = matches!(self.language, Language::Csharp);
         let stderr: String = common::stderr(&output)
             .lines()
             .filter(|line| !(ts_census && line.starts_with("orphan file")))
             .filter(|line| !(csharp_census && line.starts_with("test-gated unit:")))
+            .filter(|line| {
+                !(csharp_census && line.starts_with("test marker under unevaluated condition:"))
+            })
             .collect::<Vec<_>>()
             .join("\n");
         assert!(stderr.is_empty(), "scan must not write stderr: {stderr}");

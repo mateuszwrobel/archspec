@@ -601,6 +601,17 @@ pub(crate) fn resolve_module_edges(
     let mut fallback_pairs = BTreeSet::new();
     let mut unowned_endpoints = BTreeSet::new();
     for edge in &model.edges {
+        // The honest-reclaim law (GitHub issue #50, extended by issue #59): a
+        // source unit that reaches `unit_module` only through the soft-path
+        // reclaim sub-arm has no unit claim — its honest finding is the
+        // `unassigned unit:` line (issue #50) or the `unexpected component:`
+        // line (issue #59). The reclaim resolves this edge (module tier,
+        // diagrams, metrics), but projecting it here would adjudicate a
+        // mixed-tier pair no boundary's unit policy governs, so the pair is
+        // not placed.
+        if mapping.soft_reclaimed_units.contains(&edge.from) {
+            continue;
+        }
         let (Some(from_module), Some(to_module)) = (
             mapping.unit_module.get(&edge.from),
             mapping.unit_module.get(&edge.to),

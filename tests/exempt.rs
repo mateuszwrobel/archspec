@@ -329,6 +329,17 @@ severity = \"error\"
     let output = fixture.run(&["verify", "."]);
     assert_eq!(output.status.code(), Some(0), "a past expiry on fixed debt is a warning:\n{}", stdout(&output));
     assert!(stdout(&output).contains("warning: exempt expired: module gone -> away -> gone"), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("ok: architecture.spec.toml passes with 2 warnings"),
+        "a green run with an expired-entry warning and the vacuous cycle constraint prints \
+         the passing headline with the count (GitHub issue #54):\n{}",
+        stdout(&output)
+    );
+    assert!(
+        !stdout(&output).contains("does not match source model"),
+        "a run that exits 0 never claims a mismatch (GitHub issue #54):\n{}",
+        stdout(&output)
+    );
 }
 
 // ---------------------------------------------------------------------------

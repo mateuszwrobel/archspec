@@ -49,6 +49,10 @@ error: no architecture.spec.toml found in: ./docs
 $ archspec verify ./bad-spec
 error: invalid spec: ./architecture.spec.toml: expected `=` after key at line 3
 
+# message names the module declaring `allowed` in both renderings (issue #58)
+$ archspec verify ./mixed-allowed-form
+error: invalid spec: ./architecture.spec.toml: module #1 declares "allowed" twice (inline key + [module.allowed] section) — keep one
+
 # message names the file, the offending field, and why
 $ archspec verify ./bad-schema
 error: invalid spec: architecture.spec.toml: unknown constraint type "no_loops" in [constraint] #2

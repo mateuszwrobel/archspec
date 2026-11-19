@@ -543,7 +543,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 75] = [
+    let required: [&str; 80] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -552,6 +552,7 @@ fn registry_owns_claim_identity() {
         "inspect-refusal",
         "api-usage-role-less-note",
         "depgraph-fold-note",
+        "depgraph-async-fold-note",
         "rust-unit-naming",
         "go-naming-legality",
         "report-diagram-granularity",
@@ -615,6 +616,10 @@ fn registry_owns_claim_identity() {
         "async-subscribe-not-derived",
         "async-endpoint-unclaimed",
         "async-cycle-advisory",
+        // Registered by GitHub issue #48 rung P2 (2026-11-18): the
+        // shared-simple-name collision census row of the identity-keyed
+        // async render set.
+        "async-event-collision-advisory",
         "async-depends-inert-notes",
         "async-drift-field-absent",
         "async-drift-enum-projection",
@@ -645,6 +650,10 @@ fn registry_owns_claim_identity() {
         // census — the per-project line and the verdict note for dropped
         // test projects.
         "csharp-test-gated-units",
+        // Registered by GitHub issue #45 rung 1 (2026-11-18): the csharp
+        // conditioned test-marker suppression line — a test marker under an
+        // unevaluated MSBuild Condition gates nothing and says so.
+        "csharp-conditioned-test-markers",
         // Registered by GitHub issue #28 (2026-11-17): the import-order repro
         // emitter — the verify help flag line, the repro block per runtime
         // file ring, and the named skip row of a language without the
@@ -652,6 +661,11 @@ fn registry_owns_claim_identity() {
         "verify-help-repro-flag",
         "cycle-repro-lines",
         "cycle-repro-language-skip",
+        // Registered by GitHub issue #54 (2026-11-18): the verdict-aware
+        // verify headline — a passing run never prints the mismatch headline —
+        // and the --strict help sentence naming the async census-row exception.
+        "verify-verdict-headline",
+        "verify-help-strict-flag",
     ];
     for required in required {
         assert!(
@@ -891,6 +905,54 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                         "claim `{}` drifted: a conflicting fold does not append the registered note with its claim count verbatim: {}",
                         claim.id,
                         stdout(&out)
+                    ));
+                }
+            }
+            "depgraph-async-fold-note" => {
+                let canonical = claim.canonical.clone().expect("canonical");
+                let (head, rest) = canonical
+                    .split_once("<path>")
+                    .expect("the async fold note is a templated canonical");
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[workspace]\nmembers = [\"alpha\", \"beta\", \"gamma\"]\nresolver = \"2\"\n",
+                );
+                for unit in ["alpha", "beta", "gamma"] {
+                    fx.write(
+                        &format!("{unit}/Cargo.toml"),
+                        &format!("[package]\nname = \"{unit}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+                    );
+                }
+                fx.write("alpha/src/lib.rs", "pub mod gateway;\n");
+                fx.write("alpha/src/gateway.rs", "pub fn publish() {}\n");
+                fx.write("beta/src/lib.rs", "pub mod gateway;\n");
+                fx.write("beta/src/gateway.rs", "pub fn consume() {}\n");
+                fx.write("gamma/src/lib.rs", "pub mod admin;\n");
+                fx.write("gamma/src/admin.rs", "pub fn panel() {}\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"alpha\"\nmatches = { units = [\"alpha\"] }\n\n[[module]]\nname = \"beta\"\nmatches = { units = [\"beta\"] }\n\n[[module]]\nname = \"gamma\"\nmatches = { units = [\"gamma\"] }\n\n[[async_depends]]\nfrom = \"alpha\"\nto = \"beta\"\nevent = \"ping::PingEvent\"\n",
+                );
+                let out = fx.run(&["depgraph", "modules"]);
+                // The fold-to-self pair places one node per endpoint and
+                // folds the row onto a self-edge: the note rides stderr with
+                // its count and NO endpoint tail, never silence (issue #51).
+                let head_note = format!(
+                    "{head}1{}",
+                    rest.split(" — endpoints").next().expect("the note head")
+                );
+                let err = stderr(&out);
+                if out.status.code() != Some(0) || !err.contains(head_note.as_str()) {
+                    errors.push(format!(
+                        "claim `{}` drifted: a folded-away async row does not emit the registered note with its count verbatim: {}",
+                        claim.id, err
+                    ));
+                }
+                if err.contains("endpoints outside") {
+                    errors.push(format!(
+                        "claim `{}` drifted: a fold-to-self run printed the endpoint tail although every endpoint placed a node: {}",
+                        claim.id, err
                     ));
                 }
             }
@@ -1209,13 +1271,15 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             | "orphan-file"
             | "orphan-file-census"
             | "csharp-test-gated-units"
+            | "csharp-conditioned-test-markers"
             | "async-event-unresolved"
             | "async-publish-not-derived"
             | "async-subscribe-not-derived"
             | "async-drift-field-absent"
             | "async-drift-enum-projection"
             | "async-endpoint-unclaimed"
-            | "async-cycle-advisory" => {
+            | "async-cycle-advisory"
+            | "async-event-collision-advisory" => {
                 contains_canonical(&mut errors, claim, "help diagnostics")
             }
             "async-depends-inert-notes" => {
@@ -1582,6 +1646,60 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                 if !shape_src.contains("SPEC_KEY_SHAPES") {
                     errors.push(format!(
                         "claim `{}` drifted: the loader source no longer carries the shared SPEC_KEY_SHAPES table",
+                        claim.id
+                    ));
+                }
+            }
+            "verify-help-strict-flag" => {
+                contains_canonical(&mut errors, claim, "verify --help");
+                contains_canonical(&mut errors, claim, "help verify");
+                contains_canonical(&mut errors, claim, "help workflow");
+            }
+            "verify-verdict-headline" => {
+                // Live probe, not a prose echo: a warnings-only verify run
+                // exits 0 with the registered passing headline, and the same
+                // tree under `--strict` keeps the shipped mismatch bytes
+                // (GitHub issue #54).
+                let fx = Fixture::new();
+                fx.write("go.mod", "module example.com/demo\ngo 1.21\n");
+                for (dir, package, imports) in [
+                    ("a", "a", &["example.com/demo/shell"][..]),
+                    ("shell", "shell", &["example.com/demo/store"][..]),
+                    ("store", "store", &[] as &[&str]),
+                ] {
+                    let mut src = format!("package {package}\n");
+                    if !imports.is_empty() {
+                        src.push_str("\nimport (\n");
+                        for import in imports {
+                            src.push_str(&format!("    {import:?}\n"));
+                        }
+                        src.push_str(")\n");
+                    }
+                    src.push('\n');
+                    fx.write(&format!("{dir}/{package}.go"), &src);
+                }
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"go\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"example.com/demo/a\"] }\n\n[module.allowed]\ndepend_on = [\"shell\"]\nforbidden = [\"store\"]\n\n[[module]]\nname = \"shell\"\nmatches = { units = [\"example.com/demo/shell\"] }\n\n[module.allowed]\ndepend_on = [\"store\"]\n\n[[module]]\nname = \"store\"\nmatches = { units = [\"example.com/demo/store\"] }\n",
+                );
+                let passing = fx.run(&["verify"]);
+                let out = stdout(&passing);
+                if passing.status.code() != Some(0)
+                    || !out.contains("ok: architecture.spec.toml passes with 1 warning")
+                    || out.contains("does not match source model")
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the warnings-only run no longer exits 0 with the registered passing headline:\n{out}",
+                        claim.id
+                    ));
+                }
+                let failing = fx.run(&["verify", "--strict"]);
+                let out = stdout(&failing);
+                if failing.status.code() == Some(0)
+                    || !out.contains("architecture.spec.toml does not match source model")
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the promoted run no longer prints the registered mismatch headline:\n{out}",
                         claim.id
                     ));
                 }

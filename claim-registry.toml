@@ -159,7 +159,7 @@ relation = "named-in-file"
 
 [[claim]]
 id = "async-cycle-advisory"
-owner = "the `async cycle` catalog entry of `archspec help diagnostics`, the union-graph ring census row (warning severity; the no_cycles adjudication stays direct-only)"
+owner = "the `async cycle` catalog entry of `archspec help diagnostics`, the union-graph ring census row (warning severity; the no_cycles adjudication stays direct-only; a subscriber-compiled-against back edge witnesses no ring when the event's declaring-unit census is publisher-only or silent, GitHub issue #47, and every declarer unit of a collided simple name names its own row)"
 owner_surfaces = ["help diagnostics"]
 relations = ["echo", "cite"]
 canonical = "async cycle: <A -> B -> A> (mixed)"
@@ -168,6 +168,19 @@ signatures = ["async cycle"]
 dedicated_guard = "tests/async_cycles.rs"
 [[claim.guard_pin]]
 file = "tests/async_cycles.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "async-event-collision-advisory"
+owner = "the `async event collision` catalog entry of `archspec help diagnostics`, the shared-simple-name collision census row (warning severity; GitHub issue #48: the render set keys on `(from, to, full event identity)`, every distinct fact draws its own arrow, and this advisory names the class the collapsed label used to voice by accident)"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "async event collision: <from> -> <to> declares <n> events named <simple name> — <identities> (entries #N, ...)"
+canonical_fragments = ["async event collision"]
+signatures = ["async event collision"]
+dedicated_guard = "tests/issue48_event_collision.rs"
+[[claim.guard_pin]]
+file = "tests/issue48_event_collision.rs"
 relation = "named-in-file"
 
 [[claim]]
@@ -295,6 +308,19 @@ file = "tests/depgraph.rs"
 relation = "named-in-file"
 
 [[claim]]
+id = "depgraph-async-fold-note"
+owner = "the note line the `depgraph modules` and `depgraph submodules` renderers emit on stderr when an async row's endpoint places no node of the view or folds onto a self-edge — the count states how many rows folded away, the tail names the endpoints the view could not place"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "note: <path> async rows folded away in this projection — endpoints outside the view's nodes: <path>"
+template = true
+signatures = ["async rows folded away", "endpoints outside the view's nodes"]
+dedicated_guard = "tests/async_render.rs"
+[[claim.guard_pin]]
+file = "tests/async_render.rs"
+relation = "named-in-file"
+
+[[claim]]
 id = "rust-unit-naming"
 owner = "the rust section of `archspec help languages`"
 owner_surfaces = ["help languages"]
@@ -325,7 +351,7 @@ id = "report-diagram-granularity"
 owner = "the report help surface (`archspec report --help`)"
 owner_surfaces = ["report --help", "help report", "help commands"]
 relations = ["cite"]
-canonical = "The diagram embedded in a markdown report is file-granular; the module-granular graph is `archspec depgraph modules`."
+canonical = "The diagram embedded in a markdown report is file-granular by default; the `--diagram` flag or `[report] diagram` in `archspec.toml` selects the module-granular graph or omits the section, and the standalone module-granular graph is `archspec depgraph modules`."
 signatures = ["embedded in a markdown report", "module-granular graph is"]
 dedicated_guard = "tests/doc_surface_nits.rs"
 [[claim.guard_pin]]
@@ -995,6 +1021,25 @@ file = "tests/csharp_test_gating.rs"
 const_name = "CENSUS_FORMS"
 relation = "equals-fragments"
 
+# GitHub issue #45 rung 1 (2026-11-18): the conditioned C# test-marker
+# suppression line — a test-runner PackageReference under an unevaluated
+# MSBuild Condition gates nothing and states itself once, report-only;
+# the condition evaluator stays deferred (rung 2).
+[[claim]]
+id = "csharp-conditioned-test-markers"
+owner = "the `test marker under unevaluated condition` catalog entry of `archspec help diagnostics`, rendered by csharp scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "test marker under unevaluated condition: <file>:<line>",
+]
+signatures = ["test marker under unevaluated condition:"]
+dedicated_guard = "tests/csharp_test_gating.rs"
+[[claim.guard_pin]]
+file = "tests/csharp_test_gating.rs"
+const_name = "CONDITION_FORMS"
+relation = "equals-fragments"
+
 # GitHub issue #28 (2026-11-17): the import-order repro emitter — the verify
 # help flag line, the repro block the flag renders per runtime file ring,
 # and the named skip row a language without the one-liner form states.
@@ -1039,4 +1084,41 @@ signatures = ["no runnable form for"]
 dedicated_guard = "tests/cycle_repro.rs"
 [[claim.guard_pin]]
 file = "tests/cycle_repro.rs"
+relation = "named-in-file"
+
+# Registered by GitHub issue #54 (2026-11-18): the verdict headline is
+# verdict-aware — a passing run never prints the mismatch headline — and the
+# --strict help statement names the async census-row exception on every
+# surface that states it.
+
+[[claim]]
+id = "verify-verdict-headline"
+owner = "the verify stdout verdict headline — the first line of every text verdict (GitHub issue #54)"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "architecture.spec.toml does not match source model",
+  "ok: architecture.spec.toml passes with",
+]
+signatures = [
+  "architecture.spec.toml does not match source model",
+  "ok: architecture.spec.toml passes with",
+]
+dedicated_guard = "tests/verify.rs"
+[[claim.guard_pin]]
+file = "tests/verify.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "verify-help-strict-flag"
+owner = "the `--strict` statement — the verify help flag line and the workflow recipe's CI-gate step, one shared sentence naming the async census-row exception"
+owner_surfaces = ["verify --help", "help verify", "help workflow"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "zero findings of any kind — except the async census rows, which never promote even under --strict",
+]
+signatures = ["zero findings of any kind"]
+dedicated_guard = "tests/help_audit_recipe.rs"
+[[claim.guard_pin]]
+file = "tests/help_audit_recipe.rs"
 relation = "named-in-file"

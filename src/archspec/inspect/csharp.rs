@@ -144,7 +144,10 @@ fn in_test_project(
             root.join(&dir)
         };
         if let Some(csproj) = nearest_csproj(&project_dir) {
-            let manifest = cs_scan::manifest_info(&project_dir, root, &csproj);
+            // Inspect answers the tier question only: the conditioned-test-
+            // marker markers are collected into a scratch Vec and dropped —
+            // the inspect output bytes never carry the report lines.
+            let manifest = cs_scan::manifest_info(&project_dir, root, &csproj, &mut Vec::new());
             let tier = cs_scan::test_gate_evidence(&manifest, cs_scan::project_sdk(&csproj).as_deref())
                 .is_some();
             tiers.insert(dir, tier);

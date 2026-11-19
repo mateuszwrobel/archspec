@@ -949,3 +949,286 @@ fn a_declared_string_field_the_handler_never_reads_prints_nothing() {
          reads it — the census keys on bindsites, not declarations:\n{report}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// issue #46 — scope identity at the binding layer (fix plan P4): binds are
+// keyed (scope frame, variable) and a chain root resolves through the SCOPE
+// CHAIN of its access site, innermost declaration first — never against
+// every name ever bound in the file. Adversarial cells: the issue's own
+// repro shapes, the invocation tails, the pattern arms that NOW speak, and
+// the two silence laws (implicit lambda parameters, `var`) pinned blind.
+// ---------------------------------------------------------------------------
+
+/// The two event records the scope cells bind: `OrderPlaced` (entry #1) and
+/// `PaymentReceived` (entry #2), disjoint field sets so any cross-type
+/// attribution shows up as a named absent row.
+const TWO_EVENTS: &str = "namespace App.Contracts;\npublic record OrderPlaced(Guid OrderId, \
+     decimal Total);\npublic record PaymentReceived(Guid PaymentId);\n";
+
+/// The declared-edge spec over BOTH records: App.Api -> App.Worker for each
+/// (entry #1 = OrderPlaced, entry #2 = PaymentReceived), identity exactly as
+/// `declared_edge_spec` builds it.
+fn two_event_spec() -> String {
+    format!(
+        "{}\n[[async_depends]]\nfrom = \"App.Api\"\nto = \"App.Worker\"\nevent = \
+         \"App.Contracts.PaymentReceived\"\n",
+        declared_edge_spec()
+    )
+}
+
+/// The drift tree over the two-record contract.
+fn two_event_tree(worker_code: &str) -> Fixture {
+    drift_tree(TWO_EVENTS, worker_code, &two_event_spec())
+}
+
+#[test]
+fn two_methods_one_file_sharing_a_variable_name_bind_only_their_own_parameters() {
+    // The issue's own repro (triage #46): the SAME name typed DIFFERENTLY in
+    // two methods — every chain must resolve to the parameter of the method
+    // it stands in. The file-global bind printed a false `field absent` row
+    // on EACH side (PaymentId against OrderPlaced, OrderId and Total against
+    // PaymentReceived); scoped binds print NOTHING.
+    let worker = "public class OrdersWorker\n{\n    \
+                  public void Handle(OrderPlaced evt)\n    {\n        var a = \
+                  evt.OrderId;\n        var t = evt.Total;\n    }\n    \
+                  public void HandlePayment(PaymentReceived evt)\n    {\n        var b = \
+                  evt.PaymentId;\n    }\n}";
+    let tree = two_event_tree(worker);
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "every binding is scoped, every field is present — green:\n{report}"
+    );
+    assert!(
+        !report.contains("async drift"),
+        "a name in one method never borrows another method's binding:\n{report}"
+    );
+}
+
+#[test]
+fn two_classes_one_file_sharing_a_field_name_resolve_to_their_own_class_frame() {
+    // M4's class-scope arm: fields bind ONE FRAME PER CLASS, not one file
+    // frame — `_evt` typed differently per class must not join the other
+    // type's field set on either side.
+    let worker = "public class FirstWorker\n{\n    private OrderPlaced _evt;\n    \
+                  public void Run()\n    {\n        var a = _evt.OrderId;\n    }\n}\n\
+                  public class SecondWorker\n{\n    private PaymentReceived _evt;\n    \
+                  public void Run()\n    {\n        var b = _evt.PaymentId;\n    }\n}";
+    let tree = two_event_tree(worker);
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "field binds are class-scoped — green:\n{report}"
+    );
+    assert!(
+        !report.contains("async drift"),
+        "a field of one class never attributes a chain of another class in the same file:\n\
+         {report}"
+    );
+}
+
+#[test]
+fn invoking_tostring_or_gettype_on_a_bound_variable_binds_no_field() {
+    // The invocation-shaped tail is a METHOD name, never a bound field:
+    // `evt.ToString()` and `evt.GetType()` printed false `field absent:
+    // ToString` / `field absent: GetType` rows on the file-global join
+    // (issue #46's own symptom class); they now contribute NOTHING.
+    let worker = "public class OrdersWorker\n{\n    \
+                  public void Handle(OrderPlaced evt)\n    {\n        \
+                  var s = evt.ToString();\n        var t = evt.GetType();\n    }\n    \
+                  public void Pay(PaymentReceived payment) { }\n}";
+    let tree = two_event_tree(worker);
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "method tails bind nothing — green:\n{report}"
+    );
+    assert!(
+        !report.contains("async drift"),
+        "ToString/GetType never join the bound-field set:\n{report}"
+    );
+}
+
+#[test]
+fn a_switch_section_pattern_variable_binds_its_section_and_now_names_the_absent_field() {
+    // Pattern arms are NEW (issue #46): chains on `case T p:` variables were
+    // silent and NOW SPEAK — scoped to the declaring section, so the
+    // same-named variable in the SIBLING section attributes only its own
+    // type. Exactly ONE row: the OrderPlaced phantom; PaymentReceived stays
+    // silent through its own section's binding.
+    let worker = "public class OrdersWorker\n{\n    \
+                  public void Handle(OrderPlaced known, object message)\n    {\n        \
+                  switch (message)\n        {\n            case PaymentReceived p: \
+                  Speak(p.PaymentId); break;\n            case OrderPlaced p: Speak(p.Nope); \
+                  break;\n            default: break;\n        }\n    }\n}";
+    let tree = two_event_tree(worker);
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    let absent_lines: Vec<&str> = report
+        .lines()
+        .filter(|line| line.contains("async drift field absent:"))
+        .collect();
+    assert_eq!(
+        absent_lines.len(),
+        1,
+        "the switch-pattern chain speaks EXACTLY once, for the type its section declares:\n\
+         {report}"
+    );
+    assert!(
+        absent_lines[0].contains("App.Contracts.OrderPlaced.Nope")
+            && absent_lines[0].contains("(entry #1)"),
+        "the row names the declaring type's phantom field: {}",
+        absent_lines[0]
+    );
+    assert!(
+        absent_lines.iter().all(|line| !line.contains("PaymentReceived.")),
+        "the sibling section's same-named variable never borrows the phantom:\n{report}"
+    );
+}
+
+#[test]
+fn an_is_pattern_variable_binds_its_block_and_names_the_absent_field() {
+    // The `is` arm (issue #46): `message is OrderPlaced p` scopes p to the
+    // enclosing block — its chains speak for OrderPlaced alone; the second
+    // test's variable, typed PaymentReceived, contributes only its present
+    // field.
+    let worker = "public class OrdersWorker\n{\n    \
+                  public void Handle(OrderPlaced known, object message)\n    {\n        \
+                  if (message is OrderPlaced p) { var a = p.Nope; }\n        \
+                  if (message is PaymentReceived q) { var b = q.PaymentId; }\n    }\n}";
+    let tree = two_event_tree(worker);
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    let absent_lines: Vec<&str> = report
+        .lines()
+        .filter(|line| line.contains("async drift field absent:"))
+        .collect();
+    assert_eq!(
+        absent_lines.len(),
+        1,
+        "the is-pattern chain speaks EXACTLY once:\n{report}"
+    );
+    assert!(
+        absent_lines[0].contains("App.Contracts.OrderPlaced.Nope"),
+        "the row names the pattern type's phantom field: {}",
+        absent_lines[0]
+    );
+    assert!(
+        absent_lines.iter().all(|line| !line.contains("PaymentReceived.")),
+        "the is-pattern binding of the other type contributes nothing absent:\n{report}"
+    );
+}
+
+#[test]
+fn pattern_variables_sharing_a_name_across_two_methods_attribute_to_their_own_types() {
+    // The triage v46-pattern shape: the SAME pattern-variable name in TWO
+    // methods, typed differently — a file-scoped pattern bind would
+    // attribute the OrderPlaced phantom to PaymentReceived too; the section-
+    // scoped bind speaks exactly the one true row.
+    let worker = "public class OrdersWorker\n{\n    \
+                  public void Handle(object message)\n    {\n        if (message is OrderPlaced \
+                  p) { var a = p.Nope; }\n    }\n    \
+                  public void HandlePayment(object message)\n    {\n        if (message is \
+                  PaymentReceived p) { var b = p.PaymentId; }\n    }\n}";
+    let tree = two_event_tree(worker);
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    let absent_lines: Vec<&str> = report
+        .lines()
+        .filter(|line| line.contains("async drift field absent:"))
+        .collect();
+    assert_eq!(
+        absent_lines.len(),
+        1,
+        "each method's pattern variable answers for its own type only:\n{report}"
+    );
+    assert!(
+        absent_lines[0].contains("App.Contracts.OrderPlaced.Nope"),
+        "the one true row names the phantom: {}",
+        absent_lines[0]
+    );
+    assert!(
+        absent_lines.iter().all(|line| !line.contains("PaymentReceived.")),
+        "no phantom crosses the method boundary:\n{report}"
+    );
+}
+
+#[test]
+fn an_implicit_lambda_parameter_shadows_the_outer_binding_and_stays_silent() {
+    // The silence pin (plan P4, unchanged law): implicit lambda parameters
+    // bind NOTHING — and they SHADOW the same-named method parameter, so a
+    // chain the lambda covers attributes to no type at all, not to the
+    // shadowed parameter's record.
+    let worker = "public class OrdersWorker\n{\n    \
+                  public void Handle(OrderPlaced evt)\n    {\n        \
+                  list.ForEach(evt => Speak(evt.Nope));\n    }\n    \
+                  public void Pay(PaymentReceived payment) { }\n}";
+    let tree = two_event_tree(worker);
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the implicit parameter binds nothing — green:\n{report}"
+    );
+    assert!(
+        !report.contains("async drift"),
+        "the lambda's own evt hides the method's evt — no attribution, no row:\n{report}"
+    );
+}
+
+#[test]
+fn a_var_declared_local_stays_blind_and_prints_nothing() {
+    // The second silence pin (plan P4, unchanged law): `var` inference binds
+    // NOTHING — every chain rooted at the implicitly typed local derives
+    // nothing, in a file that binds the known record types elsewhere.
+    let worker = "public class OrdersWorker\n{\n    \
+                  public void Handle(OrderPlaced evt)\n    {\n        \
+                  var msg = Repo.Get();\n        var a = msg.WhateverItMightBe;\n        var b = \
+                  evt.OrderId;\n    }\n    public void Pay(PaymentReceived payment) { }\n}";
+    let tree = two_event_tree(worker);
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the var binding is blind — green:\n{report}"
+    );
+    assert!(
+        !report.contains("async drift"),
+        "inference through `var` is M5 silence — the census never guesses a type:\n{report}"
+    );
+}
+
+#[test]
+fn sibling_blocks_declaring_the_same_name_resolve_innermost_first() {
+    // The sibling-block arm of the scope walk: two blocks of ONE method,
+    // each declaring `evt` with a different type — a chain resolves to the
+    // declaration of the block it stands in, innermost-first; the other
+    // block's declaration contributes NOTHING (the file-global join printed
+    // a false absent row on each side).
+    let worker = "public class OrdersWorker\n{\n    \
+                  public void Handle(OrderPlaced order)\n    {\n        {\n            \
+                  OrderPlaced evt = order;\n            var a = evt.OrderId;\n        }\n        \
+                  {\n            PaymentReceived evt = null;\n            var b = evt.PaymentId;\n\
+                  }\n    }\n}";
+    let tree = two_event_tree(worker);
+    let output = tree.run(&["verify", "."]);
+    let report = format!("{}{}", stdout(&output), stderr(&output));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "each block reads its own declaration — green:\n{report}"
+    );
+    assert!(
+        !report.contains("async drift"),
+        "a sibling block's same-named declaration never joins a chain of the other block:\n\
+         {report}"
+    );
+}

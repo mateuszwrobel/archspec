@@ -10,23 +10,34 @@
 # published, 404 means the version is free. --curl names the fetch command
 # (tests inject a stub).
 #
+# --rerun-published is the publish-nuget job's re-run arm (2026-11-18,
+# finding M7's green-capable counterpart): when the version already exists
+# the caller skips the push and verifies registration, so that call prints
+# the existence-gate row and exits 10 to name the class. The refusal table
+# below stays byte-identical for every other state and for every flagless
+# caller — the matrix publish-gate call in particular stays flagless: the
+# M7 refusal before any build or upload is its only 200 answer.
+#
 # usage: sh gate-nuget-registry.sh --pkg <id> --version <ver> [--curl <cmd>]
+#          [--rerun-published]
 
 set -eu
 
 pkg=""
 version=""
 curl_bin=curl
+rerun_published=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --pkg) pkg="$2"; shift 2 ;;
     --version) version="$2"; shift 2 ;;
     --curl) curl_bin="$2"; shift 2 ;;
+    --rerun-published) rerun_published=1; shift ;;
     *) echo "gate-nuget-registry: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 [ -n "${pkg}" ] && [ -n "${version}" ] || {
-  echo "usage: gate-nuget-registry.sh --pkg <name> --version <ver> [--curl <cmd>]" >&2
+  echo "usage: gate-nuget-registry.sh --pkg <name> --version <ver> [--curl <cmd>] [--rerun-published]" >&2
   exit 2
 }
 
@@ -48,6 +59,10 @@ if ! code="$("${curl_bin}" -sS -o /dev/null -w '%{http_code}' "${url}" 2>/dev/nu
 fi
 case "${code}" in
   200)
+    if [ "${rerun_published}" = "1" ]; then
+      echo "existence-gate: already-published version=${version} — skipping push, verifying registration"
+      exit 10
+    fi
     echo "publish-gate: ${pkg} ${version} is already published on NuGet.org — the republish-freeze law refuses this run; recovery is a version bump, never a tag re-push" >&2
     exit 1
     ;;

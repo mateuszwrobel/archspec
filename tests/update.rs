@@ -1675,3 +1675,265 @@ fn issue43_seed_without_prior_entries_emits_no_excluded_sources_key() {
          `excluded_sources` key:\n{spec}"
     );
 }
+
+// GitHub issue #57 (P12, growing the #43 law): `update --force` regenerates
+// the spec from the source snapshot and preserves EXACTLY ONE hand-written
+// thing — `[project]` `excluded_sources` — while every OTHER hand-written
+// section vanished silently ("lose your policy, gain the new project"). The
+// reseed now ENUMERATES retained versus dropped on stdout: one census line
+// per non-empty section class with its entry count, one retained line, plus
+// a recovery pointer. Report-only stdout: the written spec stays the
+// canonical seed rendering, and a purely generated prior spec keeps
+// byte-identical stdout.
+
+/// The hand-policy repro tree: the two-crate workspace plus a spec whose
+/// every non-empty section class the seed cannot derive is declared once or
+/// twice — one `excluded_sources` entry (the survivor), one stereotype,
+/// `matches` paths+names and a contract `forbid` and an `allowed.forbidden`
+/// on the `auth` claim, a deny-all `contract.expose` on the `billing`
+/// claim, one hand-written `[[constraint]]` row beside the derived
+/// `no_cycles` guard, one `[[exempt]]` ratchet entry and two
+/// `[[async_depends]]` rows.
+fn issue57_hand_policy_fixture() -> common::Fixture {
+    let fixture = workspace_fixture();
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\nexcluded_sources = [{ path = \"crates/auth/ignored\", reason = \"generated\" }]\n\n[[stereotype]]\nname = \"gateway\"\nmatch = { names = [\"*Gateway\"] }\n\n[[module]]\nname = \"auth\"\nmatches = { units = [\"auth\"], paths = [\"crates/auth/**\"], names = [\"auth\"] }\n[module.contract]\nforbid = [\"*Internal\"]\n[module.allowed]\ndepend_on = []\nforbidden = [\"billing\"]\n\n[[module]]\nname = \"billing\"\nmatches = { units = [\"billing\"] }\ncontract = { expose = [] }\n\n[[constraint]]\ntype = \"forbid_external_crates\"\nfrom = [\"auth\"]\nforbid = [\"serde_json\"]\n\n[[constraint]]\ntype = \"no_cycles\"\n\n[[exempt]]\ncycle = \"auth -> billing -> auth\"\ntier = \"module\"\n\n[[async_depends]]\nfrom = \"auth\"\nto = \"billing\"\nevent = \"OrderPlaced\"\n\n[[async_depends]]\nfrom = \"billing\"\nto = \"auth\"\nevent = \"PaymentTaken\"\n",
+    );
+    fixture
+}
+
+/// The census lines a run prints for the classes above, in emission order.
+fn issue57_expected_census_lines() -> Vec<String> {
+    vec![
+        "reseed retained: [project].excluded_sources (1 entry)".to_string(),
+        "reseed dropped: [[async_depends]] (2 entries, not derivable from source)".to_string(),
+        "reseed dropped: [[constraint]] (1 entry, not derivable from source)".to_string(),
+        "reseed dropped: [[exempt]] (1 entry, not derivable from source)".to_string(),
+        "reseed dropped: [[module]].allowed.forbidden (1 entry, not derivable from source)".to_string(),
+        "reseed dropped: [[module]].contract.expose (1 entry, not derivable from source)".to_string(),
+        "reseed dropped: [[module]].contract.forbid (1 entry, not derivable from source)".to_string(),
+        "reseed dropped: [[module]].matches.paths/names (2 entries, not derivable from source)".to_string(),
+        "reseed dropped: [[stereotype]] (1 entry, not derivable from source)".to_string(),
+    ]
+}
+
+#[test]
+fn issue57_reseed_census_names_every_nonempty_dropped_section() {
+    // Mandatory cell (1): the hand-policy spec above forces a `--force`
+    // reseed — every non-empty section class the regeneration drops gets
+    // its named line with the correct count, and the one survivor gets the
+    // retained line. The census is stdout-only: the written spec stays the
+    // canonical seed rendering.
+    let fixture = issue57_hand_policy_fixture();
+    let output = fixture.run(&["update", "--force"]);
+    assert!(
+        output.status.success(),
+        "the hand-policy reseed must stay green (report-only census): {}",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    let census: Vec<&str> = out
+        .lines()
+        .filter(|line| line.starts_with("reseed retained:") || line.starts_with("reseed dropped:"))
+        .collect();
+    let expected = issue57_expected_census_lines();
+    assert_eq!(
+        census,
+        expected.iter().map(String::as_str).collect::<Vec<_>>(),
+        "one census line per non-empty section class, retained first:\n{out}"
+    );
+    let pointer_lines: Vec<&str> = out
+        .lines()
+        .filter(|line| line.starts_with("recover dropped declarations:"))
+        .collect();
+    assert_eq!(
+        pointer_lines.len(),
+        1,
+        "the census closes with exactly one recovery-pointer line:\n{out}"
+    );
+    assert!(
+        pointer_lines[0].contains("architecture.spec.toml")
+            && pointer_lines[0].contains("version control")
+            && pointer_lines[0].contains("merge"),
+        "the pointer must name the backup/merge path:\n{}",
+        pointer_lines[0]
+    );
+    let spec = fixture.read("architecture.spec.toml");
+    for class in ["async_depends", "exempt", "stereotype", "forbid", "forbidden"] {
+        assert!(
+            !spec.contains(class),
+            "the written spec stays the canonical seed rendering — no `{class}` section survives into it:\n{spec}"
+        );
+    }
+    assert!(
+        spec.contains("excluded_sources = [{ path = \"crates/auth/ignored\", reason = \"generated\" }]"),
+        "the one survivor restates its entry in the written spec:\n{spec}"
+    );
+}
+
+#[test]
+fn issue57_reseed_of_purely_generated_spec_keeps_stdout_byte_identical() {
+    // Mandatory cell (2): the loaded spec is the seed's own output — zero
+    // hand-written content — so the census prints NOTHING new: stdout is
+    // byte-identical to the pre-#57 summary and the spec bytes repeat.
+    let fixture = workspace_fixture();
+    let first = fixture.run(&["update"]);
+    let before = fixture.read("architecture.spec.toml");
+    let second = fixture.run(&["update", "--force"]);
+    assert!(
+        first.status.success() && second.status.success(),
+        "seed + pure reseed must stay green: {}",
+        stderr(&second)
+    );
+    assert_eq!(
+        stdout(&first),
+        stdout(&second),
+        "a purely generated prior spec must keep byte-identical stdout (zero-drop case)"
+    );
+    let out = stdout(&second);
+    assert!(
+        !out.contains("reseed retained:") && !out.contains("reseed dropped:"),
+        "the zero-drop case prints no census lines:\n{out}"
+    );
+    assert_eq!(
+        fixture.read("architecture.spec.toml"),
+        before,
+        "the seed's own output is a fixed point"
+    );
+}
+
+#[test]
+fn issue57_second_force_run_census_reflects_already_dropped_state() {
+    // Mandatory cell (3): after one reseed the hand content is gone, so the
+    // SECOND run's census must state the survivor only — no ghost counts
+    // for sections the first run already dropped.
+    let fixture = issue57_hand_policy_fixture();
+    let first = fixture.run(&["update", "--force"]);
+    assert!(
+        first.status.success(),
+        "first reseed must stay green: {}",
+        stderr(&first)
+    );
+    let first_out = stdout(&first);
+    assert!(
+        first_out.contains("reseed dropped: [[async_depends]] (2 entries, not derivable from source)"),
+        "the first run states the drops it makes:\n{first_out}"
+    );
+    let after_first = fixture.read("architecture.spec.toml");
+
+    let second = fixture.run(&["update", "--force"]);
+    assert!(
+        second.status.success(),
+        "second reseed must stay green: {}",
+        stderr(&second)
+    );
+    let second_out = stdout(&second);
+    assert!(
+        !second_out.contains("reseed dropped:"),
+        "the second run must print no ghost dropped lines for sections the \
+         first run already removed:\n{second_out}"
+    );
+    assert!(
+        second_out.contains("reseed retained: [project].excluded_sources (1 entry)"),
+        "the survivor still reads retained on the second run:\n{second_out}"
+    );
+    assert_eq!(
+        fixture.read("architecture.spec.toml"),
+        after_first,
+        "the reseed is a fixed point once the hand content is gone"
+    );
+}
+
+#[test]
+fn issue57_excluded_sources_entries_survive_byte_exact_alongside_the_census() {
+    // Mandatory cell (4): regression pin of the existing
+    // `reseed_spec_with_exclusions` law (issue #43 part 2) restated beside
+    // the census — the declared entry, `mode` dial included, survives the
+    // regenerated bytes EXACTLY, and the census states the survivor while
+    // naming the one hand-written section the tree loses.
+    let fixture = polyglot_minority_ts_tree();
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"csharp\"\nexcluded_sources = [{ path = \"e2e\", reason = \"e2e\", mode = \"warn\" }]\n\n[[exempt]]\ncycle = \"App -> App.Web -> App\"\ntier = \"module\"\n",
+    );
+    let output = fixture.run(&["update", "--force"]);
+    assert!(
+        output.status.success(),
+        "the pinned majority tree must seed (the entry excludes the ts subtree): {}",
+        stderr(&output)
+    );
+    let after = fixture.read("architecture.spec.toml");
+    assert!(
+        after
+            .contains("excluded_sources = [{ path = \"e2e\", reason = \"e2e\", mode = \"warn\" }]"),
+        "the entry — mode dial included — must survive byte-exact in the shipped shape:\n{after}"
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("reseed retained: [project].excluded_sources (1 entry)"),
+        "the survivor gets the retained line:\n{out}"
+    );
+    assert!(
+        out.contains("reseed dropped: [[exempt]] (1 entry, not derivable from source)"),
+        "the one hand-written section the tree loses gets its named line:\n{out}"
+    );
+}
+
+#[test]
+fn issue57_framework_declaration_counts_as_dropped_not_derivable() {
+    // The `[project] framework` key is a consumer declaration (round-8
+    // doctrine: never auto-discovered) and the seed renders no framework
+    // line — the census must name the loss, not silence it.
+    let fixture = common::Fixture::new();
+    fixture.write("package.json", "{ \"name\": \"web\" }\n");
+    fixture.write("src/main.ts", "export const x = 1;\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"ts\"\nframework = \"sveltekit\"\n",
+    );
+    let output = fixture.run(&["update", "--force"]);
+    assert!(
+        output.status.success(),
+        "the sveltekit-pinned ts tree must reseed green: {}",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("reseed dropped: [project].framework (1 entry, not derivable from source)"),
+        "the dropped framework declaration must be named:\n{out}"
+    );
+    assert!(
+        !fixture.read("architecture.spec.toml").contains("framework"),
+        "the regenerated spec carries no framework key (the loss the census names)"
+    );
+}
+
+#[test]
+fn issue57_update_help_states_the_reseed_survival_law() {
+    // Mandatory cell (5): the survival law — only excluded_sources
+    // regenerates clean — sits on the help surfaces an agent reads first.
+    let fixture = common::Fixture::new();
+    let flat = |args: &[&str]| {
+        let output = fixture.run(args);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "`archspec {}` must exit 0: {}",
+            args.join(" "),
+            stderr(&output)
+        );
+        stdout(&output)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for args in [vec!["update", "--help"], vec!["help", "update"]] {
+        let out = flat(&args);
+        assert!(
+            out.contains("only `[project]` `excluded_sources` survives regeneration"),
+            "`archspec {}` must state the reseed survival law:\n{out}",
+            args.join(" ")
+        );
+    }
+}

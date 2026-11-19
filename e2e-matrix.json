@@ -2,7 +2,7 @@
   "schema": "archspec-e2e-matrix-v0",
   "generated_by": "tests/e2e_matrix.rs (generated, never hand-edited)",
   "denominator": {
-    "mode_cells": 72,
+    "mode_cells": 73,
     "exit_class_cells": 9,
     "line_class_rows": 19,
     "note": "the proposal heading says 58 verb-mode cells; the registry enumerates the table rows, which is the honest denominator"
@@ -486,6 +486,23 @@
       ],
       "exit_class": 0,
       "witness": "hole (b): --pretty actually runs; body bytes identical to non-pretty",
+      "status": "pass"
+    },
+    {
+      "id": "report/diagram",
+      "verb": "report",
+      "mode": "--diagram",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "report",
+        "--format",
+        "markdown",
+        "--diagram",
+        "none"
+      ],
+      "exit_class": 0,
+      "witness": "GitHub issue #52: --diagram runs; none omits the embedded section",
       "status": "pass"
     },
     {

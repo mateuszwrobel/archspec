@@ -273,8 +273,11 @@ jobs:
   # token exchanged at NuGet.org. No NUGET_TOKEN anywhere — ADR-051 no-token
   # doctrine, the npm job's posture mirrored. The version's permanence is
   # policed by the matrix publish-gate plus the in-job existence gate below:
-  # a standalone re-run of THIS job still meets a named refusal instead of
-  # a 409 (finding M7), and the bounded poll turns the asynchronous
+  # a standalone re-run of THIS job never reaches a 409 — an already
+  # published version skips the download and push steps and the bounded
+  # poll alone gives the verdict (re-run arm 2026-11-18: finding M7's
+  # green-capable counterpart; every other existing-package state keeps
+  # the gate's named refusal), and the bounded poll turns the asynchronous
   # validation into a green-or-TIMEOUT verdict, never a standing state
   # (finding M15).
   publish-nuget:
@@ -309,11 +312,29 @@ jobs:
             exit 1
           fi
           echo "user=${NUGET_USER}" >> "$GITHUB_OUTPUT"
-      - name: NuGet registry existence gate (refuses an already-published version)
+      # Re-run arm (2026-11-18, finding M7's green-capable counterpart): the
+      # gate answers exit 10 with the named existence-gate row when the
+      # version is already on the registry; this job then skips every
+      # download/push step below and the registration poll alone decides
+      # the re-run — a re-run is green-capable, never a double push.
+      # First-publish behavior is byte-identical, and every other registry
+      # state keeps the gate's named refusal (fail closed). The matrix
+      # publish-gate call stays flagless: the M7 refusal before any build
+      # stands untouched there.
+      - name: NuGet registry existence gate (a published version skips the push)
+        id: existence
         run: |
           set -euo pipefail
-          sh nuget/scripts/gate-nuget-registry.sh --pkg archspec --version "${GITHUB_REF_NAME#v}"
+          rc=0
+          sh nuget/scripts/gate-nuget-registry.sh --pkg archspec \
+            --version "${GITHUB_REF_NAME#v}" --rerun-published || rc=$?
+          if [ "${rc}" -eq 10 ]; then
+            echo "published=yes" >> "$GITHUB_OUTPUT"
+          elif [ "${rc}" -ne 0 ]; then
+            exit "${rc}"
+          fi
       - name: Download the nupkg and its sidecar by exact name (fail closed)
+        if: steps.existence.outputs.published != 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -327,6 +348,7 @@ jobs:
             fi
           done
       - name: Verify the nupkg bytes against its sidecar
+        if: steps.existence.outputs.published != 'yes'
         run: |
           set -euo pipefail
           ver="${GITHUB_REF_NAME#v}"
@@ -335,11 +357,14 @@ jobs:
       # Login and push sit adjacent: every slow step above ran while no key
       # existed, and the exchanged key is valid one hour (finding M6).
       - name: Exchange the OIDC token for a short-lived key
+        if: steps.existence.outputs.published != 'yes'
         id: login
         uses: NuGet/login@v1
         with:
           user: ${{ steps.user.outputs.user }}
       - name: Push to NuGet (temporary key from the login step, never a secret)
+        if: steps.existence.outputs.published != 'yes'
+        id: push
         env:
           NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
@@ -348,12 +373,19 @@ jobs:
           dotnet nuget push "./assets/archspec-${ver}.nupkg" \
             --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json
+      # Window law (M15, measured 2026-11-18): nuget.org registration lag
+      # measured ~35 min past a successful push — release runs 44148122214
+      # and 44156401186 went RED at the old 30-minute step window while the
+      # packages served fine. The inner deadline (3300 s) stays just under
+      # the step timeout (60 min) so the script's own loud TIMEOUT verdict
+      # is the verdict, never the runner's kill.
       - name: Registration poll (a pushed package is not yet a published one)
-        timeout-minutes: 30
+        id: poll
+        timeout-minutes: 60
         run: |
           set -euo pipefail
           sh nuget/scripts/assert-registration.sh --pkg archspec \
-            --version "${GITHUB_REF_NAME#v}" --timeout-secs 1500 --space-secs 30
+            --version "${GITHUB_REF_NAME#v}" --timeout-secs 3300 --space-secs 30
       # GitHub Packages NuGet mirror (operator decision 2026-11-17): push the
       # same nupkg bytes to the owner's GitHub Packages feed AFTER the nuget.org
       # channel succeeded. The nuget.org push above IS the release — this step
@@ -363,7 +395,14 @@ jobs:
       # mirror= step output rides the same mapping law as the npm job's
       # mirror step: this step never reddens the job, so the Publish summary
       # step below reads the output, not the outcome.
+      # Poll decoupling (skipped-on-failure cure, 2026-11-18): the if names
+      # !cancelled() plus the PUSH outcome — an explicit status function, so
+      # the implicit success() no longer applies. A poll RED/TIMEOUT still
+      # mirrors the bytes (the red runs lost the mirror in silence); a push
+      # that never succeeded never mirrors; the re-run arm skips this step
+      # because its push step is skipped, so the outcome is never success.
       - name: Dual-push to GitHub Packages NuGet (observe-never-block)
+        if: ${{ !cancelled() && steps.push.outcome == 'success' }}
         id: ghpkgs
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -390,17 +429,36 @@ jobs:
       # npm job's step of the same name — publish-gate has already proved
       # tag == manifest version, so the tag minus its prefix IS the
       # published version, and the mirror row rides the mirror step's
-      # output mapping (failed-to-mirror never hides the row).
+      # output mapping (failed-to-mirror never hides the row). The poll and
+      # mirror verdicts print as two separate named rows (2026-11-18), so a
+      # poll TIMEOUT stays visible in the summary, not only in the step log.
+      # The if keeps the table truthful and poll-independent: the step runs
+      # after a succeeded push or an already-published re-run — including a
+      # poll RED — and stays skipped when the run reached no NuGet.org
+      # verdict (the skipped-on-failure cure).
       - name: Publish summary
+        if: ${{ !cancelled() && (steps.push.outcome == 'success' || steps.existence.outputs.published == 'yes') }}
         env:
+          POLL: ${{ steps.poll.outcome }}
           MIRROR: ${{ steps.ghpkgs.outputs.mirror }}
         run: |
           set -euo pipefail
           ver="${GITHUB_REF_NAME#v}"
-          if [ "${MIRROR:-}" = "ok" ]; then
-            gh_status=""
-          else
+          case "${POLL:-}" in
+            success) poll=ok ;;
+            failure) poll=failed ;;
+            skipped) poll=skipped ;;
+            *) poll=unknown ;;
+          esac
+          case "${MIRROR:-}" in
+            ok) mirror=ok ;;
+            failed) mirror=failed ;;
+            *) mirror=skipped ;;
+          esac
+          if [ "${mirror}" = "failed" ]; then
             gh_status=" (failed-to-mirror)"
+          else
+            gh_status=""
           fi
           {
             echo "Published versions for ${GITHUB_REF_NAME}:"
@@ -409,5 +467,9 @@ jobs:
             echo "| --- | --- | --- |"
             echo "| NuGet | archspec | ${ver} |"
             echo "| GitHub Packages (NuGet) | archspec | ${ver}${gh_status} |"
+            echo
+            echo "Poll verdict: poll=${poll}"
+            echo
+            echo "Mirror verdict: mirror=${mirror}"
           } >> "$GITHUB_STEP_SUMMARY"
 

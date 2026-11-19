@@ -16,24 +16,97 @@ pub struct Output {
     pub scan: Option<String>,
 }
 
+/// The `[report]` section (GitHub issue #52): knobs for the `report` verb.
+/// `diagram` selects the diagram a markdown report embeds — `files` (the
+/// default file-level import map), `modules` (the module-granular graph
+/// `depgraph modules` draws), or `none` (omit the section). The key is the
+/// committable surface a `--check` consumes, so the writing run and the
+/// checking run resolve the same diagram from the same file; `report
+/// --diagram` overrides it for one-offs.
+#[derive(Debug, Default, Deserialize)]
+pub struct Report {
+    #[serde(default)]
+    pub diagram: Option<String>,
+}
+
+/// Everything `archspec.toml` can state: the `[output]` destinations and the
+/// `[report]` knobs.
+#[derive(Debug, Default)]
+pub struct Config {
+    pub output: Output,
+    pub report: Report,
+}
+
 #[derive(Deserialize)]
-struct Config {
+struct Raw {
     #[serde(default)]
     output: Output,
+    #[serde(default)]
+    report: Report,
+}
+
+/// The sections a config may carry. An unknown section is reported as the
+/// key it is (the `[repot]` typo class).
+const KNOWN_SECTIONS: &[&str] = &["output", "report"];
+
+/// The keys one known section may spell; anything else gets a warning line
+/// and stays inert (GitHub issue #52: `[report] diagrams = "none"` silently
+/// keeping the 8 MB diagram would read as knob-on).
+fn known_keys(section: &str) -> &'static [&'static str] {
+    match section {
+        "output" => &["inspect", "diagram", "report", "scan"],
+        "report" => &["diagram"],
+        _ => &[],
+    }
+}
+
+/// The unknown keys of one parsed config table, in sorted key-path order:
+/// a key outside every known section is named as itself; a key inside a
+/// known section is named as `section.key`. One audit pass, no mutation —
+/// the posture is voice, never failure.
+fn unknown_keys(table: &toml::Table) -> Vec<String> {
+    let mut unknown: Vec<String> = Vec::new();
+    for (section, value) in table {
+        if !KNOWN_SECTIONS.contains(&section.as_str()) {
+            unknown.push(section.clone());
+            continue;
+        }
+        if let toml::Value::Table(entries) = value {
+            for key in entries.keys() {
+                if !known_keys(section).contains(&key.as_str()) {
+                    unknown.push(format!("{section}.{key}"));
+                }
+            }
+        }
+    }
+    unknown.sort();
+    unknown
 }
 
 /// Load `archspec.toml` from `root`, or the default (everything unset) when
-/// the file is absent. Malformed TOML is an operational error naming the file.
-pub fn load(root: &Path) -> Result<Output, String> {
+/// the file is absent. Malformed TOML is an operational error naming the
+/// file — no warning lines fire for a file that does not parse. Every
+/// unknown key prints one non-failing stderr warning line naming itself
+/// before the load returns (GitHub issue #52: the silently-ignored typo was
+/// the trap; the posture is now named, non-failing, inert-as-before).
+pub fn load(root: &Path) -> Result<Config, String> {
     let path = root.join("archspec.toml");
     if !path.exists() {
-        return Ok(Output::default());
+        return Ok(Config::default());
     }
     let content = std::fs::read_to_string(&path)
         .map_err(|err| format!("failed to parse config: {}: {err}", path.display()))?;
-    let config: Config = toml::from_str(&content)
+    let table: toml::Table = toml::from_str(&content)
         .map_err(|err| format!("failed to parse config: {}: {err}", path.display()))?;
-    Ok(config.output)
+    let raw: Raw = toml::from_str(&content)
+        .map_err(|err| format!("failed to parse config: {}: {err}", path.display()))?;
+    for key in unknown_keys(&table) {
+        eprintln!("warning: {}: unknown key \"{key}\" — ignored", path.display());
+    }
+    Ok(Config {
+        output: raw.output,
+        report: raw.report,
+    })
 }
 
 /// Where one render command's body goes, and what stdout says about it. Decided

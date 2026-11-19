@@ -4,7 +4,7 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use super::pattern::{matches_pattern, module_path_matches};
+use super::pattern::{matches_pattern, module_matches, module_path_matches};
 use super::claims::flatten_claims;
 use crate::archspec::language;
 
@@ -29,6 +29,25 @@ pub struct Mapping {
     /// (soft tier). A boundary present only via `matches.modules` is not
     /// reported as a missing component.
     pub module_matched: BTreeSet<String>,
+    /// Units that reached `augment_with_modules`' reclaim arm from
+    /// `unassigned_units` through the soft-path sub-arm alone — a
+    /// `matches.modules` pattern covers the unit's module paths while no claim
+    /// names the unit itself (GitHub issue #50). Such a unit KEEPS its
+    /// `unassigned unit:` finding while the reclaim still places it so its
+    /// edges resolve, and `resolve_module_edges` does not adjudicate
+    /// unit-tier pairs whose source is one of them: the mixed-tier pair would
+    /// adjudicate an edge no unit claim puts on the boundary graph. The go
+    /// D1 name-claim sub-arm (a go unit IS an addressable module path) is a
+    /// claim at any depth, never a soft reclaim — go trees stay
+    /// byte-identical. Since GitHub issue #59 the set also carries units that
+    /// reached the same sub-arm from `unexpected_components` while no claim
+    /// addresses the unit by NAME (the go D1 arm at any depth, and a
+    /// `matches.modules` pattern that addresses the unit name itself, are
+    /// claims, never soft reclaims): such a unit KEEPs its
+    /// `unexpected component:` finding beside the reclaim, so deleting the
+    /// only claim that named a unit can never pass silently
+    /// (the silent-claim-deletion cure).
+    pub soft_reclaimed_units: BTreeSet<String>,
 }
 
 /// Assign each extracted unit to the first declared component whose
@@ -87,6 +106,7 @@ pub fn map_units(units: &[Unit], modules: &[Module]) -> Mapping {
         unexpected_components,
         unassigned_units,
         module_matched: BTreeSet::new(),
+        soft_reclaimed_units: BTreeSet::new(),
     }
 }
 
@@ -275,16 +295,26 @@ pub(super) fn owning_unit(model: &Model, module_path: &str) -> Option<String> {
 /// "present" if it matched a unit OR a module path; a unit is accounted for if
 /// its name matched a boundary's `matches.units` OR one of its module paths
 /// matched a boundary's `matches.modules`. Units accounted for only via the
-/// module tier are re-classified out of `unexpected`/`unassigned` and assigned
-/// to the first matching boundary (declaration order), so their edges still
-/// resolve. Boundaries matched by at least one module path anywhere are
-/// recorded in `module_matched` so they are not reported as missing.
+/// module tier are assigned to the first matching boundary (declaration
+/// order), so their edges still resolve. An `unassigned` unit reclaimed
+/// through the soft-path sub-arm KEEPS its `unassigned unit:` finding beside
+/// the assignment (GitHub issue #50, `soft_reclaimed_units`); a unit claimed
+/// by name through the go D1 sub-arm is fully claimed and loses the finding,
+/// byte-identically to before. A unit absorbed from `unexpected_components`
+/// through the soft-path sub-arm alone — no claim names it while another
+/// claim's territory covers its paths — KEEPs its `unexpected component:`
+/// finding beside the assignment (GitHub issue #59); a `modules` pattern
+/// addressing the unit name is a direct claim and stays silent, so rust
+/// trees keep the shipped shape. Boundaries matched by at least one module
+/// path anywhere are recorded in `module_matched` so they are not reported
+/// as missing.
 pub fn augment_with_modules(mapping: &Mapping, model: &Model, modules: &[Module]) -> Mapping {
     let mut assignments = mapping.assignments.clone();
     let mut unit_module = mapping.unit_module.clone();
     let mut unexpected_components = Vec::new();
     let mut unassigned_units = Vec::new();
     let mut module_matched: BTreeSet<String> = BTreeSet::new();
+    let mut soft_reclaimed_units: BTreeSet<String> = BTreeSet::new();
 
     // Attribution reads claims at every depth (D1): on go a unit IS an
     // addressable module-tier path (its import path), so a `matches.modules`
@@ -343,6 +373,70 @@ pub fn augment_with_modules(mapping: &Mapping, model: &Model, modules: &[Module]
                     .or_default()
                     .insert(unit.clone());
                 unit_module.insert(unit.clone(), owner.name.to_string());
+                // The honest-reclaim law (GitHub issue #50): a unit that
+                // reached this arm from `unassigned_units` and whose owner
+                // claim matched ONLY through the soft-path sub-arm keeps its
+                // `unassigned unit:` finding while the reclaim still places
+                // it so its edges resolve. The silent-claim-deletion cure
+                // (GitHub issue #59) extends the same law to units that
+                // reached this arm from `unexpected_components`: a soft
+                // `matches.modules` path owned by ANOTHER claim used to
+                // absorb a unit whose own claim was deleted, with no
+                // diagnostic at all — the unit keeps its
+                // `unexpected component:` finding beside the reclaim, the
+                // same voice the no-owner arm would print. The name-claim
+                // sub-arms are claims, never soft reclaims, and stay silent
+                // byte-identically: the go D1 arm at any depth (a go unit IS
+                // an addressable module path), and on any other language a
+                // `modules` pattern that addresses the unit NAME itself
+                // (`module_path_matches` walks `::` ancestors only, so a
+                // rust crate named by its lib name is a direct claim while
+                // an ancestor-territory absorb is not).
+                if mapping.unassigned_units.contains(unit) {
+                    if !go_unit_claims(owner.matches, unit) {
+                        unassigned_units.push(unit.clone());
+                        soft_reclaimed_units.insert(unit.clone());
+                    }
+                } else if !go_unit_paths
+                    && !claims.iter().any(|claim| {
+                        // Direct NAME claim by ANY entry: true when a
+                        // claim's `modules` pattern ADDRESSES THE UNIT
+                        // (full or bare segment, separators normalized to
+                        // the module tier's `::` — the dotted-stem shape
+                        // fix50 claims by), or addresses a module INSIDE
+                        // the unit's own tree (named by the unit prefix
+                        // `Orders::App` for project `Orders`, or unit-
+                        // relative `commands::start` inside crate `app`).
+                        // The walk is over all claims, not just the first
+                        // reclaim owner: declaration order may land the
+                        // unit on an ancestor-territory claim while a
+                        // different entry names it. An ANCESTOR-territory
+                        // pattern naming only the unit's namespace (`Acme`
+                        // covering `Acme::Client`'s paths) or a shared
+                        // root outside it (`eShop` covering
+                        // `eShop::WebhookClient`) is not a claim on the
+                        // unit: that absorb is the silent-deletion shape
+                        // this arm cures.
+                        let unit_norm = unit.replace(['.', '/'], "::");
+                        claim.matches.modules.iter().any(|pattern| {
+                            let pattern_norm = pattern.replace('.', "::");
+                            module_matches(&pattern_norm, &unit_norm)
+                                || pattern_norm
+                                    .strip_prefix(&format!("{unit_norm}::"))
+                                    .is_some_and(|rest| !rest.is_empty())
+                                || paths.iter().any(|path| {
+                                    path.replace('.', "::")
+                                        .strip_prefix(&format!("{unit_norm}::"))
+                                        .is_some_and(|inner| {
+                                            module_matches(&pattern_norm, inner)
+                                        })
+                                })
+                        })
+                    })
+                {
+                    unexpected_components.push(unit.clone());
+                    soft_reclaimed_units.insert(unit.clone());
+                }
             }
             None => {
                 if mapping.unassigned_units.contains(unit) {
@@ -362,6 +456,7 @@ pub fn augment_with_modules(mapping: &Mapping, model: &Model, modules: &[Module]
         unexpected_components,
         unassigned_units,
         module_matched,
+        soft_reclaimed_units,
     }
 }
 

@@ -6,7 +6,7 @@ use crate::archspec::spec::SPEC_FILE;
 use crate::archspec::update;
 use std::path::Path;
 
-pub const HELP: &str = "usage: archspec update [path] [--force]\nsnapshot the current model as a seed architecture.spec.toml\n\n  path          project directory to scan and snapshot (default: current directory)\n  --force       overwrite an existing architecture.spec.toml\n";
+pub const HELP: &str = "usage: archspec update [path] [--force]\nsnapshot the current model as a seed architecture.spec.toml\n\n  path          project directory to scan and snapshot (default: current directory)\n  --force       overwrite an existing architecture.spec.toml\n\n`--force` regenerates the whole spec from the source snapshot: only\n`[project]` `excluded_sources` survives regeneration — every other\nhand-written section is dropped and named on stdout with its entry count\n(recover dropped declarations from version control or a backup).\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -93,10 +93,22 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .map(|loaded_spec| loaded_spec.project.excluded_sources.as_slice())
         .unwrap_or_default();
     let content = update::seed_spec(&model, preserved);
-    std::fs::write(&spec_path, content)
+    std::fs::write(&spec_path, content.as_bytes())
         .map_err(|err| format!("failed to write spec: {}: {err}", spec_path.display()))?;
 
     println!("generated {}", spec_path.display());
+    // The reseed census (GitHub issue #57): regeneration preserves EXACTLY
+    // ONE hand-written thing — the `[project]` `excluded_sources` entries —
+    // and silently drops every other hand-written section. When a prior spec
+    // was overwritten, enumerate RETAINED versus DROPPED on stdout: one line
+    // per non-empty section class with its entry count, plus a recovery
+    // pointer. The census never enters the written spec (report-only stdout),
+    // and a purely generated prior spec prints no lines at all.
+    if let Some(loaded_spec) = loaded.as_ref() {
+        for line in update::reseed_census(loaded_spec, &content) {
+            println!("{line}");
+        }
+    }
     println!("review and trim the seed spec, then run archspec verify");
     Ok(())
 }

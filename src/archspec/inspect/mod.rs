@@ -173,7 +173,7 @@ fn run_structural(
     let config = config::load(root_path)?;
     let route = config::route(
         parsed.values.get("output").map(String::as_str),
-        config.inspect.as_deref(),
+        config.output.inspect.as_deref(),
         root_path,
         config::is_human(format),
     );
@@ -312,7 +312,7 @@ fn run_file_level(parsed: &cli::Args, format: &str, check: bool) -> Result<(), S
     let config = config::load(root_path)?;
     let route = config::route(
         parsed.values.get("output").map(String::as_str),
-        config.inspect.as_deref(),
+        config.output.inspect.as_deref(),
         root_path,
         config::is_human(format),
     );

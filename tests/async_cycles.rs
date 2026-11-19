@@ -99,9 +99,13 @@ event = "catalog::EventTwo"
     fixture
 }
 
-/// The mixed fixture: `api` depends on `core` through a manifest path
-/// dependency AND the table declares the subscriber-side leg back — the ring
-/// carries a direct leg and async legs.
+/// The compiled-against fixture: `api` depends on `core` through a manifest
+/// path dependency AND the table declares the subscriber-side leg back —
+/// the ring carries a direct leg and async legs. Under the declaring-unit
+/// predicate (issue #47) the `api -> core` edge is subscriber `api`'s
+/// compile-against leg for `core`'s published contract; a rust-tree driver
+/// derives no record census, the declaration-trust arm carves the edge, and
+/// the ring labels `(async)`.
 fn mixed_fixture() -> Fixture {
     let fixture = Fixture::new();
     fixture.write("Cargo.toml", "[workspace]\nmembers = [\"api\", \"core\"]\nresolver = \"2\"\n");
@@ -176,8 +180,13 @@ fn round_trip_is_green_and_names_one_async_cycle_advisory() {
         "the direct adjudication owns no async legs — no cycle verdict, no repro:\n{out}"
     );
     assert!(
-        out.contains("does not match source model"),
-        "the advisory is an informational finding, not a verdict:\n{out}"
+        out.contains("ok: architecture.spec.toml passes with 1 warning"),
+        "a green run with an advisory row must print the passing headline, not a \
+         mismatch headline:\n{out}\n--- stderr ---\n{err}"
+    );
+    assert!(
+        !out.contains("does not match source model"),
+        "a run that exits 0 never claims a mismatch (GitHub issue #54):\n{out}"
     );
     assert!(output.status.success(), "the async advisory stays green without --strict:\n{out}");
 }
@@ -201,6 +210,12 @@ fn strict_mode_keeps_the_async_cycle_advisory() {
         "the row keeps its warning: prefix under --strict:\n{}",
         stdout(&output)
     );
+    assert!(
+        stdout(&output).contains("ok: architecture.spec.toml passes with 1 warning"),
+        "a `--strict` run whose only findings are census rows exits 0 and prints the \
+         passing headline (GitHub issue #54):\n{}",
+        stdout(&output)
+    );
     assert_eq!(
         stdout(&lax),
         stdout(&output),
@@ -208,24 +223,30 @@ fn strict_mode_keeps_the_async_cycle_advisory() {
     );
 }
 
-/// The mixed ring (a direct leg plus async legs) prints exactly ONE row
-/// labelled `(mixed)` — the direct adjudication stays green and the census
-/// owns the row alone.
+/// The compiled-against back edge is NO ring witness when the declaration
+/// is publisher-only (GitHub issue #47 — re-pinned from the pre-fix
+/// `(mixed)` label): the ring survives on its async legs alone and prints
+/// exactly ONE row labelled `(async)` — the direct adjudication stays green
+/// and the census owns the row alone.
 #[test]
-fn mixed_ring_prints_exactly_one_advisory_labelled_mixed() {
+fn compiled_against_back_edge_is_no_witness_and_the_ring_labels_async() {
     let fixture = mixed_fixture();
     let output = fixture.run(&["verify"]);
     let (out, err) = (stdout(&output), stderr(&output));
     assert!(
-        out.contains("async cycle: api -> core -> api (mixed)"),
-        "the mixed ring must print the labelled row:\n{out}\n--- stderr ---\n{err}"
+        out.contains("async cycle: api -> core -> api (async)"),
+        "the ring must print the labelled row with the flipped label:\n{out}\n--- stderr ---\n{err}"
     );
     assert_eq!(line_count(&out, "async cycle:"), 1, "exactly one row per ring:\n{out}");
+    assert!(
+        !out.contains("(mixed)"),
+        "the contract-compile back edge names no `(mixed)` class here:\n{out}"
+    );
     assert!(
         !out.contains("cycle detected in") && !out.contains("repro:"),
         "the direct adjudication owns no async legs:\n{out}"
     );
-    assert!(output.status.success(), "the mixed advisory stays green without --strict:\n{out}");
+    assert!(output.status.success(), "the async advisory stays green without --strict:\n{out}");
 }
 
 /// Async cycles seed no `[[exempt]]` rows and print no `repro:` line — the

@@ -2059,8 +2059,83 @@ fn verify_go_declared_grouping_flags_laundered_forbidden_edge() {
         "warning listed on stdout:\n{}",
         stdout(&output)
     );
+    assert!(
+        stdout(&output).contains("ok: architecture.spec.toml passes with 1 warning"),
+        "a green run with a warning prints the passing headline (GitHub issue #54):\n{}",
+        stdout(&output)
+    );
+    assert!(
+        !stdout(&output).contains("does not match source model"),
+        "a run that exits 0 never claims a mismatch (GitHub issue #54):\n{}",
+        stdout(&output)
+    );
     let strict = fixture.run(&["verify", "--strict"]);
     assert_divergent(&strict, &["laundered forbidden edge: a -> store via shell"]);
+}
+
+/// GitHub issue #54 cell: a warnings-only run exits 0 and prints the PASSING
+/// headline naming the warning count — never the mismatch headline, and never
+/// the clean-tree confirmation bytes: a grep for `matches source model` keeps
+/// its exact meaning (clean runs only).
+#[test]
+fn verify_warnings_only_run_prints_passing_headline_not_mismatch() {
+    let fixture = go_declared_grouping_fixture(
+        "[project]\nlanguage = \"go\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"example.com/demo/a\"] }\n\n[module.allowed]\ndepend_on = [\"shell\"]\nforbidden = [\"store\"]\n\n[[module]]\nname = \"shell\"\nmatches = { units = [\"example.com/demo/shell\"] }\n\n[module.allowed]\ndepend_on = [\"store\"]\n\n[[module]]\nname = \"store\"\nmatches = { units = [\"example.com/demo/store\"] }\n",
+    );
+    let output = fixture.run(&["verify"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a warnings-only run passes (stderr: {})",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("ok: architecture.spec.toml passes with 1 warning"),
+        "the passing headline names the count:\n{out}"
+    );
+    assert!(
+        !out.contains("matches source model"),
+        "the passing headline is byte-distinct from the clean confirmation:\n{out}"
+    );
+    assert!(
+        !out.contains("does not match source model"),
+        "a green run never claims a mismatch:\n{out}"
+    );
+    assert!(
+        out.contains("warning: laundered forbidden edge: a -> store via shell"),
+        "the warning is listed under the headline:\n{out}"
+    );
+}
+
+/// GitHub issue #54 cell: a run with an error finding AND a warning still
+/// prints the shipped mismatch headline byte-for-byte — the verdict-aware
+/// arm reaches only green runs.
+#[test]
+fn verify_failing_run_headline_bytes_unchanged_with_warnings() {
+    let fixture = go_declared_grouping_fixture(
+        "[project]\nlanguage = \"go\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"example.com/demo/a\"] }\n\n[module.allowed]\ndepend_on = [\"shell\"]\nforbidden = [\"store\"]\n\n[[module]]\nname = \"shell\"\nmatches = { units = [\"example.com/demo/shell\"] }\n\n[module.allowed]\ndepend_on = [\"store\"]\n\n[[module]]\nname = \"store\"\nmatches = { units = [\"example.com/demo/store\"] }\n\n[[module]]\nname = \"ghost\"\nmatches = { units = [\"example.com/demo/ghost\"] }\n",
+    );
+    let output = fixture.run(&["verify"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an error finding fails the run (stderr: {})",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("architecture.spec.toml does not match source model\n"),
+        "the mismatch headline keeps its shipped bytes:\n{out}"
+    );
+    assert!(
+        !out.contains("ok: architecture.spec.toml passes with"),
+        "a failing run never speaks the passing headline:\n{out}"
+    );
+    assert!(
+        out.contains("warning: laundered forbidden edge: a -> store via shell"),
+        "the warning stays listed under the failing headline:\n{out}"
+    );
 }
 
 /// A go.work workspace carries the module tier natively, so the

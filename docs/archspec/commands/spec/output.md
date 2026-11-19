@@ -40,14 +40,14 @@ language = "rust"   # the computed enum — rust | csharp | go | ts | python
 name = "domain"                                   # required
 matches = { units = ["core"], modules = ["Billing::domain"] }
 contract = { forbid = ["entity"] }                 # forbid and expose are both enforced (the expose chain law)
-[module.allowed]
-depend_on = ["domain", "ports"]
-forbidden = ["infrastructure"]
+allowed = { depend_on = ["domain", "ports"], forbidden = ["infrastructure"] }  # the inline table is the canonical form — the rendering `archspec update` emits
+# the [module.allowed] header section parses too, but never mix the two forms on ONE module:
+# the mix is refused as a named duplicate declaration, keeping one form per module
 
 [module.submodules]                                 # recurses: same shape as [[module]]
 name = "domain::entities"
 matches = { modules = ["Billing::domain::entities"] }
-# a submodule with [module.allowed] owns its territory's dependency checks
+# a submodule with a declared `allowed` table owns its territory's dependency checks
 # (most-specific claim wins at any depth); without it the nearest declaring
 # ancestor's policy applies; matches.units on a submodule is a parse error
 

@@ -597,6 +597,21 @@ fn registry() -> Vec<Cell> {
             None,
             "hole (b): --pretty actually runs; body bytes identical to non-pretty"
         ),
+        cell!(
+            "report/diagram",
+            "report",
+            "--diagram",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["report", "--format", "markdown", "--diagram", "none"],
+            0,
+            &["# Architecture report"],
+            &[],
+            &["## Diagram"],
+            None,
+            "GitHub issue #52: --diagram runs; none omits the embedded section"
+        ),
         // --- spec ---
         cell!(
             "spec/reference",

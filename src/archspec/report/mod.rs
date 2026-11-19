@@ -1080,7 +1080,7 @@ mod tests {
     /// Categories the verify renderer prints (`--strict` rendering, so warning
     /// lines carry their own label instead of the `warning: ` prefix).
     fn verify_emitted_labels() -> Vec<String> {
-        compare::render_report(&populated_diff(), true)
+        compare::render_report(&populated_diff(), true, false)
             .lines()
             .filter_map(|line| line.strip_prefix("  "))
             .filter_map(|line| line.split_once(": ").map(|(label, _)| label.to_string()))

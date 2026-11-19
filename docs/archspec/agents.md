@@ -202,6 +202,8 @@ architecture.spec.toml does not match source model
 ok: architecture.spec.toml matches source model (1 modules, 0 constraints checked)
 ```
 
+A tree carrying only warning findings prints `ok: architecture.spec.toml passes with N warning(s)` instead — a green run with named findings, not the clean confirmation; read the listed warnings before calling the job done.
+
 Ever make the loop's goal explicit: the pass line is the definition of done. If `verify` keeps printing `architecture.spec.toml does not match source model`, you are diverging from the real model — rescan with `archspec scan` and re-ground your boundaries.
 
 ### 4. Go modularity adoption (playbook)

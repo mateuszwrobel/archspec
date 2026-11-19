@@ -24,6 +24,14 @@ struct SpecGraph {
     /// unresolved key contributes nothing — a half-declared row is the
     /// validator's refusal, never the renderer's guess.
     async_edges: BTreeSet<(String, String, String)>,
+    /// Async endpoint names that no declared module names — neither as a
+    /// node nor as a cluster member (issue #51 residual, N4). A declared
+    /// module claims its units through `matches.units`, so an endpoint the
+    /// spec claims renders under the CLAIMING MODULE's name — the byte-identical
+    /// endpoint the solid edges use. A name no module claims stays its own
+    /// name and rides here, so the renderers declare it as a labelled node
+    /// instead of letting Mermaid draw the raw salted id as box text.
+    undeclared_async_nodes: BTreeSet<String>,
 }
 
 fn build_graph(spec: &Spec) -> SpecGraph {
@@ -101,9 +109,14 @@ fn build_graph(spec: &Spec) -> SpecGraph {
     // The declared async rows draw intent, like the declared allowed edges
     // do — no containment fold, no validation (N2: the renderer states the
     // table, `verify` adjudicates it). One declared entry is one row with
-    // unit endpoints and the short label (scenario 08); an entry whose
-    // endpoints name one unit draws nothing (the self-edge law).
-    let mut async_edges: BTreeSet<(String, String, String)> = BTreeSet::new();
+    // unit endpoints (scenario 08); an entry whose endpoints name one unit
+    // draws nothing (the self-edge law). GitHub issue #48 moves the KEY:
+    // the rows are assembled as `(from, to, full event identity)` and the
+    // labels assigned through the ONE shared implementation
+    // (`depgraph::async_render_rows`) — two entries over one pair whose
+    // events share a simple name keep TWO arrows with distinguishable
+    // labels, never one collapsed line.
+    let mut async_identities: Vec<(String, String, String)> = Vec::new();
     for entry in &spec.async_depends {
         if let (Some(from), Some(to), Some(event)) =
             (entry.from.as_deref(), entry.to.as_deref(), entry.event.as_deref())
@@ -112,13 +125,62 @@ fn build_graph(spec: &Spec) -> SpecGraph {
             && !event.is_empty()
             && from != to
         {
-            async_edges.insert((
-                from.to_string(),
-                to.to_string(),
-                crate::archspec::depgraph::async_event_label(from, event),
-            ));
+            async_identities.push((from.to_string(), to.to_string(), event.to_string()));
         }
     }
+    let async_edges_raw: BTreeSet<(String, String, String)> =
+        crate::archspec::depgraph::async_render_rows(async_identities)
+            .into_iter()
+            .collect();
+
+    // Issue #51 residual (N4): the declared rows name UNITS, the graph draws
+    // MODULES. An endpoint one declared module claims (`matches.units` — the
+    // only claim grammar submodules reject at parse) renders under that
+    // module's name, so the dashed arrow binds to the node the solid edges
+    // already declare — no raw salted id ever reaches the box text. An
+    // endpoint several modules claim, or none, keeps its own name: the
+    // renderer declares it as its own labelled node (never an invented
+    // placement, the same one-arrow-honest-vocabulary stance as the folded
+    // depgraph views). Names already in the graph's own vocabulary (a
+    // module named like a unit — the shape every shipped fixture and the
+    // reference consumer's module-per-project spec carry) resolve to
+    // themselves, so their bytes stand unchanged (D8).
+    let mut vocabulary: BTreeSet<String> = nodes.clone();
+    for (_, subs) in &clusters {
+        vocabulary.extend(subs.iter().cloned());
+    }
+    let claimant = |endpoint: &str| -> Option<String> {
+        let claimed_by: BTreeSet<String> = spec
+            .modules
+            .iter()
+            .filter(|module| module.matches.units.iter().any(|unit| unit == endpoint))
+            .map(|module| module.name.clone())
+            .collect();
+        if claimed_by.len() == 1 {
+            claimed_by.into_iter().next()
+        } else {
+            None
+        }
+    };
+    let mut undeclared_async_nodes = BTreeSet::new();
+    let async_edges: BTreeSet<(String, String, String)> = async_edges_raw
+        .into_iter()
+        .map(|(from, to, event)| {
+            let mut placed = |name: &str| -> String {
+                if vocabulary.contains(name) {
+                    return name.to_string();
+                }
+                match claimant(name) {
+                    Some(module) => module,
+                    None => {
+                        undeclared_async_nodes.insert(name.to_string());
+                        name.to_string()
+                    }
+                }
+            };
+            (placed(&from), placed(&to), event)
+        })
+        .collect();
 
     SpecGraph {
         nodes,
@@ -126,6 +188,7 @@ fn build_graph(spec: &Spec) -> SpecGraph {
         allowed_edges,
         forbidden_edges,
         async_edges,
+        undeclared_async_nodes,
     }
 }
 
@@ -141,6 +204,13 @@ pub fn render_spec_mermaid(spec: &Spec) -> String {
             let _ = writeln!(out, "    {}", mermaid_node(sub));
         }
         let _ = writeln!(out, "  end");
+    }
+    // Async endpoints no declared module claims (issue #51 residual, N4):
+    // declared as labelled nodes before any edge references them, so the
+    // box text reads the name, never the raw salted id. An empty set —
+    // every non-declaring or fully claimed render — adds no bytes.
+    for node in &graph.undeclared_async_nodes {
+        let _ = writeln!(out, "  {}", mermaid_node(node));
     }
     for (from, to) in &graph.allowed_edges {
         let _ = writeln!(out, "  {}", mermaid_edge(from, to));
@@ -170,6 +240,12 @@ pub fn render_spec_plantuml(spec: &Spec) -> String {
             let _ = writeln!(out, "  {}", plantuml_component(sub));
         }
         let _ = writeln!(out, "}}");
+    }
+    // PlantUML parity of the alias arm (issue #51 residual, N4): the same
+    // unclaimed endpoint names, declared with the same component grammar the
+    // module nodes use; empty renders no bytes.
+    for node in &graph.undeclared_async_nodes {
+        let _ = writeln!(out, "{}", plantuml_component(node));
     }
     for (from, to) in &graph.allowed_edges {
         let _ = writeln!(out, "{}", plantuml_edge(from, to));
@@ -288,18 +364,17 @@ fn build_scan_graph(model: &Model, governing: Option<&Spec>, tiers: &TierSelecti
         external_edges,
         module_nodes,
         module_arrows,
-        async_arrows: model
-            .async_edges
-            .iter()
-            .filter(|row| row.from != row.to) // the self-edge law (scenario 08)
-            .map(|row| {
-                (
-                    row.from.clone(),
-                    row.to.clone(),
-                    crate::archspec::depgraph::async_event_label(&row.from, &row.event),
-                )
-            })
-            .collect(),
+        async_arrows: crate::archspec::depgraph::async_render_rows(
+            model
+                .async_edges
+                .iter()
+                // the self-edge law (scenario 08) filters BEFORE the shared
+                // identity-and-label assembly of issue #48
+                .filter(|row| row.from != row.to)
+                .map(|row| (row.from.clone(), row.to.clone(), row.event.clone())),
+        )
+        .into_iter()
+        .collect(),
     }
 }
 

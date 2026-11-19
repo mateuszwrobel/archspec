@@ -4,7 +4,7 @@
 
 - **Pass:** a short confirmation written to **stdout**, exit code `0`.
 - **Fail:** the full diff report written to **stdout**, exit code non-zero.
-- **Warning findings** print on **stdout**, as part of the diff report (each `warning:`-prefixed unless `--strict` promotes it) — a warning-only run lists them on stdout and exits `0`.
+- **Warning findings** print on **stdout**, as part of the diff report (each `warning:`-prefixed unless `--strict` promotes it) — a warning-only run lists them on stdout, states the passing headline `ok: architecture.spec.toml passes with N warning(s)` in place of the mismatch headline, and exits `0`.
 - **stderr** carries **operational errors only** (see `errors.md`); warnings never go there.
 - **`--json`:** the verdict renders as the `report --format json` machine body on **stdout** — the same metrics and findings members, the same finding set, the same exit codes as the text run. `--json` renders, it never re-adjudicates; the informational notes below are a text-surface output and a json run prints none, so stdout stays the pure machine body. The machine body also carries the adjudicated PAIR census of the declared `[[async_depends]]` table as the `async_census` field (pairs plus fan-in/fan-out per service and per event type, skipped when the table resolves no pair) — see `../report/output.md`.
 
@@ -24,6 +24,15 @@ adjudicated against BUILT tree
 ```
 
 The exact wording of the confirmation is not a contract; that a short confirmation appears on stdout and the exit code is `0` is.
+
+A run that exits `0` with warning findings prints its passing headline instead — same `ok:` prefix, different sentence, naming the count, followed by the findings. Representative example:
+
+```
+ok: architecture.spec.toml passes with 1 warning
+  warning: laundered forbidden edge: a -> store via shell
+```
+
+The bytes stay distinct from the clean confirmation, so a grep for `matches source model` keeps selecting clean runs only (GitHub issue #54).
 
 ## Environment declaration
 
@@ -102,7 +111,8 @@ On failure, the report lists **every** difference across all checks — not the 
 | async publish not derived | the from-unit of a `[[async_depends]]` entry carries no derived publish fact for the event identity; emitted by csharp — drivers whose event-declaration-derivation row reads not-emitted skip with the capability-named inert note | `async publish not derived: App.Api -> App.Worker — event App.Contracts.OrderPlaced (entry #1)` |
 | async subscribe not derived | the to-unit of a `[[async_depends]]` entry carries no derived subscribe fact for the event identity; same capability condition as the publish arm | `async subscribe not derived: App.Api -> App.Worker — event App.Contracts.OrderPlaced (entry #1)` |
 | async endpoint unclaimed | an endpoint of a `[[async_depends]]` entry is claimed by no unit claim — the territory is CHECKED, never claimed: the check reads `matches` and adds no member to it; one line per failing side (warning-free repos with an empty table never reach this arm) | `async endpoint unclaimed: App.Ghost — App.Api -> App.Ghost (entry #1)` |
-| async cycle | a ring of the UNION graph (direct legs plus declared `[[async_depends]]` event legs) containing at least one async leg — the census voice of the async rings: the `no_cycles` adjudication stays DIRECT-ONLY, so this advisory names what the cycle finding must not report; the label states the class, `(mixed)` when some leg is also a direct edge, `(async)` when every leg is a declared event hop; a repo with no async table never reaches this row (warning severity; `--strict` never promotes this row; seeds no `[[exempt]]` row, prints no `repro:` line) | `async cycle: orders -> catalog -> orders (async)`; mixed `async cycle: api -> core -> api (mixed)` |
+| async cycle | a ring of the UNION graph (direct legs plus declared `[[async_depends]]` event legs) containing at least one async leg — the census voice of the async rings: the `no_cycles` adjudication stays DIRECT-ONLY, so this advisory names what the cycle finding must not report; the label states the class, `(mixed)` when some leg is also a witnessed direct edge, `(async)` when every leg is a declared event hop; a direct back edge backed only by the subscriber compiling against the publisher's contract witnesses nothing when the event's declaring-unit census names the publisher alone or no unit at all (GitHub issue #47), a pair no entry backs publisher-only keeps its witness, and a simple name declared by several units prints one row per declarer; a repo with no async table never reaches this row (warning severity; `--strict` never promotes this row; seeds no `[[exempt]]` row, prints no `repro:` line) | `async cycle: orders -> catalog -> orders (async)`; mixed `async cycle: buyer -> orders -> buyer (mixed)` |
+| async event collision | ≥2 declared `[[async_depends]]` entries share (`from`, `to`, event simple name) with DISTINCT full event identities — GitHub issue #48: the render set keys on the full identity, every distinct fact draws its own arrow (label: the short `unit::SimpleName` form, or a shortest distinguishing dotted suffix where the pair's entries collide), and this advisory names the collision class the collapsed arrow used to voice by accident; pure spec arithmetic, one row per (`from`, `to`, simple-name) group, naming every entry (warning severity; `--strict` never promotes this row; seeds no `[[exempt]]` row, prints no `repro:` line) | `async event collision: api -> core declares 2 events named OrderPlaced — Api.Events.OrderPlaced, Shared.Messages.OrderPlaced (entries #1, #2)` |
 | stale contract export | a `contract.expose` entry that globs zero across the declaring claim's whole territory — own files union descendant exports — judged per entry, so a live entry never masks a stale one (warning severity; `--strict` red) | `stale contract export: App declares Ghost* (never exported across its territory)` |
 | ambiguous expose entry | a `contract.expose` entry that names a declared stereotype AND matches symbols — the stereotype arm adjudicates and the entry is flagged, never a silent symbol pass (warning severity; `--strict` red) | `ambiguous expose entry: App entry entity names stereotype entity and matches symbols` |
 | unmatched claim | a declared top-level module claim whose `matches.modules` paths matched nothing in the model and which declares no units — engagement surface that never named a unit-tier component; submodule paths addressing nothing are reported through the dead-reference and missing-edge paths instead | `unmatched claim: Billing` |

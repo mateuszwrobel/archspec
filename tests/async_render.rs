@@ -9,21 +9,26 @@
 //!
 //! Scenario 08 (consumer-fix round 1, eShop verdict on 0.6.86) moves the
 //! ARROW law: exactly ONE arrow line per declared entry — the projected
-//! module-node-pair fan-out is gone — with the declared UNIT names as
-//! endpoints and the short `unit::SimpleName` label (never the declared
-//! FQN). The census cells keep scenario 05's bytes; only the arrow law and
-//! the label form moved.
+//! module-node-pair fan-out is gone — and the short `unit::SimpleName`
+//! label (never the declared FQN). Issue #51 (P3) moves the ENDPOINT law
+//! for the folded views: an async endpoint is a NODE of the view, never a
+//! raw unit name (Mermaid drew phantom boxes for the raw names); a row the
+//! view cannot place folds away with one counted stderr note. The units
+//! tier keeps its unit-endpoint bytes exactly. The census cells keep
+//! scenario 05's bytes.
 //!
 //! Cells: the dashed + event-labelled byte cells (both verbs, both sources),
-//! the PlantUML parity cells, the multi-module-endpoint one-arrow cell, the
-//! no-async byte pins, the report-section present/absent cells across the
-//! three renderers, the scan.json derived-row cells (the artifact side of
-//! D10's split), and the pair-census numbers of `verify --json` and
-//! `report --format json`.
+//! the PlantUML parity cells, the multi-module fold-away cell, the
+//! fold-to-self and cross-parent note cells, the folded-view subset
+//! property, the no-async byte pins, the report-section present/absent
+//! cells across the three renderers, the scan.json derived-row cells (the
+//! artifact side of D10's split), and the pair-census numbers of
+//! `verify --json` and `report --format json`.
 
 mod common;
 
 use common::{Fixture, stdout};
+use std::collections::BTreeSet;
 
 /// The round-trip declaring fixture: units `orders` and `catalog`, no
 /// manifest dependency between them, one `[[async_depends]]` leg each way —
@@ -176,6 +181,150 @@ event = "core::AppEvent"
     fixture
 }
 
+/// The eShop-shaped fixture (GitHub issue #56): the multi-module publisher of
+/// the eShop verdict tree — EIGHTEEN DISTINCT subscriptions over two unit
+/// pairs, several events per pair (the legal collision class), no two entries
+/// identical. The exact-duplicate law must never fire on this shape: the
+/// parse accepts it and the renders keep their byte-for-byte behavior.
+fn eshop_shaped_fixture() -> Fixture {
+    let fixture = Fixture::new();
+    fixture.write("Cargo.toml", "[workspace]\nmembers = [\"api\", \"core\"]\nresolver = \"2\"\n");
+    fixture.write(
+        "api/Cargo.toml",
+        "[package]\nname = \"api\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+         [dependencies]\ncore = { path = \"../core\" }\n",
+    );
+    fixture.write("api/src/lib.rs", "pub mod gateway;\npub mod admin;\n");
+    fixture.write(
+        "api/src/gateway.rs",
+        "use core::AppEvent;\n\npub fn publish(event: AppEvent) {\n    let _ = event;\n}\n",
+    );
+    fixture.write("api/src/admin.rs", "pub fn panel() {}\n");
+    fixture.write("core/Cargo.toml", "[package]\nname = \"core\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+    fixture.write("core/src/lib.rs", "pub mod handler;\n\npub struct AppEvent;\n");
+    fixture.write("core/src/handler.rs", "pub fn consume() {}\n");
+    let mut spec = String::from(
+        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"api\"\nmatches = { units = [\"api\"] }\nallowed = { depend_on = [\"core\"] }\n\n[[module]]\nname = \"core\"\nmatches = { units = [\"core\"] }\n",
+    );
+    for name in [
+        "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+    ] {
+        spec.push_str(&format!(
+            "\n[[async_depends]]\nfrom = \"api\"\nto = \"core\"\nevent = \"api::Event{name}\"\n"
+        ));
+    }
+    for name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"] {
+        spec.push_str(&format!(
+            "\n[[async_depends]]\nfrom = \"core\"\nto = \"api\"\nevent = \"core::Event{name}\"\n"
+        ));
+    }
+    fixture.write("architecture.spec.toml", &spec);
+    fixture
+}
+
+/// The fold-to-self fixture (issue #51 P3): units `alpha` and `beta` carry
+/// the SAME module name, so the modules view folds both endpoints onto ONE
+/// node; the declared row folds onto a self-edge the renderer drops — with
+/// the mandatory counted note. `gamma` keeps the node set above the
+/// collapse-to-units guard.
+fn fold_self_fixture() -> Fixture {
+    let fixture = Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"alpha\", \"beta\", \"gamma\"]\nresolver = \"2\"\n",
+    );
+    for unit in ["alpha", "beta", "gamma"] {
+        fixture.write(
+            &format!("{unit}/Cargo.toml"),
+            &format!("[package]\nname = \"{unit}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+    }
+    fixture.write("alpha/src/lib.rs", "pub mod gateway;\n");
+    fixture.write("alpha/src/gateway.rs", "pub fn publish() {}\n");
+    fixture.write("beta/src/lib.rs", "pub mod gateway;\n");
+    fixture.write("beta/src/gateway.rs", "pub fn consume() {}\n");
+    fixture.write("gamma/src/lib.rs", "pub mod admin;\n");
+    fixture.write("gamma/src/admin.rs", "pub fn panel() {}\n");
+    fixture.write(
+        "architecture.spec.toml",
+        r#"[project]
+language = "rust"
+
+[[module]]
+name = "alpha"
+matches = { units = ["alpha"] }
+
+[[module]]
+name = "beta"
+matches = { units = ["beta"] }
+
+[[module]]
+name = "gamma"
+matches = { units = ["gamma"] }
+
+[[async_depends]]
+from = "alpha"
+to = "beta"
+event = "ping::PingEvent"
+"#,
+    );
+    fixture
+}
+
+/// The cross-parent fixture (issue #51 P3): unit `shopfront` nests
+/// `shop::orders` and `shop::cart` under `shop` plus `billing` beside it;
+/// the submodules view of `shopfront::shop` scopes ONLY the nested pair,
+/// so a declared `shopfront -> messaging` row has no single node to place
+/// either endpoint on — the row folds away and the note names both.
+fn cross_parent_fixture() -> Fixture {
+    let fixture = Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"shopfront\", \"messaging\"]\nresolver = \"2\"\n",
+    );
+    fixture.write(
+        "shopfront/Cargo.toml",
+        "[package]\nname = \"shopfront\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("shopfront/src/lib.rs", "pub mod shop;\npub mod billing;\n");
+    fixture.write("shopfront/src/shop.rs", "pub mod orders;\npub mod cart;\n");
+    fixture.write(
+        "shopfront/src/shop/orders.rs",
+        "use messaging::client;\n\npub fn place() {\n    client::handle();\n}\n\npub struct CheckoutRequested;\n",
+    );
+    fixture.write("shopfront/src/shop/cart.rs", "pub fn list() {}\n");
+    fixture.write("shopfront/src/billing.rs", "pub fn bill() {}\n");
+    fixture.write(
+        "messaging/Cargo.toml",
+        "[package]\nname = \"messaging\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write("messaging/src/lib.rs", "pub mod client;\n");
+    fixture.write(
+        "messaging/src/client.rs",
+        "pub struct CheckoutRequested;\n\npub fn handle(event: CheckoutRequested) {\n    let _ = event;\n}\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        r#"[project]
+language = "rust"
+
+[[module]]
+name = "shopfront"
+matches = { units = ["shopfront"] }
+
+[[module]]
+name = "messaging"
+matches = { units = ["messaging"] }
+
+[[async_depends]]
+from = "shopfront"
+to = "messaging"
+event = "shopfront::CheckoutRequested"
+"#,
+    );
+    fixture
+}
+
 /// The same workspace shape WITHOUT the `[[async_depends]]` table — the
 /// non-declaring counter-fixture for every byte pin.
 fn non_declaring_fixture() -> Fixture {
@@ -227,9 +376,10 @@ fn assert_no_async_bytes(label: &str, text: &str) {
 /// A declaring run's depgraph mermaid gains the dashed event-labelled
 /// arrows after the direct arrow, in `(from, to, event)` order (N6); the
 /// direct lines keep their exact bytes (D8). Scenario 08 (consumer verdict
-/// on 0.6.86): ONE arrow line per declared entry with the declared UNIT
-/// names as endpoints — the projected-module-node fan-out is gone — and
-/// the short `unit::SimpleName` label.
+/// on 0.6.86): ONE arrow line per declared entry — the projected-module-node
+/// fan-out is gone. GitHub issue #51 (P3) moves the ENDPOINT law: the folded
+/// views print the view's NODES as endpoints, never the raw unit names, and
+/// the short `unit::SimpleName` label rides from the declaring unit.
 #[test]
 fn declaring_depgraph_mermaid_renders_dashed_event_arrows_after_the_direct_arrow() {
     let fixture = mixed_fixture();
@@ -240,14 +390,14 @@ fn declaring_depgraph_mermaid_renders_dashed_event_arrows_after_the_direct_arrow
         .find("gateway --> handler")
         .unwrap_or_else(|| panic!("the direct arrow keeps its bytes:\n{rendered}"));
     let first_async = rendered
-        .find("api -.->|api::OrderPlaced| core")
-        .unwrap_or_else(|| panic!("the declaring row renders dashed with unit endpoints:\n{rendered}"));
+        .find("gateway -.->|api::OrderPlaced| handler")
+        .unwrap_or_else(|| panic!("the declaring row renders dashed with the folded node endpoints:\n{rendered}"));
     assert!(
-        rendered.contains("core -.->|core::AppEvent| api"),
+        rendered.contains("handler -.->|core::AppEvent| gateway"),
         "both declaring rows render:\n{rendered}"
     );
     assert!(
-        rendered.find("core -.->|core::AppEvent| api") > Some(first_async),
+        rendered.find("handler -.->|core::AppEvent| gateway") > Some(first_async),
         "(from, to, event) order puts api-first:\n{rendered}"
     );
     assert!(
@@ -259,10 +409,51 @@ fn declaring_depgraph_mermaid_renders_dashed_event_arrows_after_the_direct_arrow
         2,
         "one arrow line per declared entry — no projected-node fan-out:\n{rendered}"
     );
+    assert!(
+        !rendered.contains("api -.->"),
+        "a raw unit name must not be an endpoint in the modules view (issue #51):\n{rendered}"
+    );
+    // Every row placed on a rendered node: nothing folded away, no note.
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("folded away"),
+        "a view that places every row prints no fold note (issue #51):\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The subset property issue #51 states as a law: in a folded view every
+/// async-arrow endpoint is one of the view's OWN declared node lines — no
+/// phantom box can appear. The cell parses the render instead of trusting
+/// one fixture's bytes.
+#[test]
+fn every_async_endpoint_in_a_folded_view_is_a_declared_node() {
+    let fixture = mixed_fixture();
+    let output = fixture.run(&["depgraph", "modules"]);
+    assert_eq!(output.status.code(), Some(0), "depgraph must exit 0");
+    let rendered = stdout(&output);
+    let nodes: Vec<&str> = rendered
+        .lines()
+        .filter(|line| line.starts_with("  ") && !line.contains('-'))
+        .map(str::trim)
+        .collect();
+    let mut saw_async = false;
+    for line in rendered.lines().filter(|line| line.contains(" -.->|")) {
+        saw_async = true;
+        let (left, rest) = line.split_once(" -.->|").expect("split marker");
+        let (_, to) = rest.rsplit_once('|').expect("arrow carries a label");
+        for endpoint in [left.trim(), to.trim()] {
+            assert!(
+                nodes.contains(&endpoint),
+                "async endpoint {endpoint:?} is not a declared node of the view {nodes:?}:\n{rendered}"
+            );
+        }
+    }
+    assert!(saw_async, "the declaring fixture renders async rows:\n{rendered}");
 }
 
 /// PlantUML parity: the same rows, the same order, one line per entry, the
-/// dashed labelled grammar of this target (`A ..> B : label`).
+/// dashed labelled grammar of this target (`A ..> B : label`), and the same
+/// folded-node endpoints (issue #51).
 #[test]
 fn declaring_depgraph_plantuml_keeps_async_parity() {
     let fixture = mixed_fixture();
@@ -270,16 +461,16 @@ fn declaring_depgraph_plantuml_keeps_async_parity() {
     assert_eq!(output.status.code(), Some(0), "depgraph must exit 0");
     let rendered = stdout(&output);
     assert!(
-        rendered.contains("api ..> core : api::OrderPlaced"),
+        rendered.contains("gateway ..> handler : api::OrderPlaced"),
         "plantuml carries the same rows in its own grammar:\n{rendered}"
     );
     assert!(
-        rendered.contains("core ..> api : core::AppEvent"),
+        rendered.contains("handler ..> gateway : core::AppEvent"),
         "both declaring rows render:\n{rendered}"
     );
     assert!(
-        rendered.find("api ..> core : api::OrderPlaced")
-            < rendered.find("core ..> api : core::AppEvent"),
+        rendered.find("gateway ..> handler : api::OrderPlaced")
+            < rendered.find("handler ..> gateway : core::AppEvent"),
         "(from, to, event) order holds across targets:\n{rendered}"
     );
     assert_eq!(
@@ -289,27 +480,44 @@ fn declaring_depgraph_plantuml_keeps_async_parity() {
     );
 }
 
-/// Scenario 08's named cell (consumer verdict on 0.6.86, issue #44): an
-/// endpoint unit whose paths fold to TWO rendered module nodes must not
-/// fan its arrow out. Three declared entries — one pair twice, one event
-/// as a dotted FQN — render EXACTLY THREE mermaid lines: unit endpoints,
-/// short `unit::SimpleName` labels, no folded-node ids, no declared-FQN
-/// bytes, and the PlantUML target prints the same three rows in the same
-/// order.
+/// Scenario 08's named cell (consumer verdict on 0.6.86, issue #44), moved
+/// by issue #51 (P3): a unit whose module paths fold to TWO rendered nodes
+/// has NO single node to place its async endpoint on, so its rows fold
+/// AWAY in the modules view — zero async arrows there — with the mandatory
+/// stderr note naming the endpoint the view could not place (never silence).
+/// The units tier still renders exactly ONE arrow line per declared entry
+/// with unit endpoints and short labels, byte-identical to before.
 #[test]
-fn multi_module_endpoint_entries_render_one_arrow_each_with_unit_endpoints() {
+fn multi_module_endpoint_entries_fold_away_in_modules_and_render_in_units() {
     let fixture = multi_module_fixture();
     let output = fixture.run(&["depgraph", "modules"]);
     assert_eq!(output.status.code(), Some(0), "depgraph must exit 0");
     let rendered = stdout(&output);
     // The fold is real: the module view renders both `api` modules plus
-    // `core`'s node — and that fold no longer repeats any arrow.
+    // `core`'s node — and prints no arrow for a row it cannot place.
     for node in ["  gateway", "  admin", "  handler"] {
         assert!(
             rendered.lines().any(|line| line == node),
             "the module view keeps its projected nodes ({node:?}):\n{rendered}"
         );
     }
+    assert!(
+        !rendered.contains(" -.->|"),
+        "a row whose endpoint folds to two nodes renders no arrow (issue #51):\n{rendered}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("note: 3 async rows folded away in this projection"),
+        "the fold-away note names the count (issue #51):\n{stderr}"
+    );
+    assert!(
+        stderr.contains("endpoints outside the view's nodes: api"),
+        "the note names the unplaced endpoint (issue #51):\n{stderr}"
+    );
+
+    let units = fixture.run(&["depgraph", "modules", "--aggregate", "units"]);
+    assert_eq!(units.status.code(), Some(0), "depgraph must exit 0");
+    let rendered = stdout(&units);
     let arrow_lines: Vec<&str> = rendered
         .lines()
         .filter(|line| line.contains(" -.->|"))
@@ -322,18 +530,19 @@ fn multi_module_endpoint_entries_render_one_arrow_each_with_unit_endpoints() {
             "api -.->|api::OrderShipped| core",
             "core -.->|core::AppEvent| api",
         ],
-        "three declared entries render exactly three unit-endpoint lines in (from, to, event) order:\n{rendered}"
+        "the units render keeps its exact shipped bytes — three unit-endpoint lines in (from, to, event) order:\n{rendered}"
     );
     assert!(
         !rendered.contains("Api.Events.OrderPlaced"),
         "the declared FQN never reaches an arrow line:\n{rendered}"
     );
     assert!(
-        !rendered.contains("gateway -.->") && !rendered.contains("admin -.->"),
-        "no projected-module-node endpoints:\n{rendered}"
+        !String::from_utf8_lossy(&units.stderr).contains("folded away"),
+        "the units tier places every endpoint by name and prints no note:\n{}",
+        String::from_utf8_lossy(&units.stderr)
     );
 
-    let plantuml = fixture.run(&["depgraph", "modules", "--format", "plantuml"]);
+    let plantuml = fixture.run(&["depgraph", "modules", "--aggregate", "units", "--format", "plantuml"]);
     assert_eq!(plantuml.status.code(), Some(0), "depgraph must exit 0");
     let rendered = stdout(&plantuml);
     let arrow_lines: Vec<&str> = rendered
@@ -347,7 +556,148 @@ fn multi_module_endpoint_entries_render_one_arrow_each_with_unit_endpoints() {
             "api ..> core : api::OrderShipped",
             "core ..> api : core::AppEvent",
         ],
-        "plantuml parity: the same three rows, the same order:\n{rendered}"
+        "plantuml parity on the units tier: the same three rows, the same order:\n{rendered}"
+    );
+}
+
+/// The eShop shape at scale (GitHub issue #56): 18 DISTINCT entries over two
+/// unit pairs parse green and render one arrow per DISTINCT fact — the exact
+/// byte behavior the pre-duplicate-law binary produced for the same shape.
+/// The entry accounting (explain's row count) equals the table's entry count.
+#[test]
+fn eshop_shaped_eighteen_distinct_entries_parse_and_render_one_arrow_each() {
+    let fixture = eshop_shaped_fixture();
+
+    // The parse accepts 18 distinct entries — no duplicate refusal anywhere.
+    let units = fixture.run(&["depgraph", "modules", "--aggregate", "units"]);
+    assert_eq!(
+        units.status.code(),
+        Some(0),
+        "18 distinct entries parse green:\n{}{}",
+        stdout(&units),
+        String::from_utf8_lossy(&units.stderr)
+    );
+    let rendered = stdout(&units);
+    let arrow_lines: Vec<&str> = rendered
+        .lines()
+        .filter(|line| line.contains(" -.->|"))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        arrow_lines.len(),
+        18,
+        "one arrow per DISTINCT fact — 18 entries, 18 lines:\n{rendered}"
+    );
+    assert!(
+        arrow_lines.contains(&"api -.->|api::EventOne| core")
+            && arrow_lines.contains(&"core -.->|core::EventOne| api"),
+        "both unit pairs keep their declared rows with unit endpoints:\n{rendered}"
+    );
+
+    // The folded modules view counts all 18 rows in its fold-away note.
+    let folded = fixture.run(&["depgraph", "modules"]);
+    assert_eq!(folded.status.code(), Some(0), "the parse stays green:\n{}", String::from_utf8_lossy(&folded.stderr));
+    let err = String::from_utf8_lossy(&folded.stderr);
+    assert!(
+        err.contains("note: 18 async rows folded away in this projection"),
+        "the fold-away note counts the 18 distinct rows (issue #51):\n{err}"
+    );
+
+    // Entry accounting at scale: explain prints one row per entry, each
+    // numbered once — the #56 double-count cannot recur on the eShop shape.
+    let trace = fixture.run(&["explain", "api", "core"]);
+    assert_eq!(trace.status.code(), Some(0), "{}", stdout(&trace));
+    let trace_out = stdout(&trace);
+    let section_rows: Vec<&str> = trace_out
+        .lines()
+        .skip_while(|line| !line.starts_with("async edges ([[async_depends]]):"))
+        .skip(1)
+        .take_while(|line| line.starts_with("  "))
+        .collect();
+    let numbered: Vec<&str> = section_rows
+        .iter()
+        .filter(|line| line.contains("(entry #"))
+        .copied()
+        .collect();
+    assert_eq!(
+        numbered.len(),
+        18,
+        "explain lists the same 18 entries the spec declares, each once:\n{}",
+        stdout(&trace)
+    );
+    let distinct_numbers: BTreeSet<&str> = numbered
+        .iter()
+        .filter_map(|line| line.rsplit_once("(entry #").map(|(_, rest)| rest.trim_end_matches(')')))
+        .collect();
+    assert_eq!(
+        distinct_numbers.len(),
+        18,
+        "entry numbers are distinct — no entry is counted twice:\n{}",
+        stdout(&trace)
+    );
+}
+
+/// The fold-to-self class (issue #51 P3, eShop fold-to-self shape): every
+/// declaring endpoint's paths land on the SAME rendered node, so the rows
+/// fold onto self-edges the renderer drops. The stdout keeps zero async
+/// bytes, the units tier keeps rendering its rows, and the note still rides
+/// stderr WITHOUT the endpoint tail — nothing fell outside the view.
+#[test]
+fn fold_to_self_rows_render_no_arrows_and_the_note_names_no_endpoint() {
+    let fixture = fold_self_fixture();
+    let output = fixture.run(&["depgraph", "modules"]);
+    assert_eq!(output.status.code(), Some(0), "depgraph must exit 0");
+    let rendered = stdout(&output);
+    assert!(
+        !rendered.contains(" -.->|") && !rendered.contains("..> "),
+        "a fully folded pair renders no async arrow:\n{rendered}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("note: 1 async rows folded away in this projection"),
+        "the fold-to-self row is counted, never silenced (issue #51):\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("endpoints outside"),
+        "every endpoint placed a node, so the note names none:\n{stderr}"
+    );
+
+    let units = fixture.run(&["depgraph", "modules", "--aggregate", "units"]);
+    assert_eq!(units.status.code(), Some(0), "depgraph must exit 0");
+    let rendered = stdout(&units);
+    assert!(
+        rendered.contains("alpha -.->|alpha::PingEvent| beta"),
+        "the units render keeps the row with its unit endpoints and the short label:\n{rendered}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&units.stderr).contains("folded away"),
+        "the units tier folds nothing away:\n{}",
+        String::from_utf8_lossy(&units.stderr)
+    );
+}
+
+/// The cross-parent class (issue #51 P3): an endpoint whose paths live
+/// OUTSIDE the submodules view's scope places nothing — its row never
+/// prints a raw dotted unit name as an endpoint, and the note names every
+/// such endpoint.
+#[test]
+fn submodules_cross_parent_endpoints_never_render_raw_and_the_note_names_them() {
+    let fixture = cross_parent_fixture();
+    let output = fixture.run(&["depgraph", "submodules", "--parent", "shopfront::shop"]);
+    assert_eq!(output.status.code(), Some(0), "depgraph must exit 0");
+    let rendered = stdout(&output);
+    assert!(
+        !rendered.contains(" -.->|"),
+        "an endpoint outside the view's scope renders no raw-name arrow:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("shopfront -.->") && !rendered.contains("messaging -.->"),
+        "raw unit names must never reach an arrow line (issue #51):\n{rendered}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("note: 1 async rows folded away in this projection — endpoints outside the view's nodes: messaging, shopfront"),
+        "the note names both unplaced endpoints:\n{stderr}"
     );
 }
 
@@ -700,4 +1050,227 @@ event = "orders::EventOne"
         Some(2),
         "per event the fan-in counts the DISTINCT subscribers"
     );
+}
+
+// ---- N4 (#51 residual): endpoints land on their solid-edge module nodes ----
+
+/// The namespace-prefixed fixture (the reference consumer's shape): c#-style
+/// units whose OWN module paths do not spell the unit name first — the
+/// namespaces hang under a solution-wide root (`ShopApp::Basket::…` under
+/// unit `Basket.Api`) — so the pure attribution scan placed nothing and the
+/// modules view folded every row away although the graph drew each unit's
+/// solid arrows on exactly one node. Three classes ride one tree: a
+/// singleton-unit pair (places — the arrow renders on the solid nodes), a
+/// multi-module unit (`Reporting.Api`, several — folds away with the note)
+/// and a name no unit or module owns (`Billing.Api`, zero — same).
+fn namespace_prefixed_fixture(declaring: bool) -> Fixture {
+    let fixture = Fixture::new();
+    let csproj = |extra: &str| {
+        format!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    \
+             <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n{extra}</Project>\n"
+        )
+    };
+    fixture.write("basket/Basket.Api.csproj", &csproj(""));
+    fixture.write(
+        "basket/Checkout.cs",
+        "namespace ShopApp.Basket;\n\npublic class Checkout { }\n",
+    );
+    fixture.write(
+        "basket/Models/Cart.cs",
+        "namespace ShopApp.Basket.Models;\n\npublic class Cart { }\n",
+    );
+    fixture.write(
+        "ordering/Ordering.Api.csproj",
+        &csproj(
+            "  <ItemGroup>\n    <ProjectReference Include=\"..\\basket\\Basket.Api.csproj\" />\n  </ItemGroup>\n",
+        ),
+    );
+    fixture.write(
+        "ordering/Events.cs",
+        "namespace ShopApp.Ordering.Api;\n\npublic class OrderShipped { }\n",
+    );
+    fixture.write("reporting/Reporting.Api.csproj", &csproj(""));
+    fixture.write(
+        "reporting/Report.cs",
+        "namespace ShopApp.Reporting.Api;\n\npublic class Report { }\n",
+    );
+    fixture.write(
+        "reporting/Common/Format.cs",
+        "namespace ShopApp.Shared;\n\npublic class Format { }\n",
+    );
+    let mut spec = String::from(
+        "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"Basket\"\nmatches = { units = [\"Basket.Api\"] }\n\n[[module]]\nname = \"Ordering\"\nmatches = { units = [\"Ordering.Api\"] }\nallowed = { depend_on = [\"Basket\"] }\n\n[[module]]\nname = \"Reporting\"\nmatches = { units = [\"Reporting.Api\"] }\n",
+    );
+    if declaring {
+        spec.push_str(
+            "\n[[async_depends]]\nfrom = \"Ordering.Api\"\nto = \"Basket.Api\"\nevent = \"ShopApp.Ordering.Api.Events.CheckoutStarted\"\n\
+             \n[[async_depends]]\nfrom = \"Ordering.Api\"\nto = \"Reporting.Api\"\nevent = \"ShopApp.Ordering.Api.Events.OrderShipped\"\n\
+             \n[[async_depends]]\nfrom = \"Billing.Api\"\nto = \"Basket.Api\"\nevent = \"ShopApp.Billing.Api.Events.InvoiceIssued\"\n",
+        );
+    }
+    fixture.write("architecture.spec.toml", &spec);
+    fixture
+}
+
+/// Salted ids never reach the box text: every dashed endpoint of a folded
+/// render must equal a node line the render itself declares, and no endpoint
+/// may carry the FNV suffix (`_xxxxxxxx`) — the raw-id class the reference
+/// consumer's frozen sweep artifacts show (`Ordering_API_5d46e9ea`).
+fn assert_declared_endpoints(label: &str, rendered: &str) {
+    let nodes: Vec<String> = rendered
+        .lines()
+        .filter(|line| {
+            line.starts_with("  ") && !line.contains('-') && !line.trim().is_empty()
+        })
+        .map(|line| line.trim().split_once('[').map_or(line.trim(), |(head, _)| head).to_string())
+        .collect();
+    for line in rendered.lines().filter(|line| line.contains(" -.->|")) {
+        let (left, rest) = line.split_once(" -.->|").expect("split marker");
+        let (_, to) = rest.rsplit_once('|').expect("arrow carries a label");
+        for endpoint in [left.trim(), to.trim()] {
+            assert!(
+                nodes.iter().any(|node| node == endpoint),
+                "{label}: async endpoint {endpoint:?} is not a declared node:\n{rendered}"
+            );
+            assert!(
+                !endpoint.contains('_'),
+                "{label}: async endpoint {endpoint:?} carries a salted id:\n{rendered}"
+            );
+        }
+    }
+}
+
+/// Mandatory cells 1 + 2 (issue #51 residual, N4): on a namespace-prefixed
+/// tree the modules view renders the placed async arrow on the SAME node
+/// names its solid edge uses — byte-equal endpoints, no salted id — while
+/// the several-attribution and zero-attribution rows fold away with the
+/// counted note naming their endpoints (the note law intact).
+#[test]
+fn namespace_prefixed_units_place_on_their_solid_module_nodes() {
+    let fixture = namespace_prefixed_fixture(true);
+    let output = fixture.run(&["depgraph", "modules"]);
+    assert_eq!(output.status.code(), Some(0), "depgraph must exit 0");
+    let rendered = stdout(&output);
+    let solid = rendered
+        .find("Ordering --> Basket")
+        .unwrap_or_else(|| panic!("the solid edge renders on the folded nodes:\n{rendered}"));
+    let async_line = rendered
+        .find("Ordering -.->|Ordering.Api::CheckoutStarted| Basket")
+        .unwrap_or_else(|| panic!("the placed row renders on the solid nodes, byte-equal endpoints:\n{rendered}"));
+    assert!(solid < async_line, "async renders after the direct arrows:\n{rendered}");
+    assert_eq!(
+        rendered.matches(" -.->|").count(),
+        1,
+        "only the single-node pair renders; the several/zero rows fold away:\n{rendered}"
+    );
+    assert_declared_endpoints("depgraph modules", &rendered);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("note: 2 async rows folded away in this projection — endpoints outside the view's nodes: Billing.Api, Reporting.Api"),
+        "the note still answers the zero and several classes (issue #51):\n{stderr}"
+    );
+
+    let plantuml = fixture.run(&["depgraph", "modules", "--format", "plantuml"]);
+    let rendered = stdout(&plantuml);
+    assert!(
+        rendered.contains("Ordering ..> Basket : Ordering.Api::CheckoutStarted"),
+        "plantuml parity — the same placed nodes in its own grammar:\n{rendered}"
+    );
+    assert_eq!(
+        rendered.matches(" ..> ").count(),
+        1,
+        "one placed row on both targets:\n{rendered}"
+    );
+}
+
+/// Mandatory cell 3 (issue #51 residual, N4): the spec-source diagram draws
+/// the declared rows through the DECLARED MODULE names — an endpoint a
+/// module claims via `matches.units` renders byte-identically to the solid
+/// module edge; an endpoint no module claims gets a labelled node alias, so
+/// no raw salted id ever stands as box text.
+#[test]
+fn spec_diagram_async_endpoints_use_module_names_and_alias_labels() {
+    let fixture = namespace_prefixed_fixture(true);
+    let output = fixture.run(&["diagram"]);
+    assert_eq!(output.status.code(), Some(0), "diagram must exit 0");
+    let rendered = stdout(&output);
+    let solid = rendered
+        .find("Ordering --> Basket")
+        .unwrap_or_else(|| panic!("the declared edge renders:\n{rendered}"));
+    let placed = rendered
+        .find("Ordering -.->|Ordering.Api::CheckoutStarted| Basket")
+        .unwrap_or_else(|| panic!("the claimed endpoint renders as the claiming module:\n{rendered}"));
+    assert!(solid < placed, "async renders after the direct arrows:\n{rendered}");
+    assert!(
+        rendered.contains("Ordering -.->|Ordering.Api::OrderShipped| Reporting"),
+        "the several-attribution endpoint still names its declared module here — the spec vocabulary draws claims, not folds:\n{rendered}"
+    );
+    // The unclaimed endpoint renders through its own label definition.
+    let alias_line = rendered
+        .lines()
+        .find(|line| line.contains(" -.->|Billing.Api::InvoiceIssued|"))
+        .unwrap_or_else(|| panic!("the unclaimed row still renders its declared fact:\n{rendered}"));
+    let (head, _rest) = alias_line.split_once(" -.->|").expect("split marker");
+    let id = head.trim();
+    assert!(
+        rendered.contains(&format!("  {id}[\"Billing.Api\"]")),
+        "the unclaimed endpoint carries a label definition, never a bare salted id:\n{rendered}"
+    );
+    assert!(
+        id != "Billing.Api" && id.starts_with("Billing_Api_"),
+        "the alias id is the escaped salted form of the name:\n{alias_line}"
+    );
+    for line in rendered.lines().filter(|line| line.contains(" -.->|")) {
+        let (left, rest) = line.split_once(" -.->|").expect("split marker");
+        let (_, to) = rest.rsplit_once('|').expect("arrow carries a label");
+        for endpoint in [left.trim(), to.trim()] {
+            let head = rendered
+                .lines()
+                .map(str::trim)
+                .find(|line| *line == endpoint || line.starts_with(&format!("{endpoint}[")));
+            assert!(
+                head.is_some(),
+                "spec-diagram endpoint {endpoint:?} is not a declared node:\n{rendered}"
+            );
+        }
+    }
+
+    let plantuml = fixture.run(&["diagram", "--format", "plantuml"]);
+    let rendered = stdout(&plantuml);
+    assert!(
+        rendered.contains("Ordering ..> Basket : Ordering.Api::CheckoutStarted"),
+        "plantuml parity of the claimed endpoints:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("component Billing.Api"),
+        "plantuml declares the unclaimed endpoint too:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("Billing.Api ..> Basket : Billing.Api::InvoiceIssued"),
+        "the unclaimed row renders in plantuml's grammar:\n{rendered}"
+    );
+}
+
+/// Mandatory cell 5: the same tree WITHOUT the table renders no async bytes
+/// anywhere — the alias arm is a row consumer, never a standing declaration.
+#[test]
+fn namespace_prefixed_non_declaring_renders_no_async_bytes() {
+    let fixture = namespace_prefixed_fixture(false);
+    for args in [
+        vec!["depgraph", "modules"],
+        vec!["depgraph", "modules", "--format", "plantuml"],
+        vec!["diagram"],
+        vec!["diagram", "--format", "plantuml"],
+    ] {
+        let output = fixture.run(&args);
+        let rendered = stdout(&output);
+        assert_no_async_bytes(&args.join(" "), &rendered);
+        assert!(
+            !String::from_utf8_lossy(&output.stderr).contains("folded away"),
+            "a non-declaring run prints no fold note:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }

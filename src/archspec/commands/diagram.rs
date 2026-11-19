@@ -174,7 +174,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let regen = format!("diagram --module {claim}");
         let route = config::route(
             parsed.values.get("output").map(String::as_str),
-            config.diagram.as_deref(),
+            config.output.diagram.as_deref(),
             project_root,
             config::is_human(format),
         );
@@ -222,7 +222,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let mut route = config::route(
         parsed.values.get("output").map(String::as_str),
-        config.diagram.as_deref(),
+        config.output.diagram.as_deref(),
         project_root,
         config::is_human(format),
     );

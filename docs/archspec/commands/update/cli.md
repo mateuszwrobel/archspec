@@ -42,7 +42,7 @@ Extract the model from `./crates/auth`, write `architecture.spec.toml` there, pr
 archspec update --force
 ```
 
-Regenerate `architecture.spec.toml` in the current directory even though one already exists. Only use when the existing spec is deliberately discarded.
+Regenerate `architecture.spec.toml` in the current directory even though one already exists. Only use when the existing spec is deliberately discarded: regeneration derives every section from the source snapshot and preserves only the `[project]` `excluded_sources` entries, so a hand-edited spec loses its policy — the run states on stdout which sections were retained and which were dropped.
 
 ### Combine anywhere
 
@@ -57,6 +57,7 @@ archspec update --force ./crates/auth
 - Exactly one positional argument. Extra positional arguments are an error.
 - A valid run exits `0`. Any error condition exits non-zero with a message on stderr (see `errors.md`).
 - `update` refuses to overwrite an existing `architecture.spec.toml` unless `--force` is given. The guard protects a reviewed or edited spec from silent clobbering.
+- `--force` regenerates the whole spec from the source snapshot: only the `[project]` `excluded_sources` entries survive regeneration — every other hand-written section is dropped, and the run names each dropped section and its entry count on stdout beside the retained one.
 - `update` is single-shot: it extracts, writes, and exits. No daemon, no persistent state.
 
 ## Help

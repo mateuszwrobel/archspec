@@ -6,7 +6,9 @@
 //! not-emitted driver prints the capability-named inert note; the
 //! forward-compat law keeps an older binary's unknown-key refusal loud over
 //! the top-level table name (M9); an absent table keeps the shipped bytes
-//! (D8).
+//! (D8). The exact-duplicate law (GitHub issue #56): a verbatim re-declaration
+//! of an entry is refused naming both entries, a pair over distinct events
+//! stays accepted, and explain's row count equals the table's entry count.
 
 mod common;
 
@@ -159,6 +161,104 @@ fn fourth_key_is_refused_by_the_shared_unknown_key_law() {
             && err.contains("in [async_depends] #1")
             && err.contains("supported keys are \"event\", \"from\", \"to\""),
         "the unknown-key refusal must name the key, the entry and the shape:\n{err}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// the exact-duplicate law (GitHub issue #56)
+// ---------------------------------------------------------------------------
+
+/// The #56 class, pinned: a byte-identical `[[async_depends]]` duplicate
+/// parses green, renders ONE arrow (the renderers deduplicate rows) while
+/// the entry-level counting lists the same event twice as entry #N and
+/// entry #M — a silent census inflation. The parse now refuses the
+/// verbatim re-declaration by name, naming both entries; entries differing
+/// on ANY field (the legal multi-event collision class) stay accepted.
+#[test]
+fn exact_duplicate_entry_is_refused_naming_both_entry_numbers() {
+    // Adjacent duplicate: entry #2 repeats entry #1 verbatim.
+    let adjacent = shared_contracts_spec("App.Contracts.OrderPlaced")
+        + "[[async_depends]]\nfrom = \"App.Api\"\nto = \"App.Worker\"\nevent = \"App.Contracts.OrderPlaced\"\n";
+    let tree = csharp_tree("App.Contracts.OrderPlaced", true, true, &adjacent);
+    assert_invalid_spec(&tree, "duplicate [[async_depends]] entry #2 duplicates #1");
+
+    // Non-adjacent duplicate: entry #3 repeats entry #1 across a distinct #2.
+    let non_adjacent = shared_contracts_spec("App.Contracts.OrderPlaced")
+        + "[[async_depends]]\nfrom = \"App.Worker\"\nto = \"App.Api\"\nevent = \"App.Contracts.OrderPlaced\"\n"
+        + "[[async_depends]]\nfrom = \"App.Api\"\nto = \"App.Worker\"\nevent = \"App.Contracts.OrderPlaced\"\n";
+    let tree = csharp_tree("App.Contracts.OrderPlaced", true, true, &non_adjacent);
+    assert_invalid_spec(&tree, "duplicate [[async_depends]] entry #3 duplicates #1");
+
+    // A key-reordered copy is equal on ALL fields — the same accident speaks
+    // the same refusal (the equality is field-by-field, not byte-position).
+    let reordered = shared_contracts_spec("App.Contracts.OrderPlaced")
+        + "[[async_depends]]\nevent = \"App.Contracts.OrderPlaced\"\nto = \"App.Worker\"\nfrom = \"App.Api\"\n";
+    let tree = csharp_tree("App.Contracts.OrderPlaced", true, true, &reordered);
+    assert_invalid_spec(&tree, "duplicate [[async_depends]] entry #2 duplicates #1");
+}
+
+#[test]
+fn near_duplicate_pair_over_distinct_events_stays_accepted() {
+    // The legal collision class: the same (from, to) pair declaring TWO
+    // distinct events is not a duplicate — the parse accepts it and every
+    // arm adjudicates both entries green.
+    let spec = shared_contracts_spec("App.Contracts.OrderPlaced")
+        + "[[async_depends]]\nfrom = \"App.Api\"\nto = \"App.Worker\"\nevent = \"App.Contracts.OrderShipped\"\n";
+    let tree = csharp_tree("App.Contracts.OrderPlaced", true, true, &spec);
+    tree.write(
+        "App.Contracts/EventsExtra.cs",
+        "namespace App.Contracts;\npublic record OrderShipped;\n",
+    );
+    let output = tree.run(&["verify", "."]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the pair over two distinct events is accepted, never refused:\n{}{}",
+        stdout(&output),
+        stderr(&output)
+    );
+    let report = stdout(&output);
+    assert!(report.starts_with("ok: "), "{report}");
+    assert!(
+        !report.contains("duplicate"),
+        "the duplicate class never fires on distinct events:\n{report}"
+    );
+}
+
+#[test]
+fn explain_lists_one_row_per_declared_entry_on_a_duplicate_free_spec() {
+    // The #56 regression pin: entry accounting cannot double-count — the
+    // explain async arm prints exactly one row per declared entry, numbered
+    // once each, on a spec the duplicate law accepts.
+    let spec = "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"demo\"\nmatches = { units = [\"demo\"] }\n\n[[async_depends]]\nfrom = \"demo\"\nto = \"demo\"\nevent = \"demo::OrderPlaced\"\n\n[[async_depends]]\nfrom = \"demo\"\nto = \"demo\"\nevent = \"demo::OrderShipped\"\n";
+    let tree = rust_tree(spec, true);
+    tree.write("src/lib.rs", "pub struct OrderPlaced;\npub struct OrderShipped;\n");
+    let output = tree.run(&["explain", "demo", "demo"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "explain never moves an exit code:\n{}{}",
+        stdout(&output),
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    assert!(
+        out.contains("async edges ([[async_depends]]):"),
+        "the async arm must print:\n{out}"
+    );
+    let rows: Vec<&str> = out
+        .lines()
+        .filter(|line| line.contains("(entry #"))
+        .collect();
+    assert_eq!(
+        rows.len(),
+        2,
+        "one explain row per declared entry — entry count and row count agree:\n{out}"
+    );
+    assert!(
+        rows.iter().any(|row| row.contains("(entry #1)"))
+            && rows.iter().any(|row| row.contains("(entry #2)")),
+        "each entry is numbered exactly once:\n{out}"
     );
 }
 

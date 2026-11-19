@@ -1,7 +1,8 @@
 //! Prose-vs-behavior guard (audit-workflow contract): the audit recipe printed
 //! by `archspec help workflow` names real commands, routes warning triage to the
 //! diagnostics topic (the single home for warning meanings), states the
-//! guard/discovery split, and pins `--strict` to "green means zero findings".
+//! guard/discovery split, and pins `--strict` to "green means zero findings"
+//! — with the async census-row exception named (GitHub issue #54).
 //! Every `[audit ...]` citation in the workflow prose names a command, a
 //! conformance-corpus tree, and the exit code / finding category / warning the
 //! run must actually produce — read through real command behavior on the same
@@ -388,8 +389,13 @@ fn recipe_is_numbered_and_ordered() {
         );
     }
     assert!(
-        lower.contains("--strict") && lower.contains("zero findings of any kind"),
-        "workflow must state --strict green means zero findings of any kind:\n{flat}"
+        lower.contains("--strict")
+            && lower.contains("zero findings of any kind")
+            && lower.contains(
+                "except the async census rows, which never promote even under --strict",
+            ),
+        "workflow must state --strict green means zero findings of any kind, naming the async \
+         census-row exception:\n{flat}"
     );
 }
 

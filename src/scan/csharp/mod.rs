@@ -77,9 +77,13 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     let mut production: Vec<(String, std::path::PathBuf, ManifestInfo)> = Vec::new();
     let mut dropped_namespaces: BTreeSet<String> = BTreeSet::new();
     let mut test_gated_lines: Vec<String> = Vec::new();
+    // Suppressed test markers ride out of every `manifest_info` call —
+    // dropped projects included — so a marker the conditions hide states
+    // itself once whatever gate its project lands on (issue #45, rung 1).
+    let mut marker_facts: Vec<(std::path::PathBuf, usize, String)> = Vec::new();
     for (rel_path, full_path) in &projects {
         let project_dir = full_path.parent().unwrap_or(&root);
-        let manifest = manifest_info(project_dir, &root, full_path);
+        let manifest = manifest_info(project_dir, &root, full_path, &mut marker_facts);
         let evidence = test_gate_evidence(&manifest, project_sdk(full_path).as_deref());
         if let Some(marker) = evidence {
             let unit_path = match Path::new(rel_path).parent() {
@@ -650,7 +654,14 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         module_external: module_external_model,
         unit_manifests,
         roles,
-        report_only_lines: test_gated_lines,
+        // The `test-gated unit` census first, then one sorted line per
+        // suppressed test marker under an unevaluated condition (GitHub
+        // issue #45, rung 1) — report-only bytes, serde-skipped, never the
+        // machine body.
+        report_only_lines: {
+            test_gated_lines.extend(test_marker_lines(&marker_facts, &root));
+            test_gated_lines
+        },
         // The drift census reads these rows from `verify`'s own scan; no
         // serialized byte carries them (serde-skip in `model.rs`), so every
         // non-csharp and every non-declaring model byte stays identical.
@@ -873,7 +884,20 @@ fn project_references(_project_dir: &Path, full_path: &Path) -> Result<Vec<Strin
 /// management — under CPM the versions live in props `PackageVersion` items,
 /// so a csproj reference may carry no version; both shapes resolve to the
 /// same name tier). `features` has no C# analog and stays empty.
-pub fn manifest_info(project_dir: &Path, root: &Path, full_path: &Path) -> ManifestInfo {
+/// A `PackageReference` covered by an unevaluated MSBuild `Condition` (on the
+/// item, its `ItemGroup`, or inside a `Choose` subtree) never gates: when its
+/// `Include` names a test package it is EXCLUDED from `dependencies` — so the
+/// test-tier predicates stay clean — and recorded in `markers` for the
+/// report-only diagnostic (GitHub issue #45, rung 1); a conditioned non-test
+/// reference counts, its presence being real. `markers` carries
+/// `(file, line, include)` triples for every project walked through this
+/// function, dropped ones included; the caller renders them.
+pub fn manifest_info(
+    project_dir: &Path,
+    root: &Path,
+    full_path: &Path,
+    markers: &mut Vec<(std::path::PathBuf, usize, String)>,
+) -> ManifestInfo {
     let raw = std::fs::read_to_string(full_path).unwrap_or_default();
     let mut publish = None;
     let mut dependencies = BTreeSet::new();
@@ -881,32 +905,42 @@ pub fn manifest_info(project_dir: &Path, root: &Path, full_path: &Path) -> Manif
     reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
     let mut in_is_packable = false;
+    let mut scopes = CondStack(Vec::new());
+    let mut previous = 0usize;
     loop {
-        match reader.read_event_into(&mut buf) {
+        let event = reader.read_event_into(&mut buf);
+        let position = reader.buffer_position() as usize;
+        let since = &raw[previous..position];
+        previous = position;
+        match event {
             Ok(quick_xml::events::Event::Start(ref e)) => {
-                if e.name().as_ref() == "PackageReference" {
-                    for attr in e.attributes().flatten() {
-                        if attr.key.as_ref() == "Include" {
-                            let value = attr.value.to_string();
-                            if !value.is_empty() {
-                                dependencies.insert(value);
-                            }
-                        }
-                    }
+                if e.name().as_ref() == "ItemGroup" {
+                    scopes.push(has_condition(e));
+                } else if e.name().as_ref() == "Choose" {
+                    scopes.push(true);
+                } else if e.name().as_ref() == "PackageReference" {
+                    note_csproj_reference(
+                        e,
+                        &scopes,
+                        full_path,
+                        event_line(&raw, since, position, e.name().as_ref()),
+                        markers,
+                        &mut dependencies,
+                    );
                 } else if e.name().as_ref() == "IsPackable" {
                     in_is_packable = true;
                 }
             }
             Ok(quick_xml::events::Event::Empty(ref e)) => {
                 if e.name().as_ref() == "PackageReference" {
-                    for attr in e.attributes().flatten() {
-                        if attr.key.as_ref() == "Include" {
-                            let value = attr.value.to_string();
-                            if !value.is_empty() {
-                                dependencies.insert(value);
-                            }
-                        }
-                    }
+                    note_csproj_reference(
+                        e,
+                        &scopes,
+                        full_path,
+                        event_line(&raw, since, position, e.name().as_ref()),
+                        markers,
+                        &mut dependencies,
+                    );
                 }
             }
             Ok(quick_xml::events::Event::Text(ref e)) => {
@@ -917,7 +951,8 @@ pub fn manifest_info(project_dir: &Path, root: &Path, full_path: &Path) -> Manif
                 }
             }
             Ok(quick_xml::events::Event::End(ref e)) => {
-                if e.name().as_ref() == "PackageReference" {
+                if e.name().as_ref() == "ItemGroup" || e.name().as_ref() == "Choose" {
+                    scopes.pop();
                 } else if e.name().as_ref() == "IsPackable" {
                     in_is_packable = false;
                 }
@@ -929,12 +964,41 @@ pub fn manifest_info(project_dir: &Path, root: &Path, full_path: &Path) -> Manif
         buf.clear();
     }
 
-    dependencies.extend(central_reference_names(project_dir, root));
+    dependencies.extend(central_reference_names(project_dir, root, markers));
 
     ManifestInfo {
         publish,
         dependencies: dependencies.into_iter().collect(),
         features: Vec::new(),
+    }
+}
+
+/// One csproj `PackageReference`: unconditional items count as before; a
+/// conditioned item whose `Include` names a test package is excluded from
+/// `dependencies` and recorded as a marker (rung-1 posture — a marker the
+/// scan cannot evaluate gates nothing and says so); a conditioned non-test
+/// item counts, its presence being real (GitHub issue #45, rung 1). `line`
+/// is the source line of the item's opening tag, computed by the walk with
+/// [`event_line`].
+fn note_csproj_reference(
+    event: &quick_xml::events::BytesStart<'_>,
+    scopes: &CondStack,
+    full_path: &Path,
+    line: usize,
+    markers: &mut Vec<(std::path::PathBuf, usize, String)>,
+    dependencies: &mut BTreeSet<String>,
+) {
+    let Some(include) = include_attribute(event).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    if has_condition(event) || scopes.conditioned() {
+        if is_test_framework_package(&include) {
+            markers.push((full_path.to_path_buf(), line, include));
+        } else {
+            dependencies.insert(include);
+        }
+    } else {
+        dependencies.insert(include);
     }
 }
 
@@ -946,7 +1010,11 @@ pub fn manifest_info(project_dir: &Path, root: &Path, full_path: &Path) -> Manif
 /// (project-level overrides root, mirroring MSBuild discovery). `PackageVersion`
 /// entries are version bookkeeping only — versions do not imply usage — and
 /// the model has no version fields, so neither reaches the tier.
-fn central_reference_names(project_dir: &Path, root: &Path) -> BTreeSet<String> {
+fn central_reference_names(
+    project_dir: &Path,
+    root: &Path,
+    markers: &mut Vec<(std::path::PathBuf, usize, String)>,
+) -> BTreeSet<String> {
     let mut dir = project_dir.to_path_buf();
     loop {
         let mut found: Option<BTreeSet<String>> = None;
@@ -955,7 +1023,7 @@ fn central_reference_names(project_dir: &Path, root: &Path) -> BTreeSet<String> 
             if candidate.is_file() {
                 found
                     .get_or_insert_with(BTreeSet::new)
-                    .extend(props_package_references(&candidate));
+                    .extend(props_package_references(&candidate, markers));
             }
         }
         if let Some(names) = found {
@@ -975,14 +1043,20 @@ fn central_reference_names(project_dir: &Path, root: &Path) -> BTreeSet<String> 
 /// with the same lightweight XML-event walk as the csproj reader. Only
 /// `Include` counts: an `Update` attribute edits an item declared elsewhere
 /// and never evidences a reference of this project. A `PackageReference`
-/// bearing an MSBuild `Condition` — on the item or its `ItemGroup` — is ignored
-/// entirely, as tier evidence and as an external dependency alike: conditions
-/// (`Condition="'$(IsTestProject)'=='true'"` is the common test-wiring shape)
-/// are unevaluable without MSBuild, and counting them would silently mark
-/// every project below the props file test tier and erase the production
-/// model. Honesty over false precision: the conditional reference is not
-/// modeled at all.
-fn props_package_references(path: &Path) -> BTreeSet<String> {
+/// bearing an MSBuild `Condition` — on the item, its `ItemGroup`, or inside
+/// a `Choose`/`When`/`Otherwise` subtree — is ignored as tier evidence and
+/// as an external dependency alike: conditions (`Condition="'$(IsTestProject)'=='true'"`
+/// is the common test-wiring shape) are unevaluable without MSBuild, and
+/// counting them would silently mark every project below the props file test
+/// tier and erase the production model. Honesty over false precision: the
+/// conditional reference is not modeled at all. The suppression is never
+/// silent for a TEST marker (GitHub issue #45, rung 1): when the suppressed
+/// item's `Include` names a test package, the item is recorded in `markers`
+/// so the run states one report-only diagnostic line for it.
+fn props_package_references(
+    path: &Path,
+    markers: &mut Vec<(std::path::PathBuf, usize, String)>,
+) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let Ok(raw) = std::fs::read_to_string(path) else {
         return names;
@@ -990,41 +1064,72 @@ fn props_package_references(path: &Path) -> BTreeSet<String> {
     let mut reader = quick_xml::Reader::from_str(&raw);
     reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
-    let mut group_conditional = false;
+    let mut scopes = CondStack(Vec::new());
+    let mut previous = 0usize;
     loop {
-        let include = match reader.read_event_into(&mut buf) {
+        let event = reader.read_event_into(&mut buf);
+        let position = reader.buffer_position() as usize;
+        let since = &raw[previous..position];
+        previous = position;
+        match event {
             Ok(quick_xml::events::Event::Start(ref e))
+                if e.name().as_ref() == "ItemGroup" || e.name().as_ref() == "Choose" =>
+            {
+                // A `Choose` subtree is unevaluated as a whole — the push
+                // covers its `When` and `Otherwise` arms without tracking
+                // those elements.
+                scopes.push(e.name().as_ref() == "Choose" || has_condition(e));
+            }
+            Ok(quick_xml::events::Event::End(ref e))
+                if e.name().as_ref() == "ItemGroup" || e.name().as_ref() == "Choose" =>
+            {
+                scopes.pop();
+            }
+            Ok(quick_xml::events::Event::Start(ref e))
+            | Ok(quick_xml::events::Event::Empty(ref e))
                 if e.name().as_ref() == "PackageReference" =>
             {
-                if group_conditional {
-                    None
+                if scopes.conditioned() {
+                    // Suppressed by an enclosing scope: excluded from the
+                    // names whatever the item's own attributes say; a test
+                    // package states itself as a marker.
+                    if let Some(include) = include_attribute(e)
+                        .filter(|value| !value.is_empty() && is_test_framework_package(value))
+                    {
+                        markers.push((
+                            path.to_path_buf(),
+                            event_line(&raw, since, position, e.name().as_ref()),
+                            include,
+                        ));
+                    }
                 } else {
-                    reference_include(e)
+                    match reference_include(e) {
+                        Some(include) => {
+                            if !include.is_empty() {
+                                names.insert(include);
+                            }
+                        }
+                        None => {
+                            // `None` means the item carries its own
+                            // `Condition` or no `Include` at all; a
+                            // conditioned test package names itself as a
+                            // marker, a missing `Include` stays silent.
+                            if let Some(include) = include_attribute(e)
+                                .filter(|value| is_test_framework_package(value))
+                            {
+                                markers.push((
+                                    path.to_path_buf(),
+                                    event_line(&raw, since, position, e.name().as_ref()),
+                                    include,
+                                ));
+                            }
+                        }
+                    }
                 }
-            }
-            Ok(quick_xml::events::Event::Empty(ref e))
-                if e.name().as_ref() == "PackageReference" =>
-            {
-                if group_conditional {
-                    None
-                } else {
-                    reference_include(e)
-                }
-            }
-            Ok(quick_xml::events::Event::Start(ref e)) if e.name().as_ref() == "ItemGroup" => {
-                group_conditional = has_condition(e);
-                None
-            }
-            Ok(quick_xml::events::Event::End(ref e)) if e.name().as_ref() == "ItemGroup" => {
-                group_conditional = false;
-                None
             }
             Ok(quick_xml::events::Event::Eof) => break,
             Err(_) => break,
-            _ => None,
-        };
-        if let Some(include) = include.filter(|value| !value.is_empty()) {
-            names.insert(include);
+            _ => {}
         }
         buf.clear();
     }
@@ -1049,6 +1154,94 @@ fn has_condition(event: &quick_xml::events::BytesStart<'_>) -> bool {
         .attributes()
         .flatten()
         .any(|attr| attr.key.as_ref() == "Condition")
+}
+
+/// The `Include` attribute value of an element regardless of any `Condition`
+/// — the condition walk consults it to judge whether a suppressed
+/// `PackageReference` names a test package (GitHub issue #45, rung 1).
+fn include_attribute(event: &quick_xml::events::BytesStart<'_>) -> Option<String> {
+    event
+        .attributes()
+        .flatten()
+        .find(|attr| attr.key.as_ref() == "Include")
+        .map(|attr| attr.value.into_owned())
+}
+
+/// MSBuild condition scopes for the csproj and props XML walks (GitHub
+/// issue #45, rung 1). One entry per OPEN scope element: an `ItemGroup`
+/// pushes whether it carries a `Condition`; a `Choose` pushes `true` always,
+/// because every `Choose` subtree — `When` and `Otherwise` arms alike — is
+/// unevaluated, so the arms need no tracking of their own. A stack rather
+/// than a flag is what keeps a nested unconditioned `ItemGroup` from
+/// clobbering the enclosing scope's condition: the matching `End` restores
+/// the parent entry. Presence only — values are never parsed. The deferred
+/// condition evaluator (rung 2) attaches its semantics here.
+struct CondStack(Vec<bool>);
+
+impl CondStack {
+    fn push(&mut self, conditioned: bool) {
+        self.0.push(conditioned);
+    }
+    fn pop(&mut self) {
+        self.0.pop();
+    }
+    /// True when the element at the current position stands under an
+    /// unevaluated condition carried by any enclosing scope.
+    fn conditioned(&self) -> bool {
+        self.0.iter().any(|scope| *scope)
+    }
+}
+
+/// The 1-based source line holding the opening `<` of the token of the event
+/// just read. `position` is `Reader::buffer_position` — quick-xml 0.42 places
+/// it just after the last emitted event's token — and `since_previous` is the
+/// text consumed since the previous event. The line is the newlines up to
+/// `position` plus one, MINUS the newlines inside the token after its
+/// opening `<`, so blank lines between tags and CRLF endings never shift the
+/// count and the stated line is the one that holds the element. The cut
+/// scans back to the last `<name` of the slice, so an intervening XML
+/// comment carrying a `<` cannot misplace it.
+fn event_line(raw: &str, since_previous: &str, position: usize, name: &str) -> usize {
+    let marker = format!("<{name}");
+    let token_tail = match since_previous
+        .rfind(marker.as_str())
+        .map(|index| index + marker.len())
+        .or_else(|| since_previous.rfind('<').map(|index| index + 1))
+    {
+        Some(start) => &since_previous[start..],
+        None => "",
+    };
+    1 + raw[..position].matches('\n').count() - token_tail.matches('\n').count()
+}
+
+/// Render the report-only lines for suppressed test markers (GitHub issue
+/// #45, rung 1): a test-runner `PackageReference` the scan does not count
+/// because an unevaluated MSBuild `Condition` covers it is not gating
+/// evidence, and every distinct `(file, line, include)` states itself once
+/// as `test marker under unevaluated condition: <file>:<line>`, sorted by
+/// that key. `file` is the marker path relative to the scan root (the root
+/// itself renders the bare file name), the same path shape the
+/// `test_gated_lines` rendering uses. Report-only: the lines join neither
+/// the machine body nor any verdict.
+fn test_marker_lines(markers: &[(std::path::PathBuf, usize, String)], root: &Path) -> Vec<String> {
+    let mut seen: BTreeSet<(String, usize, String)> = BTreeSet::new();
+    for (path, line, include) in markers {
+        let file = match path.strip_prefix(root) {
+            Ok(relative) if !relative.as_os_str().is_empty() => {
+                relative.to_string_lossy().into_owned()
+            }
+            _ => path
+                .file_name()
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        };
+        seen.insert((file, *line, include.clone()));
+    }
+    seen.into_iter()
+        .map(|(file, line, _include)| {
+            format!("test marker under unevaluated condition: {file}:{line}")
+        })
+        .collect()
 }
 
 /// Scan every `.cs` file under a project directory for declared namespaces,

@@ -3,7 +3,7 @@
 ## Destination
 
 - **File:** writes `architecture.spec.toml` in the scanned project directory (the directory given as `path`, or the current working directory when omitted).
-- **Stdout:** a short summary of the run — the generated file path, and guidance to review/trim the seed spec and then run `archspec verify`.
+- **Stdout:** a short summary of the run — the generated file path, and guidance to review/trim the seed spec and then run `archspec verify`. When `--force` overwrites a spec that carries hand-written sections, stdout additionally carries the reseed census: one line per non-empty section class stating whether it was retained or dropped (with its entry count), plus one closing recovery-pointer line. The census is report-only stdout — it never enters the written spec — and a spec that was purely generated prints no census lines.
 - Exit code `0` on success.
 
 The spec file is written in the declared spec format (see `../../spec.md`).
@@ -26,7 +26,7 @@ The file follows the spec format's sections in canonical order (see `../../spec.
 
 | Section | Content in the seed |
 |---|---|
-| `[project]` | the detected language |
+| `[project]` | the detected language; on a reseed, also the preserved `excluded_sources` entries when the loaded spec declared them (the ONE hand-written thing that survives regeneration) |
 | `[[module]]` | one declaration per detected boundary — matched via `units` and/or `modules`; module boundaries are seeded one per top-level module, descendants folded in (see `../../spec.md`) |
 | inline `allowed` | the dependency edges realized from the current model at the same coarse granularity, rendered inside the `[[module]]` table as `allowed = { depend_on = [...] }` (no `[module.allowed]` section header is emitted) |
 | `[[constraint]]` | one global `no_cycles` guard (no `modules` list = all declared modules), plus a `feature_boundary` constraint per gated top-level module |
@@ -37,7 +37,7 @@ The seed declares only the observed shape — no test-gated-module boundaries, n
 
 The same source tree always produces **byte-identical** `architecture.spec.toml`. Ordering is canonical, independent of filesystem traversal order. The output is safe to commit to version control: a second `update` against an unchanged tree produces the same bytes.
 
-That guarantee holds **modulo the rewrite**: `update` replaces the destination file wholesale with the rendered seed, it does not edit it in place. Hand-written comments, custom headers, and any other content not derivable from the model do not survive a re-run — the next `update` overwrites them with the canonical seed rendering. Seed idempotence (unchanged tree ⇒ identical bytes) therefore applies to the seed's own output; a manually annotated spec is not a fixed point.
+That guarantee holds **modulo the rewrite**: `update` replaces the destination file wholesale with the rendered seed, it does not edit it in place. A `--force` reseed regenerates every section from the source snapshot and preserves **exactly one** hand-written thing: the `[project]` `excluded_sources` entries, restated exactly like the language pin. Only `excluded_sources` survives regeneration — every other hand-written section (`[[async_depends]]`, hand-written `[[constraint]]` rows beyond the derived guards, `[[exempt]]`, `[[stereotype]]`, `allowed.forbidden`, contract `expose`/`forbid`, `matches.paths`/`names`, and the `[project]` `framework` declaration) is dropped, and the run names each non-empty one on stdout with its entry count beside the retained one plus a recovery pointer. Hand-written comments and custom headers are likewise not preserved — the next `update` overwrites them with the canonical seed rendering. Seed idempotence (unchanged tree ⇒ identical bytes) therefore applies to the seed's own output; a manually annotated spec is not a fixed point.
 
 ## Example
 

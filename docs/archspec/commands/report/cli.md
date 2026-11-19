@@ -3,7 +3,7 @@
 ## Invocation
 
 ```
-archspec report [path] [--format <text|markdown|json>] [--output <path>] [--check]
+archspec report [path] [--format <text|markdown|json>] [--diagram <files|modules|none>] [--output <path>] [--check]
 ```
 
 `path` is optional and positional. Every flag is optional.
@@ -12,12 +12,14 @@ archspec report [path] [--format <text|markdown|json>] [--output <path>] [--chec
 |---|---|---|
 | `path` | project directory to report on | current working directory |
 | `--format` | report format | `text` |
+| `--diagram <mode>` | diagram the markdown report embeds | `[report] diagram` from `archspec.toml`, else `files` |
 | `--output <path>` | write the report to that file | stdout unless `[output]` set |
 | `--check` | compare the report to its destination without writing | off |
 
 ## Accepted flag values
 
 - `--format`: `text`, `markdown`, `json`. Any other value is an error (see `errors.md`).
+- `--diagram`: `files`, `modules`, `none`. Any other value is an error. The flag overrides the committable `[report] diagram` key (see `../../config.md`); runs without the flag resolve the diagram from the key, and `--check` resolves it the same way.
 - `--output`: any writable file path.
 - `--check`: freshness switch; compares to the resolved destination without writing (see below and `errors.md`).
 
@@ -84,8 +86,11 @@ configured path untouched; `--format text` behaves as without the flag, and
 `--format markdown` produces a self-contained Markdown artefact that adds, on
 top of the diff + metrics:
 
-- a `## Diagram` section embedding the current file-level import-map diagram as
-  a Mermaid code fence (renders in Gitea/GitHub);
+- a `## Diagram` section embedding the selected diagram as a Mermaid code
+  fence (renders in Gitea/GitHub): the `files` arm carries the file-level
+  import map (the default), the `modules` arm carries the same body
+  `archspec depgraph modules` renders, and `none` omits the section — see
+  `--diagram` above and `../../config.md` for the `[report] diagram` key;
 - a `## Forbidden imports` section listing every forbidden edge present,
   disallowed cross-component dependency, and facade dependency;
 - a `## Cycles` section listing every cycle detected.

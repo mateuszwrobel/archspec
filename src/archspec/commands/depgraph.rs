@@ -169,11 +169,21 @@ pub fn run(args: &[String]) -> Result<(), String> {
         "api-usage" => depgraph::api_usage_markdown(&model),
         "ledger" => depgraph::ledger_markdown(&model),
         "modules" => {
-            let mut graph = match aggregate {
+            // Each graph pairs with the SAME node function its builder
+            // projected through (issue #51), so async endpoints fold exactly
+            // like the nodes do.
+            type NodeFold = Box<dyn Fn(&str) -> Option<String>>;
+            let (mut graph, fold): (_, NodeFold) = match aggregate {
                 // An explicit level is never capped: the user chose this
                 // projection, so the automatic rule has nothing to report.
-                Some("units") => depgraph::units_graph(&model),
-                Some("modules") => depgraph::top_modules_graph(&model),
+                // The fold paired with each level is the SAME node function
+                // its graph builder used (issue #51); the units tier places
+                // every unit endpoint by name, so its render keeps its bytes.
+                Some("units") => (depgraph::units_graph(&model), Box::new(|_| None)),
+                Some("modules") => (
+                    depgraph::top_modules_graph(&model),
+                    Box::new(|path| Some(depgraph::top_node(path))),
+                ),
                 _ => {
                     let graph = depgraph::modules_graph(&model);
                     // Degraded-projection guard: the automatic path only,
@@ -184,16 +194,32 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     if let Some(note) = depgraph::automatic_projection_note(&model, &graph) {
                         eprintln!("{note}");
                     }
-                    graph
+                    let node = depgraph::projection_node(&model);
+                    (graph, Box::new(move |path| Some(node(path))))
                 }
             };
-            depgraph::attach_async_rows(&mut graph, async_rows.iter().cloned());
+            // Async endpoints ride the view's fold, never their raw names
+            // (issue #51): each row places on exactly one rendered node or
+            // folds away with one counted stderr note — never silence.
+            let projection =
+                depgraph::project_async_rows(&model, &graph, fold.as_ref(), async_rows.iter().cloned());
+            if let Some(note) = depgraph::async_fold_note(&projection) {
+                eprintln!("{note}");
+            }
+            depgraph::attach_async_rows(&mut graph, projection.rows);
             render_graph(&graph, format)?
         }
         "submodules" => {
             let parent = parent.expect("checked above");
             let mut graph = depgraph::submodules_graph(&model, parent)?;
-            depgraph::attach_async_rows(&mut graph, async_rows.iter().cloned());
+            let parent_scope = parent.to_string();
+            let fold = move |path: &str| depgraph::child_node(path, &parent_scope);
+            let projection =
+                depgraph::project_async_rows(&model, &graph, fold, async_rows.iter().cloned());
+            if let Some(note) = depgraph::async_fold_note(&projection) {
+                eprintln!("{note}");
+            }
+            depgraph::attach_async_rows(&mut graph, projection.rows);
             render_graph(&graph, format)?
         }
         _ => unreachable!("view validated above"),

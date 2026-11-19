@@ -14,7 +14,11 @@ set -eu
 
 pkg=""
 version=""
-timeout_secs=1500
+# The default window stays just under the release.yml registration-poll
+# step timeout (60 min) so this script's own loud TIMEOUT verdict — never
+# the runner's kill — is the verdict (finding M15; measured registration
+# lag ~35 min, 2026-11-18). The workflow passes the value explicitly.
+timeout_secs=3300
 space_secs=30
 curl_bin=curl
 while [ "$#" -gt 0 ]; do

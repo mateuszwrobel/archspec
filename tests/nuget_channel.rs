@@ -8,7 +8,8 @@
 //! law for the pack/push verbs, and the payload-neutrality of the nuget
 //! tree. The existence gate and the registration poll are additionally
 //! table-run against stubbed registry fetches: the fail-closed exit classes
-//! (200 / 404 / anything else) are falsifiable without NuGet.org.
+//! (200 / 404 / anything else, plus the re-run arm's exit-10 skip class of
+//! 2026-11-18) are falsifiable without NuGet.org.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -356,9 +357,38 @@ fn workflow_carries_the_nuget_gate_and_the_publish_job() {
     let mach = load_workflows();
     let nuget_job = job_block(&release, "publish-nuget");
     // Existence gate wired into BOTH the matrix publish-gate (before any
-    // build — finding M7) and the job (a standalone re-run still refuses).
+    // build — finding M7, and there flagless: the M7 refusal is its only
+    // 200 answer) and the job (the re-run arm 2026-11-18: --rerun-published
+    // turns an already-published version into skip-push-and-verify, never
+    // a double push).
     assert!(mach.contains("sh nuget/scripts/gate-nuget-registry.sh"));
+    assert!(
+        !load(".github/workflows/build-matrix.yaml").contains("--rerun-published"),
+        "the matrix publish-gate must stay flagless — the M7 refusal before any build must not be weakened"
+    );
     assert!(nuget_job.contains("sh nuget/scripts/gate-nuget-registry.sh"));
+    assert!(nuget_job.contains("--rerun-published"));
+    assert_eq!(
+        nuget_job
+            .matches("if: steps.existence.outputs.published != 'yes'")
+            .count(),
+        4,
+        "exactly the download, verify, login and push steps carry the re-run skip guard — the poll never does"
+    );
+    // Skipped-on-failure cure (2026-11-18): the mirror push and the summary
+    // ride !cancelled(), so a poll RED/TIMEOUT still mirrors the bytes and
+    // prints the verdict rows (a bare expression would keep the implicit
+    // success() and skip them — the bug the red runs exposed). The mirror
+    // keeps the ordering law: it runs only after a SUCCEEDED push, and the
+    // re-run arm skips it because its push step is skipped, never success.
+    assert!(nuget_job.contains("id: push"));
+    assert!(nuget_job.contains("id: poll"));
+    assert!(nuget_job.contains("if: ${{ !cancelled() && steps.push.outcome == 'success' }}"));
+    assert!(nuget_job.contains(
+        "if: ${{ !cancelled() && (steps.push.outcome == 'success' || steps.existence.outputs.published == 'yes') }}"
+    ), "the summary must survive a poll RED — including the already-published re-run path");
+    assert!(nuget_job.contains("Poll verdict: poll="));
+    assert!(nuget_job.contains("Mirror verdict: mirror="));
     // Config comes from the repo variable and fails closed when unset
     // (the NPM_SCOPE pattern).
     assert!(release.contains("vars.NUGET_USER"));
@@ -384,8 +414,8 @@ fn workflow_carries_the_nuget_gate_and_the_publish_job() {
     // M15: the push is followed by the bounded poll, never by a standing
     // "awaiting validation" state.
     assert!(nuget_job.contains("assert-registration.sh"));
-    assert!(nuget_job.contains("timeout-minutes: 30"));
-    assert!(nuget_job.contains("--timeout-secs 1500"));
+    assert!(nuget_job.contains("timeout-minutes: 60"));
+    assert!(nuget_job.contains("--timeout-secs 3300"));
     assert!(nuget_job.contains("--space-secs 30"));
     // Exact-name download fails closed; the sidecar verifies the bytes.
     assert!(nuget_job.contains(".nupkg\" \"archspec-${ver}.nupkg.sha256")
@@ -598,12 +628,15 @@ fn collect(dir: &str, out: &mut Vec<String>) {
 }
 
 fn gate_with_stub(stub_body: &str) -> std::process::Output {
+    gate_with_stub_args(stub_body, &[])
+}
+
+fn gate_with_stub_args(stub_body: &str, extra: &[&str]) -> std::process::Output {
     let tmp = tempfile::tempdir().expect("tempdir");
     let stub = write_stub(tmp.path(), "curl-stub.sh", stub_body);
-    run_script(
-        "nuget/scripts/gate-nuget-registry.sh",
-        &["--pkg", "archspec", "--version", "1.2.3", "--curl", &stub],
-    )
+    let mut args = vec!["--pkg", "archspec", "--version", "1.2.3", "--curl", &stub];
+    args.extend_from_slice(extra);
+    run_script("nuget/scripts/gate-nuget-registry.sh", &args)
 }
 
 #[test]
@@ -627,6 +660,56 @@ fn existence_gate_exit_classes_are_the_fail_closed_table() {
         unreachable.status.code(),
         Some(1),
         "an unreachable registry refuses — fail closed, never run blind"
+    );
+}
+
+// The re-run arm (2026-11-18, finding M7's green-capable counterpart): the
+// publish-nuget gate call passes --rerun-published; an already-published
+// version then answers exit 10 with the named existence-gate row, telling
+// the job to skip the push and verify registration. A free version and
+// every refusal state ride the table above byte-for-byte under the flag.
+#[test]
+fn existence_gate_rerun_arm_names_skip_and_verify() {
+    let published = gate_with_stub_args("echo 200\nexit 0\n", &["--rerun-published"]);
+    assert_eq!(
+        published.status.code(),
+        Some(10),
+        "the re-run arm names its class by exit code"
+    );
+    assert!(
+        String::from_utf8_lossy(&published.stdout)
+            .contains("existence-gate: already-published version=1.2.3 — skipping push, verifying registration"),
+        "the re-run row must name the skip and the verification: {}",
+        String::from_utf8_lossy(&published.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&published.stderr).is_empty(),
+        "the re-run arm is an informational class, not a refusal: {}",
+        String::from_utf8_lossy(&published.stderr)
+    );
+    let free = gate_with_stub_args("echo 404\nexit 0\n", &["--rerun-published"]);
+    assert_eq!(
+        free.status.code(),
+        Some(0),
+        "a free version proceeds under the flag exactly as without it"
+    );
+    assert!(
+        String::from_utf8_lossy(&free.stdout)
+            .contains("publish-gate: archspec 1.2.3 is not published on NuGet.org — proceeding"),
+        "the first-publish row stays byte-identical: {}",
+        String::from_utf8_lossy(&free.stdout)
+    );
+    let unreadable = gate_with_stub_args("echo 500\nexit 0\n", &["--rerun-published"]);
+    assert_eq!(
+        unreadable.status.code(),
+        Some(1),
+        "the flag never weakens the fail-closed refusal for any other registry state"
+    );
+    let unreachable = gate_with_stub_args("echo 000\nexit 7\n", &["--rerun-published"]);
+    assert_eq!(
+        unreachable.status.code(),
+        Some(1),
+        "an unreachable registry still refuses under the flag — fail closed"
     );
 }
 
@@ -686,7 +769,7 @@ fn registration_poll_is_bounded_and_loud_on_timeout() {
         "the timeout must name itself: {}",
         String::from_utf8_lossy(&timed_out.stderr)
     );
-    // The real deadlines (1500 s / 30 s, step timeout 30 min) are pinned in
+    // The real deadlines (3300 s / 30 s, step timeout 60 min) are pinned in
     // the workflow by the structure test, not re-executed here.
 }
 

@@ -578,3 +578,204 @@ fn project_header(model: &Model, preserved: &[spec::ExcludedSource]) -> String {
     out.push('\n');
     out
 }
+
+// ---------------------------------------------------------------------------
+// reseed census (GitHub issue #57)
+// ---------------------------------------------------------------------------
+
+/// Plural word for one census count: `entry` for 1, `entries` otherwise.
+fn plural(count: usize) -> &'static str {
+    if count == 1 {
+        "entry"
+    } else {
+        "entries"
+    }
+}
+
+/// The hand-written policy carried by the `[[module]]` claims of one spec,
+/// counted across every depth (nested `submodules` included — the seed
+/// renders no submodule table, so their policy dies with the reseed just
+/// like a top-level claim's). `expose` counts a declared-but-empty
+/// `Some([])` as ONE entry: the deny-all ceiling is the declaration, not
+/// the pattern list, and losing it silently is exactly the class this
+/// census closes.
+#[derive(Default)]
+struct PolicyCounts {
+    forbidden: usize,
+    expose: usize,
+    forbid: usize,
+    paths: usize,
+    names: usize,
+}
+
+fn count_module_policy(modules: &[spec::Module], counts: &mut PolicyCounts) {
+    for module in modules {
+        counts.forbidden += module.allowed.forbidden.len();
+        counts.expose += module
+            .contract
+            .expose
+            .as_ref()
+            .map(|entries| entries.len().max(1))
+            .unwrap_or_default();
+        counts.forbid += module.contract.forbid.len();
+        counts.paths += module.matches.paths.len();
+        counts.names += module.matches.names.len();
+        count_module_policy(&module.submodules, counts);
+    }
+}
+
+/// Canonical identity of one `[[constraint]]` row: every declared field with
+/// its list order preserved. The reseed regenerates only the derived rows
+/// (the global `no_cycles` guard plus the `feature_boundary` rows the source
+/// states), so a loaded row EQUAL to a regenerated row survives the reseed
+/// and any other row is dropped — the multiset difference below says how
+/// many. Field labels and separators keep distinct shapes from colliding.
+fn constraint_fingerprint(constraint: &spec::Constraint) -> String {
+    fn list(items: &[String]) -> String {
+        items
+            .iter()
+            .map(|item| format!("\"{item}\""))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+    format!(
+        "type={}|modules=[{}]|severity={}|scope={}|kinds=[{}]|allowed=[{}]|from=[{}]|forbid=[{}]|require_publish={}|forbidden_dependencies=[{}]|required_features=[{}]|feature={}|gated_modules=[{}]|allowed_from=[{}]|parent={}",
+        constraint.kind,
+        list(&constraint.modules),
+        constraint.severity,
+        constraint.scope.clone().unwrap_or_default(),
+        list(&constraint.kinds),
+        list(&constraint.allowed),
+        list(&constraint.from),
+        list(&constraint.forbid),
+        constraint
+            .require_publish
+            .map_or_else(String::new, |flag| flag.to_string()),
+        list(&constraint.forbidden_dependencies),
+        list(&constraint.required_features),
+        constraint.feature,
+        list(&constraint.gated_modules),
+        list(&constraint.allowed_from),
+        constraint.parent,
+    )
+}
+
+/// Loaded constraint rows the regenerated output does not restate: the
+/// multiset difference (a regenerated row cancels exactly one loaded row).
+fn dropped_constraint_rows(loaded: &[spec::Constraint], regenerated: &[spec::Constraint]) -> usize {
+    let mut kept: BTreeMap<String, usize> = BTreeMap::new();
+    for constraint in regenerated {
+        *kept
+            .entry(constraint_fingerprint(constraint))
+            .or_default() += 1;
+    }
+    let mut dropped = 0;
+    for constraint in loaded {
+        let key = constraint_fingerprint(constraint);
+        match kept.get_mut(&key) {
+            Some(remaining) if *remaining > 0 => *remaining -= 1,
+            _ => dropped += 1,
+        }
+    }
+    dropped
+}
+
+/// RETAINED versus DROPPED section census of a `--force` reseed (GitHub
+/// issue #57, the §7(b) growth of the #43 law): regeneration derives every
+/// byte from the source snapshot and preserves EXACTLY ONE hand-written
+/// thing — the `[project]` `excluded_sources` entries. Every other
+/// hand-written section class present in the loaded spec and absent from
+/// the regenerated output gets one `reseed dropped:` line naming its entry
+/// count; the preserved exclusions get one `reseed retained:` line; a
+/// non-empty drop set closes with the recovery-pointer line. The census is
+/// REPORT-ONLY stdout — it never touches the seed bytes, the written spec
+/// stays the canonical rendering, and the exit-code contract is unchanged
+/// (the #54/#45 posture: stdout states the loss, the machine body does not
+/// carry it). A spec that was purely generated yields NO lines at all, so
+/// `update --force` stdout stays byte-identical on a pure reseed.
+///
+/// The `[[constraint]]` count is the multiset difference against the
+/// regenerated output (the derived `no_cycles` guard and `feature_boundary`
+/// rows ARE restated and must not surface as ghost drops); every other
+/// class is regenerated from empty, so its loaded count is its drop count.
+/// A regenerated-content parse failure reads as an empty new spec — every
+/// loaded row then reads as dropped, the loud direction for a shape the
+/// emitter cannot produce.
+pub fn reseed_census(loaded: &spec::Spec, regenerated: &str) -> Vec<String> {
+    let regenerated_spec: Option<spec::Spec> = toml::from_str(regenerated).ok();
+    let regenerated_modules: &[spec::Module] = regenerated_spec
+        .as_ref()
+        .map(|spec| spec.modules.as_slice())
+        .unwrap_or_default();
+    let regenerated_constraints: &[spec::Constraint] = regenerated_spec
+        .as_ref()
+        .map(|spec| spec.constraint.as_slice())
+        .unwrap_or_default();
+
+    let mut lines = Vec::new();
+    let excluded = loaded.project.excluded_sources.len();
+    if excluded > 0 {
+        lines.push(format!(
+            "reseed retained: [project].excluded_sources ({excluded} {})",
+            plural(excluded)
+        ));
+    }
+
+    let mut dropped: Vec<(&str, usize)> = Vec::new();
+    if loaded.project.framework.is_some() {
+        // The declared framework activation is a consumer declaration the
+        // model cannot derive (round-8 doctrine: never auto-discovered), and
+        // the seed renders no `framework` key — the loss moves every
+        // framework idiom back to framework-less semantics silently.
+        dropped.push(("[project].framework", 1));
+    }
+    dropped.push(("[[async_depends]]", loaded.async_depends.len()));
+    dropped.push((
+        "[[constraint]]",
+        dropped_constraint_rows(&loaded.constraint, regenerated_constraints),
+    ));
+    dropped.push(("[[exempt]]", loaded.exempt.len()));
+    let mut loaded_policy = PolicyCounts::default();
+    count_module_policy(&loaded.modules, &mut loaded_policy);
+    let mut regenerated_policy = PolicyCounts::default();
+    count_module_policy(regenerated_modules, &mut regenerated_policy);
+    dropped.push((
+        "[[module]].allowed.forbidden",
+        loaded_policy
+            .forbidden
+            .saturating_sub(regenerated_policy.forbidden),
+    ));
+    dropped.push((
+        "[[module]].contract.expose",
+        loaded_policy.expose.saturating_sub(regenerated_policy.expose),
+    ));
+    dropped.push((
+        "[[module]].contract.forbid",
+        loaded_policy.forbid.saturating_sub(regenerated_policy.forbid),
+    ));
+    dropped.push((
+        "[[module]].matches.paths/names",
+        loaded_policy.paths.saturating_sub(regenerated_policy.paths)
+            + loaded_policy.names.saturating_sub(regenerated_policy.names),
+    ));
+    dropped.push(("[[stereotype]]", loaded.stereotype.len()));
+
+    let mut dropped_any = false;
+    for (class, count) in dropped {
+        if count == 0 {
+            continue;
+        }
+        lines.push(format!(
+            "reseed dropped: {class} ({count} {}, not derivable from source)",
+            plural(count)
+        ));
+        dropped_any = true;
+    }
+    if dropped_any {
+        lines.push(format!(
+            "recover dropped declarations: restore the previous {} from version control or a backup and merge those sections into the regenerated spec",
+            spec::SPEC_FILE
+        ));
+    }
+    lines
+}

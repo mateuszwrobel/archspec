@@ -363,3 +363,109 @@ fn no_csproj_single_unit_shares_the_type_position_behavior() {
         ("App::Api", "App::Core", ["IBase".to_string()].as_slice())
     );
 }
+
+/// Fluent-chain fact-set pin (issue #53, fix plan P7): the facts a
+/// member-access chain records are SET content — the recorded chain plus
+/// every dotted prefix of it, owned by the deepest declared namespace
+/// prefix, and the chain's bare root identifier. Under the double-descent
+/// bug every fact was re-recorded once per subtree visit; a set absorbs the
+/// duplicates, so the pinned content below is identical under the single
+/// shared descent (this cell is the byte-identity witness: it pins the
+/// EXACT chain facts, proving set-idempotency of the descent).
+#[test]
+fn long_fluent_chain_records_its_facts_once_as_a_set() {
+    let fixture = Fixture::new();
+    fixture.write("App.Api/App.Api.csproj", &csproj(&["App.Core"]));
+    // 21 segments: App . Core . Chain . A01..A16 . Fire — nested
+    // member-access expressions, no intermediate call nodes, so every
+    // prefix is a reconstructible chain (grammar note: `App.Core` itself
+    // dumps as a member_access_expression in expression context).
+    let mut chain = String::from("App.Core.Chain");
+    for index in 1..=16 {
+        chain.push_str(&format!(".A{index:02}"));
+    }
+    chain.push_str(".Fire");
+    fixture.write(
+        "App.Api/Runner.cs",
+        &format!(
+            "namespace App.Api;\n\
+             public class Runner\n\
+             {{\n\
+             \x20   public void Run()\n\
+             \x20   {{\n\
+             \x20       {chain}();\n\
+             \x20   }}\n\
+             }}\n"
+        ),
+    );
+    fixture.write("App.Core/App.Core.csproj", &csproj(&[]));
+    fixture.write(
+        "App.Core/Types.cs",
+        "namespace App.Core;\npublic class Chain { }\n",
+    );
+    let mut symbols: Vec<String> = (1..=16)
+        .map(|index| format!("A{index:02}"))
+        .chain(std::iter::once("Chain".to_string()).chain(std::iter::once("Fire".to_string())))
+        .collect();
+    symbols.sort();
+    assert_eq!(
+        edges(&scan(&fixture)),
+        vec![(
+            "App.Api".to_string(),
+            "App::Api".to_string(),
+            "App::Core".to_string(),
+            symbols,
+        )],
+        "one edge per (from, owner): the chain and all its prefixes fold into the same set, each segment once"
+    );
+}
+
+/// Fluent-chain complexity cell (issue #53, fix plan P7): the double
+/// descent at the `member_access_expression` arm made the walk Θ(2^length)
+/// in nested member-access depth (measured 2^(n+1)-1 `record_chain`
+/// calls; 24 segments took ~60 s). A 40-segment chain must scan inside a
+/// generous bound — no tight timing claim, just the exponential class
+/// pinned dead. The bound sits far below the nextest unit-profile kill
+/// deadline, so a regression names itself as this assertion, not a silent
+/// TIMEOUT.
+#[test]
+fn long_fluent_chain_scan_completes_within_a_bounded_wall() {
+    let fixture = Fixture::new();
+    fixture.write("App.Api/App.Api.csproj", &csproj(&["App.Core"]));
+    let mut chain = String::from("App.Core.Chain");
+    for index in 1..=40 {
+        chain.push_str(&format!(".A{index:02}"));
+    }
+    chain.push_str(".Fire");
+    fixture.write(
+        "App.Api/Runner.cs",
+        &format!(
+            "namespace App.Api;\n\
+             public class Runner\n\
+             {{\n\
+             \x20   public void Run()\n\
+             \x20   {{\n\
+             \x20       {chain}();\n\
+             \x20   }}\n\
+             }}\n"
+        ),
+    );
+    fixture.write("App.Core/App.Core.csproj", &csproj(&[]));
+    fixture.write(
+        "App.Core/Types.cs",
+        "namespace App.Core;\npublic class Chain { }\n",
+    );
+    let started = std::time::Instant::now();
+    let model = scan(&fixture);
+    let wall = started.elapsed();
+    assert!(
+        wall < std::time::Duration::from_secs(60),
+        "a 40-segment chain must scan in linear time, measured {wall:?} \
+         (issue #53 exponential: ~60 s already at 24 segments)"
+    );
+    assert_eq!(
+        edges(&model).len(),
+        1,
+        "the bounded scan still records the chain facts (one edge)"
+    );
+}

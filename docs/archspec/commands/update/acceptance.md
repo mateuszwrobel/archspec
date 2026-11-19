@@ -49,6 +49,7 @@ The seed declares no observed-shape constraints beyond `feature_boundary` and no
 |---|---|---|---|
 | 8 | `architecture.spec.toml` exists, contents known | run `update` | non-zero exit; message names the existing spec and `--force`; file byte-identical to before |
 | 9 | `architecture.spec.toml` exists | run `update --force` | exit 0; spec regenerated from the current tree |
+| 24 | `architecture.spec.toml` exists with hand-written `[[async_depends]]`, `[[exempt]]` and `allowed.forbidden` entries and a `[project]` `excluded_sources` entry | run `update --force` | exit 0; stdout names one retained line for `[project]` `excluded_sources` and one dropped line per non-empty hand-written section class with its entry count, plus a recovery pointer; the written spec is the canonical seed rendering with only the `excluded_sources` entries preserved |
 
 ## Errors
 

@@ -126,7 +126,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // `wrote <path>` line like every path write (blind4 D01).
     let route = config::route(
         parsed.values.get("output").map(String::as_str),
-        config.scan.as_deref(),
+        config.output.scan.as_deref(),
         root_path,
         false,
     );

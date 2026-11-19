@@ -6,6 +6,277 @@ only.
 
 ## [Unreleased]
 
+## [0.6.108] - 2026-11-19
+
+### Fixed
+
+- Async endpoint arrows now land on the node their solid-edge counterpart
+  uses (issue #51's residual, N4). In a folded `depgraph` view the endpoint's
+  candidate set is the unit's OWN module-path membership — the same set the
+  solid arrows project through — so a unit whose module paths spell a
+  different prefix than the unit name (the c# RootNamespace class:
+  `eShop::Ordering::API` under unit `Ordering.API`) places on the rendered
+  module node instead of folding away. The zero/several-attribution note
+  law is UNCHANGED: rows that still place nothing fold away with the named
+  count. In the spec-source `diagram` an async endpoint naming a unit
+  renders under the ONE module that claims it via `matches.units`
+  (byte-identical endpoints with the solid module edges), and an endpoint
+  no module claims renders with its own labelled node alias — no raw salted
+  id (`Ordering_API_5d46e9ea`) stands as box text in any async render.
+  Non-declaring and fully-claimed trees (module names equal to unit names)
+  render byte-identical.
+
+## [0.6.107] - 2026-11-19
+
+### Added
+
+- `report` gained the diagram-scale knob (GitHub issue #52): the
+  `--diagram files|modules|none` flag and the committable
+  `[report] diagram = "files"|"modules"|"none"` key in `archspec.toml`.
+  The key is what `--check` consumes, so a run that wrote with the flag
+  and a later check without it resolve the SAME diagram from the same
+  file instead of going stale-red in CI; the flag overrides the key for
+  one-offs. Default `files` — every report written without the knob or
+  the key renders byte-identical to before, on declaring trees included.
+  The `modules` arm embeds the exact body `archspec depgraph modules`
+  renders automatically — same projection, same async rows, same notes —
+  and refuses a tree without a module tier with the refusal family's
+  sentence. The automatic degrade rung is DEFERRED (the byte-identity vs
+  stale-red contradiction; named follow-up with its own decision-check).
+
+### Changed
+
+- An unknown key or section in `archspec.toml` now prints one named,
+  non-failing `warning:` line per key on stderr and stays ignored
+  (GitHub issue #52). Silently-ignored typos were the trap:
+  `[report] diagrams =` kept the default diagram and read as knob-on.
+  Malformed TOML stays an operational error — a file that does not
+  parse speaks no warning lines.
+
+## [0.6.106] - 2026-11-18
+
+### Fixed
+
+- The async arrow render set keys on `(from, to, full event identity)` —
+  never on the rendered label (GitHub issue #48). Two declared
+  `[[async_depends]]` entries over one pair whose events differ in full drew
+  ONE collapsed arrow before (the diagram deduped on the label), hiding the
+  second contract. Every distinct fact now draws its own arrow: the label
+  stays the short `unit::SimpleName` form where one entry owns a simple name
+  of its pair, and becomes the shortest distinguishing dotted suffix (or
+  the full dotted name) where the pair's entries share it. All three render
+  paths (spec source, scan source, fold projection) share one
+  implementation. `verify` speaks one new async-census advisory per
+  colliding `(from, to, simple-name)` group, naming every identity and entry
+  number; `--strict` never promotes it. Non-colliding tables render and
+  verify byte-identical.
+
+## [0.6.105] - 2026-11-18
+
+### Fixed
+
+- The async ring census no longer keys a ring on the subscriber's
+  compile-against relation (GitHub issue #47): a subscriber→publisher direct
+  back edge is no ring-closure witness when the event's declaring-unit census
+  names the publisher alone or no unit at all (the declaration-trust law on
+  drivers that derive no record census). A ring closed by two declared event
+  hops plus such a compile edge keeps its row and flips its label from
+  `(mixed)` to `(async)`; a simple name declared by several units keeps its
+  ambiguity voice and now names one `(mixed)` row per declarer instead of one
+  arbitrary pick. Shared-contracts round trips, mixed rings with independent
+  direct justifications, and non-declaring repos stay byte-identical.
+
+## [0.6.104] - 2026-11-18
+
+### Fixed
+
+- `archspec spec` now teaches the canonical `allowed` rendering, and the
+  mixed-form collision speaks one named diagnostic (GitHub issue #58). The
+  annotated reference taught the `[module.allowed]` header form while
+  `archspec update` emits the inline form `allowed = { depend_on = [...] }`;
+  a reader who mixed both on one module got malformed TOML whose rendered
+  error varied with the landing order and context-bleed (an
+  `unknown key(s)` refusal naming the wrong table, or a raw
+  duplicate-key parse error). The reference now teaches the inline form as
+  canonical and states that one module must not mix the renderings, and
+  every loader that reads the spec refuses the mix in the shipped
+  `invalid spec` class naming the entry —
+  `module #N declares "allowed" twice (inline key + [module.allowed]
+  section) — keep one` — with a deterministic ordinal. Each rendering alone
+  still parses and adjudicates identically (regression-pinned), and every
+  unrelated unknown-key and duplicate-key refusal keeps its shipped bytes.
+
+## [0.6.103] - 2026-11-18
+
+### Fixed
+
+- `archspec update --force` no longer drops hand-written spec sections
+  silently (GitHub issue #57). A reseed regenerates the spec from the source
+  snapshot and preserves exactly one hand-written thing — the `[project]`
+  `excluded_sources` entries (the issue #43 law) — while every other
+  hand-written section (`[[async_depends]]`, hand-written `[[constraint]]`
+  rows beyond the derived guards, `[[exempt]]`, `[[stereotype]]`,
+  `allowed.forbidden`, contract `expose`/`forbid`, `matches.paths`/`names`
+  and the `[project]` `framework` declaration) vanished without a word: a
+  green-building tree could regenerate to a spec that verifies green with
+  zero contracts. The run now prints a retained-versus-dropped census on
+  stdout — one line per non-empty section class with its entry count, the
+  survivor named as retained, and a closing recovery pointer — and the
+  `update` help states the survival law. Report-only: the written spec
+  stays the canonical seed rendering, and a purely generated spec still
+  produces byte-identical output.
+
+
+## [0.6.102] - 2026-11-18
+
+### Fixed
+
+- The C# scan no longer lets a test-runner `PackageReference` under an
+  unevaluated MSBuild `Condition` leak or vanish silently (GitHub issue #45,
+  rung 1). Central props: the `Choose`/`When`/`Otherwise` construct is now
+  tracked, and nested `ItemGroup` conditions no longer clobber the enclosing
+  scope — a stack replaces the single group flag. csproj: the
+  `PackageReference` walk gained the condition handling it never had, so a
+  conditioned `Microsoft.NET.Test.Sdk` no longer marks a production project
+  test-gated. A conditioned test marker is not gating evidence: it stays out
+  of every tier and states itself once on the report surface as the
+  report-only, never-verdict `test marker under unevaluated condition:
+  <file>:<line>` line. Condition evaluation stays deferred (rung 2);
+  markers declared only in `Directory.Build.targets` or props brought in by
+  `<Import>` are not walked — neither modeled nor diagnosed.
+
+## [0.6.101] - 2026-11-18
+
+### Fixed
+
+- A deleted C# claim can no longer pass silently (GitHub issue #59): when
+  the only `[[module]]` entry naming a project is removed while another
+  entry's ancestor `matches.modules` territory still covers the project's
+  paths, the soft-tier reclaim in `augment_with_modules` absorbs the unit
+  without any diagnostic — `verify --strict` reported success over the
+  unmet claimed-component law. The unit now KEEPS its
+  `unexpected component:` finding beside the reclaim (the same voice and
+  the same error tier as the no-owner arm and the async-endpoint arm), and
+  `resolve_module_edges` skips the mixed-tier unit-tier pair like the
+  issue #50 law. The gate is the NAME-claim test extended to all entries:
+  a pattern addressing the unit (full or bare segment, separators
+  normalized) or a module inside the unit's own tree is a claim and stays
+  silent, so the module-granular declaration shapes (`Orders::App` inside
+  project `Orders`, the umbrella and facade wirings) and the rust
+  module-path reclaim (issue #50 cell 4) verify byte-identically; the go
+  D1 arm stays byte-identical at any depth. `archspec help languages`
+  (csharp section) states the law.
+
+## [0.6.100] - 2026-11-18
+
+### Fixed
+
+- An unclaimed C# project covered only by a namespace-tier `matches.modules`
+  claim now keeps its honest `unassigned unit:` finding (GitHub issue #50).
+  The soft-tier reclaim in `augment_with_modules` still places the unit so
+  its edges resolve, but the finding and the placement coexist, and
+  `resolve_module_edges` no longer projects the unit-tier edge of such a
+  soft-reclaimed source onto the boundary graph — the mixed-tier pair
+  (`disallowed cross-component dependency: <namespace boundary> -> <claimed
+  boundary>`) that the placement used to print is replaced by the unit-tier
+  finding at the same error tier. The gate is the soft-path reclaim sub-arm
+  alone: the go D1 name claim (a go unit IS an addressable module path,
+  ADR-018) stays byte-identical, as do claimed-project adjudications and the
+  rust module-path reclaim. `archspec help languages` (csharp section) states
+  the owning tier.
+- A verbatim `[[async_depends]]` duplicate is refused at spec parse (GitHub
+  issue #56): an entry equal on all fields to an earlier one now prints the
+  named `invalid spec` refusal `duplicate [[async_depends]] entry #K
+  duplicates #J`, naming both entries. Before it, the duplicate parsed
+  green, the renderers drew one arrow (their row sets deduplicate) while the
+  entry-level counting — `explain`'s async rows, the arm markers — listed the
+  same fact twice, so any entry census silently inflated. A verbatim
+  re-declaration is a spec authoring accident (a copy-paste or
+  file-duplication bug), and folding it silently would hide it. Entries
+  differing on ANY field stay accepted: the same `from`/`to` pair over
+  distinct events is the legal multi-event class, untouched. Distinct
+  entries — the eShop shape of 18 subscriptions over few pairs — parse and
+  render byte-identically.
+
+## [0.6.99] - 2026-11-18
+
+### Fixed
+
+- The C# shape walk gives bindings a scope identity (GitHub issue #46):
+  binds are keyed `(scope frame, variable)` to the SET of type tails that
+  frame writes, and a member-access chain resolves its root by walking the
+  scope chain outward from the ACCESS SITE — the innermost declaration wins
+  and sibling declarations never join. A name typed differently in two
+  methods, or a field name typed differently in two classes of one file,
+  never attributes one type's field to the other, so the false
+  `async drift field absent` rows those joins printed die. Invocation-
+  shaped chain tails (`evt.ToString()`, `evt.GetType()`) are method names,
+  never bound fields, and contribute nothing. Pattern variables
+  (`case OrderPlaced p:`, `message is OrderPlaced p`) bind in their
+  declaring section, so chains that were silent there now speak for the
+  type the section declares. The two silence laws stand unchanged: implicit
+  lambda parameters bind nothing (they shadow outer names) and `var`
+  inference stays blind. Event payload shapes stay simple-name derived —
+  the join law is untouched.
+
+## [0.6.98] - 2026-11-18
+
+### Fixed
+
+- The depgraph folded views (`depgraph modules`, `depgraph submodules
+  --parent <m>`) end async arrows on the view's OWN nodes, never on raw
+  unit names (GitHub issue #51: a raw dotted unit name is not a node id of
+  the view, so Mermaid drew an undeclared phantom box). An endpoint places
+  the single node its unit's module paths project through; an endpoint
+  that projects onto several nodes (a multi-module unit — one row renders
+  one pair, never a fan-out) or onto none (a unit outside the view's
+  scope) places nothing, its row renders no arrow, and the run prints the
+  counted note `note: N async rows folded away in this projection` on
+  stderr, with the endpoint tail whenever a name placed no node. The
+  units tier keeps its unit-endpoint render byte-identical, and a run
+  whose rows all place prints no note at all.
+
+## [0.6.97] - 2026-11-18
+
+### Fixed
+
+- The `verify` headline is verdict-aware (GitHub issue #54): a run that exits
+  `0` with warning findings prints
+  `ok: architecture.spec.toml passes with N warning(s)` instead of claiming
+  `architecture.spec.toml does not match source model`. The bytes stay
+  distinct from the clean-tree confirmation, so CI predicates grepping
+  `matches source model` keep their meaning, and failing runs keep their
+  headline bytes byte-for-byte. Both help surfaces that claimed `--strict`
+  means "zero findings of any kind" now name the exception: the async census
+  rows never promote, even under `--strict`. The claim registry gains the
+  `verify-verdict-headline` and `verify-help-strict-flag` families, welded by
+  live probes in `tests/claim_fanout.rs`.
+
+## [0.6.96] - 2026-11-18
+
+### Fixed
+
+- The C# scanner walks a member-access chain ONCE per level (GitHub issue
+  #53): the `member_access_expression` arm recorded the chain and then
+  descended it a second time inside `record_chain`, so nested chains cost
+  `2^(depth+1)-1` visits — a 24-segment fluent chain took about a minute.
+  The arm now follows the record-and-fall-through convention of the other
+  type-position arms and the shared descent walks each subtree once. Facts
+  are unchanged: every sink is a set and the duplicate descent only
+  re-recorded.
+
+## [0.6.95] - 2026-11-18
+
+### Changed
+
+- Release CI (NuGet channel): the registration poll window grew from 30 to
+  60 minutes (inner deadline 1500 s → 3300 s, kept just under the step
+  timeout) — measured nuget.org registration lag reached ~35 min past a
+  successful push. A standalone re-run of the NuGet publish job whose
+  version is already on NuGet.org now skips the download and push steps and
+  verifies registration only — one named existence-gate row, never a double
+  push; first-publish behavior is unchanged.
+
 ## [0.6.94] - 2026-11-17
 
 ### Fixed

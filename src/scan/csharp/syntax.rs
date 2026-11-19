@@ -426,7 +426,10 @@ impl FileFacts {
     /// call through a bare type name (`Store.Create()` with `using App.Core;`)
     /// resolves through the using path. Chains through a call, an index or a
     /// `this` are not reconstructible and contribute nothing here — the
-    /// recursion below still walks their subexpressions.
+    /// shared descent in `walk` still walks their subexpressions (this
+    /// function does NOT descend: the arm is in the record-and-fall-through
+    /// group, and a self-descent here made nested chains scan in Θ(2^depth)
+    /// by visiting each subtree twice per level, GitHub issue #53).
     fn record_chain(&mut self, node: &Node<'_>, source: &str) {
         if let Some(reference) = dotted_chain(node, source) {
             self.record_qualified(reference);
@@ -444,7 +447,6 @@ impl FileFacts {
                     self.record_bare(node_text(&root, source));
                 }
             }
-        self.walk_children(node, source, &[]);
     }
 
     /// Registers one namespace declaration; `file_scoped` implements the rule
@@ -734,8 +736,10 @@ pub struct ShapeFacts {
     /// namespace -> declared enum type names.
     pub(crate) enums: BTreeMap<String, BTreeSet<String>>,
     /// event type name (simple name, as declared or written) -> the fields
-    /// the file's code binds on variables of that type, and which of them
-    /// are bound as a string projection.
+    /// the file's code binds on variables of that type, attributed through
+    /// the scope chain of each access site (issue #46: a name in one method
+    /// or one class never borrows another's binding), and which of them are
+    /// bound as a string projection.
     pub(crate) bounds: BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)>,
 }
 
@@ -776,21 +780,33 @@ impl ShapeFacts {
 /// walker with two jobs.
 pub fn scan_cs_shapes(source: &str) -> Result<ShapeFacts, String> {
     let tree = parse_tree(Language::Csharp, source).map_err(|err| err.to_string())?;
-    let mut walk = ShapeWalk::default();
+    // The file itself is the outermost scope frame (id 0): every frame the
+    // walk pushes rides it, and every chain's recorded path is non-empty.
+    let mut walk = ShapeWalk {
+        frame_seq: 1,
+        scope_stack: vec![0],
+        ..ShapeWalk::default()
+    };
     walk.walk(&tree.root_node(), source);
     Ok(walk.finish())
 }
 
-/// Chain segment of a flattened member access: either a dotted name piece or
-/// the receiver root. Kept as plain strings — the join reads names only.
-type Chain = (String, Vec<String>);
+/// Chain segment of a flattened member access: the scope path at the access
+/// site (frame ids, outermost first — resolution walks it innermost-first),
+/// the receiver root, the flattened segments and the flag saying the
+/// outermost member-access node is the callee of an invocation (issue #46:
+/// the tail of `evt.ToString()` / `evt.GetType()` is a method name, never a
+/// bound field).
+type Chain = (Vec<usize>, String, Vec<String>, bool);
 
 /// Collection state: the document-order namespace stack with the same
 /// attribution semantics as `FileFacts` above (block declarations push,
 /// file-scoped declarations reset), the pending facts recorded while the
 /// stack was empty (folded like `FileFacts::finish` folds), the variable
-/// bindings (type tail -> variable names), the member-access chains and the
-/// string-literal comparisons awaiting the end-of-file join.
+/// bindings keyed `(scope frame, variable)`, the member-access chains with
+/// the scope path of their access site, and the string-literal comparisons
+/// awaiting the end-of-file join (issue #46: the join resolves a chain root
+/// through the scope chain of that site, never against the whole file).
 #[derive(Default)]
 struct ShapeWalk {
     ns_stack: Vec<String>,
@@ -802,15 +818,25 @@ struct ShapeWalk {
     bases: BTreeMap<String, BTreeMap<String, Vec<String>>>,
     pending_enums: Vec<(String, String)>,
     enums: BTreeMap<String, BTreeSet<String>>,
-    /// type tail -> variable names bound to that type in this file.
-    binds: BTreeMap<String, BTreeSet<String>>,
-    /// member-access chains rooted at a bare identifier: (root, segments).
+    /// Fresh id for the next pushed scope frame — every frame is unique, so
+    /// two sibling blocks never share a binding key.
+    frame_seq: usize,
+    /// The scope frames active at the walk position, outermost first.
+    scope_stack: Vec<usize>,
+    /// `(frame, variable) -> SET of type tails` bound at that frame: the
+    /// conservative union of the frame's declarations, never last-wins; an
+    /// EMPTY set is a shadow without a type (an implicit lambda parameter —
+    /// it binds nothing, but hides every outer declaration of the name).
+    binds: BTreeMap<(usize, String), BTreeSet<String>>,
+    /// member-access chains rooted at a bare identifier, each carrying the
+    /// scope path of its access site and the invocation-tail flag.
     chains: BTreeSet<Chain>,
-    /// `(root, field, direct)` pairs compared against a string literal with
-    /// `==`/`!=`; `direct` says the compared field hangs off the bound
-    /// variable itself (scenario 07: a property-hop comparison binds the
-    /// projected field, not a direct reference of the event record).
-    string_comparisons: BTreeSet<(String, String, bool)>,
+    /// `(scope path, root, field, direct)` pairs compared against a
+    /// string literal with `==`/`!=`; `direct` says the compared field hangs
+    /// off the bound variable itself (scenario 07: a property-hop comparison
+    /// binds the projected field, not a direct reference of the event
+    /// record).
+    string_comparisons: BTreeSet<(Vec<usize>, String, String, bool)>,
 }
 
 impl ShapeWalk {
@@ -829,11 +855,33 @@ impl ShapeWalk {
             // A using directive contains no declarations and no bindings.
             "using_directive" => return,
             "class_declaration" | "interface_declaration" | "struct_declaration"
-            | "enum_declaration" | "record_declaration" => {
+            | "record_declaration" => {
+                // ONE scope frame per type declaration (issue #46, M4): the
+                // type's fields and properties bind into THIS frame, so two
+                // classes in one file never share a field binding.
                 // declare_type descends the declaration itself (skipping its
                 // name, which is a declaration, not a binding); no second
                 // descent below — the subtree is walked exactly once.
+                self.push_frame();
                 self.declare_type(node, source);
+                self.pop_frame();
+                return;
+            }
+            "enum_declaration" => {
+                self.declare_type(node, source);
+                return;
+            }
+            // Every other binding-bearing scope: methods and constructors
+            // carry their parameters, blocks carry their locals, a lambda
+            // carries its parameters (typed ones bind, implicit ones shadow),
+            // a `using` statement and the loop heads carry their variables,
+            // and the switch sections carry their pattern variables.
+            "method_declaration" | "constructor_declaration" | "local_function_statement"
+            | "lambda_expression" | "block" | "using_statement" | "for_statement"
+            | "foreach_statement" | "switch_section" | "switch_expression_arm" => {
+                self.push_frame();
+                self.walk_children(node, source, &[]);
+                self.pop_frame();
                 return;
             }
             "parameter" => {
@@ -842,8 +890,31 @@ impl ShapeWalk {
                     node.child_by_field_name("type"),
                 ) {
                     self.bind(&type_node, source, node_text(&name, source));
+                } else if let Some(name) = node.child_by_field_name("name") {
+                    // A parameter written WITHOUT a type is a lambda
+                    // parameter: it shadows its name and binds nothing
+                    // (the implicit-lambda silence law, unchanged).
+                    self.shadow(node_text(&name, source));
                 }
             }
+            // A pattern variable — `case OrderPlaced p:` or
+            // `message is OrderPlaced p` (`declaration_pattern`) — binds in
+            // the frame the walk stands in: the section frame for a switch
+            // arm, the enclosing block for an `is` test (issue #46: these
+            // arms are NEW — chains that were silent here now speak, scoped
+            // to the section that declares the variable).
+            "declaration_pattern" => {
+                if let (Some(name), Some(type_node)) = (
+                    node.child_by_field_name("name"),
+                    node.child_by_field_name("type"),
+                ) {
+                    self.bind(&type_node, source, node_text(&name, source));
+                }
+            }
+            // An implicit lambda parameter (`e => e.Field()`) shadows its
+            // name and binds NOTHING — it hides every outer declaration of
+            // the name, and the silence law for this shape is unchanged.
+            "implicit_parameter" => self.shadow(node_text(node, source)),
             "variable_declaration" => {
                 if let Some(type_node) = node.child_by_field_name("type") {
                     let mut cursor = node.walk();
@@ -881,8 +952,20 @@ impl ShapeWalk {
                 let mut segments = Vec::new();
                 flatten_chain(node, source, &mut segments);
                 if segments.len() >= 2 {
+                    // The invocation flag: a member access that is the
+                    // CALLEE of an invocation (`evt.ToString()`,
+                    // `evt.GetType()`) ends in a method name, and that tail
+                    // joins no bound field (issue #46 — the false
+                    // `drift field absent: ToString` class).
+                    let invoked = node.parent().is_some_and(|parent| {
+                        parent.kind() == "invocation_expression"
+                            && parent
+                                .child_by_field_name("function")
+                                .is_some_and(|function| function.id() == node.id())
+                    });
+                    let path = self.scope_stack.clone();
                     self.chains
-                        .insert((segments[0].clone(), segments.clone()));
+                        .insert((path, segments[0].clone(), segments, invoked));
                 }
             }
             "binary_expression" => {
@@ -892,8 +975,9 @@ impl ShapeWalk {
                     .unwrap_or_default();
                 if (operator == "==" || operator == "!=")
                     && let Some((root, field, direct)) = string_compared_field(node, source) {
+                    let path = self.scope_stack.clone();
                     self.string_comparisons
-                        .insert((root, field, direct));
+                        .insert((path, root, field, direct));
                 }
             }
             _ => {}
@@ -909,6 +993,18 @@ impl ShapeWalk {
             }
             self.walk(&child, source);
         }
+    }
+
+    /// Enter a new scope frame: every push takes a fresh id so sibling
+    /// frames never collide, and every chain recorded inside carries it.
+    fn push_frame(&mut self) {
+        let frame = self.frame_seq;
+        self.frame_seq += 1;
+        self.scope_stack.push(frame);
+    }
+
+    fn pop_frame(&mut self) {
+        self.scope_stack.pop();
     }
 
     fn declare_ns(&mut self, node: &Node<'_>, source: &str, file_scoped: bool) {
@@ -1022,29 +1118,67 @@ impl ShapeWalk {
         self.walk_children(node, source, &["name"]);
     }
 
-    /// Bind a variable name to the simple name of its declared type. Only
-    /// identifier and qualified-name type spellings bind (generics, arrays
-    /// and pointer types bind NOTHING — a binding the census would have to
-    /// guess through is a binding it does not have, M5 silence).
+    /// Bind a variable name to the simple name of its declared type IN THE
+    /// INNERMOST SCOPE FRAME. Only identifier and qualified-name type
+    /// spellings bind (generics, arrays and pointer types bind NOTHING — a
+    /// binding the census would have to guess through is a binding it does
+    /// not have, M5 silence). The frame key is the fix for issue #46: the
+    /// same name in two methods or two classes never shares a binding.
     fn bind(&mut self, type_node: &Node<'_>, source: &str, variable: &str) {
         if !matches!(type_node.kind(), "identifier" | "qualified_name" | "alias_qualified_name") {
             return;
         }
         let tail = type_tail(node_text(type_node, source));
-        if !tail.is_empty() && !variable.is_empty() {
-            self.binds.entry(tail).or_default().insert(variable.to_string());
+        if !tail.is_empty()
+            && !variable.is_empty()
+            && let Some(frame) = self.scope_stack.last().copied()
+        {
+            self.binds
+                .entry((frame, variable.to_string()))
+                .or_default()
+                .insert(tail);
         }
+    }
+
+    /// Record a name as SHADOWED in the innermost frame with no type at all
+    /// (an implicit lambda parameter): resolution stops at this frame and
+    /// answers nothing, so no outer same-named declaration is ever
+    /// attributed to a chain that the shadow covers.
+    fn shadow(&mut self, variable: &str) {
+        if variable.is_empty() {
+            return;
+        }
+        if let Some(frame) = self.scope_stack.last().copied() {
+            self.binds
+                .entry((frame, variable.to_string()))
+                .or_default();
+        }
+    }
+
+    /// Resolve a chain root recorded at `path`: walk the scope chain OUTWARD
+    /// from the access site, innermost first — the first frame declaring the
+    /// name answers with its whole union tail set (a frame that declares the
+    /// name twice answers with BOTH tails), an earlier shadow answers with
+    /// NOTHING and hides the frames beyond it, and a root declared only in
+    /// a sibling scope answers nothing at all (issue #46).
+    fn resolve_root(&self, path: &[usize], root: &str) -> Option<&BTreeSet<String>> {
+        path.iter()
+            .rev()
+            .find_map(|frame| self.binds.get(&(*frame, root.to_string())))
     }
 
     /// End-of-file join, with the same attribution fold `FileFacts::finish`
     /// applies (single namespace -> that one; none -> the unit-root sentinel
     /// `""`; several -> every declared namespace owns the fact): pending
-    /// root-scope declarations fold, then every chain rooted at a bound
-    /// variable contributes its second segment to that type's bound fields,
-    /// projected at the segment before a `ToString` call — at any hop
-    /// (scenario 07). A string comparison joins the compared field the
-    /// same way: direct accesses name a bound field, property-hop accesses
-    /// project their last segment alone.
+    /// root-scope declarations fold, then every chain contributes its second
+    /// segment to the bound fields of the type ITS root resolves to AT THE
+    /// ACCESS SITE — never to every type that ever spelled that name in the
+    /// file (issue #46) — projected at the segment before a `ToString` call,
+    /// at any hop (scenario 07). An invocation-tailed two-segment chain
+    /// (`evt.ToString()`) names a method, not a field, and contributes no
+    /// field. A string comparison joins the compared field the same way:
+    /// direct accesses name a bound field, property-hop accesses project
+    /// their last segment alone.
     fn finish(mut self) -> ShapeFacts {
         let declared: Vec<String> = self.declared.iter().cloned().collect();
         let fold: Vec<String> = if self.ns_stack.len() == 1 {
@@ -1090,31 +1224,45 @@ impl ShapeWalk {
             enums: self.enums.clone(),
             bounds: BTreeMap::new(),
         };
-        for (typ, variables) in &self.binds {
-            let entry = out.bounds.entry(typ.clone()).or_default();
-            for (root, segments) in &self.chains {
-                if segments.len() >= 2 && variables.contains(root) {
+        for (path, root, segments, invoked) in &self.chains {
+            if segments.len() < 2 {
+                continue;
+            }
+            let Some(tails) = self.resolve_root(path, root) else {
+                continue;
+            };
+            for typ in tails {
+                let entry = out.bounds.entry(typ.clone()).or_default();
+                // The field candidate is the second segment — EXCEPT when
+                // the whole chain is an invocation of a direct member
+                // (`evt.ToString()`, `evt.GetType()`): that tail is a method
+                // name and joins no field (issue #46).
+                if !(*invoked && segments.len() == 2) {
                     entry.0.insert(segments[1].clone());
-                    // The projected field is the segment BEFORE the first
-                    // `ToString` call, at any hop (scenario 07): hop 1 keeps
-                    // the shipped shape (the field is also a bound field);
-                    // a deeper hop joins `projected` alone.
-                    if let Some(pos) = (2..segments.len()).find(|&i| segments[i] == "ToString") {
-                        entry.1.insert(segments[pos - 1].clone());
-                    }
+                }
+                // The projected field is the segment BEFORE the first
+                // `ToString` call, at any hop (scenario 07): hop 1 keeps
+                // the shipped shape (the field is also a bound field);
+                // a deeper hop joins `projected` alone.
+                if let Some(pos) = (2..segments.len()).find(|&i| segments[i] == "ToString") {
+                    entry.1.insert(segments[pos - 1].clone());
                 }
             }
-            for (root, field, direct) in &self.string_comparisons {
-                if variables.contains(root) {
-                    // `direct` (scenario 07): a two-segment access names a
-                    // bound field AND projects it; a property-hop access
-                    // projects its last segment only — never a direct
-                    // reference the record must declare.
-                    if *direct {
-                        entry.0.insert(field.clone());
-                    }
-                    entry.1.insert(field.clone());
+        }
+        for (path, root, field, direct) in &self.string_comparisons {
+            let Some(tails) = self.resolve_root(path, root) else {
+                continue;
+            };
+            for typ in tails {
+                let entry = out.bounds.entry(typ.clone()).or_default();
+                // `direct` (scenario 07): a two-segment access names a
+                // bound field AND projects it; a property-hop access
+                // projects its last segment only — never a direct
+                // reference the record must declare.
+                if *direct {
+                    entry.0.insert(field.clone());
                 }
+                entry.1.insert(field.clone());
             }
         }
         out.bounds.retain(|_, (fields, _)| !fields.is_empty());

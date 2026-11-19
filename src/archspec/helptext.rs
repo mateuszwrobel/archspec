@@ -550,6 +550,28 @@ test-gated unit (report-only, never a verdict — exit 0):
    decision:   none required; the exclusion is the doctrine — test-gated
                evidence neither satisfies the floor nor engages the ceiling.
 
+test marker under unevaluated condition (report-only, never a verdict — exit 0):
+  pattern:    test marker under unevaluated condition: <file>:<line>
+   emitted by: csharp (one line per test-runner `PackageReference` the scan
+               suppresses because an unevaluated MSBuild `Condition` covers
+               it — on the item, its `ItemGroup`, or inside a
+               `Choose`/`When`/`Otherwise` subtree; the other drivers never
+               model or diagnose such markers)
+  meaning:    a test-runner marker stands behind a condition the scan
+               cannot evaluate, so it is NOT gating evidence: the project
+               stays where its unconditional facts place it, and the line
+               states the suppression instead of letting the marker gate
+               silently or vanish silently. Condition evaluation is
+               deferred (rung 2). Non-goal: markers declared only in
+               `Directory.Build.targets` or props brought in by `<Import>`
+               are not walked — neither modeled nor diagnosed.
+   origin:     code
+   severity:   report-only (exit 0)
+   follow-up:  archspec scan      (stderr carries the lines; the model
+               artifact stays pure and carries no marker field)
+   decision:   none required; evaluate the condition in the build when the
+               marker's tier matters.
+
 workspace link missing (report-only, never a verdict — exit 0):
   pattern:    workspace link missing: <member name> — resolved to <path> instead of the member dir
               workspace link missing: <member name> — absent from disk
@@ -1162,8 +1184,17 @@ async cycle
   meaning:    a ring of the UNION graph (direct dependency legs plus the
               declared `[[async_depends]]` event legs) that contains at
               least one async leg. The label states the class: (mixed) when
-              some leg is also a direct edge, (async) when every leg is a
-              declared event hop. This is the CENSUS voice, never the
+              some leg is also a witnessed direct edge, (async) when every
+              leg is a declared event hop. A direct back edge backed ONLY
+              by the subscriber compiling against the publisher's contract
+              witnesses nothing when the event's declaring-unit census
+              names the publisher alone or no unit at all (GitHub issue
+              #47): the ring then labels (async), and a ring closing only
+              through such an edge is no ring at all. A pair no entry
+              backs publisher-only keeps its witness, and an ambiguous
+              simple name declares through every declarer unit — one
+              (mixed) row each, never one arbitrary pick. This is the
+              CENSUS voice, never the
               no_cycles verdict — the cycle adjudication stays direct-only,
               so an async ring is advisory here and never a `cycle detected`
               finding; it seeds no [[exempt]] row and prints no repro: line.
@@ -1178,6 +1209,31 @@ async cycle
   decision:   spec-fix or code-fix — break the event round trip, or accept
               the feedback loop knowingly; the [[exempt]] ledger has no
               effect on this row by design.
+
+async event collision
+  pattern:    async event collision: <from> -> <to> declares <n> events named <simple name> — <identities> (entries #N, ...)
+              (rendered 'warning: async event collision: ...')
+  meaning:    at least two declared [[async_depends]] entries share
+              (from, to, event simple name) while their full identities
+              differ — the hidden-runtime-collapse class of GitHub issue
+              #48. Before the identity-keyed render set these entries drew
+              ONE collapsed arrow (the diagram deduped on the rendered
+              label); now every distinct fact draws its own arrow with a
+              distinguishing label — the short unit::SimpleName form where
+              one entry owns a simple name of the pair, a shortest
+              distinguishing dotted suffix (or the full dotted name) where
+              they share it — and this census row names every colliding
+              entry so the shared simple name stays visible. Pure spec
+              arithmetic: no driver capability gates it, an exact duplicate
+              refuses earlier at parse (issue #56), and a table that spells
+              each event once never reaches this row.
+  origin:     spec (one pair carries two contracts under one simple name)
+  severity:   warning (exit 0 in BOTH modes; `--strict` never promotes this
+              census row — scenario 09 severity law)
+  follow-up:  archspec depgraph modules  (the per-entry arrows of the table)
+  decision:   spec-fix — spell the two contracts apart or accept the shared
+              simple name knowingly; nothing collapses anymore, so this row
+              is visibility, not corruption.
 
 async census section (report-only, never a verdict — exit 0):
   pattern:    Async census

@@ -128,7 +128,7 @@ pub const LANGUAGE_NOTES: &[(&str, &str)] = &[
     ),
     (
         "csharp",
-        "  Two names for one project. In a C# tree (and any seeded spec with both\n  tiers), every project appears twice: its `.`-separated name is the build\n  unit (named by `units` and unit edges), its `::`-separated name is the\n  namespace identity (the key space of `module_edges` and `roles`); an\n  `update`-seeded spec therefore carries both tiers and that is not\n  duplication — ADR-018 assigns allowance ownership across them.\n",
+        "  Two names for one project. In a C# tree (and any seeded spec with both\n  tiers), every project appears twice: its `.`-separated name is the build\n  unit (named by `units` and unit edges), its `::`-separated name is the\n  namespace identity (the key space of `module_edges` and `roles`); an\n  `update`-seeded spec therefore carries both tiers and that is not\n  duplication — ADR-018 assigns allowance ownership across them. A project\n  that no `units` pattern claims while only a `modules` pattern covers it\n  keeps its `unassigned unit:` finding — the unit tier owns the verdict on\n  an edge whose source unit has no unit claim, the namespace tier merely\n  resolves the edge (GitHub issue #50). A project whose only naming entry is\n  deleted speaks too: covered solely by another entry's ancestor territory it\n  keeps its `unexpected component:` finding beside the reclaim — territory\n  attribution resolves edges, it is not a name claim (GitHub issue #59).\n",
     ),
     (
         "go",
@@ -272,8 +272,9 @@ that reconciliation. The full audit of an unfamiliar repo, in order:
                               showed and nothing more.
   5. archspec verify --strict  the CI gate: promotes every warning-severity
                               finding to a failing error, so a green run means
-                              zero findings of any kind. A warning-only tree
-                              passes bare but fails --strict.
+                              zero findings of any kind — except the async
+                              census rows, which never promote even under
+                              --strict.
                               [audit case=\"clean\" command=\"verify --strict\" exit=\"0\" pass=\"matches source model\"]
                               [audit case=\"vacuous\" command=\"verify\" exit=\"0\" warning=\"vacuous constraint\"]
                               [audit case=\"vacuous\" command=\"verify --strict\" exit=\"1\" category=\"vacuous constraint\"]

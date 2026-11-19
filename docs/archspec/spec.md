@@ -72,16 +72,20 @@ excluded_sources = [ { path = "web/vendor", reason = "vendored dependencies" } ]
 name = "domain"
 matches = { units = ["core"], modules = ["Billing::domain", "Payments::domain"] }
 contract = { forbid = ["entity"] }   # expose names the exact allowed public surface of the module (see Module contracts)
-
-[module.allowed]
-depend_on = ["domain", "ports"]
-forbidden = ["infrastructure"]
+allowed = { depend_on = ["domain", "ports"], forbidden = ["infrastructure"] }
 
 [[constraint]]
 type = "no_cycles"
 modules = ["domain", "ports", "adapters"]
 severity = "error"
 ```
+
+The `allowed` table has two renderings: the inline form above — the canonical one,
+the rendering `archspec update` emits — and the `[module.allowed]` header section.
+Each parses alone and adjudicates identically. One module must pick one rendering:
+declaring `allowed` BOTH ways on one module is a named invalid-spec error
+(`module #N declares "allowed" twice (inline key + [module.allowed] section) —
+keep one`), never a context-bleeding parse error (GitHub issue #58).
 
 ### Constraint types
 
@@ -117,6 +121,11 @@ The entry carries the event IDENTITY only: `from`, `to` and `event` are each
 required and non-empty — an entry without one is refused as `invalid spec`
 naming the key and the entry (`[async_depends] entry #N: missing mandatory
 key "<key>"`), and a fourth key is refused by the shared unknown-key law.
+A duplicate of an earlier entry — equal on all fields — is refused as
+`invalid spec` naming both entries (`duplicate [[async_depends]] entry #K
+duplicates #J`) — renders deduplicate rows while entry counting does not, so
+the table states each DISTINCT fact once; entries sharing `from`/`to` over
+different events stay legal, one per event.
 `verify` adjudicates every entry with three named arms whenever the table is
 non-empty; an absent or empty table changes nothing in any run.
 
@@ -143,8 +152,14 @@ non-empty; an absent or empty table changes nothing in any run.
 Beyond the per-entry arms, a ring census walks the UNION graph — the direct
 unit-tier legs plus one directed leg per declared entry — and names each
 strongly-connected component that carries at least one async leg as ONE
-advisory row: `async cycle: <path> (mixed)` when a direct leg joins the
-ring, `async cycle: <path> (async)` when every leg is a declared event hop.
+advisory row: `async cycle: <path> (mixed)` when a witnessed direct leg joins
+the ring, `async cycle: <path> (async)` when every leg is a declared event hop.
+A direct back edge whose only backing is the subscriber compiling against the
+publisher's contract witnesses nothing when the event's declaring-unit census
+names the publisher alone or no unit at all (GitHub issue #47): the ring then
+labels `(async)`, and a ring that would close only through such an edge names
+no ring at all. A pair no entry backs publisher-only keeps its witness, and a
+simple name declared by several units prints one `(mixed)` row per declarer.
 The row is a warning (green without `--strict`), never a `cycle detected`
 finding: the `no_cycles` adjudication stays DIRECT-ONLY, so a lawful
 pub→sub→pub round trip with no manifest dependency verifies green at error
@@ -152,6 +167,16 @@ class. Async rings seed no `[[exempt]]` row and print no `repro:` line —
 the ratchet and the repro machinery read direct findings only. A single
 declared entry is never a ring; pure-direct cycles stay owned by the
 `no_cycles` adjudication and are never named twice.
+
+Beyond the ring census, a collision census names the shared-simple-name class
+of the declared table (GitHub issue #48): entries sharing (`from`, `to`, event
+simple name) while their full identities differ render ONE ARROW EACH — the
+render set keys on the full identity, and a colliding entry's label grows to
+the shortest distinguishing dotted suffix (or the full dotted name) — and the
+class speaks one advisory warning row per group, `async event collision: …`,
+naming every entry. Exact duplicates are a different class: the parse refuses
+them (issue #56), while entries differing on any field are the legal
+multi-event table.
 
 The two derivation arms are driver-conditional: the capability table's
 `event-declaration-derivation` row states which drivers derive participation.

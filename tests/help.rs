@@ -796,6 +796,29 @@ fn help_spec_prints_share_reference_material() {
     }
 }
 
+/// Issue #58, mirrored from the existing help pins: the reference teaches
+/// the canonical INLINE `allowed` form (the rendering `archspec update`
+/// emits) and states the no-mixing law, while the `[module.allowed]`
+/// section name stays present for readers of the header rendering.
+#[test]
+fn help_spec_states_the_canonical_allowed_form() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["help", "spec"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let out = stdout(&output);
+    for marker in [
+        "allowed = { depend_on = [\"domain\", \"ports\"], forbidden = [\"infrastructure\"] }",
+        "never mix the two forms on ONE module",
+        "[module.allowed]",
+    ] {
+        assert!(
+            out.contains(marker),
+            "help spec must contain {marker}:\n{out}"
+        );
+    }
+}
+
 #[test]
 fn help_constraints_names_all_seven_types_with_keys() {
     let fixture = Fixture::new();

@@ -24,7 +24,7 @@ const RUST_SENTENCE: &str = "a crate with `src/lib.rs` and `src/main.rs` and no 
 const GO_SENTENCE: &str = "`matches.units` targets must be full import paths — a short package name does not resolve there (verify then reports `unexpected component` / `missing component`); module `name` values and `allowed.depend_on` references may be short — references resolve to declared claim names at any depth.";
 
 /// Canonical report diagram-granularity sentence.
-const REPORT_SENTENCE: &str = "The diagram embedded in a markdown report is file-granular; the module-granular graph is `archspec depgraph modules`.";
+const REPORT_SENTENCE: &str = "The diagram embedded in a markdown report is file-granular by default; the `--diagram` flag or `[report] diagram` in `archspec.toml` selects the module-granular graph or omits the section, and the standalone module-granular graph is `archspec depgraph modules`.";
 
 fn flatten(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")

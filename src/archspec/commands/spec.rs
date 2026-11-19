@@ -28,14 +28,15 @@ matches = { units = [\"core\"], modules = [\"Billing::domain\"] }
 # submodule under one boundary, no '*' needed; \"Billing::domain::*\" states that
 # same claim as a pinned path prefix; overlaps resolve by specificity, ties fail
 contract = { forbid = [\"entity\"], expose = [\"Report\"] }  # forbid bans stereotypes; expose declares the surface that may cross (chain law, any depth)
-[module.allowed]
-depend_on = [\"domain\", \"ports\"]                   # DECLARED module names — exact, not globs
-forbidden = [\"infrastructure\"]                    # same: declared names, never globs
+allowed = { depend_on = [\"domain\", \"ports\"], forbidden = [\"infrastructure\"] }  # DECLARED module names — exact, not globs
+# the inline table is the canonical form — the rendering `archspec update` emits; the
+# [module.allowed] header section parses too, but never mix the two forms on ONE module:
+# the mix is refused as a named duplicate declaration, keeping one form per module
 
 [module.submodules]                                 # recurses: same shape as [[module]]
 name = \"domain::entities\"
 matches = { modules = [\"Billing::domain::entities\"] }
-# a submodule with [module.allowed] owns its territory's dependency checks
+# a submodule with a declared `allowed` table owns its territory's dependency checks
 # (most-specific claim wins at any depth); without it the nearest declaring
 # ancestor's policy applies; matches.units on a submodule is a parse error
 
@@ -451,6 +452,26 @@ mod tests {
             HELP.contains("excluded_sources"),
             "the annotated reference must print excluded_sources (issue-8 \
              decision-check MINOR-1):\n{HELP}"
+        );
+    }
+
+    /// Issue #58: the reference teaches the CANONICAL inline `allowed` form —
+    /// the rendering `update` emits — and states the no-mixing law; the
+    /// `[module.allowed]` section name stays present so the help-pin suite
+    /// keeps its marker while the taught form is the inline one.
+    #[test]
+    fn reference_states_the_canonical_allowed_form() {
+        assert!(
+            HELP.contains("allowed = { depend_on = [\"domain\", \"ports\"], forbidden = [\"infrastructure\"] }"),
+            "reference must teach the canonical inline form update emits:\n{HELP}"
+        );
+        assert!(
+            HELP.contains("never mix the two forms on ONE module"),
+            "reference must state the no-mixing law:\n{HELP}"
+        );
+        assert!(
+            HELP.contains("[module.allowed]"),
+            "the section name must stay named for readers of either rendering:\n{HELP}"
         );
     }
 

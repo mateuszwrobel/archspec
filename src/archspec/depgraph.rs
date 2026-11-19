@@ -51,14 +51,23 @@ pub struct ModuleGraph {
     pub nodes: BTreeSet<String>,
     pub edges: BTreeSet<(String, String)>,
     /// Async (event) rows this render draws (workplan archspec_async_depends,
-    /// N2, follow-up 6; row shape corrected by scenario 08):
-    /// `(from, to, label)` — endpoints are the declared UNIT names, the label
-    /// the short `from::SimpleName` form, and the `BTreeSet` order IS the
-    /// `(from, to, event)` law of N6 on the deduped unit-endpoint rows.
-    /// Populated by [`attach_async_rows`] at the command seam; the builders
-    /// never touch it, so a graph built directly (every existing test and
-    /// view) keeps its exact pre-async bytes — the renderers draw this set
-    /// only when it is non-empty (D8).
+    /// N2, follow-up 6; row shape corrected by scenario 08; endpoints placed
+    /// through the view's fold by issue #51; KEYED on the full event identity
+    /// by issue #48): `(from, to, label)` — endpoints are nodes of THIS graph
+    /// (the units view draws the declared unit names, a folded view draws the
+    /// module nodes those units project to), the label comes from the ONE
+    /// shared implementation [`async_render_rows`] — the short
+    /// `from::SimpleName` form wherever that form addresses one entry of its
+    /// `(from, to)` group, a shortest distinguishing suffix wherever entries
+    /// collide on it, and the `BTreeSet` order IS the `(from, to, event)` law
+    /// of N6 on the identity-deduped rows. Populated by [`attach_async_rows`]
+    /// at the command seam from [`project_async_rows`]; the builders never
+    /// touch it, so a graph built directly (every existing test and view)
+    /// keeps its exact pre-async bytes — the renderers draw this set only
+    /// when it is non-empty (D8). Future-proof note (issue #48, named
+    /// follow-up): `Model::async_edges` has NO construction site today; when
+    /// derived rows land, their dedupe against declared FQN spellings must
+    /// be defined before a derived row can suppress a declared arrow.
     pub async_edges: BTreeSet<(String, String, String)>,
     pub markers: BTreeMap<String, Role>,
     /// Role facts that folded onto one node with a DIFFERENT role and so
@@ -87,36 +96,293 @@ pub fn async_event_label(from: &str, event: &str) -> String {
     format!("{from}::{simple}")
 }
 
+/// The segments of one event identity: the parts between separator runs (a
+/// `.` or a run of `:` chars is one separator — the rust `::` spelling and
+/// the csharp `.` spelling share one segmentation), plus the byte ranges of
+/// the separators themselves so a suffix can be returned as an exact
+/// substring of the original spelling. One segment (no separator) is a
+/// simple name; an empty identity segments to one empty part.
+fn event_identity_parts(event: &str) -> (Vec<&str>, Vec<(usize, usize)>) {
+    let mut separators: Vec<(usize, usize)> = Vec::new();
+    let bytes = event.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        let ch_len = event[index..].chars().next().map(char::len_utf8).unwrap_or(1);
+        if event[index..].starts_with(['.', ':']) {
+            let mut end = index + ch_len;
+            while end < bytes.len() && event[end..].starts_with(['.', ':']) {
+                end += event[end..].chars().next().map(char::len_utf8).unwrap_or(1);
+            }
+            separators.push((index, end));
+            index = end;
+        } else {
+            index += ch_len;
+        }
+    }
+    let mut segments = Vec::with_capacity(separators.len() + 1);
+    let mut start = 0usize;
+    for (sep_start, sep_end) in &separators {
+        segments.push(&event[start..*sep_start]);
+        start = *sep_end;
+    }
+    segments.push(&event[start..]);
+    (segments, separators)
+}
+
+/// The count of trailing segments two identities share (right-to-left, exact
+/// string equality): `0` when even the simple names differ, `min(depths)`
+/// when one identity is a full right-suffix of the other.
+fn shared_tail_segments(a: &str, b: &str) -> usize {
+    let (a_parts, _) = event_identity_parts(a);
+    let (b_parts, _) = event_identity_parts(b);
+    a_parts
+        .iter()
+        .rev()
+        .zip(b_parts.iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count()
+}
+
+/// The suffix of one identity at a segment depth: depth = full spelling,
+/// depth 1 = the simple name, an intermediate depth = everything after the
+/// matching separator run (an exact substring of the original spelling).
+fn event_suffix_at_depth(event: &str, depth: usize) -> &str {
+    let (_, separators) = event_identity_parts(event);
+    let segment_count = separators.len() + 1;
+    if depth >= segment_count {
+        return event;
+    }
+    let skip = segment_count - depth;
+    separators.get(skip - 1).map_or(event, |(_, end)| &event[*end..])
+}
+
+/// The render rows of the async arrows — the ONE implementation of the
+/// identity-and-label law of GitHub issue #48, shared by every call path
+/// (`diagram` spec source, `diagram` scan source, and the `depgraph` fold
+/// projection through [`project_async_rows`]): the RENDER SET keys on
+/// `(from, to, full event identity)` — two entries over one pair whose
+/// events differ in full NEVER share an arrow — while the LABEL stays the
+/// short [`async_event_label`] form whenever that form addresses exactly
+/// one entry of its `(from, to)` group (the shipped bytes wherever no
+/// collision exists, D8). When ≥2 entries of one group share the short
+/// form's simple name, each label becomes the SHORTEST DISTINGUISHING
+/// SUFFIX among the group's entries — the identity's suffix one segment
+/// past the point where it diverges from every sibling, so it is either a
+/// dotted suffix or, at full depth, the full dotted name. Deterministic:
+/// dedupe and grouping read the rows in sorted order. Self pairs stay the
+/// callers' filter (the self-edge law, unchanged).
+pub fn async_render_rows(
+    rows: impl IntoIterator<Item = (String, String, String)>,
+) -> Vec<(String, String, String)> {
+    let entries: BTreeSet<(String, String, String)> = rows.into_iter().collect();
+    // Group the distinct identities by pair; the shared-tail maxima come
+    // from comparing each entry against every sibling of its group.
+    let mut labelled: Vec<(String, String, String)> = Vec::with_capacity(entries.len());
+    let all: Vec<&(String, String, String)> = entries.iter().collect();
+    for (position, (from, to, event)) in all.iter().enumerate() {
+        let mut shared_max = 0usize;
+        for (_, (other_from, other_to, other_event)) in
+            all.iter().enumerate().filter(|(other, _)| *other != position)
+        {
+            if other_from == from && other_to == to {
+                shared_max = shared_max.max(shared_tail_segments(event, other_event));
+            }
+        }
+        let depth = event_identity_parts(event).0.len();
+        let label_part = if shared_max == 0 {
+            async_event_label(from, event)
+        } else {
+            let k = (shared_max + 1).min(depth);
+            format!("{from}::{}", event_suffix_at_depth(event, k))
+        };
+        labelled.push((from.clone(), to.clone(), label_part));
+    }
+    labelled.sort();
+    labelled.dedup();
+    labelled
+}
+
 /// Attach async rows to a built graph (workplan archspec_async_depends, N2;
-/// row shape corrected by scenario 08, consumer verdict on 0.6.86) — the
+/// row shape corrected by scenario 08, endpoints placed by issue #51) — the
 /// depgraph seam's ONLY async writer. One row renders EXACTLY ONE arrow:
-/// the endpoints are the declared UNIT names (`from`, `to`) — never the
-/// several folded module nodes a unit's paths address under
-/// [`projection_node`] (the projected-pair fan-out of 0.6.86 rendered 18
-/// declared entries as 26 lines) — and the label is the short
-/// [`async_event_label`] form. Rows deduplicate and order by
-/// `(from, to, event)` through the set (N6, on the unit-endpoint rows); a
-/// row whose endpoints are one unit renders no arrow (a self-edge says
-/// nothing, the direct-edge law). Callers assemble the rows from BOTH
-/// sources — the model's derived `async_edges` and the governing spec's
-/// declared table — and call this once after the graph is built; async
-/// renders one line per fact on every projection, at the unit tier the
-/// facts are stated at.
+/// the rows arrive ALREADY PLACED through the view's fold by
+/// [`project_async_rows`] — each endpoint is ONE node of the graph (never the
+/// several folded module nodes a unit's paths address, the projected-pair
+/// fan-out of 0.6.86 rendered 18 declared entries as 26 lines, and never a
+/// raw name outside the graph's node set, the phantom boxes of issue #51) —
+/// and the label comes from the ONE shared implementation
+/// [`async_render_rows`]: the short [`async_event_label`] form naming the
+/// publishing unit wherever it addresses one entry, a shortest
+/// distinguishing suffix where the pair's entries collide (issue #48).
+/// Rows deduplicate and order by `(from, to, label)` through
+/// the set (N6); a row whose placed endpoints are one node renders no arrow
+/// (a self-edge says nothing, the direct-edge law) — the fold's drop counts
+/// for the note ride [`AsyncProjection`], this law stays the single place a
+/// self pair vanishes. Callers assemble the rows from BOTH sources — the
+/// model's derived `async_edges` and the governing spec's declared table —
+/// project them once after the graph is built, and pass the projection's
+/// rows here; async renders one line per fact on every projection.
 pub fn attach_async_rows(
     graph: &mut ModuleGraph,
     rows: impl IntoIterator<Item = (String, String, String)>,
 ) {
-    for (from, to, event) in rows {
+    for (from, to, label) in rows {
         if from != to {
-            let label = async_event_label(&from, &event);
             graph.async_edges.insert((from, to, label));
         }
     }
 }
 
+/// What one view's fold did to the async rows (GitHub issue #51): the rows
+/// in the view's own vocabulary plus the honest account of every row that
+/// did not survive as an arrow. Silence about a vanished row is the illegal
+/// state this record exists to prevent — [`async_fold_note`] turns it into
+/// one stderr line.
+pub struct AsyncProjection {
+    /// Rows in the view's vocabulary: `(from_node, to_node, label)`. Pairs
+    /// that folded to one node ride here too — [`attach_async_rows`] drops
+    /// them through the self-edge law, the projection only counts them.
+    pub rows: Vec<(String, String, String)>,
+    /// Rows that render no arrow: pairs that folded to one node plus rows
+    /// with an endpoint the view cannot place.
+    pub folded_away: usize,
+    /// Endpoint names the fold could not place on EXACTLY ONE rendered node
+    /// (no path of the unit sits in this view's scope, or the unit's paths
+    /// address several rendered nodes — one arrow per fact forbids picking
+    /// one of them), named for the note.
+    pub out_of_view: BTreeSet<String>,
+}
+
+/// Project async rows through ONE view's fold at the command seam (GitHub
+/// issue #51: folded views appended the raw unit names, and Mermaid drew
+/// undeclared boxes for them). An endpoint is placed by the view's own fold,
+/// the same node function the graph builder used: an endpoint that is
+/// already a rendered node (the units tier — every unit is a node there)
+/// keeps its name, so the units render keeps its exact shipped bytes;
+/// otherwise the endpoint's UNIT contributes the set of nodes its OWN
+/// module paths (its `soft_structure` membership — the same set the solid
+/// arrows project through, issue #51 residual N4) fold to, unioned with the
+/// paths [`unit_of_path`] attributes to it, and exactly one such node places
+/// the endpoint — zero
+/// (no path of the unit lives in the view's scope: the submodules
+/// cross-parent class) or several (a multi-module unit; one row renders one
+/// pair, never a fan-out) place nothing and name the endpoint in
+/// [`AsyncProjection::out_of_view`]. A placed row keeps the short
+/// [`async_event_label`] computed from the ORIGINAL from-unit: the label
+/// names the publishing unit whatever the fold does to the endpoints
+/// (scenario 08's label law).
+pub fn project_async_rows(
+    model: &Model,
+    graph: &ModuleGraph,
+    node: impl Fn(&str) -> Option<String>,
+    rows: impl IntoIterator<Item = (String, String, String)>,
+) -> AsyncProjection {
+    // The fold input: every module path the tier names — the same set the
+    // soft paths and module edges state for the projection's own purposes.
+    let mut paths: BTreeSet<&str> = BTreeSet::new();
+    for unit_paths in model.soft_structure.values() {
+        for path in unit_paths {
+            paths.insert(path.as_str());
+        }
+    }
+    for edge in &model.module_edges {
+        paths.insert(edge.from.as_str());
+        paths.insert(edge.to.as_str());
+    }
+    let place = |name: &str| -> Option<String> {
+        if graph.nodes.contains(name) {
+            return Some(name.to_string());
+        }
+        // The endpoint's candidate paths: the unit's OWN soft_structure
+        // membership — the same map `project_unit_edges` folded the solid
+        // arrows through — unioned with the attribution scan below. A driver
+        // whose module paths do not spell the unit name first (the c#
+        // RootNamespace class: `eShop::Ordering::API` under unit
+        // `Ordering.API`) left the scan empty, and the endpoint folded away
+        // although the very same graph already drew that unit's solid arrows
+        // on exactly ONE node (issue #51 residual, N4): the async endpoint
+        // must land on the node its solid-edge counterpart uses.
+        let mut candidates: BTreeSet<&str> = BTreeSet::new();
+        if let Some(unit_paths) = model.soft_structure.get(name) {
+            candidates.extend(unit_paths.iter().map(String::as_str));
+        }
+        for path in &paths {
+            if unit_of_path(model, path).as_deref() == Some(name) {
+                candidates.insert(*path);
+            }
+        }
+        let mut placed: BTreeSet<String> = BTreeSet::new();
+        for path in candidates {
+            if let Some(node) = node(path)
+                && graph.nodes.contains(&node)
+            {
+                placed.insert(node);
+            }
+        }
+        (placed.len() == 1).then(|| placed.into_iter().next().expect("len checked"))
+    };
+    let mut projection = AsyncProjection {
+        rows: Vec::new(),
+        folded_away: 0,
+        out_of_view: BTreeSet::new(),
+    };
+    // Dedupe on the FULL identity and assign every row its label through the
+    // ONE collision-aware implementation (issue #48): a distinct event never
+    // folds into another event's arrow, and the placed endpoints change the
+    // label not at all — it stays computed from the ORIGINAL pair (scenario
+    // 08's label law, now collision-aware).
+    for (from, to, label) in async_render_rows(rows) {
+        let (placed_from, placed_to) = (place(&from), place(&to));
+        match (placed_from, placed_to) {
+            (Some(from_node), Some(to_node)) => {
+                if from_node == to_node {
+                    projection.folded_away += 1;
+                }
+                projection.rows.push((from_node, to_node, label));
+            }
+            (from_placed, to_placed) => {
+                projection.folded_away += 1;
+                if from_placed.is_none() {
+                    projection.out_of_view.insert(from);
+                }
+                if to_placed.is_none() {
+                    projection.out_of_view.insert(to);
+                }
+            }
+        }
+    }
+    projection
+}
+
+/// The note the async projection owes its render, if any (the
+/// [`automatic_projection_note`] vehicle: stderr only, a note never a
+/// refusal, an explicit render keeps its bytes): whenever at least one row
+/// folded away — or, equivalently, an endpoint fell outside the view's node
+/// set — one line names the count and the endpoints the view could not
+/// place. Rows placed cleanly fold nothing away and add no bytes (D8).
+pub fn async_fold_note(projection: &AsyncProjection) -> Option<String> {
+    if projection.folded_away == 0 {
+        return None;
+    }
+    let mut note = format!(
+        "note: {} async rows folded away in this projection",
+        projection.folded_away
+    );
+    if !projection.out_of_view.is_empty() {
+        let names = projection
+            .out_of_view
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = write!(note, " — endpoints outside the view's nodes: {names}");
+    }
+    Some(note)
+}
+
 /// The top-level module a dotted module path projects to: the segment right
 /// after the unit name; a unit-root path (one segment) folds to `root`.
-fn top_node(dotted: &str) -> String {
+pub(crate) fn top_node(dotted: &str) -> String {
     let segments: Vec<&str> = dotted.split("::").collect();
     if segments.len() <= 1 {
         ROOT_NODE.to_string()
@@ -146,7 +412,7 @@ fn deep_node(dotted: &str) -> String {
 /// when the path does not sit under a `parent` top-level module. The parent's
 /// own module (two segments) folds to `mod`; a deeper path folds to the child
 /// segment directly under the parent.
-fn child_node(dotted: &str, parent: &str) -> Option<String> {
+pub(crate) fn child_node(dotted: &str, parent: &str) -> Option<String> {
     let segments: Vec<&str> = dotted.split("::").collect();
     if !parent_matches(&segments, parent) {
         return None;
@@ -564,7 +830,7 @@ pub fn units_graph(model: &Model) -> ModuleGraph {
 /// (GitHub issue #20); the api-usage grouping keeps this granularity, and its
 /// emptiness statement [`api_usage_empty_reason`] already names the fold
 /// placement that collapse leaves behind.
-fn projection_node(model: &Model) -> fn(&str) -> String {
+pub(crate) fn projection_node(model: &Model) -> fn(&str) -> String {
     let top = project(model, top_node);
     if top.nodes.len() > 1 {
         return top_node;
@@ -834,8 +1100,10 @@ pub fn render_mermaid(graph: &ModuleGraph) -> String {
         let _ = writeln!(out, "  {}", mermaid_edge(from, to));
     }
     // Async rows render dashed and event-labelled after every direct arrow,
-    // in the set's own `(from, to, event)` order (N6); one declared entry is
-    // one line with unit endpoints and the short label (scenario 08); an
+    // in the set's own `(from, to, event)` order (N6); one row is one line
+    // with the endpoints the caller placed and the short label (scenario 08;
+    // issue #51: folded views place view nodes, the units tiers place unit
+    // names — the renderer draws whatever it is handed); an
     // empty set renders no bytes, so every non-declaring graph keeps its
     // exact shipped render (D8, follow-up 6).
     for (from, to, event) in &graph.async_edges {

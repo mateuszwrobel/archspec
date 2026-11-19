@@ -17,6 +17,22 @@
 //! `no_cycles` adjudication stays DIRECT-ONLY in `cycles.rs`, and these
 //! findings ride the warnings channel, never the exempt-matching path
 //! (they seed no `[[exempt]]` row and enter no `repro:` line, M6/N1).
+//! The ring census's direct-side witness set carries the declaring-unit
+//! predicate of GitHub issue #47: a subscriber-side direct leg back to the
+//! publisher is the pair relation the tree reads whenever the subscriber
+//! compiles against the publisher, and for a contract-only reference it
+//! carries no dependency voice — it closes no ring when the event's
+//! DECLARATION sits with the publisher alone, or with no unit at all (the
+//! drivers that derive no record census state silence, never a hidden
+//! voice: the declaration-trust law). Any declarer OUTSIDE the publisher —
+//! a shared contracts unit or a duplicated second copy — keeps the back
+//! edge's witness: ambiguity and independent dependencies keep their voice
+//! and a mixed ring keeps `(mixed)`. The collision census (GitHub issue
+//! #48, adversarial pass M3) names each `(from, to, simple-name)` group whose
+//! DISTINCT declared identities the identity-keyed render set now draws as one
+//! arrow each — the hidden-runtime-collapse class the diagram used to voice
+//! by accident speaks one advisory row per group in the same warnings
+//! channel, never `--strict`-promoted, naming every entry.
 
 use std::collections::{BTreeMap, BTreeSet};
 use super::claims::{Claim, async_endpoint_claimed};
@@ -316,6 +332,104 @@ fn is_string_type(written_type: &str) -> bool {
     name.eq_ignore_ascii_case("string")
 }
 
+/// The ONE declaring-unit resolution function of the ring predicate
+/// (GitHub issue #47, adopted fix shape P5): the set of units that DECLARE
+/// the event named by an identity — a unit declares it iff a source file
+/// OWNED by the unit (the scan's file→project attribution, the same one
+/// that builds the units: `event_shapes.records` attributed to modules,
+/// modules owned through `soft_structure`) contains an event RECORD of the
+/// identity's SIMPLE name, the `event_type_simple_name` tail. The census is
+/// the ALL-declarers set (adversarial pass B1): every declaring unit joins,
+/// never first-wins and never an arbitrary pick. The simple-name join law
+/// is UNCHANGED — no qualified identity enters the binding layer. An empty
+/// set is the driver's silence (the `not-emitted` drivers derive no record
+/// census at all), read by the declaration-trust law as "nothing in this
+/// tree names the contract", never as a hidden voice. No new serialized
+/// fact: the resolution reads the scan's existing record census, the single
+/// pre-approved surface.
+fn event_declarers(model: &Model, event: &str) -> BTreeSet<String> {
+    let name = csharp::event_type_simple_name(event);
+    model
+        .soft_structure
+        .keys()
+        .filter(|unit| {
+            csharp::unit_module_census_holds(model, unit, &model.event_shapes.records, |records| {
+                records.contains_key(name)
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+/// Publisher-only declaration of one entry's event (issue #47): the event's
+/// declaring-unit census names NO unit outside `from` — empty (the
+/// declaration-trust arm: no record census anywhere) or exactly `{from}`
+/// (the publisher declares the contract it publishes). `false` is the
+/// voice-keeping arm: a shared contracts unit or a duplicated second copy
+/// declares the simple name, so the subscriber's compile-against edge is
+/// not attributable to this entry's contract and keeps its witness.
+fn declares_publisher_only(declarers: &BTreeSet<String>, from: &str) -> bool {
+    declarers.is_empty() || (declarers.len() == 1 && declarers.contains(from))
+}
+
+/// The per-entry arrow law's COLLISION voice (GitHub issue #48, the
+/// adversarial pass M3 adoption): ≥2 declared entries sharing
+/// `(from, to, simple-name)` with DISTINCT full event identities are the
+/// class the diagram used to voice by accident — before the identity-keyed
+/// render set, those entries collapsed onto one arrow, so the collapse was
+/// visible. Each entry now renders its own arrow, and the collision speaks
+/// ONE advisory row per group in the verify warnings channel (the async
+/// census voice: green without `--strict` AND green under it, never
+/// `--strict`-promoted — the scenario 09 severity law via
+/// `diff::is_async_census_row`; never an exempt-ratchet or `repro:` input),
+/// naming every colliding entry by its declared identity and walker entry
+/// number. The simple-name tail is the shared `event_type_simple_name`
+/// implementation — byte-identical, the simple-name join law unchanged.
+/// Entries differing only in full identity are the legal multi-event class
+/// the #56 duplicate law keeps; an exact duplicate never reaches this arm
+/// (parse refuses it). Pure spec arithmetic: no model facts, no capability
+/// gate — the row reads the declared table, whatever the driver derives.
+fn check_event_name_collisions(async_depends: &[AsyncDepend], diff: &mut Diff) {
+    // Group by (from, to, simple-name): the collision class of the
+    // identity-keyed render set. Self pairs render no arrow (the self-edge
+    // law) and entries with an absent or empty key field render nothing
+    // either — none of them can hide a collapse, so none of them speaks.
+    let mut groups: BTreeMap<(String, String, String), Vec<(usize, String)>> = BTreeMap::new();
+    for (index, entry) in async_depends.iter().enumerate() {
+        let from = entry.from.clone().unwrap_or_default();
+        let to = entry.to.clone().unwrap_or_default();
+        let event = entry.event.clone().unwrap_or_default();
+        if from.is_empty() || to.is_empty() || event.is_empty() || from == to {
+            continue;
+        }
+        let name = csharp::event_type_simple_name(&event).to_string();
+        groups
+            .entry((from, to, name))
+            .or_default()
+            .push((index + 1, event));
+    }
+    for ((from, to, name), members) in groups {
+        let distinct: BTreeSet<&str> = members.iter().map(|(_, event)| event.as_str()).collect();
+        if distinct.len() < 2 {
+            continue;
+        }
+        // `distinct` is a BTreeSet: its iteration is already the sorted
+        // identity list the row prints.
+        let identities: Vec<&str> = distinct.into_iter().collect();
+        let numbers: Vec<String> = members
+            .iter()
+            .map(|(index, _)| format!("#{index}"))
+            .collect();
+        diff.warnings.push(format!(
+            "async event collision: {from} -> {to} declares {} events named {name} — {} \
+             (entries {})",
+            identities.len(),
+            identities.join(", "),
+            numbers.join(", "),
+        ));
+    }
+}
+
 /// The identity arms, the territory check and the ring census over the
 /// declared table, writing findings into the diff fields. Each failing side
 /// names itself with its own category (diff.rs), one line per failing side,
@@ -336,6 +450,9 @@ pub(super) fn check_async_depends(
     // identity arms (D8: an absent or empty table leaves every path
     // byte-identical); it reads the scan's shape facts, never a spec byte.
     check_shape_drift(model, async_depends, diff);
+    // The collision voice (issue #48) rides the same non-empty-table gate —
+    // pure spec arithmetic, an absent or empty table stays byte-identical.
+    check_event_name_collisions(async_depends, diff);
     for (index, entry) in async_depends.iter().enumerate() {
         let from = entry.from.clone().unwrap_or_default();
         let to = entry.to.clone().unwrap_or_default();
@@ -385,7 +502,11 @@ pub(super) fn check_async_depends(
     // finding, never an exempt-ratchet or `repro:` input (the direct
     // adjudicator in `cycles.rs` never sees an async edge). One row per
     // reported ring, off the exempt path by construction: this pushes into
-    // `warnings`, which exempt matching never reads.
+    // `warnings`, which exempt matching never reads. The direct side of the
+    // graph enters through the declaring-unit witness carve of issue #47:
+    // a subscriber→publisher contract-compile back edge is no ring witness
+    // when the event's declaration sits with the publisher alone (or with
+    // no unit at all); see `async_rings`.
     for (path, mixed) in async_rings(model, async_depends) {
         let kind = if mixed { "mixed" } else { "async" };
         diff.warnings
@@ -404,6 +525,19 @@ type Leg = (String, bool);
 /// direct edge. Pure-direct cycles are NOT returned — the direct-only
 /// `no_cycles` adjudication owns them (D6), and naming them twice would
 /// move the shipped cycle bytes (B2/M3).
+///
+/// The direct side enters through the declaring-unit witness carve of
+/// GitHub issue #47: a direct pair `(to, from)` backed by declared entries
+/// leaves the ring graph when EVERY entry `from -> to` declares its event
+/// publisher-only (see [`declares_publisher_only`]) — the pair then reads as
+/// the subscriber compiling against the contract, and a pair that closes
+/// only through it names no ring at all (the false `(mixed)` chronic warning
+/// this closes). A pair kept by ANY entry — or never addressed by an entry
+/// at all — keeps its voice, and every entry whose kept back edge closes a
+/// two-node ring names its OWN row: the multi-declarer collision (several
+/// publishers of one simple name, each compiled against by the subscriber)
+/// then prints one deterministic row per declarer instead of the SCC
+/// representative's first-wins single row (the issue's missing-row class).
 fn async_rings(model: &Model, async_depends: &[AsyncDepend]) -> Vec<(Vec<String>, bool)> {
     // Direct side: the unit-tier dependency rows of the model — the same
     // pairs the edge adjudication walks, never a re-derivation. Self-pairs
@@ -416,14 +550,37 @@ fn async_rings(model: &Model, async_depends: &[AsyncDepend]) -> Vec<(Vec<String>
         .collect();
     // Async side: one directed leg per declared entry, publisher to
     // subscriber (the ⇢ arrow of the design: the event flows `from` to
-    // `to`). A ring of such legs is the pub→sub→pub round trip the consumer
-    // pin names (D6) — one entry alone is never a ring (the green
-    // shared-contracts shape).
-    let async_edges: BTreeSet<(String, String)> = async_depends
+    // `to`), each carrying its event's declaring-unit census. A ring of
+    // such legs is the pub→sub→pub round trip the consumer pin names (D6)
+    // — one entry alone is never a ring (the green shared-contracts shape).
+    let entries: Vec<(String, String, BTreeSet<String>)> = async_depends
         .iter()
         .filter_map(|entry| {
             let (from, to) = (entry.from.clone().unwrap_or_default(), entry.to.clone().unwrap_or_default());
-            (from != to).then_some((from, to))
+            (from != to)
+                .then(|| (from, to, event_declarers(model, &entry.event.clone().unwrap_or_default())))
+        })
+        .collect();
+    let async_edges: BTreeSet<(String, String)> = entries
+        .iter()
+        .map(|(from, to, _)| (from.clone(), to.clone()))
+        .collect();
+    // The contract-compile carve (issue #47): a direct pair `(u, v)` whose
+    // reverse is addressed by declared entries leaves the witness graph
+    // when every such entry attributes its event publisher-only — the carve
+    // rides the pair per entry, so an entry whose event declares elsewhere
+    // (or in several units) keeps the pair as a witness for ALL rings
+    // through it. A pair no entry addresses never carves: it is an
+    // independent direct justification, unchanged from the pre-issue bytes.
+    let direct: BTreeSet<(String, String)> = direct
+        .into_iter()
+        .filter(|(u, v)| {
+            let reverse: Vec<&BTreeSet<String>> = entries
+                .iter()
+                .filter(|(from, to, _)| from == v && to == u)
+                .map(|(_, _, declarers)| declarers)
+                .collect();
+            reverse.is_empty() || !reverse.iter().all(|d| declares_publisher_only(d, v))
         })
         .collect();
     let mut adjacency: BTreeMap<String, BTreeSet<Leg>> = BTreeMap::new();
@@ -451,6 +608,24 @@ fn async_rings(model: &Model, async_depends: &[AsyncDepend]) -> Vec<(Vec<String>
             continue;
         }
         reported.push((rotate_to_smallest(&path), has_direct));
+    }
+    // The ALL-declarers pair closures (issue #47, adversarial pass B1):
+    // every entry whose subscriber-side back edge KEPT its witness voice
+    // names its own two-node `(mixed)` ring. The SCC representative above
+    // would name only the lexicographically first closing pair of a shared
+    // component and drop the rest — the first-wins class of missing rows.
+    // Pairs carved above close no pair ring: the contract-compile edge is
+    // no witness there. Rows dedup against the SCC representatives by
+    // path; the sort keeps the declarer order deterministic.
+    for (from, to, _) in &entries {
+        if direct.contains(&(to.clone(), from.clone())) {
+            let (first, second) = if from <= to {
+                (from.clone(), to.clone())
+            } else {
+                (to.clone(), from.clone())
+            };
+            reported.push((vec![first.clone(), second, first], true));
+        }
     }
     reported.sort();
     reported.dedup();

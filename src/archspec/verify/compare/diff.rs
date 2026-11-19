@@ -162,7 +162,8 @@ pub struct Diff {
     /// `cycle: A -> B -> A`); the report prefixes it with `warning: ` unless
     /// `--strict` promotes it to an error line. Listed after all error items.
     /// The named exception is the async census rows — [`is_async_census_row`]
-    /// (ring, field-absent, enum-projection): they ride this channel as
+    /// (ring, field-absent, enum-projection, event-name collision): they ride
+    /// this channel as
     /// advisories in BOTH modes, keep their `warning: ` prefix under
     /// `--strict` and never move the verdict (the severity law of consumer-fix
     /// round 2, scenario 09, issue #44; the direct promotion is unchanged).
@@ -248,11 +249,12 @@ impl Diff {
     }
 }
 
-/// True when a rendered warnings-channel entry is one of the three async
+/// True when a rendered warnings-channel entry is one of the four async
 /// census rows — the ring row (`async cycle: `), the field-absent row
-/// (`async drift field absent: `) and the enum-projection row
-/// (`async drift enum projection: `), all pushed by `async_depends` (the
-/// drift census and the ring census). The severity law of consumer-fix
+/// (`async drift field absent: `), the enum-projection row
+/// (`async drift enum projection: `) and the event-name collision row
+/// (`async event collision: `), all pushed by `async_depends` (the
+/// drift census, the ring census and the collision census of issue #48). The severity law of consumer-fix
 /// round 2 (scenario 09, issue #44): `--strict` arms census DETECTION depth
 /// only and NEVER promotes these rows to errors — the consumer CI is
 /// `verify --strict`, and an advisory census row must not red it. Every
@@ -263,6 +265,17 @@ fn is_async_census_row(entry: &str) -> bool {
     entry.starts_with("async cycle: ")
         || entry.starts_with("async drift field absent: ")
         || entry.starts_with("async drift enum projection: ")
+        || entry.starts_with("async event collision: ")
+}
+
+/// `N warning` / `N warnings` — the passing-run headline's plural (the same
+/// shape as the cycles census helper, cycles.rs).
+fn plural(count: usize, singular: &str) -> String {
+    if count == 1 {
+        format!("{count} {singular}")
+    } else {
+        format!("{count} {singular}s")
+    }
 }
 
 /// Route a finding into the error bucket (detail only; the report adds the
@@ -300,7 +313,15 @@ pub fn pass_confirmation(modules: &[Module], constraints_checked: usize) -> Stri
 /// arms detection depth, never async-row severity). `strict` only changes how
 /// the promoted warnings are labelled and whether the run fails — it does not
 /// reorder or drop any item.
-pub fn render_report(diff: &Diff, strict: bool) -> String {
+/// `pass` is the run verdict (`!fails(strict)`, computed by the caller). A
+/// PASSING run with findings — the warnings-only run, and a `--strict` run
+/// whose only findings are async census rows — never prints the failure
+/// headline: it prints `ok: architecture.spec.toml passes with N warning(s)`
+/// naming the count (GitHub issue #54). The headline stays byte-distinct from
+/// [`pass_confirmation`]: a grep for `matches source model` keeps its exact
+/// meaning. A failing run (`pass` false) keeps the shipped headline and lines
+/// byte-for-byte.
+pub fn render_report(diff: &Diff, strict: bool, pass: bool) -> String {
     let vacuous_only =
         !diff.has_errors() && diff.warnings.is_empty() && !diff.vacuous_constraints.is_empty();
     let mut out = String::new();
@@ -317,6 +338,11 @@ pub fn render_report(diff: &Diff, strict: bool) -> String {
         out.push_str(&format!(
             "architecture.spec.toml has vacuous constraints: {}\n",
             tokens.join(", ")
+        ));
+    } else if pass {
+        out.push_str(&format!(
+            "ok: architecture.spec.toml passes with {}\n",
+            plural(diff.warnings.len() + diff.vacuous_constraints.len(), "warning")
         ));
     } else {
         out.push_str("architecture.spec.toml does not match source model\n");

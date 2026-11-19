@@ -714,8 +714,15 @@ pub fn shape_keys(shape: &str) -> &'static [&'static str] {
 /// level, then `[project]` (its keys, then entries in order), then stereotypes,
 /// then module claims depth-first, then constraints.
 fn validate_unknown_keys(content: &str, spec_path: &std::path::Path) -> Result<(), String> {
-    let Ok(value) = content.parse::<toml::Value>() else {
-        return Ok(());
+    let value = match content.parse::<toml::Value>() {
+        Ok(value) => value,
+        // A parse failure stays silent here — each loader's own malformed-TOML
+        // class owns files that do not parse — EXCEPT the module `allowed`
+        // duplicate-declaration class (GitHub issue #58), named below instead
+        // of letting the raw duplicate-key error context-bleed.
+        Err(err) => {
+            return duplicate_allowed_parse_error(content, &err, spec_path).map_or(Ok(()), Err)
+        }
     };
     let Some(root) = value.as_table() else {
         return Ok(());
@@ -759,6 +766,7 @@ fn validate_unknown_keys(content: &str, spec_path: &std::path::Path) -> Result<(
             check_async_depend_entry(table, index, spec_path)?;
         }
     }
+    check_async_depend_duplicates(array_items(root.get("async_depends")), spec_path)?;
     Ok(())
 }
 
@@ -769,6 +777,85 @@ fn array_items(value: Option<&toml::Value>) -> &[toml::Value] {
         .and_then(toml::Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or_default()
+}
+
+/// The module-claim `allowed` duplicate-declaration class (GitHub issue #58):
+/// one module table declaring `allowed` BOTH as an inline key and as a
+/// `[module.allowed]` header section is malformed TOML — the parser refuses
+/// the second declaration, and the raw duplicate-key error context-bleeds
+/// (its wording varies with which declaration lands later, and the nesting
+/// it implies names the wrong table). Name the collision instead, in the
+/// shipped `invalid spec` class, with a deterministic entry ordinal: the
+/// module (and submodule, for the `module.submodules` path) ordinals are the
+/// array-of-table headers strictly before the parser's reported line — the
+/// element the parser's second declaration lands in. Any other parse failure
+/// — including an unrelated duplicate-key error — stays silent here, in its
+/// loader's parse-error class, byte-for-byte as before.
+fn duplicate_allowed_parse_error(
+    content: &str,
+    err: &toml::de::Error,
+    spec_path: &std::path::Path,
+) -> Option<String> {
+    let message = err.to_string();
+    let table = message
+        .split("duplicate key `allowed` in table `")
+        .nth(1)
+        .and_then(|rest| rest.split('`').next())?;
+    let line = parse_error_line(&message)?;
+    let (modules, submodules) = module_ordinals_at(content, line);
+    let location = match table {
+        "module" if modules > 0 => format!("module #{modules}"),
+        "module.submodules" if modules > 0 && submodules > 0 => {
+            format!("module #{modules} submodule #{submodules}")
+        }
+        _ => return None,
+    };
+    Some(format!(
+        "invalid spec: {}: {location} declares \"allowed\" twice (inline key + [module.allowed] section) — keep one",
+        spec_path.display()
+    ))
+}
+
+/// The 1-indexed line a `toml::de::Error` Display names: the
+/// `TOML parse error at line N, column M` banner every parse failure
+/// carries. `None` when the banner is absent (an error class the attribution
+/// law cannot place on a line) — the caller then leaves the raw error alone.
+fn parse_error_line(message: &str) -> Option<usize> {
+    let after = message.split_once(" at line ")?.1;
+    after
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse::<usize>()
+        .ok()
+}
+
+/// The module and submodule ordinals in force at the given 1-indexed line:
+/// count the array-of-table headers strictly BEFORE it (the element open at
+/// that line), the submodule counter reset by each module header. Header
+/// bytes are read comment-stripped and whitespace-stripped; anything that is
+/// not a module-header line counts nothing.
+fn module_ordinals_at(content: &str, line: usize) -> (usize, usize) {
+    let mut modules = 0usize;
+    let mut submodules = 0usize;
+    for text in content.lines().take(line.saturating_sub(1)) {
+        let header: String = text
+            .split('#')
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        match header.as_str() {
+            "[[module]]" | "[module]" => {
+                modules += 1;
+                submodules = 0;
+            }
+            "[[module.submodules]]" | "[module.submodules]" => submodules += 1,
+            _ => {}
+        }
+    }
+    (modules, submodules)
 }
 
 /// One table against one shape: any key outside the shape's declared keys is
@@ -861,6 +948,45 @@ fn check_async_depend_entry(
     Ok(())
 }
 
+/// The exact-duplicate law of the `[[async_depends]]` table (GitHub issue
+/// #56): an entry EQUAL on ALL fields to a previously-parsed entry is the
+/// shipped `invalid spec` class naming both entries (1-indexed, the walker's
+/// numbering). A verbatim re-declaration is a spec authoring accident — a
+/// copy-paste or file-duplication bug — and folding it silently would hide
+/// it: the renderers deduplicate rows while the entry-level counting
+/// (`explain`, the arm markers) counts raw entries, so a duplicate inflates
+/// every census while drawing one arrow. Entries differing on ANY field
+/// stay ACCEPTED: the same `from`/`to` pair over distinct events is the
+/// legal multi-event class (the issue #48 collision class), never a
+/// duplicate. Table equality is field-by-field and key-order independent,
+/// so a reordered copy speaks the same refusal; a fourth key never reaches
+/// this arm because `check_spec_keys` refuses it first. The check rides the
+/// walker AFTER the per-entry arms, like `check_exclusion_mode`, so every
+/// loader refuses before deserialization and explain/entry counting counts
+/// DISTINCT facts by construction.
+fn check_async_depend_duplicates(
+    entries: &[toml::Value],
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    for (index, entry) in entries.iter().enumerate() {
+        let Some(table) = entry.as_table() else {
+            continue; // a non-table entry is deserialization's type error to name
+        };
+        for (previous, earlier) in entries[..index].iter().enumerate() {
+            if earlier.as_table().is_some_and(|earlier| earlier == table) {
+                return Err(format!(
+                    "invalid spec: {}: duplicate [[async_depends]] entry #{} duplicates #{} — \
+                     the table declares each event edge once",
+                    spec_path.display(),
+                    index + 1,
+                    previous + 1,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Module claims and their nested submodules, depth-first; `location` carries
 /// the walk path ("in [module] #1 submodule #2"), so a refusal states exactly
 /// where the unexpected key sits.
@@ -880,6 +1006,19 @@ fn validate_module_keys(
             check_spec_keys(contract, "contract", &format!("{location} contract"), spec_path)?;
         }
         if let Some(allowed) = table.get("allowed").and_then(toml::Value::as_table) {
+            // The parseable face of the issue-#58 collision: a `[module.allowed]`
+            // section whose body then carries the inline `allowed = { ... }`
+            // line is valid TOML nesting — the inline form lands INSIDE the
+            // section it re-declares. Name the duplicate declaration instead
+            // of surfacing a context-bleeding unknown-key error for the
+            // swallowed key.
+            if allowed.contains_key("allowed") {
+                return Err(format!(
+                    "invalid spec: {}: {} declares \"allowed\" twice (inline key + [module.allowed] section) — keep one",
+                    spec_path.display(),
+                    location.replacen("in [module]", "module", 1),
+                ));
+            }
             check_spec_keys(allowed, "allowed", &format!("{location} allowed"), spec_path)?;
         }
         validate_module_keys(
@@ -1355,6 +1494,61 @@ mod tests {
         assert!(
             validate_unknown_keys("[project\nlanguage", path).is_ok(),
             "malformed TOML belongs to the loader's parse-error class"
+        );
+    }
+
+    /// Issue #58: a module declaring `allowed` in BOTH renderings is named,
+    /// deterministically, whatever the declaration order and whatever verb
+    /// reads the file (every loader shares this walker). An unrelated
+    /// duplicate-key error stays silent here — its loader's parse-error
+    /// class owns it unchanged (no collateral change to the strictness law).
+    #[test]
+    fn module_allowed_duplicate_declarations_are_named() {
+        let path = std::path::Path::new("architecture.spec.toml");
+        let named = "declares \"allowed\" twice (inline key + [module.allowed] section) — keep one";
+
+        // Inline form first, header section second: the parse-failure face.
+        let err = validate_unknown_keys(
+            "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"a\"] }\nallowed = { depend_on = [] }\n\n[module.allowed]\ndepend_on = []\n",
+            path,
+        )
+        .expect_err("inline-then-header on one module must be refused");
+        assert!(err.contains("invalid spec:") && err.contains(&format!("module #1 {named}")), "{err}");
+
+        // Header section first, inline key second: the parseable-nesting face
+        // (the inline line lands INSIDE the open section — TOML context rules).
+        let err = validate_unknown_keys(
+            "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"a\"] }\n\n[module.allowed]\ndepend_on = []\nallowed = { depend_on = [] }\n",
+            path,
+        )
+        .expect_err("header-then-inline on one module must be refused");
+        assert!(err.contains("invalid spec:") && err.contains(&format!("module #1 {named}")), "{err}");
+
+        // Deterministic ordinal: the collision on the SECOND module names #2.
+        let err = validate_unknown_keys(
+            "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"a\"] }\n\n[[module]]\nname = \"b\"\nmatches = { units = [\"b\"] }\nallowed = { depend_on = [] }\n\n[module.allowed]\ndepend_on = []\n",
+            path,
+        )
+        .expect_err("the collision must name its own module");
+        assert!(err.contains(&format!("module #2 {named}")), "{err}");
+
+        // Submodule face: the collision names the module AND submodule ordinal.
+        let err = validate_unknown_keys(
+            "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"a\"] }\n\n[[module.submodules]]\nname = \"a::b\"\nmatches = { modules = [\"a::b\"] }\nallowed = { depend_on = [] }\n\n[module.submodules.allowed]\ndepend_on = []\n",
+            path,
+        )
+        .expect_err("the submodule collision must be named too");
+        assert!(err.contains(&format!("module #1 submodule #1 {named}")), "{err}");
+
+        // No collateral change: an unrelated duplicate-key parse failure stays
+        // silent here — the loader's malformed-TOML class owns it byte-for-byte.
+        assert!(
+            validate_unknown_keys(
+                "[project]\nlanguage = \"rust\"\nname = \"x\"\nname = \"y\"\n\n[[module]]\nname = \"a\"\nmatches = { units = [\"a\"] }\n",
+                path,
+            )
+            .is_ok(),
+            "an unrelated duplicate key must stay in the loader's parse-error class"
         );
     }
 
