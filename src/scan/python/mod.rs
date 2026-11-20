@@ -80,6 +80,16 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     // Below the floor the lever returns 1 and this is literally today's
     // serial loop (no threads).
     let threads = super::leg::fact_leg_threads(files.len());
+    // The literal-candidate feed (workplan events_value_join scenario 09,
+    // decision-check F8 seam): collected ONLY when a declared pattern side
+    // names this driver — the declaration gate is the byte identity
+    // (4.2 arm 1). The sites are vocabulary-free (A6); the engine matcher
+    // verbs decide equality at the resolution site.
+    let collect_candidates = facts
+        .patterns
+        .iter()
+        .any(|pattern| pattern.language == language::Language::Python.as_str());
+    let mut literal_candidates: Vec<crate::model::LiteralCandidate> = Vec::new();
     let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::profile::phase(
         "scan-facts",
         || {
@@ -103,6 +113,16 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
 
     for (file, facts) in files.iter().zip(all_facts) {
         let facts = facts?;
+        if collect_candidates {
+            for (anchor, value) in syntax::literal_candidates(&root.join(file)) {
+                literal_candidates.push(crate::model::LiteralCandidate {
+                    path: file.clone(),
+                    language: language::Language::Python.as_str().to_string(),
+                    anchor,
+                    value,
+                });
+            }
+        }
         import_statements += facts.import_statements;
         for (line, _spelling) in &facts.dynamic_sites {
             // The report-only wildcard line (P2/P3): the site is NAMED,
@@ -287,6 +307,7 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
         // channel (the ts R7b lineage): stderr via the report renderer,
         // never the machine body.
         report_only_lines: report_only,
+        literal_candidates,
         ..Model::new("python")
     })
 }
@@ -699,6 +720,17 @@ fn pyproject_name(root: &Path) -> Option<String> {
         })
 }
 
+/// The driver-port seam entry (workplan events_value_join scenario 10):
+/// a unit struct implementing `crate::driver::Driver` by calling this
+/// module's own [`extract`] — body logic moves zero lines.
+pub(crate) struct PythonDriver;
+
+impl crate::driver::Driver for PythonDriver {
+    fn extract(&self, root: &Path, declared: &DeclaredFacts) -> Result<Model, String> {
+        extract(root, declared)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -817,3 +849,4 @@ mod tests {
         assert!(flat.anchor_in_package(""));
     }
 }
+

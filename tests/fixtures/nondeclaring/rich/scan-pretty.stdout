@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "language": "rust",
+  "units": [
+    {
+      "name": "core",
+      "kind": "crate",
+      "path": "core"
+    },
+    {
+      "name": "gateway",
+      "kind": "crate",
+      "path": "gateway"
+    },
+    {
+      "name": "store",
+      "kind": "crate",
+      "path": "store"
+    }
+  ],
+  "edges": [
+    {
+      "from": "gateway",
+      "to": "core"
+    }
+  ],
+  "usage": {},
+  "soft_structure": {
+    "gateway": [
+      "gateway::http"
+    ]
+  },
+  "external": [
+    "serde"
+  ],
+  "module_edges": [],
+  "manifest": {
+    "publish": null,
+    "dependencies": [],
+    "features": []
+  },
+  "root_public_exports": {
+    "core": [
+      "handle"
+    ],
+    "gateway": [
+      "http"
+    ],
+    "store": [
+      "read"
+    ]
+  },
+  "root_glob_exports": {},
+  "module_external": {},
+  "root_module_declarations": {
+    "gateway": [
+      {
+        "name": "http",
+        "gated": false,
+        "feature": null,
+        "file": "http.rs"
+      }
+    ]
+  },
+  "unit_manifests": {
+    "core": {
+      "publish": null,
+      "dependencies": [],
+      "features": []
+    },
+    "gateway": {
+      "publish": null,
+      "dependencies": [
+        "core",
+        "serde"
+      ],
+      "features": []
+    },
+    "store": {
+      "publish": null,
+      "dependencies": [],
+      "features": []
+    }
+  },
+  "file_edges": [
+    {
+      "unit": "gateway",
+      "from": "gateway/src/lib.rs",
+      "to": "gateway/src/http.rs",
+      "kind": "mod"
+    }
+  ],
+  "roles": {
+    "gateway": "facade"
+  }
+}

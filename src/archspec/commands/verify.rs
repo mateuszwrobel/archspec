@@ -144,6 +144,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &loaded.constraint,
             &loaded.exempt,
             &loaded.async_depends,
+            &loaded.canonical_producer,
+            &loaded.shared_constant,
         )
     });
     // `--write-exemptions` (GitHub issue #27, R8; merge semantics per GitHub
@@ -170,6 +172,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         &loaded.constraint,
                         &loaded.exempt,
                         &loaded.async_depends,
+                        &loaded.canonical_producer,
+                        &loaded.shared_constant,
                     )
                 });
             }
@@ -208,6 +212,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
             // declared table this run adjudicated; empty table, absent field.
             let async_census =
                 crate::archspec::report::AsyncCensus::from_declared(&loaded.async_depends);
+            // The declaration census rides the same machine body (workplan
+            // events_value_join scenario 02): the same rows the report's
+            // census section renders; neither table declaring, absent field.
+            let declaration_census = crate::archspec::report::DeclarationCensus::from_declared(
+                &loaded.canonical_producer,
+                &loaded.shared_constant,
+            );
             print!(
                 "{}",
                 crate::archspec::report::render_json(
@@ -217,6 +228,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     &model.roles,
                     &environment,
                     &async_census,
+                    &declaration_census,
                 )
             );
         } else if diff.is_empty() {

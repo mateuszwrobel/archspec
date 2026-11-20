@@ -1,0 +1,20 @@
+Architecture report
+===================
+
+Spec: architecture.spec.toml (language: rust)
+
+adjudicated against BUILT tree
+
+Metrics
+-------
+components:          2
+units:               2
+edges (internal):    1
+edges (external):    0
+cycles detected:     0
+
+Diff: extracted vs declared
+---------------------------
+vacuous constraint: [constraint #1] no_cycles: no file-grained dependency edges among the constraint's files (file-tier cycle check trivially passes)
+
+Result: clean

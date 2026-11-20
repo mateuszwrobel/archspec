@@ -44,17 +44,19 @@ Every report contains, in order:
 3. **Metrics** — model-derived numbers from the extracted model.
 4. **Roles** — the role facts carried by the extracted model, in closed-vocabulary order (`facades`, then `composition roots`), model paths sorted inside each group. The section appears **only when the model carries at least one role**; an empty roles map renders nothing at all.
 5. **Async census** — the adjudicated PAIR census over the spec's declared `[[async_depends]]` table: one `<from> -> <to> — event <event>` row per resolved pair (deduplicated, `(from, to, event)` order), then the fan numbers — `per service: <service> fan-in <n>, fan-out <n>` and `per event: <event> fan-in <n>, fan-out <n>`. For a service, fan-out counts the pairs it publishes (rows it addresses as `from`) and fan-in the pairs it subscribes to (rows it addresses as `to`); for an event type, fan-out counts the distinct publishing units and fan-in the distinct subscribing units. The section appears **only when the declared table resolves at least one pair**; a non-declaring run renders nothing at all (catalog: `archspec help diagnostics`, the `async census section` entry).
-6. **Violations by category** — the per-category violation counts, in a separate table that appears **only when the run reports at least one violation** (omitted from a clean report).
-7. **Diff** — the full structural difference between the extracted and the declared model (ADR-010, `../../../archspec-design.md` §9).
-8. **Summary line** — total violations by category, or a clean-result statement.
+6. **Declaration census** — the census over the spec's declared `[[canonical_producer]]` and `[[shared_constant]]` tables: one `canonical producer: <class> -> <producer>` row per declared entry (deduplicated, table-then-class order), the shared-constant class riding the same row with a ` — shared constant` marker — a shared-constant declaration IS a canonical-producer declaration over a constant fact class and never an async row. The section appears **only when either table resolves at least one entry**; a non-declaring run renders nothing at all (catalog: `archspec help diagnostics`, the `declaration census section` entry).
+7. **Violations by category** — the per-category violation counts, in a separate table that appears **only when the run reports at least one violation** (omitted from a clean report).
+8. **Diff** — the full structural difference between the extracted and the declared model (ADR-010, `../../../archspec-design.md` §9).
+9. **Summary line** — total violations by category, or a clean-result statement.
 
 The Markdown format inserts, between the metrics and the diff:
 
 1. **Roles** (`## Roles`) — the same rows as the text section, as a two-column table (`| Role | Model paths |`), immediately after the metrics table.
 2. **Async census** (`## Async census`) — the same pairs and fan numbers as the text section, as three tables (`| From | To | Event |`, `| Service | Fan in | Fan out |`, `| Event | Fan in | Fan out |`), immediately after the roles table and under the same iff-the-table-resolves-a-pairs gate.
-3. **Diagram** — the current file-level import-map diagram as a Mermaid code fence (`## Diagram`). Every supported language has a file-level scanner, so the section carries a diagram on any tree.
-4. **Forbidden imports** (`## Forbidden imports`) — every forbidden edge present, disallowed cross-component dependency, and facade dependency, each on its own line.
-5. **Cycles** (`## Cycles`) — every cycle detected, each on its own line.
+3. **Declaration census** (`## Declaration census`) — the same rows as the text section, as a three-column table (`| Class | Producer | Constant |`, the Constant cell stating `shared constant` for shared-constant entries and empty for plain canonical-producer entries), immediately after the async census table and under the same iff-either-table-resolves-an-entry gate.
+4. **Diagram** — the current file-level import-map diagram as a Mermaid code fence (`## Diagram`). Every supported language has a file-level scanner, so the section carries a diagram on any tree.
+5. **Forbidden imports** (`## Forbidden imports`) — every forbidden edge present, disallowed cross-component dependency, and facade dependency, each on its own line.
+6. **Cycles** (`## Cycles`) — every cycle detected, each on its own line.
 
 ### JSON format
 
@@ -95,6 +97,7 @@ The Markdown format inserts, between the metrics and the diff:
 - **`metrics` is informational** — the model-summary numbers mirroring the scan model tiers (components, units, internal/external edges, cycles) plus per-category violation counts.
 - **`roles` is the model's roles map** (model path → role), positioned between `metrics` and `findings` and serialized **only when the map has entries** — the same skip-when-empty contract the scan model JSON honors. It mirrors scan's `roles` verbatim; the report adds no role facts of its own.
 - **`async_census` is the adjudicated PAIR census** of the spec's declared `[[async_depends]]` table: the same numbers the text and markdown Async census section renders — `pairs` (`from`/`to`/`event` rows in `(from, to, event)` order) plus the `per_service` and `per_event` maps with `fan_in`/`fan_out` — positioned after `findings` and serialized **only when the table resolves at least one pair** (the same skip-when-empty contract as `roles`). `verify --json` carries the field with the same bytes; an audit narrative quotes this field, never a hand-scripted census. The machine census of the DERIVED facts rides `scan.json` as the model's `async_edges` collection instead.
+- **`declaration_census` is the census over the declared tables** (workplan events_value_join scenario 02): the same rows the text and markdown Declaration census sections render — `producers` rows with `class`, `producer` and a `constant` flag stated only for shared-constant entries — positioned after `async_census` and serialized **only when either declaration table resolves at least one entry** (the same skip-when-empty contract as `roles`). `verify --json` carries the field with the same bytes; an audit narrative quotes this field, never a hand-scripted census.
 - **`language`** is the spec's declared language.
 - The canonical model JSON stays `scan`'s output: the report JSON embeds a summary, never a second full model encoding.
 

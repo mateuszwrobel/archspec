@@ -226,3 +226,36 @@ fn inspect_rejects_go_tree_with_only_excluded_sources() {
     );
     assert!(stdout(&output).is_empty(), "no partial diagram on error");
 }
+
+/// Scenario 11 pin (named follow-up): the inspector keeps the MECHANICAL
+/// exclusion set only. `excluded_sources` is a scan-side, architecture-level
+/// declaration — the dependency-graph view stays a whole-tree structural
+/// render, so a declared entry prunes no inspect node and states no census
+/// line here (GitHub issue #60 items 2-3: aligning inspect is a separate
+/// change with its own decision-check; this cell keeps the split VISIBLE).
+#[test]
+fn inspect_does_not_consume_declared_exclusions() {
+    let fixture = common::Fixture::new();
+    fixture.write("Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+    fixture.write("src/lib.rs", "pub mod kept;\n");
+    fixture.write("src/kept.rs", "pub struct Kept;\n");
+    fixture.write("src/generated/gen.rs", "pub struct Generated;\n");
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\nexcluded_sources = [ { path = \"src/generated\", reason = \"generated sources\" } ]\n[[module]]\nname = \"demo\"\nmatches = { units = [\"demo\"] }\n",
+    );
+    let output = fixture.run(&["inspect"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let out = stdout(&output);
+    assert!(
+        out.contains("kept.rs") && out.contains("gen.rs"),
+        "inspect renders the whole tree: the declared entry prunes no node \
+         (the inspect-side consumption is a named follow-up):\n{out}"
+    );
+    let err = stderr(&output);
+    assert!(
+        !err.contains("excluded source:"),
+        "inspect states no declared-exclusion census line:\n{err}"
+    );
+}

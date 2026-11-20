@@ -30,6 +30,7 @@
 use tree_sitter::Node;
 
 use crate::language::Language;
+use crate::model::LiteralCandidateAnchor;
 use crate::parse::grammar::{node_text, parse_tree};
 
 use std::collections::BTreeSet;
@@ -248,6 +249,193 @@ fn record_dynamic_call(node: &Node<'_>, source: &str, facts: &mut FileFacts) {
 
 fn is_importlib_site(name: &str) -> bool {
     name == "import_module" || name == "spec_from_file_location"
+}
+
+/// The literal-candidate feed of one `.py` file (workplan events_value_join
+/// scenario 09, decision-check F8 seam): vocabulary-free syntactic sites
+/// carrying a string literal — every call site with a string-literal
+/// argument (call anchor) and every string-literal value of a module-level
+/// binding (exported-property anchor). NO declared name reaches this walk:
+/// the callee's simple name and the binding's name ride as spelled; name
+/// equality is the engine matcher verb's work at the resolution site
+/// (`archspec::events::patterns`), so the driver owns no interpretation
+/// (A6). The caller runs this only when a declared pattern names the
+/// python driver — the declaration gate is the byte identity (4.2 arm 1).
+/// A file that cannot be read or parsed states no candidate.
+pub(crate) fn literal_candidates(path: &Path) -> Vec<(LiteralCandidateAnchor, String)> {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    literal_candidates_source(&source)
+}
+
+/// The tree walk behind [`literal_candidates`], split out so the unit tests
+/// feed source text directly (the `scan_python_source` precedent).
+pub(crate) fn literal_candidates_source(source: &str) -> Vec<(LiteralCandidateAnchor, String)> {
+    let Ok(tree) = parse_tree(Language::Python, source) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_call_candidates(&tree.root_node(), source, &mut out);
+    collect_module_property_candidates(&tree.root_node(), source, &mut out);
+    out
+}
+
+/// The call-anchor walk: every `call` in the tree, wherever it sits (nested
+/// calls each contribute their own candidates); one candidate per argument
+/// position whose node is a plain string literal. Positions count ALL named
+/// children of the argument list — a keyword argument occupies a spelled
+/// position too (the ts enumeration law). The callee's simple name is the
+/// spelled last name: a bare `identifier`, or the attribute of an
+/// `attribute` target (`os.path.join` reads `join`).
+fn collect_call_candidates<'a>(
+    node: &Node<'a>,
+    source: &'a str,
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    if node.kind() == "call"
+        && let (Some(callee), Some(arguments)) = (
+            node.child_by_field_name("function")
+                .and_then(|target| simple_callee_name(target, source)),
+            node.child_by_field_name("arguments"),
+        )
+    {
+        for (position, argument) in arguments.named_children(&mut arguments.walk()).enumerate() {
+            if let Some(value) = string_literal_value(argument, source) {
+                out.push((
+                    LiteralCandidateAnchor::Call {
+                        callee: callee.clone(),
+                        position,
+                    },
+                    value,
+                ));
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_call_candidates(&child, source, out);
+    }
+}
+
+/// The simple name of a call target as the source spells it: a bare
+/// `identifier` or the `attribute:` of an `attribute` chain (the LAST
+/// segment — the name actually called). Subscripted and parenthesized
+/// targets state no simple name this verb can read.
+fn simple_callee_name<'a>(node: Node<'a>, source: &'a str) -> Option<String> {
+    match node.kind() {
+        "identifier" => Some(node_text(&node, source).to_string()),
+        "attribute" => node
+            .child_by_field_name("attribute")
+            .map(|attribute| node_text(&attribute, source).to_string()),
+        _ => None,
+    }
+}
+
+/// The exported-property-anchor walk: `assignment` statements that are
+/// DIRECT children of the module's `expression_statement`s — the
+/// module-level bindings. Function-body, class-body and conditional
+/// assignments are not module surface and contribute nothing. One candidate
+/// per assignment whose single `identifier` target is bound to a single
+/// plain string literal; every other shape (tuple targets, subscripts,
+/// attribute targets, list or call values) states no literal value for
+/// this verb — a value nested in a collection is unmatched SHAPE, not a
+/// gap.
+fn collect_module_property_candidates<'a>(
+    node: &Node<'a>,
+    source: &'a str,
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "expression_statement" {
+            continue;
+        }
+        let mut statement_cursor = child.walk();
+        for statement in child.named_children(&mut statement_cursor) {
+            if statement.kind() != "assignment" {
+                continue;
+            }
+            // The `left:` field is a single pattern; tuple and list targets
+            // arrive as `pattern_list` and state no single name.
+            let name = statement
+                .child_by_field_name("left")
+                .filter(|left| left.kind() == "identifier")
+                .map(|name| node_text(&name, source).to_string());
+            if statement.child_by_field_name("type").is_some() {
+                continue;
+            }
+            let value = statement
+                .child_by_field_name("right")
+                .and_then(|value| string_literal_value(value, source));
+            if let (Some(property), Some(value)) = (name, value) {
+                out.push((
+                    LiteralCandidateAnchor::ExportedProperty { property },
+                    value,
+                ));
+            }
+        }
+    }
+}
+
+/// The value of a plain string-literal node: a `string` joins its content
+/// fragments and decoded escapes IN ORDER (the ts `string_text` posture);
+/// an interpolated (`f`-string) literal states no plain value and is
+/// skipped. `concatenated_string`, calls, names — every other expression —
+/// states no literal value.
+fn string_literal_value(node: Node, source: &str) -> Option<String> {
+    if node.kind() != "string" {
+        return None;
+    }
+    let mut text = String::new();
+    let mut saw_content = false;
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            // An interpolation (`f"…{x}…"`) makes the runtime value not a
+            // literal (the kotlin interpolation law, same posture).
+            "interpolation" => return None,
+            "string_content" => {
+                saw_content = true;
+                text.push_str(node_text(&child, source));
+            }
+            "escape_sequence" => {
+                saw_content = true;
+                text.push_str(&decode_escape(node_text(&child, source)));
+            }
+            _ => {}
+        }
+    }
+    if saw_content {
+        return Some(text);
+    }
+    // Empty literal (`""`): the node text minus its quotes and any string
+    // prefix letters, never the quoted raw (the ts fallback posture).
+    let raw = node_text(&node, source);
+    let open = raw.find(['"', '\''])?;
+    let quote = raw.as_bytes()[open] as char;
+    let inner = raw[open + 1..].strip_suffix(quote)?;
+    Some(inner.to_string())
+}
+
+/// Decode the single-form Python escape sequences (the kotlin/ts subset:
+/// the common control escapes plus quote and backslash); anything else
+/// stays as spelled — exotic escapes (octal, `\u{…}`) are not this verb's
+/// claim surface.
+fn decode_escape(text: &str) -> String {
+    match text {
+        "\\n" => "\n".into(),
+        "\\r" => "\r".into(),
+        "\\t" => "\t".into(),
+        "\\b" => "\u{8}".into(),
+        "\\f" => "\u{c}".into(),
+        "\\v" => "\u{b}".into(),
+        "\\a" => "\u{7}".into(),
+        "\\\"" => "\"".into(),
+        "\\'" => "'".into(),
+        "\\\\" => "\\".into(),
+        other => other.to_string(),
+    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,24 @@
+{
+  "language": "rust",
+  "environment": {
+    "state": "built",
+    "header": "adjudicated against BUILT tree"
+  },
+  "metrics": {
+    "components": 4,
+    "units": 3,
+    "edges_internal": 1,
+    "edges_external": 1,
+    "cycles": 0,
+    "violations_components": 0,
+    "violations_edges": 0,
+    "violations_undeclared_dependency": 0,
+    "violations_boundary_violation": 0,
+    "violations_contracts": 0,
+    "violations_cycles": 0
+  },
+  "roles": {
+    "gateway": "facade"
+  },
+  "findings": []
+}

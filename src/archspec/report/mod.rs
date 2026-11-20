@@ -374,6 +374,7 @@ pub fn render_text(
     roles: &BTreeMap<String, Role>,
     environment: &Environment,
     async_census: &AsyncCensus,
+    declaration_census: &DeclarationCensus,
 ) -> String {
     let mut out = String::new();
     out.push_str("Architecture report\n");
@@ -435,6 +436,30 @@ pub fn render_text(
         out.push('\n');
     }
 
+    // The ONE declaration census section (workplan events_value_join
+    // scenario 02): one `canonical producer:` row per entry of either
+    // declaration table — the shared-constant class rides the SAME row form
+    // with a ` — shared constant` marker, because a shared-constant
+    // declaration IS a canonical-producer declaration over a constant fact
+    // class (ADR-069 4.4a(iv)). Report-only, never a verdict; rendered only
+    // when a table declares, so a non-declaring run's report bytes are
+    // unchanged (D8).
+    if !declaration_census.is_empty() {
+        out.push_str("Declaration census\n");
+        out.push_str(&"-".repeat("Declaration census".len()));
+        out.push('\n');
+        for row in &declaration_census.producers {
+            let _ = writeln!(
+                out,
+                "canonical producer: {} -> {}{}",
+                row.class,
+                row.producer,
+                if row.constant { " — shared constant" } else { "" }
+            );
+        }
+        out.push('\n');
+    }
+
     if metrics.total() > 0 {
         out.push_str("Violations by category\n");
         out.push_str(&"-".repeat("Violations by category".len()));
@@ -476,6 +501,7 @@ pub fn render_text(
 /// file-level import map is available, `diagram` embeds it as a mermaid fence;
 /// forbidden edges/disallowed cross-component deps and cycles get dedicated
 /// sections between the category table and the diff.
+#[allow(clippy::too_many_arguments)]
 pub fn render_markdown(
     language: &str,
     metrics: &Metrics,
@@ -484,6 +510,7 @@ pub fn render_markdown(
     diagram: Option<&str>,
     environment: &Environment,
     async_census: &AsyncCensus,
+    declaration_census: &DeclarationCensus,
 ) -> String {
     let mut out = String::new();
     out.push_str("# Architecture report\n\n");
@@ -547,6 +574,23 @@ pub fn render_markdown(
         out.push_str("\n| Event | Fan in | Fan out |\n|---|---|---|\n");
         for (event, fan) in &async_census.per_event {
             out.push_str(&format!("| {event} | {} | {} |\n", fan.fan_in, fan.fan_out));
+        }
+        out.push('\n');
+    }
+
+    // The declaration census (workplan events_value_join scenario 02): the
+    // markdown rendering of the SAME rows the text arm states — a table,
+    // never a second census; absent when no table declares (D8).
+    if !declaration_census.is_empty() {
+        out.push_str("## Declaration census\n\n");
+        out.push_str("| Class | Producer | Constant |\n|---|---|---|\n");
+        for row in &declaration_census.producers {
+            out.push_str(&format!(
+                "| {} | {} | {} |\n",
+                row.class,
+                row.producer,
+                if row.constant { "shared constant" } else { "" }
+            ));
         }
         out.push('\n');
     }
@@ -633,6 +677,7 @@ pub fn render_json(
     roles: &BTreeMap<String, Role>,
     environment: &Environment,
     async_census: &AsyncCensus,
+    declaration_census: &DeclarationCensus,
 ) -> String {
     #[derive(Serialize)]
     struct ReportJson<'a> {
@@ -650,6 +695,14 @@ pub fn render_json(
         /// skip-when-empty contract as `roles`.
         #[serde(skip_serializing_if = "AsyncCensus::is_empty")]
         async_census: &'a AsyncCensus,
+        /// The declaration census (workplan events_value_join scenario 02):
+        /// the declared canonical-producer and shared-constant entries as
+        /// machine rows — the same rows the rendered section states, so an
+        /// audit quotes this field, never a hand-scripted census. Absent
+        /// when neither table declares (D8), the same skip-when-empty
+        /// contract as `roles` and `async_census`.
+        #[serde(skip_serializing_if = "DeclarationCensus::is_empty")]
+        declaration_census: &'a DeclarationCensus,
     }
     let report = ReportJson {
         language,
@@ -658,6 +711,7 @@ pub fn render_json(
         roles,
         findings: findings(diff),
         async_census,
+        declaration_census,
     };
     format!("{}\n", serde_json::to_string_pretty(&report).expect("report serializes"))
 }
@@ -785,6 +839,78 @@ impl AsyncCensus {
             pairs,
             per_service,
             per_event,
+        }
+    }
+}
+
+/// One row of the declaration census (workplan events_value_join scenario
+/// 02): a declared fact class and its ONE canonical producer, stated exactly
+/// as the declaration table states it — the census rows declarations, it
+/// never re-derives a verdict (the N2 posture of the async pair rows). A
+/// shared-constant entry rides the SAME row shape with `constant` set: a
+/// shared-constant declaration IS a canonical-producer declaration over a
+/// constant fact class (ADR-069 4.4a(iv)), so it earns exactly one census
+/// row and never an async row (the F-W3 zero-async-row law).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DeclarationRow {
+    pub class: String,
+    pub producer: String,
+    /// True for entries of `[[shared_constant]]`; skipped in json when false
+    /// — absence means the plain canonical-producer class (the model's
+    /// skip-when-absent contract, as `Edge::kind`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub constant: bool,
+}
+
+/// The declaration census (workplan events_value_join scenario 02): the
+/// declared entries of both declaration tables, deduplicated and ordered by
+/// (table, class, producer) — canonical-producer rows first, each table in
+/// class order (the `BTreeSet` order), so the census bytes never depend on
+/// declaration order.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct DeclarationCensus {
+    pub producers: Vec<DeclarationRow>,
+}
+
+impl DeclarationCensus {
+    /// The section/skip predicate every renderer consults.
+    pub fn is_empty(&self) -> bool {
+        self.producers.is_empty()
+    }
+
+    /// The declared-tables fold both the report and the verify json arms
+    /// use: entries with both keys present and non-empty (the spec walker
+    /// refuses anything else before deserialization, so the filter is a
+    /// fail-closed guard, never a second validator); absent or empty tables
+    /// compute the empty census, so every renderer skips the section (D8).
+    pub fn from_declared(
+        canonical_producer: &[crate::archspec::spec::CanonicalProducer],
+        shared_constant: &[crate::archspec::spec::SharedConstant],
+    ) -> Self {
+        let mut rows: std::collections::BTreeSet<(bool, String, String)> = Default::default();
+        for entry in canonical_producer {
+            let class = entry.class.as_deref().unwrap_or_default();
+            let producer = entry.producer.as_deref().unwrap_or_default();
+            if !class.is_empty() && !producer.is_empty() {
+                rows.insert((false, class.to_string(), producer.to_string()));
+            }
+        }
+        for entry in shared_constant {
+            let class = entry.class.as_deref().unwrap_or_default();
+            let producer = entry.producer.as_deref().unwrap_or_default();
+            if !class.is_empty() && !producer.is_empty() {
+                rows.insert((true, class.to_string(), producer.to_string()));
+            }
+        }
+        DeclarationCensus {
+            producers: rows
+                .into_iter()
+                .map(|(constant, class, producer)| DeclarationRow {
+                    class,
+                    producer,
+                    constant,
+                })
+                .collect(),
         }
     }
 }
@@ -950,6 +1076,7 @@ mod tests {
             &BTreeMap::default(),
             &environment,
             &AsyncCensus::default(),
+            &DeclarationCensus::default(),
         );
         let value: serde_json::Value = serde_json::from_str(&json).expect("json");
         assert_eq!(value["environment"]["state"].as_str(), Some("unbuilt"));
@@ -972,6 +1099,7 @@ mod tests {
             &BTreeMap::default(),
             &env(),
             &AsyncCensus::default(),
+            &DeclarationCensus::default(),
         );
         assert!(clean.contains("\"state\": \"built\""), "built body: {clean}");
         assert!(!clean.contains("\"classes\""), "no report-only lines => no key: {clean}");
@@ -993,6 +1121,7 @@ mod tests {
             None,
             &environment,
             &AsyncCensus::default(),
+            &DeclarationCensus::default(),
         );
         assert!(rendered.contains("## Environment"), "section: {rendered}");
         assert!(rendered.contains(&environment.header), "header: {rendered}");
@@ -1046,6 +1175,18 @@ mod tests {
             ],
             async_endpoint_unclaimed: vec![
                 "App.Ghost — App.Api -> App.Ghost (entry #1)".into(),
+            ],
+            declaration_producer_unresolved: vec![
+                "protocol-version — . ([shared_constant] entry #1)".into(),
+            ],
+            declaration_producer_not_canonical: vec![
+                "protocol-version — gateway-protocol resolves to packages/gateway-protocol \
+                 ([canonical_producer] entry #1)"
+                    .into(),
+            ],
+            declaration_producer_conflict: vec![
+                "orders — services/a (entries 1), services/b (entries 2) ([canonical_producer])"
+                    .into(),
             ],
             warnings: vec![
                 "cycle: a -> b -> a".into(),
@@ -1271,6 +1412,7 @@ mod tests {
             &BTreeMap::default(),
             &env(),
             &AsyncCensus::default(),
+            &DeclarationCensus::default(),
         );
         let value: serde_json::Value = serde_json::from_str(&rendered).expect("json parses");
         let json_findings: Vec<(String, String)> = value["findings"]
@@ -1293,6 +1435,7 @@ mod tests {
                 &BTreeMap::default(),
                 &env(),
                 &AsyncCensus::default(),
+                &DeclarationCensus::default(),
             ))
         );
         assert_eq!(value["language"].as_str(), Some("rust"));
@@ -1347,6 +1490,7 @@ mod tests {
             &roles_map(),
             &env(),
             &AsyncCensus::default(),
+            &DeclarationCensus::default(),
         );
         let section: Vec<&str> = rendered
             .lines()
@@ -1372,6 +1516,7 @@ mod tests {
             None,
             &env(),
             &AsyncCensus::default(),
+            &DeclarationCensus::default(),
         );
         assert!(rendered.contains("## Roles"), "roles section:\n{rendered}");
         assert!(rendered.contains("| facades | kit |"), "roles table:\n{rendered}");
@@ -1395,6 +1540,7 @@ mod tests {
                 &empty,
                 &env(),
                 &AsyncCensus::default(),
+                &DeclarationCensus::default(),
             ),
             render_markdown(
                 "rust",
@@ -1404,6 +1550,7 @@ mod tests {
                 None,
                 &env(),
                 &AsyncCensus::default(),
+                &DeclarationCensus::default(),
             ),
         ] {
             assert!(
@@ -1418,6 +1565,7 @@ mod tests {
             &empty,
             &env(),
             &AsyncCensus::default(),
+            &DeclarationCensus::default(),
         );
         assert!(!json.contains("\"roles\""), "no role facts => no key:\n{json}");
     }
@@ -1434,6 +1582,7 @@ mod tests {
             &roles_map(),
             &env(),
             &AsyncCensus::default(),
+            &DeclarationCensus::default(),
         );
         let value: serde_json::Value = serde_json::from_str(&json).expect("json");
         assert_eq!(value["roles"]["kit"].as_str(), Some("facade"));

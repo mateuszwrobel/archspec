@@ -26,6 +26,7 @@
 use tree_sitter::Node;
 
 use crate::language::Language;
+use crate::model::LiteralCandidateAnchor;
 use crate::parse::grammar::{node_text, parse_tree};
 
 use std::collections::BTreeSet;
@@ -65,6 +66,230 @@ pub(crate) fn scan_kotlin_file(path: &Path) -> Result<FileFacts, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     scan_kotlin_source(&raw)
+}
+
+/// The literal-candidate feed of one `.kt` file (workplan
+/// events_value_join scenario 03, decision-check F8): vocabulary-free
+/// call sites carrying a plain string-literal argument — the callee's
+/// SIMPLE name and the argument position ride as spelled, NO declared name
+/// reaches this walk (A6); the engine matcher verb decides equality at the
+/// resolution site. The caller runs this only when a declared pattern
+/// names the kotlin driver (4.2 arm 1: the declaration gate is the byte
+/// identity). A file that cannot be read or parsed states no candidate.
+pub(crate) fn literal_candidates(path: &Path) -> Vec<(LiteralCandidateAnchor, String)> {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(tree) = parse_tree(Language::Kotlin, &source) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_call_candidates(tree.root_node(), &source, &mut out);
+    collect_property_candidates(tree.root_node(), &source, &mut out);
+    out
+}
+
+/// The exported-property-anchor walk (workplan events_value_join scenario
+/// 09, decision (b) of the kotlin reading): the `property_declaration`s
+/// that are DIRECT children of `source_file` — the top-level bindings,
+/// `const val` included. `private` and `internal` bindings are skipped
+/// through the grammar `modifiers` layer (they are not exported surface);
+/// member properties (class or companion bodies) are not top level and
+/// contribute nothing. One candidate per binding whose initializer is a
+/// plain (no interpolation) string literal; every other shape states no
+/// literal value for this verb.
+fn collect_property_candidates<'a>(node: Node<'a>, source: &'a str, out: &mut Vec<(LiteralCandidateAnchor, String)>) {
+    if node.kind() != "source_file" {
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "property_declaration" {
+            continue;
+        }
+        let mut child_cursor = child.walk();
+        let mut skipped = false;
+        let mut name: Option<String> = None;
+        let mut value: Option<String> = None;
+        for part in child.named_children(&mut child_cursor) {
+            match part.kind() {
+                "modifiers" => {
+                    let mut modifier_cursor = part.walk();
+                    for modifier in part.named_children(&mut modifier_cursor) {
+                        if modifier.kind() == "visibility_modifier" {
+                            let text = node_text(&modifier, source);
+                            if text == "private" || text == "internal" {
+                                skipped = true;
+                            }
+                        }
+                    }
+                }
+                // The binding name: a direct `simple_identifier`, or the
+                // first one under `variable_declaration` (the grammar keeps
+                // the binding kind and its name there).
+                "simple_identifier" => {
+                    if name.is_none() {
+                        name = Some(node_text(&part, source).to_string());
+                    }
+                }
+                "variable_declaration" => {
+                    if name.is_none()
+                        && let Some(identifier) = find_kind(part, "simple_identifier")
+                    {
+                        name = Some(node_text(&identifier, source).to_string());
+                    }
+                }
+                // The initializer rides as a direct child: a plain string
+                // literal carries the value, anything else states none. A
+                // call initializer reaches this arm with no plain literal
+                // INSIDE the walk's own rules (interpolation law reused:
+                // `string_literal_value` requires the WHOLE initializer to
+                // be one literal, no nesting through arbitrary expressions).
+                _ => {
+                    if value.is_none()
+                        && part.kind() == "string_literal"
+                        && let Some(literal) = string_literal_value(part, source)
+                    {
+                        value = Some(literal);
+                    }
+                }
+            }
+        }
+        if let (false, Some(property), Some(literal)) = (skipped, name, value) {
+            out.push((LiteralCandidateAnchor::ExportedProperty { property }, literal));
+        }
+    }
+}
+
+/// The call-anchor walk: every call site in the tree, wherever it sits;
+/// one candidate per argument position whose node holds a plain (no
+/// interpolation) string literal.
+fn collect_call_candidates<'a>(
+    node: Node<'a>,
+    source: &'a str,
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    if node.kind() == "call_expression" {
+        let callee = node
+            .named_children(&mut node.walk())
+            .filter(|child| child.kind() != "value_arguments" && child.kind() != "call_suffix")
+            .flat_map(|receiver| simple_identifiers(receiver, source))
+            .last();
+        let arguments = node
+            .named_children(&mut node.walk())
+            .find(|child| child.kind() == "value_arguments" || child.kind() == "call_suffix");
+        if let (Some(callee), Some(arguments)) = (callee, arguments) {
+            let mut position = 0usize;
+            for argument in arguments.named_children(&mut arguments.walk()) {
+                if argument.kind() != "value_argument" {
+                    continue;
+                }
+                if let Some(value) = string_literal_value(argument, source) {
+                    out.push((
+                        LiteralCandidateAnchor::Call {
+                            callee: callee.clone(),
+                            position,
+                        },
+                        value,
+                    ));
+                }
+                position += 1;
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_call_candidates(child, source, out);
+    }
+}
+
+/// Every `simple_identifier` under `node`, in order — the last one is the
+/// name the source calls (a navigation chain's method name, a bare call's
+/// function name).
+fn simple_identifiers<'a>(node: Node<'a>, source: &'a str) -> Vec<String> {
+    let mut names = Vec::new();
+    if node.kind() == "simple_identifier" {
+        names.push(node_text(&node, source).to_string());
+        return names;
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        names.extend(simple_identifiers(child, source));
+    }
+    names
+}
+
+/// The plain value of a `value_argument`'s string literal, if it holds
+/// exactly one and it carries no interpolation: content fragments and
+/// escape sequences join in order, escapes decoded (the ts `decode_escape`
+/// posture, kotlin's single-char subset).
+fn string_literal_value(node: Node, source: &str) -> Option<String> {
+    let literal = find_kind(node, "string_literal")?;
+    if find_kind(literal, "string_interpolation").is_some() {
+        return None;
+    }
+    let mut text = String::new();
+    let mut saw_content = false;
+    let mut cursor = literal.walk();
+    for child in literal.named_children(&mut cursor) {
+        collect_string_parts(child, source, &mut text, &mut saw_content);
+    }
+    if saw_content {
+        return Some(text);
+    }
+    // An empty literal (`""`) has no content child and carries the empty value.
+    let raw = node_text(&literal, source);
+    let inner = raw.trim_start_matches('"').trim_end_matches('"');
+    if inner.is_empty() {
+        Some(String::new())
+    } else {
+        Some(inner.to_string())
+    }
+}
+
+/// Join the content fragments of a kotlin string literal, decoding the
+/// single-char escape forms (the ts `decode_escape` posture, kotlin subset).
+fn collect_string_parts(node: Node, source: &str, text: &mut String, saw_content: &mut bool) {
+    match node.kind() {
+        "string_content" => {
+            *saw_content = true;
+            text.push_str(node_text(&node, source));
+        }
+        "escape_sequence" => {
+            *saw_content = true;
+            text.push_str(match node_text(&node, source) {
+                "\\n" => "\n",
+                "\\r" => "\r",
+                "\\t" => "\t",
+                "\\b" => "\u{8}",
+                "\\\"" => "\"",
+                "\\'" => "'",
+                "\\\\" => "\\",
+                "\\$" => "$",
+                other => other,
+            });
+        }
+        _ => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                collect_string_parts(child, source, text, saw_content);
+            }
+        }
+    }
+}
+
+/// Depth-first search for the first node of `kind` at or below `node`.
+fn find_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
+    if node.kind() == kind {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if let Some(found) = find_kind(child, kind) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 pub(crate) fn scan_kotlin_source(source: &str) -> Result<FileFacts, String> {

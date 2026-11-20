@@ -1,3 +1,4 @@
+use crate::driver::Driver;
 use crate::language::Language;
 use crate::model::Model;
 use std::path::Path;
@@ -7,13 +8,13 @@ pub mod go;
 pub mod kotlin;
 mod leg;
 pub mod python;
-mod rust;
+pub mod rust;
 pub mod ts;
 
 /// The declared facts ride the model vocabulary (the scan facts
 /// seam): re-exported here so the `scan::DeclaredFacts` path keeps
 /// resolving for consumers that address them through the scan engine.
-pub use crate::model::{DeclaredFacts, DeclaredZone};
+pub use crate::model::{DeclaredFacts, DeclaredPattern, DeclaredPatternVerb, DeclaredZone};
 
 /// Extract the architecture model of `root` for `language`, spec-free
 /// (mechanical exclusions only — the stateless fresh-walk entry the facts
@@ -24,19 +25,33 @@ pub fn extract(language: Language, root: &Path) -> Result<Model, String> {
 }
 
 /// Extract with the declared facts applied: the same walk, adjudicated
-/// against the entries the consumer loaded from its own spec.
+/// against the entries the consumer loaded from its own spec. The
+/// language-to-driver decision moves through the ONE compile-time table
+/// below (workplan events_value_join scenario 10, ADR-069 Decision 5's
+/// ports rung) — every serialized surface is unchanged.
 pub fn extract_with(
     language: Language,
     root: &Path,
     declared: &DeclaredFacts,
 ) -> Result<Model, String> {
+    driver(language).extract(root, declared)
+}
+
+/// The compile-time driver table (workplan events_value_join scenario 10):
+/// the ONE exhaustive `Language` match that decides extraction, returning
+/// the driver as a `&'static dyn Driver` over unit structs. Exhaustive by
+/// construction: a new `Language` variant without a driver fails to
+/// compile. There is no runtime lookup and none may ship (decision-check
+/// A3) — the availability gate [`driver_available`] stays OUTSIDE the
+/// table, keyed on `as_str()`, exactly where it was.
+fn driver(language: Language) -> &'static dyn Driver {
     match language {
-        Language::Rust => rust::extract(root),
-        Language::Csharp => csharp::extract(root, declared),
-        Language::Go => go::extract(root),
-        Language::Kotlin => kotlin::extract(root, declared),
-        Language::Python => python::extract(root, declared),
-        Language::Ts => ts::extract(root, declared),
+        Language::Rust => &rust::RustDriver,
+        Language::Csharp => &csharp::CsharpDriver,
+        Language::Go => &go::GoDriver,
+        Language::Kotlin => &kotlin::KotlinDriver,
+        Language::Python => &python::PythonDriver,
+        Language::Ts => &ts::TsDriver,
     }
 }
 

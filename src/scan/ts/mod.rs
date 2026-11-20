@@ -37,7 +37,7 @@ use common::{
 };
 
 use crate::language;
-use crate::model::{ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
+use crate::model::{LiteralCandidate, ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
 use crate::model::DeclaredFacts;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -102,6 +102,17 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     // report-only lines never exist (F14). Below the floor the lever
     // returns 1 and this is literally today's serial loop (no threads).
     let threads = super::leg::fact_leg_threads(files.len());
+    // The literal-candidate feed (workplan events_value_join scenario 03,
+    // decision-check F8): collected ONLY when a declared pattern side names
+    // this driver — the declaration gate is the byte identity (4.2 arm 1),
+    // so a non-declaring run reads and parses nothing twice and appends
+    // nothing. The sites are vocabulary-free (A6): names ride as spelled,
+    // the engine matcher verbs decide equality at the resolution site.
+    let collect_candidates = facts
+        .patterns
+        .iter()
+        .any(|pattern| pattern.language == language::Language::Ts.as_str());
+    let mut literal_candidates: Vec<LiteralCandidate> = Vec::new();
     let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::profile::phase(
         "scan-facts",
         || {
@@ -117,6 +128,19 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
 
     for (file, facts) in files.iter().zip(all_facts) {
         let facts = facts?;
+        if collect_candidates {
+            let path = root.join(file);
+            if let Ok(source) = std::fs::read_to_string(&path) {
+                for (anchor, value) in syntax::literal_candidates(&path, &source) {
+                    literal_candidates.push(LiteralCandidate {
+                        path: file.clone(),
+                        language: language::Language::Ts.as_str().to_string(),
+                        anchor,
+                        value,
+                    });
+                }
+            }
+        }
         import_statements += facts.import_statements;
         let defines_nothing = !facts.edges.is_empty()
             && facts.edges.iter().all(|edge| edge.export_from)
@@ -445,6 +469,7 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
         unit_manifests,
         test_gated_modules,
         roles,
+        literal_candidates,
         // The `external not installed` lines ride the transient channel
         // (R7b): stderr via the report renderer, never the machine body.
         report_only_lines: report_only,
@@ -775,6 +800,17 @@ fn declares_test_framework(dependencies: &[String]) -> bool {
         .any(|dependency| dependency == "vitest" || dependency == "jest")
 }
 
+/// The driver-port seam entry (workplan events_value_join scenario 10):
+/// a unit struct implementing `crate::driver::Driver` by calling this
+/// module's own [`extract`] — body logic moves zero lines.
+pub(crate) struct TsDriver;
+
+impl crate::driver::Driver for TsDriver {
+    fn extract(&self, root: &Path, declared: &DeclaredFacts) -> Result<Model, String> {
+        extract(root, declared)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::common::exclusion_hit;
@@ -912,3 +948,4 @@ mod tests {
         );
     }
 }
+

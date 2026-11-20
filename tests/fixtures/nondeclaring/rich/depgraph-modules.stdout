@@ -1,0 +1,5 @@
+graph TD
+  core
+  gateway["gateway [facade]"]
+  store
+  gateway --> core

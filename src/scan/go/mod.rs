@@ -1,6 +1,9 @@
 pub mod syntax;
 
-use crate::model::{Edge, Model, ModuleEdge, Role, Unit};
+use crate::model::{
+    matching_exclusion, DeclaredFacts, Edge, ExclusionEntry, LiteralCandidate, Model, ModuleEdge,
+    Role, Unit,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -19,28 +22,77 @@ use walkdir::WalkDir;
 /// unit naming and unit-tier edges as above, selector symbols onto the
 /// cross-member edges, and within-member package imports projected exactly
 /// like the single-module path.
-pub fn extract(root: &Path) -> Result<Model, String> {
+pub fn extract(root: &Path, declared: &DeclaredFacts) -> Result<Model, String> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let members = workspace_members(&root)?;
-    if members.len() >= 2 {
+    // File-level declared-exclusion census (GitHub issue #60, items 2-3), the
+    // never-silent law's third class on the go side: one line per `.go` file a
+    // declared `excluded_sources` entry prunes. Go derives units FROM files
+    // ([`collect_packages`]), so a package whose every file is pruned yields no
+    // unit at all — the file gate is the only gate that ever saw those files,
+    // and each pruned file still states itself exactly once. A set, because the
+    // candidate feed walks the same package map again.
+    let mut excluded_files: BTreeSet<String> = BTreeSet::new();
+    let mut model = if members.len() >= 2 {
         // A go.work naming several member modules is a module fact the model
         // can state: the module tier mirrors the csharp shape (group ->
         // members) with member modules as the groups and their packages as
         // the members.
-        return extract_workspace(&root, &members);
+        extract_workspace(&root, &members, &declared.exclusions, &mut excluded_files)?
+    } else {
+        // No go.work (or a degenerate one with a single member): the
+        // single-module path.
+        extract_single_module(&root, &declared.exclusions, &mut excluded_files)?
+    };
+    // The literal-candidate feed (workplan events_value_join scenario 09,
+    // decision-check F8 seam): collected ONLY when a declared pattern side
+    // names this driver — the declaration gate is the byte identity
+    // (4.2 arm 1), so a non-declaring run appends nothing and parses
+    // nothing twice. The sites are vocabulary-free (A6); the engine matcher
+    // verbs decide equality at the resolution site. Iteration order is the
+    // package map's (sorted dirs, sorted files), so the feed is stable.
+    if declared
+        .patterns
+        .iter()
+        .any(|pattern| pattern.language == crate::language::Language::Go.as_str())
+    {
+        for files in collect_packages(&root, &declared.exclusions, &mut excluded_files).values() {
+            for file in files {
+                let Ok(rel) = file.strip_prefix(&root) else {
+                    continue;
+                };
+                let spelled = rel.to_string_lossy().replace('\\', "/");
+                for (anchor, value) in syntax::literal_candidates(file) {
+                    model.literal_candidates.push(LiteralCandidate {
+                        path: spelled.clone(),
+                        language: crate::language::Language::Go.as_str().to_string(),
+                        anchor,
+                        value,
+                    });
+                }
+            }
+        }
     }
-    // No go.work (or a degenerate one with a single member): the single-module
-    // path.
-    extract_single_module(&root)
+    // The file-level declared-exclusion census, sorted by path (GitHub issue
+    // #60, items 2-3): report-only bytes, serde-skipped, never the machine
+    // body — a tree declaring nothing moves zero bytes here.
+    model.report_only_lines = excluded_files.into_iter().collect();
+    Ok(model)
 }
 
 /// The single-module path: units are the discovered packages, hard edges are
 /// imports matching a unit name, and every such intra-module import
-/// additionally projects onto the module tier (see [`extract`]).
-fn extract_single_module(root: &Path) -> Result<Model, String> {
+/// additionally projects onto the module tier (see [`extract`]). The declared
+/// exclusions ride [`collect_packages`], so a pruned file yields no unit, no
+/// edge and no external attribution, and states itself once in `census`.
+fn extract_single_module(
+    root: &Path,
+    exclusions: &[ExclusionEntry],
+    census: &mut BTreeSet<String>,
+) -> Result<Model, String> {
     let module = module_path(root)?;
 
-    let packages = collect_packages(root);
+    let packages = collect_packages(root, exclusions, census);
 
     if packages.is_empty() {
         return Err(format!("no Go packages found under: {}", root.display()));
@@ -265,8 +317,10 @@ fn normalize_use_dir(entry: &str) -> String {
 fn extract_workspace(
     root: &Path,
     members: &[(String, String)],
+    exclusions: &[ExclusionEntry],
+    census: &mut BTreeSet<String>,
 ) -> Result<Model, String> {
-    let packages = collect_packages(root);
+    let packages = collect_packages(root, exclusions, census);
     if packages.is_empty() {
         return Err(format!("no Go packages found under: {}", root.display()));
     }
@@ -494,11 +548,25 @@ pub(crate) fn module_path(root: &Path) -> Result<String, String> {
     ))
 }
 
-/// Map package dir (rel to root) -> sorted production .go files in it. Skips
-/// dirs with no production .go files and skips `vendor/` and hidden dirs.
-/// `*_test.go` files are the Go test tier and contribute no production
-/// evidence (see `is_test_file`).
-fn collect_packages(root: &Path) -> BTreeMap<String, Vec<PathBuf>> {
+/// Map package dir (rel to root) -> sorted production .go files in it, behind
+/// TWO doors. The mechanical gate is the first door and says nothing: `vendor/`,
+/// `testdata/` and dot-entries were never unit sources, `*_test.go` is the Go
+/// test tier, and none of them states an exclusion line. The declared gate is
+/// the second door (GitHub issue #60, items 2-3): each surviving `.go` file's
+/// ROOT-relative path is adjudicated through the same component-wise
+/// [`matching_exclusion`] the csharp arm uses — the entry `external` matches
+/// `external/ext.go`, never `externalapp/ext.go` — and a pruned file
+/// contributes no fact: no unit, no edge, no module edge, no external
+/// attribution, no selector symbol and no literal candidate. Because units are
+/// derived FROM this map, a package whose every file is pruned yields NO unit;
+/// a package keeping one file keeps its unit and its edges. Each pruned file
+/// states itself exactly once in `census` (the set dedupes the walks that reach
+/// the same file). Skips dirs with no surviving production .go files.
+fn collect_packages(
+    root: &Path,
+    exclusions: &[ExclusionEntry],
+    census: &mut BTreeSet<String>,
+) -> BTreeMap<String, Vec<PathBuf>> {
     let mut packages: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
     for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
         if !entry.file_type().is_file() {
@@ -515,6 +583,10 @@ fn collect_packages(root: &Path) -> BTreeMap<String, Vec<PathBuf>> {
             continue;
         };
         if is_excluded_go(rel) {
+            continue;
+        }
+        if matching_exclusion(exclusions, rel).is_some() {
+            census.insert(format!("excluded source: {} — excluded_sources", rel.display()));
             continue;
         }
         let dir = match rel.parent() {
@@ -593,5 +665,19 @@ pub fn package_name(module: &str, rel_dir: &str) -> String {
         module.to_string()
     } else {
         format!("{module}/{rel_dir}")
+    }
+}
+
+/// The driver-port seam entry (workplan events_value_join scenario 10):
+/// a unit struct implementing `crate::driver::Driver` by calling this
+/// module's own [`extract`] — body logic moves zero lines. The `declared`
+/// parameter is live on TWO arms: the candidate gate (scenario 09) and the
+/// file-level `excluded_sources` gate of [`collect_packages`] (GitHub issue
+/// #60, items 2-3).
+pub(crate) struct GoDriver;
+
+impl crate::driver::Driver for GoDriver {
+    fn extract(&self, root: &Path, declared: &DeclaredFacts) -> Result<Model, String> {
+        extract(root, declared)
     }
 }

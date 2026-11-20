@@ -153,6 +153,32 @@ pub struct Diff {
     /// `<endpoint> — <from> -> <to> (entry #N)`, one line per failing side;
     /// the renderer attaches the `async endpoint unclaimed: ` category label.
     pub async_endpoint_unclaimed: Vec<String>,
+    /// The declaration-face unit arm (workplan events_value_join scenario
+    /// 02, ADR-069 4.4a(i)/(iv)): a `[[canonical_producer]]` or
+    /// `[[shared_constant]]` entry whose producer spelling answers nothing
+    /// at the ONE tree-root unit-id site — the bare per-driver dot in a tree
+    /// with no root unit is the witness shape. Entries store the body
+    /// `<class> — <producer> ([<table>] entry #N)`; the renderer attaches the
+    /// `declaration producer unresolved: ` category label. An absent or empty
+    /// pair of declaration tables leaves the field empty (D8).
+    pub declaration_producer_unresolved: Vec<String>,
+    /// The declaration-face canonicality arm: the producer spelling resolves
+    /// through another vocabulary (an ecosystem name, a path inside the
+    /// owning unit), so it is not the tree-root-canonical unit id the
+    /// declaration law demands. Entries store the body
+    /// `<class> — <producer> resolves to <id> ([<table>] entry #N)`; the
+    /// renderer attaches the `declaration producer not canonical: ` category
+    /// label.
+    pub declaration_producer_not_canonical: Vec<String>,
+    /// The declaration-face arbitration arm (4.4a(iv): exactly ONE canonical
+    /// producer per fact class): one class declared with two different
+    /// producers in one table states no arbitration — the precondition the
+    /// declaration exists to provide. Entries store the body
+    /// `<class> — <producer> (entries <#,...>), … ([<table>])`, one row per
+    /// conflicting class; the renderer attaches the
+    /// `declaration producer conflict: ` category label. Pure spec
+    /// arithmetic, no model input.
+    pub declaration_producer_conflict: Vec<String>,
     /// Warning-level items (design §9): divergences whose constraint declared
     /// `severity = "warning"`, and the advisory cycle entries of a spec with no
     /// `no_cycles` constraint (visibility is constraint-independent, severity
@@ -235,6 +261,15 @@ impl Diff {
             ("async publish not derived", &self.async_publish_not_derived),
             ("async subscribe not derived", &self.async_subscribe_not_derived),
             ("async endpoint unclaimed", &self.async_endpoint_unclaimed),
+            (
+                "declaration producer unresolved",
+                &self.declaration_producer_unresolved,
+            ),
+            (
+                "declaration producer not canonical",
+                &self.declaration_producer_not_canonical,
+            ),
+            ("declaration producer conflict", &self.declaration_producer_conflict),
         ]
     }
 
@@ -420,6 +455,19 @@ pub fn render_report(diff: &Diff, strict: bool, pass: bool) -> String {
     }
     for entry in &diff.async_endpoint_unclaimed {
         out.push_str(&format!("  async endpoint unclaimed: {entry}\n"));
+    }
+    for entry in &diff.declaration_producer_unresolved {
+        out.push_str(&format!(
+            "  declaration producer unresolved: {entry}\n"
+        ));
+    }
+    for entry in &diff.declaration_producer_not_canonical {
+        out.push_str(&format!(
+            "  declaration producer not canonical: {entry}\n"
+        ));
+    }
+    for entry in &diff.declaration_producer_conflict {
+        out.push_str(&format!("  declaration producer conflict: {entry}\n"));
     }
     for warning in &diff.warnings {
         if strict && !is_async_census_row(warning) {

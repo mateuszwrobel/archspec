@@ -100,6 +100,33 @@ event = \"Orders.Events.OrderPlaced\"                 # required; the event type
 # skip with a capability-named inert note where the driver's
 # event-declaration-derivation row reads not-emitted (see `archspec help
 # diagnostics`)
+
+[[canonical_producer]]                                # optional; the canonical-producer declaration face (ADR-069 4.4a(iv))
+class = \"orders\"                                    # required; the fact class — an opaque name; the engine carries no class vocabulary
+producer = \"services/orders\"                        # required; the ONE canonical producer's tree-root-canonical unit id — a bare per-driver unit name is refused by name
+
+[[shared_constant]]                                   # optional; the shared-constant class: one constant, several readers, no edge to name
+class = \"protocol-version\"                          # required; the shared-constant fact class
+producer = \"packages/gateway-protocol\"              # required; the canonical producer's tree-root-canonical unit id
+# a shared constant is NEVER an async row: the emit/subscribe pattern-pair
+# keys do not exist on this table, and an entry naming one is refused by name
+# (see `archspec help diagnostics`)
+
+[[pattern_pair]]                                      # optional; the literal-site pattern-pair declaration face (workplan events_value_join)
+id = \"orders-bus\"                                   # required; the pattern id the literal-site rows carry — unique across the table
+[pattern_pair.emit]                                   # optional side; omit both sides and the entry is refused
+language = \"ts\"                                     # required; the driver name the side matches
+role = \"publish\"                                    # optional; publish or subscribe — the ONLY orientation source, names never orient
+call = \"emitOrder\"                                  # verb one (with arg): the callee's simple name, matched by EQUALITY only
+arg = 0                                               # verb one's 0-based string-literal argument position
+[pattern_pair.subscribe]                              # optional side; exactly one verb per side — both or none is refused
+language = \"ts\"                                     # required; the driver name the side matches
+role = \"subscribe\"                                  # optional; the side's role
+property = \"event\"                                  # verb two: the exported property whose string-literal value is the site
+# the engine ships the two verbs (call-name+arg-position, exported-property-value)
+# and reads the nouns HERE — renaming source and declaration together moves no
+# verdict; a driver whose literal-site-census capability row reads not-emitted
+# prints its named gap line instead of rows (see `archspec capability matrix`)
 ";
 
 const ALL_TYPES: [&str; 7] = [
@@ -267,10 +294,87 @@ fn schema_json() -> String {
                     "required": spec::shape_keys("async_depends").to_vec(),
                     "description": "one asynchronous (event) dependency edge, declaring the event IDENTITY only: from and to are unit names, event is the event type's fully-qualified dotted name; payload shape is derived from source on both sides, never declared (D2); all three keys are mandatory and non-empty per entry (the runtime refuses a missing one as invalid spec naming the entry and key); verify validates each entry with three named arms: the event type resolves in the model's declared-type census, the from-unit carries a derived publish fact, the to-unit carries a derived subscribe fact — arms two and three skip with a capability-named inert note where the driver's event-declaration-derivation row reads not-emitted"
                 }
+            },
+            // The declaration face (ADR-069 4.4a(iv), workplan
+            // events_value_join scenario 02): both tables' properties AND
+            // required derive from `SPEC_KEY_SHAPES` exactly like
+            // `async_depends` above — the schema carries the tables from the
+            // one constant the runtime unknown-key validator reads, so
+            // reference and validator cannot drift
+            // (`schema_key_sets_match_shared_shape_table` welds it). The
+            // pattern-pair keys `emit`/`subscribe` are NOT members of either
+            // shape: the schema never makes a shared constant expressible as
+            // a pattern pair, and the walker refuses an entry naming one by
+            // name (`CONSTANT_PATTERN_KEYS` is the one constant for both
+            // voices).
+            "canonical_producer": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": shape_properties("canonical_producer"),
+                    "required": spec::shape_keys("canonical_producer").to_vec(),
+                    "description": "the canonical producer of one fact class (ADR-069 4.4a(iv)): class is the opaque fact-class name, producer is the ONE canonical producer's tree-root-canonical unit id; both keys are mandatory and non-empty per entry (the runtime refuses a missing one as invalid spec naming the entry and key); an entry's producer must answer the tree-root unit index — a bare per-driver unit name and a spelling that is not the owning unit's canonical id are each refused by name; one class declared with two different producers in one table is refused by name"
+                }
+            },
+            "shared_constant": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": shape_properties("shared_constant"),
+                    "required": spec::shape_keys("shared_constant").to_vec(),
+                    "description": "the canonical-producer declaration over a shared-constant fact class (one constant, several readers, no edge to name): class is the opaque constant-class name, producer is the canonical producer's tree-root-canonical unit id; both keys are mandatory and non-empty per entry, with the same unit-id laws as the canonical-producer table; a shared constant is NEVER an async row — the emit and subscribe pattern-pair keys do not exist on this table and the runtime refuses an entry naming one by name, naming the entry, the key and the table"
+                }
+            },
+            // The literal-site pattern-pair declaration face (workplan
+            // events_value_join scenario 03): the pair's KEY SETS ride the
+            // shared `SPEC_KEY_SHAPES` entries (`pattern_pair`,
+            // `pattern_side`) exactly like the tables above, so reference
+            // and validator cannot drift; the one-verb-per-side law rides a
+            // `oneOf` branch pair — verb arms alone, no extra doors.
+            "pattern_pair": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "id": { "type": "string", "minLength": 1 },
+                        "emit": pattern_side_schema(),
+                        "subscribe": pattern_side_schema()
+                    },
+                    "required": ["id"],
+                    "description": "one literal-site pattern pair: id is the pattern name the resolved literal-site rows carry (unique across the table); emit and subscribe are optional side tables, an entry with neither is refused; each side names a driver language, an optional role from the closed set publish/subscribe (the ONLY orientation source — the engine never infers a role from a name), and exactly one matcher verb — call plus arg (the callee's simple name matched by EQUALITY and the 0-based string-literal argument position) or property (the exported property whose string-literal value is the site); a side with both verbs or with none is refused"
+                }
             }
         }
     });
     serde_json::to_string_pretty(&schema).expect("schema serializes")
+}
+
+/// One pattern side's fragment (workplan events_value_join scenario 03):
+/// the KEY SET rides `SPEC_KEY_SHAPES["pattern_side"]` — the same constant
+/// the runtime walker reads — while the value domains state their own types
+/// (a closed role vocabulary, a non-negative argument position). The
+/// one-verb-per-side law rides `oneOf`: exactly the `call`+`arg` arm or the
+/// `property` arm, never both, never neither.
+fn pattern_side_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "language": { "type": "string", "minLength": 1 },
+            "role": { "enum": spec::PATTERN_ROLE_VALUES },
+            "call": { "type": "string", "minLength": 1 },
+            "arg": { "type": "integer", "minimum": 0 },
+            "property": { "type": "string", "minLength": 1 }
+        },
+        "required": ["language"],
+        "oneOf": [
+            { "required": ["call", "arg"] },
+            { "required": ["property"] }
+        ]
+    })
 }
 
 /// One shape's property fragments, keyed straight off `SPEC_KEY_SHAPES`:
@@ -513,6 +617,21 @@ mod tests {
             "async_depends",
         );
         assert_shape(
+            &schema["properties"]["canonical_producer"]["items"],
+            "canonical_producer",
+        );
+        assert_shape(
+            &schema["properties"]["shared_constant"]["items"],
+            "shared_constant",
+        );
+        assert_shape(
+            &schema["properties"]["pattern_pair"]["items"],
+            "pattern_pair",
+        );
+        let pattern_side = &schema["properties"]["pattern_pair"]["items"]["properties"];
+        assert_shape(&pattern_side["emit"], "pattern_side");
+        assert_shape(&pattern_side["subscribe"], "pattern_side");
+        assert_shape(
             &schema["properties"]["stereotype"]["items"]["properties"]["match"],
             "match",
         );
@@ -522,6 +641,29 @@ mod tests {
         assert_shape(&module["properties"]["contract"], "contract");
         assert_shape(&module["properties"]["allowed"], "allowed");
         assert_shape(&module["properties"]["submodules"]["items"], "module");
+    }
+
+    /// The F-W3 negative weld (workplan events_value_join scenario 02): the
+    /// generated schema never makes a shared constant (or a plain
+    /// canonical-producer entry) expressible as a pattern pair — neither
+    /// declaration table advertises a `CONSTANT_PATTERN_KEYS` member, so a
+    /// constant can never ride the async-row machinery. The runtime voice of
+    /// the same law is `check_constant_pattern_pair`, driven by the same
+    /// constant: reference and validator cannot drift on the pair's ABSENCE.
+    #[test]
+    fn schema_never_expresses_a_constant_as_a_pattern_pair() {
+        let schema: serde_json::Value = serde_json::from_str(&schema_json()).unwrap();
+        for table in ["shared_constant", "canonical_producer"] {
+            let properties = schema["properties"][table]["items"]["properties"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{table} items must carry properties"));
+            for key in spec::CONSTANT_PATTERN_KEYS {
+                assert!(
+                    !properties.contains_key(key),
+                    "the {table} table must never advertise the pattern-pair key {key}"
+                );
+            }
+        }
     }
 
     /// The schema-level echo of the runtime refusal: every object schema that

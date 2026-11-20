@@ -1,0 +1,2 @@
+generated ./architecture.spec.toml
+review and trim the seed spec, then run archspec verify

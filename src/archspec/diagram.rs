@@ -365,13 +365,11 @@ fn build_scan_graph(model: &Model, governing: Option<&Spec>, tiers: &TierSelecti
         module_nodes,
         module_arrows,
         async_arrows: crate::archspec::depgraph::async_render_rows(
-            model
-                .async_edges
-                .iter()
+            crate::archspec::depgraph::derived_render_rows(model)
+                .into_iter()
                 // the self-edge law (scenario 08) filters BEFORE the shared
                 // identity-and-label assembly of issue #48
-                .filter(|row| row.from != row.to)
-                .map(|row| (row.from.clone(), row.to.clone(), row.event.clone())),
+                .filter(|(from, to, _)| from != to),
         )
         .into_iter()
         .collect(),

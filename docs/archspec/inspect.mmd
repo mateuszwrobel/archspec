@@ -4,13 +4,15 @@ graph TD
   end
   subgraph src
     src_collector_rs_7d5e8ae6["src/collector.rs"]
+    src_driver_rs_279aba20["src/driver.rs"]
     src_language_rs_430ffc26["src/language.rs"]
     src_lib_rs_2fba4152["src/lib.rs"]
     src_main_rs_df9f8d2d["src/main.rs"]
     src_model_rs_cf804a5b["src/model.rs"]
     src_profile_rs_d7f56937["src/profile.rs"]
     src_render_rs_8e751ed1["src/render.rs"]
-    src_collector_rs_7d5e8ae6 ~~~ src_language_rs_430ffc26
+    src_collector_rs_7d5e8ae6 ~~~ src_driver_rs_279aba20
+    src_driver_rs_279aba20 ~~~ src_language_rs_430ffc26
     src_language_rs_430ffc26 ~~~ src_lib_rs_2fba4152
     src_lib_rs_2fba4152 ~~~ src_main_rs_df9f8d2d
     src_main_rs_df9f8d2d ~~~ src_model_rs_cf804a5b
@@ -69,6 +71,21 @@ graph TD
         src_archspec_commands_spec_rs_faee5f0a ~~~ src_archspec_commands_update_rs_e2c6821b
         src_archspec_commands_update_rs_e2c6821b ~~~ src_archspec_commands_verify_rs_bc7cac43
       end
+      subgraph src_archspec_events_aae3f676["src/archspec/events"]
+        src_archspec_events_attribution_rs_28e36a6e["src/archspec/events/attribution.rs"]
+        src_archspec_events_blindspots_rs_46373e0d["src/archspec/events/blindspots.rs"]
+        src_archspec_events_derive_rs_189ef8b5["src/archspec/events/derive.rs"]
+        src_archspec_events_join_rs_d4ae3213["src/archspec/events/join.rs"]
+        src_archspec_events_mod_rs_c872757f["src/archspec/events/mod.rs"]
+        src_archspec_events_patterns_rs_79795b23["src/archspec/events/patterns.rs"]
+        src_archspec_events_unitid_rs_1299e40a["src/archspec/events/unitid.rs"]
+        src_archspec_events_attribution_rs_28e36a6e ~~~ src_archspec_events_blindspots_rs_46373e0d
+        src_archspec_events_blindspots_rs_46373e0d ~~~ src_archspec_events_derive_rs_189ef8b5
+        src_archspec_events_derive_rs_189ef8b5 ~~~ src_archspec_events_join_rs_d4ae3213
+        src_archspec_events_join_rs_d4ae3213 ~~~ src_archspec_events_mod_rs_c872757f
+        src_archspec_events_mod_rs_c872757f ~~~ src_archspec_events_patterns_rs_79795b23
+        src_archspec_events_patterns_rs_79795b23 ~~~ src_archspec_events_unitid_rs_1299e40a
+      end
       subgraph src_archspec_init_8c7f345e["src/archspec/init"]
         src_archspec_init_detect_rs_b8b98ac4["src/archspec/init/detect.rs"]
         src_archspec_init_mod_rs_e4f655ce["src/archspec/init/mod.rs"]
@@ -116,6 +133,7 @@ graph TD
           src_archspec_verify_compare_claims_rs_ff31945a["src/archspec/verify/compare/claims.rs"]
           src_archspec_verify_compare_contracts_rs_6f1e6784["src/archspec/verify/compare/contracts.rs"]
           src_archspec_verify_compare_cycles_rs_7a16f3ee["src/archspec/verify/compare/cycles.rs"]
+          src_archspec_verify_compare_declarations_rs_0adf3346["src/archspec/verify/compare/declarations.rs"]
           src_archspec_verify_compare_diff_rs_1ea7ac2e["src/archspec/verify/compare/diff.rs"]
           src_archspec_verify_compare_edges_rs_96998a58["src/archspec/verify/compare/edges.rs"]
           src_archspec_verify_compare_engagement_rs_c3c042c0["src/archspec/verify/compare/engagement.rs"]
@@ -129,7 +147,8 @@ graph TD
           src_archspec_verify_compare_boundaries_rs_543a12f6 ~~~ src_archspec_verify_compare_claims_rs_ff31945a
           src_archspec_verify_compare_claims_rs_ff31945a ~~~ src_archspec_verify_compare_contracts_rs_6f1e6784
           src_archspec_verify_compare_contracts_rs_6f1e6784 ~~~ src_archspec_verify_compare_cycles_rs_7a16f3ee
-          src_archspec_verify_compare_cycles_rs_7a16f3ee ~~~ src_archspec_verify_compare_diff_rs_1ea7ac2e
+          src_archspec_verify_compare_cycles_rs_7a16f3ee ~~~ src_archspec_verify_compare_declarations_rs_0adf3346
+          src_archspec_verify_compare_declarations_rs_0adf3346 ~~~ src_archspec_verify_compare_diff_rs_1ea7ac2e
           src_archspec_verify_compare_diff_rs_1ea7ac2e ~~~ src_archspec_verify_compare_edges_rs_96998a58
           src_archspec_verify_compare_edges_rs_96998a58 ~~~ src_archspec_verify_compare_engagement_rs_c3c042c0
           src_archspec_verify_compare_engagement_rs_c3c042c0 ~~~ src_archspec_verify_compare_external_rs_f48392b0
@@ -141,7 +160,8 @@ graph TD
         src_archspec_verify_mod_rs_76886026 ~~~ src_archspec_verify_compare_adjudicate_rs_44538ae0
       end
       src_archspec_spec_rs_a8194740 ~~~ src_archspec_commands_capability_rs_64476979
-      src_archspec_commands_verify_rs_bc7cac43 ~~~ src_archspec_init_detect_rs_b8b98ac4
+      src_archspec_commands_verify_rs_bc7cac43 ~~~ src_archspec_events_attribution_rs_28e36a6e
+      src_archspec_events_unitid_rs_1299e40a ~~~ src_archspec_init_detect_rs_b8b98ac4
       src_archspec_init_mod_rs_e4f655ce ~~~ src_archspec_inspect_clusters_rs_d7fb49a7
       src_archspec_inspect_ts_rs_232f79f4 ~~~ src_archspec_report_mod_rs_2a583ff5
       src_archspec_report_mod_rs_2a583ff5 ~~~ src_archspec_update_mod_rs_e0173b9b
@@ -236,6 +256,7 @@ graph TD
     tests_config_rs_0b65e312["tests/config.rs"]
     tests_csharp_di_rs_26824d07["tests/csharp_di.rs"]
     tests_csharp_excluded_projects_rs_b9d6fded["tests/csharp_excluded_projects.rs"]
+    tests_csharp_excluded_sources_rs_c46f7150["tests/csharp_excluded_sources.rs"]
     tests_csharp_modules_rs_52bb4e98["tests/csharp_modules.rs"]
     tests_csharp_public_api_rs_fbf292b1["tests/csharp_public_api.rs"]
     tests_csharp_public_api_allowlist_rs_3e861d4b["tests/csharp_public_api_allowlist.rs"]
@@ -254,12 +275,22 @@ graph TD
     tests_doc_surface_nits_rs_cdb2ac7d["tests/doc_surface_nits.rs"]
     tests_doctor_rs_5bb74127["tests/doctor.rs"]
     tests_e2e_matrix_rs_ef4a1eaa["tests/e2e_matrix.rs"]
+    tests_events_value_join_attribution_rs_dfeb2630["tests/events_value_join_attribution.rs"]
+    tests_events_value_join_blindspots_rs_101d7a41["tests/events_value_join_blindspots.rs"]
+    tests_events_value_join_declaration_rs_7d2817f2["tests/events_value_join_declaration.rs"]
+    tests_events_value_join_driver_contributions_rs_5c9d4f2f["tests/events_value_join_driver_contributions.rs"]
+    tests_events_value_join_nondeclaring_rs_098091c6["tests/events_value_join_nondeclaring.rs"]
+    tests_events_value_join_patterns_rs_856fe2a5["tests/events_value_join_patterns.rs"]
+    tests_events_value_join_rows_rs_b3288580["tests/events_value_join_rows.rs"]
+    tests_events_value_join_unitid_rs_2c68a25e["tests/events_value_join_unitid.rs"]
+    tests_events_value_join_witness_mirrors_rs_1efc9586["tests/events_value_join_witness_mirrors.rs"]
     tests_excluded_sources_report_rs_8a2c30ef["tests/excluded_sources_report.rs"]
     tests_exempt_rs_83374693["tests/exempt.rs"]
     tests_exit_taxonomy_rs_975de231["tests/exit_taxonomy.rs"]
     tests_explain_rs_ed5e3c7b["tests/explain.rs"]
     tests_extraction_freeze_rs_ff26bd53["tests/extraction_freeze.rs"]
     tests_feature_matrix_rs_91dd71b6["tests/feature_matrix.rs"]
+    tests_go_excluded_sources_rs_6aeaca2d["tests/go_excluded_sources.rs"]
     tests_go_syntax_rs_dcc778f7["tests/go_syntax.rs"]
     tests_go_tier_agreement_rs_875013bb["tests/go_tier_agreement.rs"]
     tests_golden_derivation_rs_603725c3["tests/golden_derivation.rs"]
@@ -276,6 +307,8 @@ graph TD
     tests_issue48_event_collision_rs_6ec9f913["tests/issue48_event_collision.rs"]
     tests_issue50_honest_reclaim_rs_0cd22dfc["tests/issue50_honest_reclaim.rs"]
     tests_issue59_silent_claim_deletion_rs_1752e4cf["tests/issue59_silent_claim_deletion.rs"]
+    tests_issue61_dotted_render_rs_ba9cf993["tests/issue61_dotted_render.rs"]
+    tests_issue63_dispatch_visibility_rs_95ed7091["tests/issue63_dispatch_visibility.rs"]
     tests_kotlin_driver_rs_8ab631d1["tests/kotlin_driver.rs"]
     tests_language_agreement_rs_90c454cb["tests/language_agreement.rs"]
     tests_lib_imports_guard_rs_c21683b3["tests/lib_imports_guard.rs"]
@@ -286,11 +319,13 @@ graph TD
     tests_nuget_channel_rs_3dc7603a["tests/nuget_channel.rs"]
     tests_output_dash_rs_64f5de00["tests/output_dash.rs"]
     tests_parallel_fact_leg_rs_2aac20a6["tests/parallel_fact_leg.rs"]
+    tests_port_seam_driver_table_rs_2fdafc70["tests/port_seam_driver_table.rs"]
     tests_profile_gate_rs_20560d3e["tests/profile_gate.rs"]
     tests_python_driver_rs_8b437ef2["tests/python_driver.rs"]
     tests_reference_engagement_rs_b6588aa0["tests/reference_engagement.rs"]
     tests_report_rs_d3343c12["tests/report.rs"]
     tests_roles_matrix_rs_d9342ae1["tests/roles_matrix.rs"]
+    tests_rust_excluded_sources_rs_2218e093["tests/rust_excluded_sources.rs"]
     tests_rust_file_facts_rs_79d55f98["tests/rust_file_facts.rs"]
     tests_rust_trait_refs_rs_2bbc649b["tests/rust_trait_refs.rs"]
     tests_scan_rs_9d8497cf["tests/scan.rs"]
@@ -336,7 +371,8 @@ graph TD
     tests_cli_pipe_rs_6e496383 ~~~ tests_config_rs_0b65e312
     tests_config_rs_0b65e312 ~~~ tests_csharp_di_rs_26824d07
     tests_csharp_di_rs_26824d07 ~~~ tests_csharp_excluded_projects_rs_b9d6fded
-    tests_csharp_excluded_projects_rs_b9d6fded ~~~ tests_csharp_modules_rs_52bb4e98
+    tests_csharp_excluded_projects_rs_b9d6fded ~~~ tests_csharp_excluded_sources_rs_c46f7150
+    tests_csharp_excluded_sources_rs_c46f7150 ~~~ tests_csharp_modules_rs_52bb4e98
     tests_csharp_modules_rs_52bb4e98 ~~~ tests_csharp_public_api_rs_fbf292b1
     tests_csharp_public_api_rs_fbf292b1 ~~~ tests_csharp_public_api_allowlist_rs_3e861d4b
     tests_csharp_public_api_allowlist_rs_3e861d4b ~~~ tests_csharp_rootusings_rs_7413f942
@@ -354,13 +390,23 @@ graph TD
     tests_diagram_modules_rs_2a47643b ~~~ tests_doc_surface_nits_rs_cdb2ac7d
     tests_doc_surface_nits_rs_cdb2ac7d ~~~ tests_doctor_rs_5bb74127
     tests_doctor_rs_5bb74127 ~~~ tests_e2e_matrix_rs_ef4a1eaa
-    tests_e2e_matrix_rs_ef4a1eaa ~~~ tests_excluded_sources_report_rs_8a2c30ef
+    tests_e2e_matrix_rs_ef4a1eaa ~~~ tests_events_value_join_attribution_rs_dfeb2630
+    tests_events_value_join_attribution_rs_dfeb2630 ~~~ tests_events_value_join_blindspots_rs_101d7a41
+    tests_events_value_join_blindspots_rs_101d7a41 ~~~ tests_events_value_join_declaration_rs_7d2817f2
+    tests_events_value_join_declaration_rs_7d2817f2 ~~~ tests_events_value_join_driver_contributions_rs_5c9d4f2f
+    tests_events_value_join_driver_contributions_rs_5c9d4f2f ~~~ tests_events_value_join_nondeclaring_rs_098091c6
+    tests_events_value_join_nondeclaring_rs_098091c6 ~~~ tests_events_value_join_patterns_rs_856fe2a5
+    tests_events_value_join_patterns_rs_856fe2a5 ~~~ tests_events_value_join_rows_rs_b3288580
+    tests_events_value_join_rows_rs_b3288580 ~~~ tests_events_value_join_unitid_rs_2c68a25e
+    tests_events_value_join_unitid_rs_2c68a25e ~~~ tests_events_value_join_witness_mirrors_rs_1efc9586
+    tests_events_value_join_witness_mirrors_rs_1efc9586 ~~~ tests_excluded_sources_report_rs_8a2c30ef
     tests_excluded_sources_report_rs_8a2c30ef ~~~ tests_exempt_rs_83374693
     tests_exempt_rs_83374693 ~~~ tests_exit_taxonomy_rs_975de231
     tests_exit_taxonomy_rs_975de231 ~~~ tests_explain_rs_ed5e3c7b
     tests_explain_rs_ed5e3c7b ~~~ tests_extraction_freeze_rs_ff26bd53
     tests_extraction_freeze_rs_ff26bd53 ~~~ tests_feature_matrix_rs_91dd71b6
-    tests_feature_matrix_rs_91dd71b6 ~~~ tests_go_syntax_rs_dcc778f7
+    tests_feature_matrix_rs_91dd71b6 ~~~ tests_go_excluded_sources_rs_6aeaca2d
+    tests_go_excluded_sources_rs_6aeaca2d ~~~ tests_go_syntax_rs_dcc778f7
     tests_go_syntax_rs_dcc778f7 ~~~ tests_go_tier_agreement_rs_875013bb
     tests_go_tier_agreement_rs_875013bb ~~~ tests_golden_derivation_rs_603725c3
     tests_golden_derivation_rs_603725c3 ~~~ tests_help_rs_4ee9fa11
@@ -376,7 +422,9 @@ graph TD
     tests_issue47_ring_predicate_rs_ed22ed78 ~~~ tests_issue48_event_collision_rs_6ec9f913
     tests_issue48_event_collision_rs_6ec9f913 ~~~ tests_issue50_honest_reclaim_rs_0cd22dfc
     tests_issue50_honest_reclaim_rs_0cd22dfc ~~~ tests_issue59_silent_claim_deletion_rs_1752e4cf
-    tests_issue59_silent_claim_deletion_rs_1752e4cf ~~~ tests_kotlin_driver_rs_8ab631d1
+    tests_issue59_silent_claim_deletion_rs_1752e4cf ~~~ tests_issue61_dotted_render_rs_ba9cf993
+    tests_issue61_dotted_render_rs_ba9cf993 ~~~ tests_issue63_dispatch_visibility_rs_95ed7091
+    tests_issue63_dispatch_visibility_rs_95ed7091 ~~~ tests_kotlin_driver_rs_8ab631d1
     tests_kotlin_driver_rs_8ab631d1 ~~~ tests_language_agreement_rs_90c454cb
     tests_language_agreement_rs_90c454cb ~~~ tests_lib_imports_guard_rs_c21683b3
     tests_lib_imports_guard_rs_c21683b3 ~~~ tests_lib_scan_surface_rs_c7411cd1
@@ -386,12 +434,14 @@ graph TD
     tests_npm_channel_rs_d88cc6e4 ~~~ tests_nuget_channel_rs_3dc7603a
     tests_nuget_channel_rs_3dc7603a ~~~ tests_output_dash_rs_64f5de00
     tests_output_dash_rs_64f5de00 ~~~ tests_parallel_fact_leg_rs_2aac20a6
-    tests_parallel_fact_leg_rs_2aac20a6 ~~~ tests_profile_gate_rs_20560d3e
+    tests_parallel_fact_leg_rs_2aac20a6 ~~~ tests_port_seam_driver_table_rs_2fdafc70
+    tests_port_seam_driver_table_rs_2fdafc70 ~~~ tests_profile_gate_rs_20560d3e
     tests_profile_gate_rs_20560d3e ~~~ tests_python_driver_rs_8b437ef2
     tests_python_driver_rs_8b437ef2 ~~~ tests_reference_engagement_rs_b6588aa0
     tests_reference_engagement_rs_b6588aa0 ~~~ tests_report_rs_d3343c12
     tests_report_rs_d3343c12 ~~~ tests_roles_matrix_rs_d9342ae1
-    tests_roles_matrix_rs_d9342ae1 ~~~ tests_rust_file_facts_rs_79d55f98
+    tests_roles_matrix_rs_d9342ae1 ~~~ tests_rust_excluded_sources_rs_2218e093
+    tests_rust_excluded_sources_rs_2218e093 ~~~ tests_rust_file_facts_rs_79d55f98
     tests_rust_file_facts_rs_79d55f98 ~~~ tests_rust_trait_refs_rs_2bbc649b
     tests_rust_trait_refs_rs_2bbc649b ~~~ tests_scan_rs_9d8497cf
     tests_scan_rs_9d8497cf ~~~ tests_scan_modules_rs_b38784a5
@@ -546,6 +596,7 @@ graph TD
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_scan_rs_4ece116a
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_spec_rs_a8194740
   src_archspec_commands_verify_rs_bc7cac43 --> src_archspec_verify_compare_mod_rs_0fce8512
+  src_archspec_depgraph_rs_8874051e --> src_archspec_events_unitid_rs_1299e40a
   src_archspec_depgraph_rs_8874051e --> src_archspec_model_rs_b8d77281
   src_archspec_depgraph_rs_8874051e --> src_render_rs_8e751ed1
   src_archspec_diagram_rs_5eacff0a --> src_archspec_depgraph_rs_8874051e
@@ -553,6 +604,18 @@ graph TD
   src_archspec_diagram_rs_5eacff0a --> src_archspec_spec_rs_a8194740
   src_archspec_diagram_rs_5eacff0a --> src_archspec_verify_compare_mod_rs_0fce8512
   src_archspec_diagram_rs_5eacff0a --> src_render_rs_8e751ed1
+  src_archspec_events_derive_rs_189ef8b5 --> src_archspec_events_join_rs_d4ae3213
+  src_archspec_events_derive_rs_189ef8b5 --> src_archspec_events_patterns_rs_79795b23
+  src_archspec_events_derive_rs_189ef8b5 --> src_archspec_model_rs_b8d77281
+  src_archspec_events_mod_rs_c872757f --> src_archspec_events_attribution_rs_28e36a6e
+  src_archspec_events_mod_rs_c872757f --> src_archspec_events_blindspots_rs_46373e0d
+  src_archspec_events_mod_rs_c872757f --> src_archspec_events_derive_rs_189ef8b5
+  src_archspec_events_mod_rs_c872757f --> src_archspec_events_join_rs_d4ae3213
+  src_archspec_events_mod_rs_c872757f --> src_archspec_events_patterns_rs_79795b23
+  src_archspec_events_mod_rs_c872757f --> src_archspec_events_unitid_rs_1299e40a
+  src_archspec_events_mod_rs_c872757f --> src_archspec_model_rs_b8d77281
+  src_archspec_events_patterns_rs_79795b23 --> src_archspec_events_unitid_rs_1299e40a
+  src_archspec_events_patterns_rs_79795b23 --> src_archspec_model_rs_b8d77281
   src_archspec_init_detect_rs_b8b98ac4 --> src_archspec_language_rs_232ea882
   src_archspec_init_mod_rs_e4f655ce --> src_archspec_cli_rs_a6998732
   src_archspec_init_mod_rs_e4f655ce --> src_archspec_init_detect_rs_b8b98ac4
@@ -606,6 +669,7 @@ graph TD
   src_archspec_mod_rs_d8485b4a --> src_archspec_config_rs_dfd15f62
   src_archspec_mod_rs_d8485b4a --> src_archspec_depgraph_rs_8874051e
   src_archspec_mod_rs_d8485b4a --> src_archspec_diagram_rs_5eacff0a
+  src_archspec_mod_rs_d8485b4a --> src_archspec_events_mod_rs_c872757f
   src_archspec_mod_rs_d8485b4a --> src_archspec_helptext_rs_b89a2a86
   src_archspec_mod_rs_d8485b4a --> src_archspec_init_mod_rs_e4f655ce
   src_archspec_mod_rs_d8485b4a --> src_archspec_inspect_mod_rs_3ddff110
@@ -623,16 +687,25 @@ graph TD
   src_archspec_report_mod_rs_2a583ff5 --> src_archspec_model_rs_b8d77281
   src_archspec_report_mod_rs_2a583ff5 --> src_archspec_spec_rs_a8194740
   src_archspec_report_mod_rs_2a583ff5 --> src_archspec_verify_compare_mod_rs_0fce8512
+  src_archspec_scan_rs_4ece116a --> src_archspec_capability_rs_d60fec76
   src_archspec_scan_rs_4ece116a --> src_archspec_cli_rs_a6998732
   src_archspec_scan_rs_4ece116a --> src_archspec_config_rs_dfd15f62
+  src_archspec_scan_rs_4ece116a --> src_archspec_events_attribution_rs_28e36a6e
+  src_archspec_scan_rs_4ece116a --> src_archspec_events_blindspots_rs_46373e0d
+  src_archspec_scan_rs_4ece116a --> src_archspec_events_derive_rs_189ef8b5
+  src_archspec_scan_rs_4ece116a --> src_archspec_events_mod_rs_c872757f
+  src_archspec_scan_rs_4ece116a --> src_archspec_events_patterns_rs_79795b23
+  src_archspec_scan_rs_4ece116a --> src_archspec_events_unitid_rs_1299e40a
   src_archspec_scan_rs_4ece116a --> src_archspec_language_rs_232ea882
   src_archspec_scan_rs_4ece116a --> src_archspec_model_rs_b8d77281
   src_archspec_scan_rs_4ece116a --> src_archspec_spec_rs_a8194740
+  src_archspec_scan_rs_4ece116a --> src_model_rs_cf804a5b
   src_archspec_scan_rs_4ece116a --> src_scan_csharp_mod_rs_f94cd8d3
   src_archspec_scan_rs_4ece116a --> src_scan_go_mod_rs_15714254
   src_archspec_scan_rs_4ece116a --> src_scan_mod_rs_0952d595
   src_archspec_spec_rs_a8194740 --> src_archspec_cli_rs_a6998732
   src_archspec_spec_rs_a8194740 --> src_archspec_language_rs_232ea882
+  src_archspec_spec_rs_a8194740 --> src_archspec_model_rs_b8d77281
   src_archspec_spec_rs_a8194740 --> src_model_rs_cf804a5b
   src_archspec_update_mod_rs_e0173b9b --> src_archspec_model_rs_b8d77281
   src_archspec_update_mod_rs_e0173b9b --> src_archspec_spec_rs_a8194740
@@ -675,6 +748,10 @@ graph TD
   src_archspec_verify_compare_cycles_rs_7a16f3ee --> src_archspec_verify_compare_claims_rs_ff31945a
   src_archspec_verify_compare_cycles_rs_7a16f3ee --> src_archspec_verify_compare_diff_rs_1ea7ac2e
   src_archspec_verify_compare_cycles_rs_7a16f3ee --> src_archspec_verify_compare_mapping_rs_7cae1a7d
+  src_archspec_verify_compare_declarations_rs_0adf3346 --> src_archspec_events_unitid_rs_1299e40a
+  src_archspec_verify_compare_declarations_rs_0adf3346 --> src_archspec_model_rs_b8d77281
+  src_archspec_verify_compare_declarations_rs_0adf3346 --> src_archspec_spec_rs_a8194740
+  src_archspec_verify_compare_declarations_rs_0adf3346 --> src_archspec_verify_compare_diff_rs_1ea7ac2e
   src_archspec_verify_compare_diff_rs_1ea7ac2e --> src_archspec_spec_rs_a8194740
   src_archspec_verify_compare_diff_rs_1ea7ac2e --> src_archspec_verify_compare_claims_rs_ff31945a
   src_archspec_verify_compare_edges_rs_96998a58 --> src_archspec_model_rs_b8d77281
@@ -714,6 +791,7 @@ graph TD
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_claims_rs_ff31945a
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_contracts_rs_6f1e6784
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_cycles_rs_7a16f3ee
+  src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_declarations_rs_0adf3346
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_diff_rs_1ea7ac2e
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_edges_rs_96998a58
   src_archspec_verify_compare_mod_rs_0fce8512 --> src_archspec_verify_compare_engagement_rs_c3c042c0
@@ -730,7 +808,9 @@ graph TD
   src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
   src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_verify_compare_pattern_rs_7d04036f
   src_archspec_verify_mod_rs_76886026 --> src_archspec_verify_compare_mod_rs_0fce8512
+  src_driver_rs_279aba20 --> src_model_rs_cf804a5b
   src_lib_rs_2fba4152 --> src_collector_rs_7d5e8ae6
+  src_lib_rs_2fba4152 --> src_driver_rs_279aba20
   src_lib_rs_2fba4152 --> src_language_rs_430ffc26
   src_lib_rs_2fba4152 --> src_model_rs_cf804a5b
   src_lib_rs_2fba4152 --> src_parse_mod_rs_2d85ddeb
@@ -740,14 +820,19 @@ graph TD
   src_main_rs_df9f8d2d --> src_archspec_mod_rs_d8485b4a
   src_parse_grammar_rs_2a04bdca --> src_language_rs_430ffc26
   src_parse_mod_rs_2d85ddeb --> src_parse_grammar_rs_2a04bdca
+  src_scan_csharp_mod_rs_f94cd8d3 --> src_driver_rs_279aba20
   src_scan_csharp_mod_rs_f94cd8d3 --> src_model_rs_cf804a5b
   src_scan_csharp_mod_rs_f94cd8d3 --> src_scan_csharp_syntax_rs_00dd0292
   src_scan_csharp_syntax_rs_00dd0292 --> src_language_rs_430ffc26
   src_scan_csharp_syntax_rs_00dd0292 --> src_parse_grammar_rs_2a04bdca
+  src_scan_go_mod_rs_15714254 --> src_driver_rs_279aba20
+  src_scan_go_mod_rs_15714254 --> src_language_rs_430ffc26
   src_scan_go_mod_rs_15714254 --> src_model_rs_cf804a5b
   src_scan_go_mod_rs_15714254 --> src_scan_go_syntax_rs_6676edab
   src_scan_go_syntax_rs_6676edab --> src_language_rs_430ffc26
+  src_scan_go_syntax_rs_6676edab --> src_model_rs_cf804a5b
   src_scan_go_syntax_rs_6676edab --> src_parse_grammar_rs_2a04bdca
+  src_scan_kotlin_mod_rs_bfc440a5 --> src_driver_rs_279aba20
   src_scan_kotlin_mod_rs_bfc440a5 --> src_language_rs_430ffc26
   src_scan_kotlin_mod_rs_bfc440a5 --> src_model_rs_cf804a5b
   src_scan_kotlin_mod_rs_bfc440a5 --> src_profile_rs_d7f56937
@@ -756,7 +841,9 @@ graph TD
   src_scan_kotlin_mod_rs_bfc440a5 --> src_scan_kotlin_syntax_rs_e9d56ad7
   src_scan_kotlin_mod_rs_bfc440a5 --> src_scan_leg_rs_ed45e36a
   src_scan_kotlin_syntax_rs_e9d56ad7 --> src_language_rs_430ffc26
+  src_scan_kotlin_syntax_rs_e9d56ad7 --> src_model_rs_cf804a5b
   src_scan_kotlin_syntax_rs_e9d56ad7 --> src_parse_grammar_rs_2a04bdca
+  src_scan_mod_rs_0952d595 --> src_driver_rs_279aba20
   src_scan_mod_rs_0952d595 --> src_language_rs_430ffc26
   src_scan_mod_rs_0952d595 --> src_model_rs_cf804a5b
   src_scan_mod_rs_0952d595 --> src_scan_csharp_mod_rs_f94cd8d3
@@ -766,6 +853,7 @@ graph TD
   src_scan_mod_rs_0952d595 --> src_scan_python_mod_rs_09df2ea9
   src_scan_mod_rs_0952d595 --> src_scan_rust_rs_1f3d8aeb
   src_scan_mod_rs_0952d595 --> src_scan_ts_mod_rs_ffc3c634
+  src_scan_python_mod_rs_09df2ea9 --> src_driver_rs_279aba20
   src_scan_python_mod_rs_09df2ea9 --> src_language_rs_430ffc26
   src_scan_python_mod_rs_09df2ea9 --> src_model_rs_cf804a5b
   src_scan_python_mod_rs_09df2ea9 --> src_profile_rs_d7f56937
@@ -773,12 +861,16 @@ graph TD
   src_scan_python_mod_rs_09df2ea9 --> src_scan_python_stdlib_rs_55121f7a
   src_scan_python_mod_rs_09df2ea9 --> src_scan_python_syntax_rs_315424b6
   src_scan_python_syntax_rs_315424b6 --> src_language_rs_430ffc26
+  src_scan_python_syntax_rs_315424b6 --> src_model_rs_cf804a5b
   src_scan_python_syntax_rs_315424b6 --> src_parse_grammar_rs_2a04bdca
   src_scan_rust_rs_1f3d8aeb --> src_collector_rs_7d5e8ae6
+  src_scan_rust_rs_1f3d8aeb --> src_driver_rs_279aba20
+  src_scan_rust_rs_1f3d8aeb --> src_language_rs_430ffc26
   src_scan_rust_rs_1f3d8aeb --> src_model_rs_cf804a5b
   src_scan_ts_common_rs_b31bb2e8 --> src_language_rs_430ffc26
   src_scan_ts_common_rs_b31bb2e8 --> src_model_rs_cf804a5b
   src_scan_ts_config_preload_rs_d41a483f --> src_scan_ts_config_chain_rs_ba1cb781
+  src_scan_ts_mod_rs_ffc3c634 --> src_driver_rs_279aba20
   src_scan_ts_mod_rs_ffc3c634 --> src_language_rs_430ffc26
   src_scan_ts_mod_rs_ffc3c634 --> src_model_rs_cf804a5b
   src_scan_ts_mod_rs_ffc3c634 --> src_profile_rs_d7f56937
@@ -796,11 +888,15 @@ graph TD
   src_scan_ts_resolution_rs_4f1fcd3e --> src_scan_ts_config_preload_rs_d41a483f
   src_scan_ts_resolution_rs_4f1fcd3e --> src_scan_ts_gitignore_rs_4e9d84c0
   src_scan_ts_resolution_rs_4f1fcd3e --> src_scan_ts_workspace_rs_0ebb7c73
+  src_scan_ts_syntax_rs_bdff06f7 --> src_model_rs_cf804a5b
   src_scan_ts_syntax_rs_bdff06f7 --> src_parse_grammar_rs_2a04bdca
   src_scan_ts_workspace_rs_0ebb7c73 --> src_language_rs_430ffc26
   tests_async_model_surface_rs_3182212a --> src_model_rs_cf804a5b
   tests_lib_scan_surface_rs_c7411cd1 --> src_language_rs_430ffc26
   tests_lib_scan_surface_rs_c7411cd1 --> src_scan_mod_rs_0952d595
+  tests_port_seam_driver_table_rs_2fdafc70 --> src_language_rs_430ffc26
+  tests_port_seam_driver_table_rs_2fdafc70 --> src_model_rs_cf804a5b
+  tests_port_seam_driver_table_rs_2fdafc70 --> src_scan_mod_rs_0952d595
   tests_shared_mod_rs_2c3ed550 --> tests_shared_capability_rs_19c683be
   tests_shared_mod_rs_2c3ed550 --> tests_shared_driver_rs_7fa50e23
   tests_shared_mod_rs_2c3ed550 --> tests_shared_feature_rs_ca539f34

@@ -16,6 +16,7 @@ pub mod render;
 
 pub mod language;
 pub mod model;
+mod driver;
 pub mod parse;
 pub mod profile;
 pub mod scan;

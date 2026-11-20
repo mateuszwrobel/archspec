@@ -268,6 +268,48 @@ fn grouping_node(model: &Value) -> fn(&str) -> String {
     top_node
 }
 
+/// The identity-preserving fold arm of GitHub issue #61, rebuilt from model
+/// data: where a path's segments begin with the dotted NAME of a unit and the
+/// bare fold's chosen segment sits inside that name's spelling (or collapses
+/// to `root`), the node carries the unit name verbatim. A `::`- or `/`-spelled
+/// candidate is a module PATH, never a name, exactly as the binary's
+/// `is_dotted_module_name` states.
+fn named_node(model: &Value, node: fn(&str) -> String, path: &str) -> String {
+    let bare = node(path);
+    let segments = |value: &str| -> Vec<String> {
+        value
+            .replace("::", ".")
+            .replace('/', ".")
+            .split('.')
+            .map(str::to_string)
+            .collect()
+    };
+    let path_segments = segments(path);
+    let owner = model["units"]
+        .as_array()
+        .expect("units")
+        .iter()
+        .filter_map(|unit| unit["name"].as_str())
+        .filter(|name| name.contains('.') && !name.contains("::") && !name.contains('/'))
+        .map(|name| (name, segments(name)))
+        .find(|(_, name_segments)| path_segments.starts_with(name_segments));
+    let Some((name, name_segments)) = owner else {
+        return bare;
+    };
+    let depth = name_segments.len();
+    if path_segments.len() == depth || bare == "root" {
+        return name.to_string();
+    }
+    if path_segments
+        .iter()
+        .position(|segment| *segment == bare)
+        .is_some_and(|index| index < depth)
+    {
+        return name.to_string();
+    }
+    bare
+}
+
 /// The api-usage grouping the selected model implies, rebuilt from the scan
 /// JSON: symbols per (target node, using node) at the granularity the views
 /// render, edges inside one node and symbolless pairs contributing nothing —
@@ -277,8 +319,8 @@ fn grouped_from_model(model: &Value) -> BTreeMap<String, BTreeMap<String, BTreeS
     let node = grouping_node(model);
     let mut grouped: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
     for edge in model["module_edges"].as_array().expect("module_edges") {
-        let from = node(edge["from"].as_str().expect("from"));
-        let to = node(edge["to"].as_str().expect("to"));
+        let from = named_node(model, node, edge["from"].as_str().expect("from"));
+        let to = named_node(model, node, edge["to"].as_str().expect("to"));
         if from == to {
             continue;
         }
@@ -332,10 +374,11 @@ fn csharp_api_usage_prints_model_grouped_symbols_per_pair() {
         out,
         "| Target module | Used by module | APIs used |\n\
          | --- | --- | --- |\n\
-         | `Core` | `Api` | `Engine`, `Widget` |\n\
-         | `Core` | `Worker` | `Registry` |\n\
+         | `App.Core` | `App.Api` | `Engine`, `Widget` |\n\
+         | `App.Core` | `App.Worker` | `Registry` |\n\
          note: this view shows no roles by decision (a role is not a usage fact) — explained in 'archspec help roles'\n",
-        "grouped per (target, source) exactly like the rust shape"
+        "grouped per (target, source) exactly like the rust shape, the rows \
+         naming the dotted module names verbatim (GitHub issue #61)"
     );
 }
 

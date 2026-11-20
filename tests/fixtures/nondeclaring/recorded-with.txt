@@ -1,0 +1,1 @@
+archspec 0.6.112 | recorded 2026-11-19 | base commit c757fedb048b45ecb627ae7bdde73c69bf924698 (pre-slice)

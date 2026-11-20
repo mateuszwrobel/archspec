@@ -346,8 +346,24 @@ pub fn select(root: &Path, pinned: Option<Language>) -> Result<Option<Language>,
 /// tree below that marker is not modelled — no edge, no finding, never a
 /// verdict; the sources under it keep the existing loud law (D14 stands
 /// tree-wide, the ruling).
+///
+/// The `AMBIGUOUS-MARKERS` census line (GitHub issue #63, ADR-069
+/// clause 4.8 dispatch law): one report-only stderr line per nested
+/// directory carrying root markers for MORE THAN ONE language, naming the
+/// sorted marker set and the driver the run models the directory with.
+/// The dispatch law binds at every depth: ambiguous root markers either
+/// refuse (the scan root, `select`, unchanged byte-for-byte) or name the
+/// winner — never a silent selection. The line rides the same report-only
+/// stderr channel as the foreign-marker line (the model body stays free
+/// of report bytes: scan.json stays byte-identical) and the line set
+/// sorts deterministically (`lines.sort()` below, the same law).
 pub fn marker_report(root: &Path, driver: Language) -> String {
     let mut lines: Vec<String> = Vec::new();
+    // issue #63: dir-rel-path -> the marker-file names it carries. The
+    // BTreeMap keys the grouping, not the walk; the emitted order is the
+    // sorted line set below, so walk order never reaches the surface.
+    let mut dir_markers: std::collections::BTreeMap<String, Vec<&'static str>> =
+        std::collections::BTreeMap::new();
     for entry in WalkDir::new(root)
         .min_depth(2)
         .into_iter()
@@ -358,20 +374,59 @@ pub fn marker_report(root: &Path, driver: Language) -> String {
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        let Some((_, language)) = ROOT_MARKERS.iter().find(|(marker, _)| *marker == name) else {
+        let Some((marker, language)) = ROOT_MARKERS.iter().find(|(marker, _)| *marker == name)
+        else {
             continue;
         };
-        if *language == driver {
-            continue;
-        }
         let Ok(rel) = entry.path().strip_prefix(root) else {
             continue;
         };
-        lines.push(format!(
-            "nested foreign marker: {} ({}) — not modelled",
-            rel.display(),
-            language.as_str(),
-        ));
+        if *language != driver {
+            lines.push(format!(
+                "nested foreign marker: {} ({}) — not modelled",
+                rel.display(),
+                language.as_str(),
+            ));
+        }
+        let dir = rel
+            .parent()
+            .map(|parent| parent.display().to_string())
+            .unwrap_or_default();
+        // A marker file AT the scan root never groups: the root directory
+        // is adjudged by `select` (refusal or pin), never by this arm.
+        if !dir.is_empty() {
+            dir_markers.entry(dir).or_default().push(marker);
+        }
+    }
+    // One AMBIGUOUS-MARKERS row per nested directory whose marker set
+    // spells more than one language (a directory is a ZONE, not a race —
+    // ADR-069 4.8). The root itself never rows here: `select` adjudges
+    // it and the standalone refusal arm stays byte-identical. No zone
+    // declaration resolves a nested ambiguity yet — the nested spec face
+    // has not shipped — so every ambiguous directory names its winner.
+    // The winner stays the scan's driver: this row is VISIBILITY, the
+    // selection law is unchanged (refusal/authority semantics are a
+    // separate future decision). The marker list rides ROOT_MARKERS
+    // table order, the same deterministic law as the root refusal line;
+    // one language spelled by several markers (the python pair, the
+    // kotlin family) is not an ambiguity (the same-language-markers law).
+    for (dir, names) in dir_markers {
+        let present: Vec<(&'static str, Language)> = ROOT_MARKERS
+            .iter()
+            .filter(|(marker, _)| names.contains(marker))
+            .copied()
+            .collect();
+        if present
+            .iter()
+            .skip(1)
+            .any(|(_, language)| *language != present[0].1)
+        {
+            lines.push(format!(
+                "AMBIGUOUS-MARKERS: {dir} — markers: {}, modeled as: {}",
+                marker_names(&present),
+                driver.as_str(),
+            ));
+        }
     }
     lines.sort();
     lines.into_iter().map(|line| line + "\n").collect()
@@ -754,6 +809,49 @@ mod tests {
         tree.write("main.go", "package main\n");
         tree.write("node_modules/dep/package.json", "{}");
         assert_eq!(marker_report(tree.path(), Language::Go), "");
+    }
+
+    #[test]
+    fn a_dual_marker_nested_dir_names_exactly_one_ambiguous_row() {
+        // Issue #63 (ADR-069 4.8): the nested directory carrying markers
+        // for two languages answers ONE AMBIGUOUS-MARKERS census row
+        // naming the winner — never silence, never the root refusal. The
+        // foreign file line rides unchanged beside it; one sorted line
+        // set, walk order never reaches the surface.
+        let tree = Tree::new();
+        tree.write("package.json", "{}");
+        tree.write("pkg/package.json", "{}");
+        tree.write("pkg/Cargo.toml", "[package]\nname = \"polyglot\"\n");
+        let report = marker_report(tree.path(), Language::Ts);
+        assert_eq!(
+            report,
+            "AMBIGUOUS-MARKERS: pkg — markers: Cargo.toml (rust), package.json (ts), modeled as: ts\n\
+             nested foreign marker: pkg/Cargo.toml (rust) — not modelled\n"
+        );
+    }
+
+    #[test]
+    fn one_language_several_markers_never_row_ambiguous() {
+        // The same-language-markers law rides the nested arm too: the
+        // python pair and the kotlin family spell ONE language, so no
+        // AMBIGUOUS-MARKERS row; the family's foreign file lines stay
+        // exactly as shipped.
+        let tree = Tree::new();
+        tree.write("go.mod", "module example.com/x\n");
+        tree.write("main.go", "package main\n");
+        tree.write("py/pyproject.toml", "[project]\nname = \"py\"\n");
+        tree.write("py/requirements.txt", "six\n");
+        tree.write("jvm/settings.gradle", "");
+        tree.write("jvm/build.gradle.kts", "");
+        let report = marker_report(tree.path(), Language::Go);
+        assert!(!report.contains("AMBIGUOUS-MARKERS"), "report: {report}");
+        assert_eq!(
+            report,
+            "nested foreign marker: jvm/build.gradle.kts (kotlin) — not modelled\n\
+             nested foreign marker: jvm/settings.gradle (kotlin) — not modelled\n\
+             nested foreign marker: py/pyproject.toml (python) — not modelled\n\
+             nested foreign marker: py/requirements.txt (python) — not modelled\n"
+        );
     }
 
     #[test]

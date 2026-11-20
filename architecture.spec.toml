@@ -44,7 +44,11 @@ matches = { units = ["archspec"], modules = [
 ] }
 
 [module.allowed]
-depend_on = ["foundations", "rust-arch-test-kit", "scan-core"]
+# `events` joins the allowlist with the first consumer of the ONE canonical
+# unit-id site: the declaration arms (`verify::compare::declarations`) resolve
+# every declared producer through `events::unitid`, the same single owner the
+# scenario-01 note above reserves this edge for.
+depend_on = ["foundations", "rust-arch-test-kit", "scan-core", "events"]
 
 # Shared foundations: the spec schema, CLI parsing, config and capability, and
 # the language-detection/help surfaces. Depends on nothing. The model,
@@ -64,6 +68,28 @@ matches = { modules = [
   "archspec::archspec::helptext*",
   "archspec::archspec::profile*",
 ] }
+
+# The fact-events layer (ADR-069 clause 4.4a): the machinery every
+# multi-producer fact writer shares — the canonical unit-id resolution site
+# (`events::unitid`) is exactly ONE site by law, so the tree-root
+# canonicalization rule has exactly one owner in the tree. The site is
+# std-only today (directories and opaque spellings), so the honest allowlist
+# is empty; the model-fact reader that joins the allowlist arrives with the
+# first writer (engine-boundary law: generic resolution rules, no ecosystem
+# vocabulary, no engine->scan import).
+[[module]]
+name = "events"
+matches = { modules = ["archspec::archspec::events*"] }
+
+[module.allowed]
+# The first writer arrived with the literal-site pattern primitives
+# (workplan events_value_join scenario 03): `events::patterns` reads the
+# model's candidate feed and writes the model's literal-site collection —
+# the F8 seam consumes MODEL FACTS only, so the join stays import-free of
+# the scan engine (ADR-069 4.7(i): no engine→scan edge). The import rides
+# the binary's thin `archspec::model` re-export, so the edge lands on
+# `foundations`, where every `crate::archspec::model::…` spelling lives.
+depend_on = ["foundations"]
 
 # Library crate boundary (the engine the binary links). The crate-root module
 # of the lib unit resolves here as the facade; its internal modules are claimed
@@ -107,6 +133,19 @@ matches = { modules = ["rust-arch-test-kit::model*"] }
 
 [module.allowed]
 depend_on = []
+
+# The driver-port seam (workplan events_value_join scenario 10, ADR-069
+# Decision 5's ports rung): one object-safe trait naming only the model
+# vocabulary — `Path`, `Model`, `DeclaredFacts` — so the port itself imports
+# nothing but the model. The compile-time table lives in `scan-core`
+# (`scan::driver`): the host dispatches through the port, the drivers
+# implement it; the drivers' groups add `lib-driver` to their `depend_on`.
+[[module]]
+name = "lib-driver"
+matches = { modules = ["rust-arch-test-kit::driver"] }
+
+[module.allowed]
+depend_on = ["lib-model"]
 
 [[module]]
 name = "lib-language"
@@ -152,9 +191,15 @@ matches = { modules = [
 ] }
 
 [module.allowed]
+# `events` joins with the literal-site resolution seam (workplan
+# events_value_join scenario 03): the scan command's `extract_with_spec`
+# resolves the funded drivers' candidate feed through the ONE binary-side
+# seam into the model's literal-site collection.
 depend_on = [
+  "events",
   "foundations",
   "lib-collector",
+  "lib-driver",
   "lib-language",
   "lib-model",
   "lib-parse",
@@ -175,21 +220,21 @@ name = "scan-ts"
 matches = { modules = ["rust-arch-test-kit::scan::ts*"] }
 
 [module.allowed]
-depend_on = ["lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"]
+depend_on = ["lib-driver", "lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"]
 
 [[module]]
 name = "scan-python"
 matches = { modules = ["rust-arch-test-kit::scan::python*"] }
 
 [module.allowed]
-depend_on = ["lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"]
+depend_on = ["lib-driver", "lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"]
 
 [[module]]
 name = "scan-kotlin"
 matches = { modules = ["rust-arch-test-kit::scan::kotlin*"] }
 
 [module.allowed]
-depend_on = ["lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"]
+depend_on = ["lib-driver", "lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"]
 
 # --- The crate's own constraint surface --------------------------------------
 # Four of the seven constraint types are declared on this crate: `no_cycles`
@@ -206,7 +251,7 @@ depend_on = ["lib-language", "lib-model", "lib-parse", "lib-profile", "scan-leg"
 
 [[constraint]]
 type = "no_cycles"
-modules = ["commands", "engines", "foundations", "rust-arch-test-kit"]
+modules = ["commands", "engines", "foundations", "rust-arch-test-kit", "events"]
 
 [[constraint]]
 type = "no_cycles"
@@ -216,6 +261,7 @@ modules = [
   "lib-collector",
   "lib-render",
   "lib-model",
+  "lib-driver",
   "lib-language",
   "lib-parse",
   "lib-parse",

@@ -9,6 +9,7 @@ mod boundaries;
 mod claims;
 mod contracts;
 mod cycles;
+mod declarations;
 mod diff;
 mod edges;
 mod engagement;
@@ -40,6 +41,7 @@ use boundaries::check_forbid_submodule;
 use claims::check_ambiguous_module_matches;
 use contracts::check_contract_leaks;
 use cycles::check_cycles;
+use declarations::check_declarations;
 use edges::check_allowed_edges;
 use edges::check_facade_roots;
 use edges::check_forbidden_laundering;
@@ -58,12 +60,13 @@ use external::check_manifest_integrity;
 use surfaces::check_public_api;
 
 use crate::archspec::model::{Model, Role};
-use crate::archspec::spec::{AsyncDepend, Constraint, Exempt, Module, Stereotype};
+use crate::archspec::spec::{AsyncDepend, CanonicalProducer, Constraint, Exempt, Module, SharedConstant, Stereotype};
 use std::collections::{BTreeSet};
 
 /// Structural compare (ADR-010): extracted vs declared component sets, plus
 /// edge, contract, and cycle checks. Order-insensitive; every category is
 /// accumulated, never fail-fast.
+#[allow(clippy::too_many_arguments)]
 pub fn compare(
     mapping: &Mapping,
     model: &Model,
@@ -72,6 +75,8 @@ pub fn compare(
     constraints: &[Constraint],
     exempt: &[Exempt],
     async_depends: &[AsyncDepend],
+    canonical_producer: &[CanonicalProducer],
+    shared_constant: &[SharedConstant],
 ) -> Diff {
     let soft_verifiable = soft_visibility_verifiable(model);
     let mapping = augment_with_modules(mapping, model, modules);
@@ -231,6 +236,14 @@ pub fn compare(
     // async-containing ring of the union graph as one advisory warning.
     // An empty table runs nothing here — the shipped bytes stand (D8).
     check_async_depends(model, &claims, async_depends, &mut diff);
+
+    // The declaration face (workplan events_value_join scenario 02,
+    // ADR-069 4.4a(iv)): one producer per class, tree-root-canonical
+    // producer ids at the ONE unit-id site, the pattern-pair refusal owned
+    // by the spec walker. Conditional on either table declaring anything —
+    // an absent or empty pair of tables runs nothing here, the shipped
+    // bytes stand (D8).
+    check_declarations(model, canonical_producer, shared_constant, &mut diff);
 
     diff.vacuous_constraints =
         check_vacuous_constraints(model, modules, submodule_constraints, &graph.pairs, &submodule_edges, &claims);

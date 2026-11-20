@@ -91,6 +91,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
         &loaded.constraint,
         &loaded.exempt,
         &loaded.async_depends,
+        &loaded.canonical_producer,
+        &loaded.shared_constant,
     );
 
     let source_ep = resolve_endpoint(source, model_ref, &loaded.modules, &claims, &claims_index);

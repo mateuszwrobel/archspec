@@ -140,6 +140,34 @@ pub struct Model {
     /// `kind` key (B2).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub async_edges: Vec<AsyncEdge>,
+    /// The literal-site rows of the declared pattern-pair face (workplan
+    /// events_value_join scenario 03, ADR-069 4.4a, decision-check F8 seam):
+    /// one row per source site where a declared pattern matched a string
+    /// literal — `{unit, path, language, value, anchor, pattern}`. The join
+    /// key is `value` (4.4a(ii): an opaque string, the convention namespace
+    /// lands with the join); `language` is a ROW FIELD, never a join arm
+    /// (F-W3: the join is language-blind by value). Rows NEVER enter
+    /// `edges` — the same law as `async_edges` above: edge adjudication has
+    /// nothing to say about a literal site. Absent from JSON when empty —
+    /// the `roles`/`async_edges` absence convention — so the not-declared
+    /// arm stays byte-identical (4.2 arm 1, the D8 law). Rows order by
+    /// `(unit, path, language, value, pattern)` before any consumer reads
+    /// them (the `sort_async_edges` determinism law, N6).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub literal_sites: Vec<LiteralSite>,
+    /// Internal: the vocabulary-free candidate facts the funded drivers
+    /// (ts, rust, kotlin) append when a declared pattern names their
+    /// language — every call site carrying a string-literal argument and
+    /// every exported property carrying a string-literal value, spelled by
+    /// syntax only, matched by NO name at the driver. Kept off the
+    /// serialized model (JSON shape unchanged), like `event_shapes`: the
+    /// engine's pattern-resolution site (`archspec::events::patterns`)
+    /// resolves candidates to `literal_sites` rows at the one scan seam,
+    /// and no verb but that seam ever reads this field. A non-declaring
+    /// run collects no candidates at all — the declaration gate is the
+    /// byte identity (4.2 arm 1).
+    #[serde(skip, default)]
+    pub literal_candidates: Vec<LiteralCandidate>,
     /// Driver-rendered report-only lines (ts-resolution record R7b law,
     /// GitHub issue #39 for the csharp producer): the rendered
     /// `external not installed` lines — packages a scanned tree declares in
@@ -442,6 +470,93 @@ pub struct AsyncEdge {
     pub kind: EdgeKind,
 }
 
+/// The closed anchor vocabulary of a literal-site row (workplan
+/// events_value_join scenario 03, ADR-069 4.4a, decision-check F2/F8): HOW
+/// the site presents the string — the two matcher verbs the engine ships,
+/// spelled by syntax alone. The serialized spellings are the exact F8 seam
+/// labels; `as_str` is the one source, same law as `Role::as_str`.
+/// Engine-boundary law (operator law 2026-11-17): the two words name
+/// syntactic positions, not frameworks — the nouns live in the declared
+/// pattern, never here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum LiteralAnchor {
+    /// A call site: the string sits at an argument position of a call whose
+    /// callee name matched the declared pattern.
+    #[serde(rename = "call-name+arg-position")]
+    CallNameArgPosition,
+    /// An exported property: the string is the value of a property whose
+    /// name matched the declared pattern.
+    #[serde(rename = "exported-property-value")]
+    ExportedPropertyValue,
+}
+
+impl LiteralAnchor {
+    /// The closed-vocabulary word for this anchor — the same text the
+    /// serialized model uses (the `Role::as_str` law).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LiteralAnchor::CallNameArgPosition => "call-name+arg-position",
+            LiteralAnchor::ExportedPropertyValue => "exported-property-value",
+        }
+    }
+}
+
+/// One literal-site row (workplan events_value_join scenario 03, decision-
+/// check F8 seam): a string literal a declared pattern matched, one row per
+/// site. `unit` is the tree-root-canonical id of the unit owning the site
+/// (4.4a(i), resolved at the one site — `events::patterns` through
+/// `events::unitid`, never spelled by a driver); `pattern` is the declared
+/// pattern-pair id whose side matched (the join's orientation reads THAT
+/// declaration, never the name's semantics — F3's no-inference law); the
+/// row states no verdict and no edge — the value join (scenario 04) is the
+/// consumer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiteralSite {
+    /// Tree-root-canonical unit id owning the site (4.4a(i)).
+    pub unit: String,
+    /// Repo-relative path of the file carrying the site.
+    pub path: String,
+    /// Driver language of the site — a row field, never a join arm (F8).
+    pub language: String,
+    /// The matched string literal — the join key, opaque (4.4a(ii)).
+    pub value: String,
+    /// The matcher verb that matched (the F8 anchor seam).
+    pub anchor: LiteralAnchor,
+    /// The declared pattern-pair id this site matched.
+    pub pattern: String,
+}
+
+/// A vocabulary-free candidate fact one funded driver appends when a
+/// declared pattern names its language (workplan events_value_join scenario
+/// 03, decision-check F8): the site spelled by syntax only — what was
+/// called (or which exported property carried the literal), where, and the
+/// literal value. NO declared name reaches this row: name equality is the
+/// engine's matcher verb's work at the resolution site, so the driver owns
+/// no interpretation (A6). Transient with the field it feeds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiteralCandidate {
+    /// Repo-relative path of the file carrying the candidate site.
+    pub path: String,
+    /// Driver language that produced the candidate.
+    pub language: String,
+    /// The syntactic shape of the candidate site.
+    pub anchor: LiteralCandidateAnchor,
+    /// The string-literal value at the site.
+    pub value: String,
+}
+
+/// The syntactic shape of a candidate site — the input face of the two
+/// matcher verbs (`events::patterns`), never a match statement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LiteralCandidateAnchor {
+    /// A call with a string literal at `position` (0-based argument index);
+    /// `callee` is the call's simple name (the callee's last path segment /
+    /// method name) as the source spells it.
+    Call { callee: String, position: usize },
+    /// An exported property named `property` whose value is a string literal.
+    ExportedProperty { property: String },
+}
+
 impl Model {
     /// The scaffold every scan driver builds its model on (self-audit F3):
     /// schema version 1, the scanned language, and no facts anywhere else —
@@ -477,6 +592,8 @@ impl Model {
             file_edges: Vec::new(),
             roles: BTreeMap::new(),
             async_edges: Vec::new(),
+            literal_sites: Vec::new(),
+            literal_candidates: Vec::new(),
             report_only_lines: Vec::new(),
             warnings: Vec::new(),
             event_shapes: EventShapes::default(),
@@ -492,6 +609,19 @@ impl Model {
     pub fn sort_async_edges(&mut self) {
         self.async_edges.sort_by(|a, b| {
             (&a.from, &a.to, &a.event).cmp(&(&b.from, &b.to, &b.event))
+        });
+    }
+
+    /// Order the literal-site collection by
+    /// `(unit, path, language, value, pattern, anchor)` — the same
+    /// determinism law as `sort_async_edges` (N6): the resolution site
+    /// builds rows in candidate order; every producer of the collection
+    /// calls this once after building it, so a run's literal-site bytes
+    /// depend on the facts, never on the scan order.
+    pub fn sort_literal_sites(&mut self) {
+        self.literal_sites.sort_by(|a, b| {
+            (&a.unit, &a.path, &a.language, &a.value, &a.pattern, a.anchor)
+                .cmp(&(&b.unit, &b.path, &b.language, &b.value, &b.pattern, b.anchor))
         });
     }
 
@@ -655,6 +785,54 @@ pub struct DeclaredFacts {
     /// The declared framework pin the ts resolution law names in
     /// unresolvable findings.
     pub framework: Option<String>,
+    /// The pattern-pair declaration face flattened to per-side pattern
+    /// facts (workplan events_value_join scenario 03): one entry per
+    /// declared pattern side, each stating the pair id it belongs to, the
+    /// driver language it applies to, its optional enumerated role, and its
+    /// matcher verb (the nouns of the declaration — a pattern parameter is
+    /// data, exactly like the exclusions above, per the F2 drafting law).
+    /// Empty is the not-declared arm: funded drivers collect no candidates
+    /// and the model serializes no literal-site bytes (4.2 arm 1).
+    pub patterns: Vec<DeclaredPattern>,
+}
+
+/// One declared pattern side flattened from the `[[pattern_pair]]` table
+/// (workplan events_value_join scenario 03): the pair id, the driver
+/// language the side applies to, its optional enumerated role (the SOLE
+/// orientation source — ADR-069 4.4a(v), F3: no name-inference arm exists),
+/// and the matcher verb the engine's resolution site matches candidates
+/// against. `role` carries no vocabulary check at this seam: the spec
+/// walker refused every out-of-domain value at load (the
+/// `PATTERN_ROLE_VALUES` law), so an absent role is the only unoriented
+/// state and the value join routes it to the named `ambiguous-leg` row.
+#[derive(Debug, Clone)]
+pub struct DeclaredPattern {
+    /// The `[[pattern_pair]]` entry's id — the declared-pattern-id the
+    /// literal-site rows carry.
+    pub id: String,
+    /// Driver language this side applies to (the closed driver vocabulary;
+    /// a language without a funded literal census answers a `driver-gap`
+    /// census row, never silence).
+    pub language: String,
+    /// The declared enumerated role: `Some("publish")` / `Some("subscribe")`
+    /// / `None` (unoriented).
+    pub role: Option<String>,
+    /// The matcher verb the side declares.
+    pub verb: DeclaredPatternVerb,
+}
+
+/// The two matcher verbs the engine ships (decision-check F2: the engine
+/// implements the verbs, the repo config supplies the nouns) — exactly two,
+/// and the declaration schema carries nothing else.
+#[derive(Debug, Clone)]
+pub enum DeclaredPatternVerb {
+    /// Call-name + argument position: the site is a call whose callee's
+    /// simple name equals `call` and whose argument at 0-based index `arg`
+    /// is the string literal.
+    CallNameArgPosition { call: String, arg: usize },
+    /// Exported-property value: the site is an exported property named
+    /// `property` whose string-literal value is the site's value.
+    ExportedPropertyValue { property: String },
 }
 
 /// One declared module's zone claim over the tree (name + match patterns).
@@ -783,6 +961,113 @@ mod tests {
         ] {
             assert_eq!(kind.as_str(), word);
             let json = serde_json::to_string(&kind).expect("kind serializes");
+            assert_eq!(json, format!("\"{word}\""));
+        }
+    }
+
+    /// The literal-site rows are serialized model facts: the F8 seam shape
+    /// `{unit, path, language, value, anchor, pattern}` with the two exact
+    /// anchor spellings, restored exactly by a round-trip (scenario 03).
+    #[test]
+    fn literal_sites_serde_round_trip_pins_the_serialized_shape() {
+        let mut model = empty_model();
+        model.literal_sites.push(LiteralSite {
+            unit: "apps/web".to_string(),
+            path: "apps/web/src/index.ts".to_string(),
+            language: "ts".to_string(),
+            value: "orders.created".to_string(),
+            anchor: LiteralAnchor::CallNameArgPosition,
+            pattern: "demo-bus".to_string(),
+        });
+        model.literal_sites.push(LiteralSite {
+            unit: "apps/web".to_string(),
+            path: "apps/web/src/meta.ts".to_string(),
+            language: "ts".to_string(),
+            value: "orders.created".to_string(),
+            anchor: LiteralAnchor::ExportedPropertyValue,
+            pattern: "demo-bus".to_string(),
+        });
+        let json = model.to_json().expect("model serializes");
+        assert!(
+            json.contains(
+                "\"literal_sites\":[{\
+                 \"unit\":\"apps/web\",\"path\":\"apps/web/src/index.ts\",\"language\":\"ts\",\
+                 \"value\":\"orders.created\",\"anchor\":\"call-name+arg-position\",\"pattern\":\"demo-bus\"},\
+                 {\"unit\":\"apps/web\",\"path\":\"apps/web/src/meta.ts\",\"language\":\"ts\",\
+                 \"value\":\"orders.created\",\"anchor\":\"exported-property-value\",\"pattern\":\"demo-bus\"}]"
+            ),
+            "literal sites must serialize the F8 seam shape with the exact anchor spellings:\n{json}"
+        );
+        let back = Model::from_json(&json).expect("model deserializes");
+        assert_eq!(model, back);
+    }
+
+    /// Absence means "no pattern matched a literal", never an empty claim
+    /// of sites: an empty vector emits no `literal_sites` key at all (the
+    /// not-declared arm stays byte-identical, 4.2 arm 1), and JSON without
+    /// the key loads as an empty vector (the additive-field law).
+    #[test]
+    fn empty_literal_sites_emits_no_key_and_absent_key_loads_empty() {
+        let json = empty_model().to_json().expect("model serializes");
+        assert!(!json.contains("\"literal_sites\""), "no sites => no key:\n{json}");
+        assert!(
+            !json.contains("\"literal_candidates\""),
+            "the candidate feed is never serialized:\n{json}"
+        );
+        let back = Model::from_json(
+            r#"{"schema_version":1,"language":"rust","units":[],"edges":[]}"#,
+        )
+        .expect("a literal_sites-less model still loads");
+        assert!(back.literal_sites.is_empty());
+    }
+
+    /// Skip-when-empty audit for every fact-events slice collection
+    /// (workplan events_value_join scenario 08, the D8 law extended): an
+    /// empty `async_edges` or `literal_sites` serializes no member at all,
+    /// and the transient feeds — `literal_candidates` and `report_only_lines`
+    /// — never reach JSON in either serde direction, even when non-empty.
+    /// Byte-identity of a non-declaring run rests on exactly these arms
+    /// (ADR-069 4.2 arm 1).
+    #[test]
+    fn the_slice_collections_skip_when_empty_and_the_transient_feeds_never_serialize() {
+        let json = empty_model().to_json().expect("model serializes");
+        for key in ["async_edges", "literal_sites"] {
+            assert!(
+                !json.contains(&format!("\"{key}\"")),
+                "{key} serialized empty — absence is the contract:\n{json}"
+            );
+        }
+        let mut model = empty_model();
+        model.report_only_lines.push("external not installed: phantom".to_string());
+        model.literal_candidates.push(LiteralCandidate {
+            path: "core/src/lib.rs".to_string(),
+            language: "rust".to_string(),
+            anchor: LiteralCandidateAnchor::Call {
+                callee: "publish".to_string(),
+                position: 0,
+            },
+            value: "orders.created".to_string(),
+        });
+        let json = model.to_json().expect("model serializes");
+        for key in ["report_only_lines", "literal_candidates"] {
+            assert!(
+                !json.contains(&format!("\"{key}\"")),
+                "{key} is transient and must never reach the serialized model:\n{json}"
+            );
+        }
+    }
+
+    /// The anchor words `as_str` hands to prose are exactly the serialized
+    /// values — the docs can never drift from the model JSON (the
+    /// `Role::as_str` law, scenario 03).
+    #[test]
+    fn literal_anchor_as_str_matches_the_serialized_vocabulary() {
+        for (anchor, word) in [
+            (LiteralAnchor::CallNameArgPosition, "call-name+arg-position"),
+            (LiteralAnchor::ExportedPropertyValue, "exported-property-value"),
+        ] {
+            assert_eq!(anchor.as_str(), word);
+            let json = serde_json::to_string(&anchor).expect("anchor serializes");
             assert_eq!(json, format!("\"{word}\""));
         }
     }

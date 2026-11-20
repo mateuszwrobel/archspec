@@ -14,6 +14,16 @@ pub mod spec;
 pub mod update;
 pub mod verify;
 
+// The fact-events layer (ADR-069 4.4a) lands as the canonical resolution
+// site BEFORE its consumers: the multi-producer fact writers import the unit
+// -id resolver from here in a later landing, and F-W5 is explicit that the
+// resolver must ship first (a join without it is a permanently red tree).
+// Until those writers land, no call edge inside the binary reaches the
+// module — the allow keeps the ONE site honest instead of deleting it, and
+// the weld is tests/events_value_join_unitid.rs compiling the same file.
+#[allow(dead_code)]
+pub mod events;
+
 pub mod init;
 pub mod inspect;
 

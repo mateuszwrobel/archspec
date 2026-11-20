@@ -18,6 +18,7 @@
 //! line: the census rides a machine-readable artifact field, so no raw
 //! source newline enters it.
 
+use crate::model::LiteralCandidateAnchor;
 use crate::parse::grammar;
 use std::path::Path;
 use tree_sitter::Node;
@@ -85,6 +86,193 @@ pub(crate) fn scan_file(path: &Path, source: &str) -> Result<FileFacts, String> 
 
 fn node_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
     node.utf8_text(source).unwrap_or_default()
+}
+
+/// The literal-candidate feed of one source text (workplan
+/// events_value_join scenario 03, decision-check F8): vocabulary-free
+/// syntactic sites carrying a string literal — every call site with a
+/// string-literal argument (call anchor) and every string-literal value of
+/// a property under an export (exported-property anchor). NO declared name
+/// reaches this walk: the callee's simple name and the property's name are
+/// carried as spelled; name equality is the engine matcher verb's work at
+/// the resolution site (`archspec::events::patterns`), so the driver owns
+/// no interpretation (A6). The caller runs this only when a declared
+/// pattern names the ts driver — the declaration gate is the byte identity
+/// (4.2 arm 1).
+pub(crate) fn literal_candidates(
+    path: &Path,
+    source: &str,
+) -> Vec<(LiteralCandidateAnchor, String)> {
+    let Some(grammar) = grammar::ts_grammar_for(path) else {
+        return Vec::new();
+    };
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&grammar).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return Vec::new();
+    };
+    let source = source.as_bytes();
+    let mut out = Vec::new();
+    collect_call_candidates(tree.root_node(), source, &mut out);
+    collect_export_property_candidates(tree.root_node(), source, &mut out);
+    out
+}
+
+/// The call-anchor walk: every `call_expression` in the tree, wherever it
+/// sits; one candidate per argument position whose node is a plain string.
+fn collect_call_candidates<'a>(node: Node<'a>, source: &'a [u8], out: &mut Vec<(LiteralCandidateAnchor, String)>) {
+    if node.kind() == "call_expression" {
+        let callee = node
+            .child_by_field_name("function")
+            .and_then(|target| simple_callee_name(target, source));
+        if let (Some(callee), Some(arguments)) = (
+            callee,
+            node.child_by_field_name("arguments"),
+        ) {
+            for (position, argument) in arguments.named_children(&mut arguments.walk()).enumerate() {
+                if let Some(value) = string_text(argument, source) {
+                    out.push((
+                        LiteralCandidateAnchor::Call {
+                            callee: callee.clone(),
+                            position,
+                        },
+                        value,
+                    ));
+                }
+            }
+        }
+    }
+    for child in children(&node) {
+        collect_call_candidates(child, source, out);
+    }
+}
+
+/// The exported-property-anchor walk: under every `export_statement`, the
+/// object literals the statement value builds (nested objects included;
+/// function bodies never — a call inside a function body is a call site,
+/// not an exported property), one candidate per `pair` whose value is a
+/// plain string; plus (workplan events_value_join scenario 09) the module-
+/// level `const`/`let` declarations the statement wraps, one candidate per
+/// `variable_declarator` whose name is a plain identifier and whose value
+/// is a plain string — `export const NAME = "value"` is the corpus's
+/// exported-constant shape, a binding, not an object pair.
+fn collect_export_property_candidates<'a>(
+    node: Node<'a>,
+    source: &'a [u8],
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    match node.kind() {
+        "export_statement" => {
+            collect_object_pair_candidates(node, source, out);
+            collect_binding_candidates(node, source, out);
+        }
+        _ => {
+            for child in children(&node) {
+                collect_export_property_candidates(child, source, out);
+            }
+        }
+    }
+}
+
+/// The binding arm of the exported-property walk: `variable_declarator`
+/// nodes under an export statement's declarations (the chain
+/// `lexical_declaration` into `variable_declaration`), one candidate per
+/// plain-named binding with a plain string value. Destructuring names
+/// (array/object patterns) state no simple property name; a binding
+/// without a value states none.
+fn collect_binding_candidates<'a>(
+    node: Node<'a>,
+    source: &'a [u8],
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    for child in children(&node) {
+        match child.kind() {
+            "variable_declarator" => {
+                let name = child
+                    .child_by_field_name("name")
+                    .filter(|name| matches!(name.kind(), "identifier" | "shorthand_property_identifier"))
+                    .map(|name| node_text(&name, source).to_string());
+                if let (Some(property), Some(value)) = (
+                    name,
+                    child.child_by_field_name("value"),
+                ) && value.kind() == "string"
+                    && let Some(value) = string_text(value, source)
+                {
+                    out.push((
+                        LiteralCandidateAnchor::ExportedProperty { property },
+                        value,
+                    ));
+                }
+            }
+            // Function bodies are a different site class (the call walk
+            // reaches them); a declaration inside one is not exported.
+            "function" | "function_expression" | "generator_function" | "arrow_function"
+            | "method_definition" | "class_body" => {}
+            _ => collect_binding_candidates(child, source, out),
+        }
+    }
+}
+
+fn collect_object_pair_candidates<'a>(
+    node: Node<'a>,
+    source: &'a [u8],
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    for child in children(&node) {
+        match child.kind() {
+            "pair" => {
+                let key = child
+                    .child_by_field_name("key")
+                    .filter(|key| matches!(key.kind(), "property_identifier" | "identifier"))
+                    .map(|key| node_text(&key, source).to_string());
+                if let (Some(property), Some(value)) = (
+                    key,
+                    child.child_by_field_name("value"),
+                ) && value.kind() == "string"
+                    && let Some(value) = string_text(value, source)
+                {
+                    out.push((
+                        LiteralCandidateAnchor::ExportedProperty { property },
+                        value,
+                    ));
+                }
+                if let Some(value) = child.child_by_field_name("value") {
+                    collect_object_pair_candidates(value, source, out);
+                }
+            }
+            // Function bodies are a different site class (call candidates
+            // reach them through their own walk); stop the property walk.
+            "function" | "function_expression" | "generator_function" | "arrow_function"
+            | "method_definition" | "class_body" => {}
+            _ => collect_object_pair_candidates(child, source, out),
+        }
+    }
+}
+
+/// The simple name of a call target as the source spells it: a bare
+/// identifier, the property of a member call (`a.emit` → `emit`, the last
+/// name in the chain), unwrapped through parenthesization and the callee of
+/// a curried call. Anything else (a computed member, a call of a call
+/// result) states no simple name this verb can read.
+fn simple_callee_name<'a>(node: Node<'a>, source: &'a [u8]) -> Option<String> {
+    match node.kind() {
+        "identifier" | "shorthand_property_identifier" => {
+            Some(node_text(&node, source).to_string())
+        }
+        "member_expression" => node
+            .child_by_field_name("property")
+            .filter(|property| matches!(property.kind(), "property_identifier" | "private_property"))
+            .map(|property| node_text(&property, source).to_string()),
+        "call_expression" => node
+            .child_by_field_name("function")
+            .and_then(|inner| simple_callee_name(inner, source)),
+        "parenthesized_expression" => node
+            .named_child(0)
+            .and_then(|inner| simple_callee_name(inner, source)),
+        _ => None,
+    }
 }
 
 fn children<'a>(node: &Node<'a>) -> Vec<Node<'a>> {

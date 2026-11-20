@@ -147,11 +147,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // so every graph renders its exact shipped bytes (D8). Validation stays
     // in `verify` — this view draws, never adjudicates (N2: a diagram is not
     // a second adjudicator).
-    let mut async_rows: std::collections::BTreeSet<(String, String, String)> = model
-        .async_edges
-        .iter()
-        .map(|row| (row.from.clone(), row.to.clone(), row.event.clone()))
-        .collect();
+    let mut async_rows: std::collections::BTreeSet<(String, String, String)> =
+        depgraph::derived_render_rows(&model).into_iter().collect();
     if let Some(loaded_spec) = loaded.as_ref() {
         for entry in &loaded_spec.async_depends {
             if let (Some(from), Some(to), Some(event)) =
@@ -172,17 +169,33 @@ pub fn run(args: &[String]) -> Result<(), String> {
             // Each graph pairs with the SAME node function its builder
             // projected through (issue #51), so async endpoints fold exactly
             // like the nodes do.
-            type NodeFold = Box<dyn Fn(&str) -> Option<String>>;
-            let (mut graph, fold): (_, NodeFold) = match aggregate {
+            type NodeFold<'a> = Box<dyn Fn(&str) -> Option<String> + 'a>;
+            type CensusNode = Option<fn(&str) -> String>;
+            // The automatic tier's node function, named BEFORE the match so
+            // the fold closure can borrow it without borrowing the model's
+            // ownership (issue #61: the closure now threads the model
+            // through `fold_named`).
+            let auto_node = depgraph::projection_node(&model);
+            let ((mut graph, fold), census): (
+                (depgraph::ModuleGraph, NodeFold<'_>),
+                CensusNode,
+            ) = match aggregate {
                 // An explicit level is never capped: the user chose this
                 // projection, so the automatic rule has nothing to report.
                 // The fold paired with each level is the SAME node function
-                // its graph builder used (issue #51); the units tier places
+                // its graph builder used (issue #51), identity-preserving
+                // like the builder's fold (issue #61); the units tier places
                 // every unit endpoint by name, so its render keeps its bytes.
-                Some("units") => (depgraph::units_graph(&model), Box::new(|_| None)),
+                Some("units") => (
+                    (depgraph::units_graph(&model), Box::new(|_| None)),
+                    None,
+                ),
                 Some("modules") => (
-                    depgraph::top_modules_graph(&model),
-                    Box::new(|path| Some(depgraph::top_node(path))),
+                    (
+                        depgraph::top_modules_graph(&model),
+                        Box::new(|path| Some(depgraph::fold_named(&model, depgraph::top_node, path))),
+                    ),
+                    Some(depgraph::top_node),
                 ),
                 _ => {
                     let graph = depgraph::modules_graph(&model);
@@ -194,10 +207,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     if let Some(note) = depgraph::automatic_projection_note(&model, &graph) {
                         eprintln!("{note}");
                     }
-                    let node = depgraph::projection_node(&model);
-                    (graph, Box::new(move |path| Some(node(path))))
+                    (
+                        (
+                            graph,
+                            Box::new(|path| Some(depgraph::fold_named(&model, auto_node, path))),
+                        ),
+                        Some(auto_node),
+                    )
                 }
             };
+            // The dotted-name collision census (issue #61): where the fold
+            // truncated several module names onto one segment, one stderr
+            // row per colliding form names every full name the identity-
+            // preserving render now shows. Conditional: no collision, no
+            // bytes (D8).
+            if let Some(census) = census {
+                for note in depgraph::module_fold_collision_note(&model, census) {
+                    eprintln!("{note}");
+                }
+            }
             // Async endpoints ride the view's fold, never their raw names
             // (issue #51): each row places on exactly one rendered node or
             // folds away with one counted stderr note — never silence.

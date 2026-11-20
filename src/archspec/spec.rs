@@ -2,6 +2,7 @@
 // report each read what they need (see `verify/compare/` and `commands/`).
 
 use crate::archspec::language;
+use crate::archspec::model::{DeclaredPattern, DeclaredPatternVerb};
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -34,6 +35,37 @@ pub struct Spec {
     /// pre-table binary (D8).
     #[serde(default)]
     pub async_depends: Vec<AsyncDepend>,
+    /// The `[[canonical_producer]]` declaration face (ADR-069 clause
+    /// 4.4a(iv), workplan events_value_join scenario 02): one entry per
+    /// fact class naming its ONE canonical producer — the arbitration
+    /// precondition that two eligible producers merge instead of
+    /// competing (4.4a's identity rule (iv)). Generic by law: the entry
+    /// names an opaque fact class and a tree-root-canonical unit id, no
+    /// framework or ecosystem vocabulary. Validated by
+    /// `verify::compare::declarations` whenever either declaration table
+    /// is non-empty; both tables empty leaves every code path
+    /// byte-identical to the pre-face binary (the D8 posture).
+    #[serde(default)]
+    pub canonical_producer: Vec<CanonicalProducer>,
+    /// The `[[shared_constant]]` declaration face (ADR-069 4.4a(iv)'s
+    /// shared-constant class, survey witness kind 7 — one constant,
+    /// several readers, no edge to name): the canonical-producer
+    /// declaration over a constant fact class. NEVER an async row — the
+    /// declaration schema carries no emit/subscribe keys, and the walker
+    /// refuses a constant entry naming one by name (F-W3's negative law).
+    #[serde(default)]
+    pub shared_constant: Vec<SharedConstant>,
+    /// The `[[pattern_pair]]` declaration table (workplan events_value_join
+    /// scenario 03, ADR-069 4.4a(v)): one entry per declared emit/subscribe
+    /// pattern pair, each side declaring its matcher verb and driver
+    /// language over the event class. The engine carries ONLY the two
+    /// matcher verbs — every name is declared data here (F2 drafting law,
+    /// `rust-arch-test-kit/AGENTS.md` §Archspec engine boundary). Validated
+    /// by the fail-closed walker whenever the table is non-empty; an empty
+    /// table leaves every code path byte-identical to the pre-face binary
+    /// (the D8 posture, 4.2 arm 1).
+    #[serde(default)]
+    pub pattern_pair: Vec<PatternPair>,
 }
 
 /// One `[[async_depends]]` entry: the event identity of one asynchronous
@@ -50,6 +82,111 @@ pub struct AsyncDepend {
     pub to: Option<String>,
     #[serde(default)]
     pub event: Option<String>,
+}
+
+/// One `[[canonical_producer]]` entry: the fact class and its ONE
+/// canonical producer. The keys are mandatory per entry —
+/// `validate_unknown_keys` refuses an absent or empty one in the shipped
+/// invalid-spec class, naming the key and the entry (the
+/// `check_async_depend_entry` message shape). `producer` must be a
+/// tree-root-canonical unit id: a bare per-driver name is refused by name
+/// by `verify::compare::declarations`, never canonicalized into an id (a
+/// declaration carries no producer directory to anchor the dot's
+/// ownership arm — see `events::unitid`). Fields are `Option` on purpose:
+/// the walker runs BEFORE deserialization at every loader, so the walker —
+/// not serde — owns the missing-key voice.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CanonicalProducer {
+    #[serde(default)]
+    pub class: Option<String>,
+    #[serde(default)]
+    pub producer: Option<String>,
+}
+
+/// One `[[shared_constant]]` entry: the shared-constant fact class and the
+/// canonical producer owning the constant. Same mandatory-key and
+/// canonical-id laws as [`CanonicalProducer`]; additionally the walker
+/// refuses an entry naming an `emit` or `subscribe` key by name — the
+/// shared-constant class is NEVER expressible as a pattern pair (ADR-069
+/// 4.4a(iv), F-W3), so those keys never enter the shape and the schema
+/// never advertises them.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SharedConstant {
+    #[serde(default)]
+    pub class: Option<String>,
+    #[serde(default)]
+    pub producer: Option<String>,
+}
+
+/// One `[[pattern_pair]]` entry (workplan events_value_join scenario 03,
+/// ADR-069 4.4a(v), decision-check F2/F3): a declared emit/subscribe
+/// pattern pair — the id literal-site rows carry as the
+/// declared-pattern-id, and the two pattern sides the funded drivers match
+/// their candidates against. The `emit`/`subscribe` keys are exactly the
+/// pair [`CONSTANT_PATTERN_KEYS`] refuses on a `[[shared_constant]]` entry:
+/// the pair belongs to THIS face and never to a constant class (F-W3's
+/// negative law). Fields are `Option` on purpose: the walker runs BEFORE
+/// deserialization at every loader, so the walker — not serde — owns the
+/// missing-key voice.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PatternPair {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub emit: Option<PatternSide>,
+    #[serde(default)]
+    pub subscribe: Option<PatternSide>,
+}
+
+/// One pattern side of a [`PatternPair`]: the driver language the side
+/// applies to, its optional enumerated `role` (the SOLE orientation source
+/// — 4.4a(v)/F3: the engine carries no name-inference arm, and an absent
+/// role is the unoriented state the value join routes to a named
+/// `ambiguous-leg` row), and exactly ONE matcher verb: call-name+argument
+/// position (`call` + `arg`) or exported-property value (`property`).
+/// Generic by law: every field is data — the nouns live here, the verbs
+/// live in `events::patterns` (F2 drafting law).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PatternSide {
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub call: Option<String>,
+    #[serde(default)]
+    pub arg: Option<usize>,
+    #[serde(default)]
+    pub property: Option<String>,
+}
+
+/// Flatten one `[[pattern_pair]]` entry to its pattern-side facts: entry
+/// order, the `emit` side before the `subscribe` side (the declaration's
+/// own order). A side whose verb arm the walker refused (it cannot reach
+/// this arm through a load that passed, but the flattening stays
+/// fail-closed) contributes nothing — flattening never invents a verb.
+/// The pair id is the declared-pattern-id the literal-site rows carry.
+pub fn pattern_sides(pair: &PatternPair) -> Vec<DeclaredPattern> {
+    let mut sides = Vec::new();
+    for side in [pair.emit.as_ref(), pair.subscribe.as_ref()].into_iter().flatten() {
+        let verb = match (&side.call, side.arg, &side.property) {
+            (Some(call), Some(arg), None) => DeclaredPatternVerb::CallNameArgPosition {
+                call: call.clone(),
+                arg,
+            },
+            (None, None, Some(property)) => DeclaredPatternVerb::ExportedPropertyValue {
+                property: property.clone(),
+            },
+            _ => continue,
+        };
+        sides.push(DeclaredPattern {
+            id: pair.id.clone().unwrap_or_default(),
+            language: side.language.clone().unwrap_or_default(),
+            role: side.role.clone(),
+            verb,
+        });
+    }
+    sides
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -660,6 +797,7 @@ pub fn exclusion_paths(spec: &Spec) -> Vec<std::path::PathBuf> {
 pub const SPEC_KEY_SHAPES: &[(&str, &[&str])] = &[
     ("allowed", &["depend_on", "forbidden"]),
     ("async_depends", &["event", "from", "to"]),
+    ("canonical_producer", &["class", "producer"]),
     (
         "constraint",
         &[
@@ -685,10 +823,49 @@ pub const SPEC_KEY_SHAPES: &[(&str, &[&str])] = &[
     ("exempt", &["count", "cycle", "reason", "tier", "until"]),
     ("match", &["modules", "names", "paths", "units"]),
     ("module", &["allowed", "contract", "matches", "name", "submodules"]),
+    ("pattern_pair", &["emit", "id", "subscribe"]),
+    ("pattern_side", &["arg", "call", "language", "property", "role"]),
     ("project", &["excluded_sources", "framework", "language"]),
+    ("shared_constant", &["class", "producer"]),
     ("stereotype", &["match", "name"]),
-    ("top", &["async_depends", "constraint", "exempt", "module", "project", "stereotype"]),
+    (
+        "top",
+        &[
+            "async_depends",
+            "canonical_producer",
+            "constraint",
+            "exempt",
+            "module",
+            "pattern_pair",
+            "project",
+            "shared_constant",
+            "stereotype",
+        ],
+    ),
 ];
+
+/// The pattern-pair keys a `[[shared_constant]]` entry may never name
+/// (ADR-069 4.4a(iv), F-W3): the join-pattern pair belongs to the
+/// pattern-pair declaration face, NEVER to a constant class — a constant
+/// has no edge to name, so an emit/subscribe key on a constant entry is
+/// the named load-time refusal (`check_constant_pattern_pair`), not a
+/// silently-ignored key and not the generic unknown-key voice. The pair is
+/// ONE constant read by the walker and advertised-nowhere by the schema
+/// generator, so reference and validator cannot drift on it either.
+pub const CONSTANT_PATTERN_KEYS: [&str; 2] = ["emit", "subscribe"];
+
+/// The value domain of a `[[pattern_pair]]` side's `role` key (workplan
+/// events_value_join scenario 03, ADR-069 4.4a(v), F3): orientation comes
+/// ONLY from this enumerated role — the engine carries no name-inference
+/// arm, so `publish`/`subscribe` are the only words that orient a matched
+/// site. An absent role is legal and states "unoriented" (the value join
+/// routes it to the named `ambiguous-leg` row, 4.4a(v)); an out-of-domain
+/// role value is the shipped `invalid spec` class (`check_pattern_role`,
+/// the `check_exclusion_mode` posture — fail closed, never a silently
+/// ignored dial). The pair is ONE constant read by the walker and
+/// advertised by the schema generator, so reference and validator cannot
+/// drift on it.
+pub const PATTERN_ROLE_VALUES: [&str; 2] = ["publish", "subscribe"];
 
 /// The declared keys of one shape. Panics on an unknown shape name — the
 /// walker and the schema generator address only the shapes above.
@@ -767,6 +944,47 @@ fn validate_unknown_keys(content: &str, spec_path: &std::path::Path) -> Result<(
         }
     }
     check_async_depend_duplicates(array_items(root.get("async_depends")), spec_path)?;
+    // The declaration face (workplan events_value_join scenario 02): the
+    // SAME fail-closed walker covers both tables, so `verify`, `report`,
+    // `scan` and `diagram` all refuse a malformed declaration in the same
+    // invalid-spec class. The constant arm runs BEFORE the generic
+    // unknown-key voice so an emit/subscribe key on a constant entry
+    // reaches its own named refusal, never the unknown-key echo (F-W3's
+    // negative law: the schema never makes a shared constant expressible
+    // as a pattern pair).
+    for (index, entry) in array_items(root.get("canonical_producer")).iter().enumerate() {
+        let location = format!("in [canonical_producer] #{}", index + 1);
+        if let Some(table) = entry.as_table() {
+            check_spec_keys(table, "canonical_producer", &location, spec_path)?;
+            check_declaration_entry(table, "canonical_producer", index, spec_path)?;
+        }
+    }
+    for (index, entry) in array_items(root.get("shared_constant")).iter().enumerate() {
+        let location = format!("in [shared_constant] #{}", index + 1);
+        if let Some(table) = entry.as_table() {
+            check_constant_pattern_pair(table, index, spec_path)?;
+            check_spec_keys(table, "shared_constant", &location, spec_path)?;
+            check_declaration_entry(table, "shared_constant", index, spec_path)?;
+        }
+    }
+    // The pattern-pair declaration face (workplan events_value_join
+    // scenario 03): the SAME fail-closed walker covers the pair id, each
+    // side's keys, the ONE-verb law and the enumerated-role value domain,
+    // so every loader refuses a malformed pattern before deserialization.
+    for (index, entry) in array_items(root.get("pattern_pair")).iter().enumerate() {
+        let location = format!("in [pattern_pair] #{}", index + 1);
+        let Some(table) = entry.as_table() else { continue };
+        check_spec_keys(table, "pattern_pair", &location, spec_path)?;
+        check_pattern_pair_entry(table, index, spec_path)?;
+        for key in CONSTANT_PATTERN_KEYS {
+            if let Some(side) = table.get(key).and_then(toml::Value::as_table) {
+                let side_location = format!("{location} {key}");
+                check_spec_keys(side, "pattern_side", &side_location, spec_path)?;
+                check_pattern_side(side, "pattern_pair", index, key, spec_path)?;
+            }
+        }
+    }
+    check_pattern_pair_duplicates(array_items(root.get("pattern_pair")), spec_path)?;
     Ok(())
 }
 
@@ -948,6 +1166,260 @@ fn check_async_depend_entry(
     Ok(())
 }
 
+/// The mandatory-key law of both declaration tables (workplan
+/// events_value_join scenario 02): every `[[canonical_producer]]` and
+/// `[[shared_constant]]` entry names its fact class and its ONE canonical
+/// producer — both keys mandatory per entry, the `check_async_depend_entry`
+/// message shape. The check rides the walker so every loader (verify,
+/// report, scan, diagram) refuses before deserialization. An unknown key
+/// is refused by `check_spec_keys` against the shape row; nothing here
+/// duplicates that voice.
+fn check_declaration_entry(
+    table: &toml::map::Map<String, toml::Value>,
+    shape: &str,
+    index: usize,
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    for key in ["class", "producer"] {
+        match table.get(key).and_then(toml::Value::as_str) {
+            None | Some("") => {
+                return Err(format!(
+                    "invalid spec: {}: [{shape}] entry #{}: missing mandatory key \
+                     \"{key}\" — an entry declares the fact class and its one canonical \
+                     producer with class and producer",
+                    spec_path.display(),
+                    index + 1,
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(())
+}
+
+/// The F-W3 negative law (ADR-069 clause 4.4a(iv)): a shared-constant
+/// entry may NEVER name the join-pattern pair — a constant has no edge to
+/// name, so an `emit`/`subscribe` key on a `[[shared_constant]]` entry is
+/// refused by name, in its own message class, BEFORE the generic
+/// unknown-key voice could fold it into an echo. The refused key list is
+/// [`CONSTANT_PATTERN_KEYS`]: the same constant the schema generator reads
+/// to advertise the keys NOWHERE, so validator and schema cannot drift on
+/// the pair's absence.
+fn check_constant_pattern_pair(
+    table: &toml::map::Map<String, toml::Value>,
+    index: usize,
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    for key in CONSTANT_PATTERN_KEYS {
+        if table.contains_key(key) {
+            return Err(format!(
+                "invalid spec: {}: [shared_constant] entry #{}: key \"{key}\" — a shared \
+                 constant is never a pattern pair: declare the class with class and producer, \
+                 a pattern pair belongs to the pattern-pair declaration face",
+                spec_path.display(),
+                index + 1,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The mandatory-key law of the `[[pattern_pair]]` table (workplan
+/// events_value_join scenario 03): every entry names its id — the
+/// declared-pattern-id every matched literal-site row carries — in the
+/// `check_declaration_entry` message shape. An unknown key is refused by
+/// `check_spec_keys` against the shape row; nothing here duplicates that
+/// voice. A pair with NEITHER side is refused too: a pattern pair with no
+/// pattern states nothing to match, and the never-silent law forbids a
+/// declaration that can never produce a row (the `check_declaration_entry`
+/// posture extended to the pair's defining keys).
+fn check_pattern_pair_entry(
+    table: &toml::map::Map<String, toml::Value>,
+    index: usize,
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    match table.get("id").and_then(toml::Value::as_str) {
+        None | Some("") => {
+            return Err(format!(
+                "invalid spec: {}: [pattern_pair] entry #{}: missing mandatory key \
+                 \"id\" — an entry declares the pattern pair with id and its emit/subscribe \
+                 pattern sides",
+                spec_path.display(),
+                index + 1,
+            ));
+        }
+        Some(_) => {}
+    }
+    if !CONSTANT_PATTERN_KEYS
+        .iter()
+        .any(|key| table.contains_key(*key))
+    {
+        return Err(format!(
+            "invalid spec: {}: [pattern_pair] entry #{}: no pattern side — an entry declares \
+             at least one of its emit/subscribe pattern sides, an empty pair states nothing \
+             to match",
+            spec_path.display(),
+            index + 1,
+        ));
+    }
+    Ok(())
+}
+
+/// The side law of a `[[pattern_pair]]` pattern side (workplan
+/// events_value_join scenario 03, decisions A2/A4/F3): the side names its
+/// driver `language` from the closed driver vocabulary and exactly ONE
+/// matcher verb — `call` with `arg` (call-name + argument position) or
+/// `property` (exported-property value). No verb states nothing to match
+/// and both verbs state an ambiguous site class: each is refused by name in
+/// the shipped `invalid spec` class. A `role` that is present must sit in
+/// `PATTERN_ROLE_VALUES` (`check_pattern_role`, the `check_exclusion_mode`
+/// value-domain posture); an absent role is the legal unoriented state
+/// (4.4a(v): the value join surfaces it as the named `ambiguous-leg` row,
+/// never as a joined row).
+fn check_pattern_side(
+    table: &toml::map::Map<String, toml::Value>,
+    shape: &str,
+    index: usize,
+    side: &str,
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    let entry = format!("[{shape}] entry #{}, {side}", index + 1);
+    match table.get("language").and_then(toml::Value::as_str) {
+        None | Some("") => {
+            return Err(format!(
+                "invalid spec: {}: {entry}: missing mandatory key \"language\" — a pattern \
+                 side states the driver language its matcher verb runs on",
+                spec_path.display(),
+            ));
+        }
+        Some(language) => {
+            if crate::archspec::language::from_name(language).is_none() {
+                return Err(format!(
+                    "invalid spec: {}: {entry}: unknown driver language \"{language}\" — \
+                     a pattern side names one of the driver languages",
+                    spec_path.display(),
+                ));
+            }
+        }
+    }
+    let call = table.get("call").and_then(toml::Value::as_str);
+    let arg = table.get("arg").and_then(toml::Value::as_integer);
+    let property = table.get("property").and_then(toml::Value::as_str);
+    match (call, property) {
+        (None, None) => Err(format!(
+            "invalid spec: {}: {entry}: no matcher verb — a pattern side declares exactly \
+             one verb: call with arg, or property",
+            spec_path.display(),
+        )),
+        (Some(_), Some(_)) => Err(format!(
+            "invalid spec: {}: {entry}: declares both matcher verbs (call and property) — \
+             a pattern side declares exactly one verb",
+            spec_path.display(),
+        )),
+        (Some(name), None) => {
+            if name.is_empty() {
+                return Err(format!(
+                    "invalid spec: {}: {entry}: key \"call\" is empty — the verb's call name \
+                     is the declared noun the callee's simple name is compared to",
+                    spec_path.display(),
+                ));
+            }
+            match arg {
+                None => Err(format!(
+                    "invalid spec: {}: {entry}: call verb without arg — the argument position \
+                     is mandatory beside the call name (0-based)",
+                    spec_path.display(),
+                )),
+                Some(position) if position < 0 => Err(format!(
+                    "invalid spec: {}: {entry}: key \"arg\" is negative — the argument \
+                     position is 0-based",
+                    spec_path.display(),
+                )),
+                Some(_) => Ok(()),
+            }
+        }
+        (None, Some(name)) => {
+            if name.is_empty() {
+                return Err(format!(
+                    "invalid spec: {}: {entry}: key \"property\" is empty — the verb's \
+                     property name is the declared noun the exported property's name is \
+                     compared to",
+                    spec_path.display(),
+                ));
+            }
+            if table.contains_key("arg") || table.contains_key("call") {
+                return Err(format!(
+                    "invalid spec: {}: {entry}: property verb carries a call-side key — the \
+                     exported-property verb takes property alone",
+                    spec_path.display(),
+                ));
+            }
+            Ok(())
+        }
+    }?;
+    check_pattern_role(table, &entry, spec_path)
+}
+
+/// The enumerated-role value domain of a pattern side (F3/A4): the role
+/// word is the ONLY orientation source, so an out-of-domain value is
+/// refused fail-closed in the shipped `invalid spec` class, naming the
+/// entry, the value and the domain (`check_exclusion_mode` posture). An
+/// absent `role` key answers Ok — absence is the legal unoriented state,
+/// decided where orientation is consumed (the value join, scenario 04).
+fn check_pattern_role(
+    table: &toml::map::Map<String, toml::Value>,
+    entry: &str,
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    let Some(value) = table.get("role") else {
+        return Ok(());
+    };
+    let value = value.as_str().unwrap_or_default();
+    if !PATTERN_ROLE_VALUES.contains(&value) {
+        return Err(format!(
+            "invalid spec: {}: {entry}: role \"{value}\" is not one of {} — orientation \
+             comes only from the enumerated role",
+            spec_path.display(),
+            PATTERN_ROLE_VALUES.join("/"),
+        ));
+    }
+    Ok(())
+}
+
+/// The exact-duplicate law of the `[[pattern_pair]]` table (the
+/// `check_async_depend_duplicates` shape extended to this face): two
+/// entries with one id make the declared-pattern-id of a matched row
+/// address two declarations, so orientation would resolve twice — an
+/// ambiguity no join arm may settle by map order. Refused at load by name
+/// with both entries (1-indexed, the walker's numbering).
+fn check_pattern_pair_duplicates(
+    entries: &[toml::Value],
+    spec_path: &std::path::Path,
+) -> Result<(), String> {
+    let mut ids: Vec<(&str, usize)> = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let Some(table) = entry.as_table() else { continue };
+        let Some(id) = table.get("id").and_then(toml::Value::as_str) else {
+            continue;
+        };
+        if id.is_empty() {
+            continue;
+        }
+        if let Some((_, first)) = ids.iter().find(|(known, _)| *known == id) {
+            return Err(format!(
+                "invalid spec: {}: [pattern_pair] entry #{} repeats id \"{}\" declared by \
+                 entry #{} — one id addresses one pattern pair",
+                spec_path.display(),
+                index + 1,
+                id,
+                first + 1,
+            ));
+        }
+        ids.push((id, index));
+    }
+    Ok(())
+}
+
 /// The exact-duplicate law of the `[[async_depends]]` table (GitHub issue
 /// #56): an entry EQUAL on ALL fields to a previously-parsed entry is the
 /// shipped `invalid spec` class naming both entries (1-indexed, the walker's
@@ -962,6 +1434,7 @@ fn check_async_depend_entry(
 /// so a reordered copy speaks the same refusal; a fourth key never reaches
 /// this arm because `check_spec_keys` refuses it first. The check rides the
 /// walker AFTER the per-entry arms, like `check_exclusion_mode`, so every
+/// The exact-duplicate law of the `[[async_depends]]` table (GitHub issue
 /// loader refuses before deserialization and explain/entry counting counts
 /// DISTINCT facts by construction.
 fn check_async_depend_duplicates(

@@ -57,6 +57,7 @@ const TOPICS: &[&str] = &[
 // language mismatch guard).
 const DIAGNOSTIC_CATEGORIES: &[&str] = &[
     "ambiguous module match",
+    "AMBIGUOUS-MARKERS",
     "ambiguous root markers",
     "ambiguous settings file",
     "boundary advisory",

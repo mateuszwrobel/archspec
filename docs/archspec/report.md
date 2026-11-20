@@ -7,7 +7,7 @@ adjudicated against BUILT tree
 
 Metrics
 -------
-components:          15
+components:          17
 units:               2
 edges (internal):    1
 edges (external):    14

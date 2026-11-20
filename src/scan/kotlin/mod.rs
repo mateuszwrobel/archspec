@@ -29,8 +29,8 @@ pub(crate) mod syntax;
 
 use crate::language;
 use crate::model::{
-    DeclaredFacts, DeclaredZone, FileEdge, FileFactKind, ManifestInfo, Model, ModuleEdge,
-    ModuleDeclaration, Unit,
+    DeclaredFacts, DeclaredZone, FileEdge, FileFactKind, LiteralCandidate, ManifestInfo, Model,
+    ModuleEdge, ModuleDeclaration, Unit,
 };
 use crate::model::matches_pattern;
 use std::collections::{BTreeMap, BTreeSet};
@@ -86,6 +86,16 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     // per-file leg runs across workers; the fold replays in walk order and
     // the `?` on the FIRST Err reproduces the serial early abort.
     let threads = super::leg::fact_leg_threads(files.len());
+    // The literal-candidate feed (workplan events_value_join scenario 03,
+    // decision-check F8): collected ONLY when a declared pattern side names
+    // this driver — the declaration gate is the byte identity (4.2 arm 1).
+    // The sites are vocabulary-free (A6); the engine matcher verbs decide
+    // equality at the resolution site.
+    let collect_candidates = facts
+        .patterns
+        .iter()
+        .any(|pattern| pattern.language == language::Language::Kotlin.as_str());
+    let mut literal_candidates: Vec<LiteralCandidate> = Vec::new();
     let all_facts: Vec<Result<syntax::FileFacts, String>> = crate::profile::phase(
         "scan-facts",
         || {
@@ -110,6 +120,16 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     let mut import_statements = 0usize;
     for (file, facts) in files.iter().zip(all_facts) {
         let facts = facts?;
+        if collect_candidates {
+            for (anchor, value) in syntax::literal_candidates(&root.join(file)) {
+                literal_candidates.push(LiteralCandidate {
+                    path: file.clone(),
+                    language: language::Language::Kotlin.as_str().to_string(),
+                    anchor,
+                    value,
+                });
+            }
+        }
         import_statements += facts.import_statements;
         facts_of.insert(file.clone(), facts);
     }
@@ -493,6 +513,7 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
         unit_manifests,
         test_gated_modules,
         file_edges,
+        literal_candidates,
         report_only_lines: report_only,
         ..Model::new("kotlin")
     })
@@ -763,6 +784,17 @@ fn spell(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// The driver-port seam entry (workplan events_value_join scenario 10):
+/// a unit struct implementing `crate::driver::Driver` by calling this
+/// module's own [`extract`] — body logic moves zero lines.
+pub(crate) struct KotlinDriver;
+
+impl crate::driver::Driver for KotlinDriver {
+    fn extract(&self, root: &Path, declared: &DeclaredFacts) -> Result<Model, String> {
+        extract(root, declared)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{basename_of, test_tier_convention, tripwire_error, unit_of, MODEL_HONESTY};
@@ -816,3 +848,4 @@ mod tests {
         assert_eq!(unit_of("elsewhere/Top.kt", &units), ".");
     }
 }
+

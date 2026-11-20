@@ -730,6 +730,16 @@ pub fn reseed_census(loaded: &spec::Spec, regenerated: &str) -> Vec<String> {
         dropped.push(("[project].framework", 1));
     }
     dropped.push(("[[async_depends]]", loaded.async_depends.len()));
+    // The declaration face (workplan events_value_join scenario 02): like
+    // the async table, a declaration is a consumer declaration the model
+    // cannot derive and the seed renders neither table — a reseed drops
+    // every entry, so the census names both tables, never drops in silence
+    // (D13 posture).
+    dropped.push((
+        "[[canonical_producer]]",
+        loaded.canonical_producer.len(),
+    ));
+    dropped.push(("[[shared_constant]]", loaded.shared_constant.len()));
     dropped.push((
         "[[constraint]]",
         dropped_constraint_rows(&loaded.constraint, regenerated_constraints),

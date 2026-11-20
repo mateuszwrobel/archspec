@@ -1,0 +1,6 @@
+graph TD
+  core
+  gateway
+  gateway__http_74c3aa6e["gateway::http"]
+  store
+  gateway --> core

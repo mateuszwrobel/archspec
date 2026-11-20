@@ -242,6 +242,74 @@ file = "tests/async_render.rs"
 relation = "named-in-file"
 
 [[claim]]
+id = "declaration-producer-unresolved"
+owner = "the `declaration producer unresolved` catalog entry of `archspec help diagnostics`, rendered by the declaration arms of verify runs on stdout whenever a declaration table is non-empty (workplan events_value_join scenario 02, ADR-069 4.4a(i))"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "declaration producer unresolved: <class> — <producer> ([<table>] entry #N)"
+canonical_fragments = ["declaration producer unresolved"]
+signatures = ["declaration producer unresolved"]
+dedicated_guard = "tests/events_value_join_declaration.rs"
+[[claim.guard_pin]]
+file = "tests/events_value_join_declaration.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "declaration-producer-not-canonical"
+owner = "the `declaration producer not canonical` catalog entry of `archspec help diagnostics`, rendered by the declaration arms of verify runs on stdout whenever a declaration table is non-empty (workplan events_value_join scenario 02, ADR-069 4.4a(i))"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "declaration producer not canonical: <class> — <producer> resolves to <id> ([<table>] entry #N)"
+canonical_fragments = ["declaration producer not canonical"]
+signatures = ["declaration producer not canonical"]
+dedicated_guard = "tests/events_value_join_declaration.rs"
+[[claim.guard_pin]]
+file = "tests/events_value_join_declaration.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "declaration-producer-conflict"
+owner = "the `declaration producer conflict` catalog entry of `archspec help diagnostics`, rendered by the declaration arms of verify runs on stdout whenever one fact class is declared with two different canonical producers (workplan events_value_join scenario 02, ADR-069 4.4a(iv) — the arbitration precondition, pure spec arithmetic)"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "declaration producer conflict: <class> — <producer> (entries <numbers>), … ([<table>])"
+canonical_fragments = ["declaration producer conflict"]
+signatures = ["declaration producer conflict"]
+dedicated_guard = "tests/events_value_join_declaration.rs"
+[[claim.guard_pin]]
+file = "tests/events_value_join_declaration.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "declaration-census-section"
+owner = "the `declaration census section` catalog entry of `archspec help diagnostics`, rendered by the report renderers and by verify --json when either declaration table resolves at least one entry"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "Declaration census",
+  "canonical producer: <class> -> <producer>",
+  "canonical producer: <class> -> <producer> — shared constant",
+  "declaration_census",
+]
+signatures = ["Declaration census", "canonical producer:", "declaration_census"]
+dedicated_guard = "tests/events_value_join_declaration.rs"
+[[claim.guard_pin]]
+file = "tests/events_value_join_declaration.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "shared-constant-pattern-pair-refusal"
+owner = "the load-time refusal `archspec verify` emits when a `[[shared_constant]]` entry names an emit or subscribe pattern-pair key (F-W3, ADR-069 4.4a(iv)) — its own message class, spoken before the generic unknown-key voice could fold it into an echo, and the generated schema advertises the pair NOWHERE because validator and schema read the one refused-key constant"
+owner_surfaces = []
+relations = ["echo", "cite"]
+canonical = "[shared_constant] entry #N: key \"<key>\" — a shared constant is never a pattern pair: declare the class with class and producer, a pattern pair belongs to the pattern-pair declaration face"
+signatures = ["a shared constant is never a pattern pair"]
+dedicated_guard = "tests/events_value_join_declaration.rs"
+[[claim.guard_pin]]
+file = "tests/events_value_join_declaration.rs"
+relation = "named-in-file"
+
+[[claim]]
 id = "ts-vacuity-carriers"
 owner = "the named `vacuous constraint` carrier lines the ts driver prints on an EMPTY evidence set for the flipped capability rows (R8 vacuity law) — report-surface lines, never findings, never red without `--strict`"
 owner_surfaces = []
@@ -836,6 +904,16 @@ signatures = ["nested foreign marker"]
 dedicated_guard = "tests/language_agreement.rs"
 
 [[claim]]
+id = "ambiguous-markers"
+owner = "the `AMBIGUOUS-MARKERS` catalog entry of `archspec help diagnostics`, rendered by the scan, verify and explain report surfaces on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "AMBIGUOUS-MARKERS: <path> — markers: <file> (<language>), …, modeled as: <language>"
+canonical_fragments = ["AMBIGUOUS-MARKERS: <path> — markers: <file> (<language>), …, modeled as: <language>"]
+signatures = ["AMBIGUOUS-MARKERS"]
+dedicated_guard = "tests/issue63_dispatch_visibility.rs"
+
+[[claim]]
 id = "kotlin-model-honesty"
 owner = "the kotlin section of `archspec help languages`"
 owner_surfaces = ["help languages"]
@@ -1060,6 +1138,39 @@ file = "tests/csharp_excluded_projects.rs"
 const_name = "CENSUS_FORMS"
 relation = "equals-fragments"
 
+# GitHub issue #60 (2026-11-19): the same declared entries now also
+# adjudicate at the csharp .cs SOURCE FILE walk — a file under an entry
+# inside a kept project contributes no fact and states itself with one
+# census line. Kept projects only: a project dropped at discovery never
+# reaches the file gate (no double-report law); entry liveness stays
+# driver-independent ("any file counts").
+# Scenario 11 (2026-11-20): the same fragment gained two more emitters —
+# the rust `.rs` walk (collect_rs_files) and the go `.go` walk
+# (collect_packages) prune every matching file and state each once with
+# the same exact bytes; the guards below render them per language.
+[[claim]]
+id = "csharp-excluded-sources"
+owner = "the `excluded source` catalog entry of `archspec help diagnostics`, rendered by csharp, rust and go scan and verify runs on stderr"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "excluded source: <path> — excluded_sources",
+]
+signatures = ["excluded source:"]
+dedicated_guard = "tests/csharp_excluded_sources.rs"
+[[claim.guard_pin]]
+file = "tests/csharp_excluded_sources.rs"
+const_name = "CENSUS_FORMS"
+relation = "equals-fragments"
+[[claim.guard_pin]]
+file = "tests/rust_excluded_sources.rs"
+const_name = "CENSUS_FORMS"
+relation = "equals-fragments"
+[[claim.guard_pin]]
+file = "tests/go_excluded_sources.rs"
+const_name = "CENSUS_FORMS"
+relation = "equals-fragments"
+
 # GitHub issue #28 (2026-11-17): the import-order repro emitter — the verify
 # help flag line, the repro block the flag renders per runtime file ring,
 # and the named skip row a language without the one-liner form states.
@@ -1141,4 +1252,71 @@ signatures = ["zero findings of any kind"]
 dedicated_guard = "tests/help_audit_recipe.rs"
 [[claim.guard_pin]]
 file = "tests/help_audit_recipe.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "literal-site-pattern-primitives"
+owner = "the `literal sites census and driver gap` catalog entry of `archspec help diagnostics`, rendered by the scan report surface when `[[pattern_pair]]` declares at least one side — the two generic matcher verbs (call-name + argument position, exported-property value) with the nouns supplied ONLY by the declaration (the engine-boundary law: verbs in the engine, nouns in the config, no name-inference arm)"
+owner_surfaces = ["help diagnostics", "spec --help", "help spec"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "literal sites: pattern \"<id>\" language \"<lang>\" anchor <anchor> sites=<n>",
+  "driver-gap: pattern \"<id>\" language \"<lang>\"",
+  "call-name+arg-position",
+  "exported-property-value",
+  "literal-site-census",
+]
+signatures = ["driver-gap", "literal sites:", "literal-site-census", "call-name+arg-position", "exported-property-value"]
+dedicated_guard = "tests/events_value_join_patterns.rs"
+[[claim.guard_pin]]
+file = "tests/events_value_join_patterns.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "value-join-rows"
+owner = "the `value-join rows and zero-silence census` catalog entry of `archspec help diagnostics`, rendered by the scan report surface when `[[pattern_pair]]` declares at least one side and the value join runs — the generic cross-unit value join: joins by string VALUE in one key space (convention namespace where kinds collide), orientation from the declared enumerated role ONLY, the first `async_edges` construction site, every matched literal joined or named (zero silence), a derived row merging with an identity-equal declared row through ONE `PLUGIN-OVERLAP` row and never suppressing it; the entry also states the three-state reading of a zero-async model — declared rows present, non-declaring granular (author silence), non-declaring not-emitted (rung-2 gap) — pointing at `archspec capability matrix` (surface-activation record §4.3, workplan visibility_phase2 scenario 04)"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "async-row derived row=(<from>, <to>, <event>) — derived machine fact, no declared entry",
+  "PLUGIN-OVERLAP row=(<from>, <to>, <event>) producers=<n> — identities equal after canonicalization, merged to one row",
+  "ambiguous-leg pattern=\"<id>\" value=\"<v>\" anchor <anchor> at=<path> — no single declared role for this site, nothing joined",
+  "one-sided-leg pattern=\"<id>\" value=\"<v>\" role <role> anchor <anchor> at=<path> — no <counterpart> site carries this value, nothing joined",
+  "unoriented pattern=\"<id>\" — no declared side states a role, sites carry no orientation",
+  "shared-constant pattern=\"<id>\" value=\"<v>\" anchor <anchor> at=<path> — declared constant class, never an async row",
+  "unfunded-shape pattern=\"<id>\" value=\"<v>\" role <role> language=\"<lang>\" at=<path> — the counterpart driver emits no literal sites, nothing joined",
+  "value-namespace value=\"<v>\" patterns <a>, <b> — two declared conventions match one raw value, the join keys per convention and names both",
+  "A model with no async facts reads three ways: declared rows present — the tree declares and the model states the joined or named rows (zero silence over matched literals); non-declaring with a granular `event-declaration-derivation` row — author silence, the cure is to declare the rows; non-declaring with a `not-emitted` row — a rung-2 gap (ADR-069 rung 2 unfunded), the cure is to declare the rows or fund the rung. `archspec capability matrix` states the `event-declaration-derivation` row per language — the canonical, falsifiable disclosure of which reading a zero calls for. [capability event-declaration-derivation rust=\"not-emitted\" csharp=\"granular\" go=\"not-emitted\" ts=\"not-emitted\" python=\"not-emitted\" kotlin=\"not-emitted\"]",
+]
+signatures = ["async-row derived", "PLUGIN-OVERLAP", "ambiguous-leg", "one-sided-leg", "unoriented pattern=", "declared constant class", "unfunded-shape", "value-namespace", "reads three ways"]
+dedicated_guard = "tests/events_value_join_rows.rs"
+[[claim.guard_pin]]
+file = "tests/events_value_join_rows.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "attribution-census-rows"
+owner = "the `ambiguous-publish attribution census` catalog entry of `archspec help diagnostics`, rendered by the report-only channel when a declaring (`[[pattern_pair]]`) scan with derived dispatch-side facts carries a hand-declared `[[async_depends]]` row whose canonical `from` differs from every dispatch-side fact for the same `(to, event)` pair — the ADR-069 4.4a(b) attribution-ambiguity face: the assembly-scan class where a declared row names the DECLARING side, not the DISPATCHING side, is green-but-wrong made VISIBLE, never a verdict and never a silent re-key; a declared row the dispatch-side facts attribute identically prints zero rows"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "ambiguous-publish-attribution: row=(<from>, <to>, <event>) dispatching <units> — the dispatch-side facts for this value and target name <units>, not the declared from; the declared row stands unchanged",
+]
+signatures = ["ambiguous-publish-attribution"]
+dedicated_guard = "tests/events_value_join_attribution.rs"
+[[claim.guard_pin]]
+file = "tests/events_value_join_attribution.rs"
+relation = "named-in-file"
+
+[[claim]]
+id = "dispatch-blinded-literals"
+owner = "the `dispatch-blinded literals census` catalog entry of `archspec help diagnostics`, rendered by the scan, verify and explain report surfaces on stderr when `[[pattern_pair]]` declares at least one side and the run's dispatch rows name a losing language the declaration carries a side for — a projection over the shipped dispatch rows and the literal-site rows, NEVER new scan machinery and NEVER a verdict (ADR-069 clause 4.8, decision-check F-W4)"
+owner_surfaces = ["help diagnostics"]
+relations = ["echo", "cite"]
+canonical = "dispatch-blinded-literals zone=<path> langs=<set> claimed=<driver> files=<n>"
+canonical_fragments = ["dispatch-blinded-literals zone=<path> langs=<set> claimed=<driver> files=<n>"]
+signatures = ["dispatch-blinded-literals"]
+dedicated_guard = "tests/events_value_join_blindspots.rs"
+[[claim.guard_pin]]
+file = "tests/events_value_join_blindspots.rs"
 relation = "named-in-file"

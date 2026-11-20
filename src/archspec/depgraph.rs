@@ -64,10 +64,15 @@ pub struct ModuleGraph {
     /// at the command seam from [`project_async_rows`]; the builders never
     /// touch it, so a graph built directly (every existing test and view)
     /// keeps its exact pre-async bytes — the renderers draw this set only
-    /// when it is non-empty (D8). Future-proof note (issue #48, named
-    /// follow-up): `Model::async_edges` has NO construction site today; when
-    /// derived rows land, their dedupe against declared FQN spellings must
-    /// be defined before a derived row can suppress a declared arrow.
+    /// when it is non-empty (D8). Construction-site note (issue #48,
+    /// scenario 04 — the hole of E6 closed): `Model::async_edges` is now
+    /// written by exactly ONE site, `events::derive::build_derived_async_edges`,
+    /// behind the pattern-pair declaration gate; the dedupe-vs-declared law is
+    /// defined there and at the command seams: the render set is the UNION
+    /// of declared and derived identities (a derived row can never suppress
+    /// a declared arrow), identity-equal rows collapse to one arrow, and
+    /// each collapsed identity prints exactly ONE `PLUGIN-OVERLAP` row
+    /// through `events::unitid::merge_rows` at the model-build seam.
     pub async_edges: BTreeSet<(String, String, String)>,
     pub markers: BTreeMap<String, Role>,
     /// Role facts that folded onto one node with a DIFFERENT role and so
@@ -231,6 +236,34 @@ pub fn attach_async_rows(
             graph.async_edges.insert((from, to, label));
         }
     }
+}
+
+/// The derived rows in the renderers' endpoint spelling (scenario 04, the
+/// placement arm of 4.4a(i)): a derived row carries the canonical unit id,
+/// the graphs draw unit NAMES. An endpoint spelling that already names a
+/// unit is kept byte-for-byte (every hand-built and declared model renders
+/// its exact shipped bytes); otherwise the unit whose canonical directory
+/// answers the id contributes its name — the ONE mapping through
+/// `events::unitid::canonical_dir`, never a per-renderer guess. An
+/// endpoint no unit answers keeps its spelling: unplaced, named by the
+/// projection's `out_of_view` census, never silently dropped.
+pub fn derived_render_rows(model: &Model) -> Vec<(String, String, String)> {
+    let spell = |spelling: &str| -> String {
+        if model.units.iter().any(|unit| unit.name == spelling) {
+            return spelling.to_string();
+        }
+        model
+            .units
+            .iter()
+            .find(|unit| crate::archspec::events::unitid::canonical_dir(&unit.path) == spelling)
+            .map(|unit| unit.name.clone())
+            .unwrap_or_else(|| spelling.to_string())
+    };
+    model
+        .async_edges
+        .iter()
+        .map(|row| (spell(&row.from), spell(&row.to), row.event.clone()))
+        .collect()
 }
 
 /// What one view's fold did to the async rows (GitHub issue #51): the rows
@@ -445,6 +478,132 @@ fn top_full_name(dotted: &str) -> Option<String> {
     Some(format!("{unit}::{top}"))
 }
 
+/// The segments of a module path or module NAME in one shared grammar: every
+/// separator spelling (`::`, `/`, `.`) normalizes to `.` and the result
+/// splits on it. The grammar is shared by a dotted unit name and the module
+/// paths that spell it so the two compare segment-wise (GitHub issue #61).
+fn dotted_segments(name: &str) -> Vec<String> {
+    normalize_dotted(name).split('.').map(str::to_string).collect()
+}
+
+/// True for the dotted-name module class (GitHub issue #61): a module NAME
+/// whose spelling carries a `.` separator and is not a path spelling. `::`
+/// and `/` spellings are module PATHS (the go tiers' `example.com::demo`
+/// class, whose fold law is pinned by the committed goldens); a bare word has
+/// no segment a fold could truncate it to. Only this class takes the
+/// identity-preserving fold below.
+fn is_dotted_module_name(name: &str) -> bool {
+    name.contains('.') && !name.contains("::") && !name.contains('/')
+}
+
+/// The dotted module NAME whose spelling leads `path` (GitHub issue #61):
+/// the owning unit whose name the path spells as its leading segment run —
+/// exactly (`Webhooks::API` under unit `Webhooks.API`, the path IS the name)
+/// or as a strict prefix (`Webhooks::API::Models`). A path whose segments do
+/// not begin with the unit's own name spelling (`eShop::Ordering::API` under
+/// unit `Ordering.API`) keeps its namespace fold unchanged: there the fold
+/// states a real tier above the name, not a truncation of it. Returns the
+/// unit name and its segment count; names outside the dotted class never
+/// qualify, so every single-word module and every path-spelled unit keeps
+/// its exact shipped fold.
+fn named_unit_of_path(model: &Model, path: &str) -> Option<(String, usize)> {
+    let unit = unit_of_path(model, path)?;
+    if !is_dotted_module_name(&unit) {
+        return None;
+    }
+    let name_segs = dotted_segments(&unit);
+    let segs = dotted_segments(path);
+    segs.starts_with(&name_segs)
+        .then_some((unit, name_segs.len()))
+}
+
+/// The identity-preserving fold (GitHub issue #61): fold `path` through the
+/// view's `node`, except where that fold truncates a dotted module NAME to a
+/// segment of its own spelling — the `Webhooks.API` rendered as `API` class,
+/// where the module became unnameable in the artifact and collided with every
+/// same-suffix module. Where the path spells a dotted unit name at its head
+/// and the fold's chosen segment says nothing beyond that name, the unit name
+/// renders verbatim instead; the shared `render` primitives quote it wherever
+/// the target grammar needs quoting (issue #57's quoting precedent). Every
+/// other fold keeps its exact shipped bytes: single-word names (never in the
+/// dotted class), `::`-spelled module paths (the go tiers), and every fold
+/// choosing a segment at or below the name's tail (a real child module).
+pub(crate) fn fold_named(model: &Model, node: fn(&str) -> String, path: &str) -> String {
+    let bare = node(path);
+    let Some((name, depth)) = named_unit_of_path(model, path) else {
+        return bare;
+    };
+    let segs = dotted_segments(path);
+    // The path spells the whole name: any segment fold truncates it.
+    if segs.len() == depth {
+        return name;
+    }
+    // The fold lost the spelling to the unit-root fold.
+    if bare == ROOT_NODE {
+        return name;
+    }
+    // The fold's chosen segment sits strictly inside the name's spelling
+    // (`Webhooks::API::Models` folding to `API`): the same truncation class.
+    // First-match position is conservative in both directions: an in-name
+    // tail spelled again below the name folds to the name (never a phantom
+    // child), and a segment below the name's tail never matches inside it.
+    if segs
+        .iter()
+        .position(|segment| *segment == bare)
+        .is_some_and(|index| index < depth)
+    {
+        return name;
+    }
+    bare
+}
+
+/// The module-name collision census (GitHub issue #61, extending the row
+/// shape of issue #48's event collision census to the render seam): where the
+/// view's fold truncates TWO or more dotted module names onto one segment,
+/// the identity-preserving fold [`fold_named`] renders each by its full name,
+/// and this row names every full name that collided on the truncated form —
+/// the collision never stays silent, and the render itself states each
+/// identity. One row per truncated form, stderr notes, sorted; a fold with no
+/// dotted-name collision returns no rows (D8: non-colliding renders print
+/// nothing).
+pub fn module_fold_collision_note(model: &Model, node: fn(&str) -> String) -> Vec<String> {
+    // The fold's own vocabulary: every path the module tier names, the same
+    // set `project` folds (soft paths and module-edge endpoints).
+    let mut paths: BTreeSet<&str> = BTreeSet::new();
+    for unit_paths in model.soft_structure.values() {
+        for path in unit_paths {
+            paths.insert(path.as_str());
+        }
+    }
+    for edge in &model.module_edges {
+        paths.insert(edge.from.as_str());
+        paths.insert(edge.to.as_str());
+    }
+    let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for path in paths {
+        let folded = fold_named(model, node, path);
+        if folded != node(path) {
+            groups.entry(node(path)).or_default().insert(folded);
+        }
+    }
+    groups
+        .iter()
+        .filter(|(_, names)| names.len() >= 2)
+        .map(|(segment, names)| {
+            let quoted = names
+                .iter()
+                .map(|name| format!("\"{name}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "note: module name collision: {} module names truncate to \"{segment}\" — \
+                 rendered by full name: {quoted}",
+                names.len()
+            )
+        })
+        .collect()
+}
+
 /// Project the model's module edges and soft structure onto top-level modules.
 /// Every top-level module present in the soft tier becomes a node; every module
 /// edge contributes its two endpoints and, when they differ, an edge between the
@@ -500,7 +659,7 @@ pub fn modules_graph(model: &Model) -> ModuleGraph {
 /// marker or drop-count handling.
 fn project_marked(model: &Model, node: fn(&str) -> String) -> ModuleGraph {
     let mut graph = project(model, node);
-    let markers = fold_markers(model, |path| Some(node(path)), &graph.nodes);
+    let markers = fold_markers(model, |path| Some(fold_named(model, node, path)), &graph.nodes);
     graph.markers = markers
         .0
         .into_iter()
@@ -928,17 +1087,20 @@ fn fold_markers(
 /// Project the model through one node function: soft paths contribute nodes,
 /// module edges contribute their endpoints and (when they differ) an edge,
 /// unit edges project through module membership. Shared by every granularity
-/// the modules view reads.
+/// the modules view reads. Every fold goes through [`fold_named`] first
+/// (GitHub issue #61): a fold that truncates a dotted module name to one of
+/// its own segments renders the name verbatim instead, so the view never
+/// loses a module identity; every other fold keeps its shipped bytes.
 fn project(model: &Model, node: fn(&str) -> String) -> ModuleGraph {
     let mut graph = ModuleGraph::default();
     for paths in model.soft_structure.values() {
         for path in paths {
-            graph.add_node(&node(path));
+            graph.add_node(&fold_named(model, node, path));
         }
     }
     for edge in &model.module_edges {
-        let from = node(&edge.from);
-        let to = node(&edge.to);
+        let from = fold_named(model, node, &edge.from);
+        let to = fold_named(model, node, &edge.to);
         graph.add_node(&from);
         graph.add_node(&to);
         if from != to {
@@ -960,7 +1122,13 @@ fn project_unit_edges(model: &Model, graph: &mut ModuleGraph, node: fn(&str) -> 
     }
     let mut unit_nodes: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
     for (unit, paths) in &model.soft_structure {
-        unit_nodes.insert(unit.as_str(), paths.iter().map(|path| node(path)).collect());
+        unit_nodes.insert(
+            unit.as_str(),
+            paths
+                .iter()
+                .map(|path| fold_named(model, node, path))
+                .collect(),
+        );
     }
     for edge in &model.edges {
         if edge.from == edge.to {
@@ -1065,8 +1233,8 @@ pub fn api_usage_by_target(model: &Model) -> BTreeMap<String, BTreeMap<String, B
     let node = projection_node(model);
     let mut grouped: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
     for edge in &model.module_edges {
-        let from = node(&edge.from);
-        let to = node(&edge.to);
+        let from = fold_named(model, node, &edge.from);
+        let to = fold_named(model, node, &edge.to);
         if from == to {
             continue;
         }
@@ -1540,6 +1708,8 @@ mod tests {
             schema_version: 1,
             report_only_lines: Vec::new(),
             warnings: Vec::new(),
+            literal_sites: Vec::new(),
+            literal_candidates: Vec::new(),
             language: "rust".to_string(),
             units: vec![Unit {
                 name: unit.to_string(),
@@ -2118,15 +2288,17 @@ mod tests {
     #[test]
     fn modules_graph_projects_unit_edges_of_single_module_units() {
         let graph = modules_graph(&csharp_like_model());
-        assert!(graph.nodes.contains("Api"));
-        assert!(graph.nodes.contains("Application"));
-        assert!(graph.nodes.contains("Domain"));
+        // The dotted project names render verbatim (GitHub issue #61): the
+        // nodes carry the declared identities, never the truncated tails.
+        assert!(graph.nodes.contains("Shop.Api"), "{:?}", graph.nodes);
+        assert!(graph.nodes.contains("Shop.Application"), "{:?}", graph.nodes);
+        assert!(graph.nodes.contains("Shop.Domain"), "{:?}", graph.nodes);
         assert!(graph
             .edges
-            .contains(&("Api".to_string(), "Application".to_string())));
+            .contains(&("Shop.Api".to_string(), "Shop.Application".to_string())));
         assert!(graph
             .edges
-            .contains(&("Application".to_string(), "Domain".to_string())));
+            .contains(&("Shop.Application".to_string(), "Shop.Domain".to_string())));
     }
 
     #[test]
@@ -2325,34 +2497,36 @@ mod tests {
     }
 
     /// Two roles folding onto one rendered node state no single role: the
-    /// node stays silent (and never grows two markers).
+    /// node stays silent (and never grows two markers). The unit names are
+    /// single words so the fold still truncates (GitHub issue #61 renders
+    /// dotted module names verbatim, so they can no longer weld this class).
     #[test]
     fn modules_graph_conflicting_fold_states_no_role() {
-        let base = model_with("X.Api", Vec::new(), Vec::new());
+        let base = model_with("Alpha", Vec::new(), Vec::new());
         let model = Model {
                 dynamic_import_wildcards: Default::default(),
             language: "csharp".to_string(),
-            units: vec![unit("X.Api"), unit("Y.Api")],
+            units: vec![unit("Alpha"), unit("Beta")],
             soft_structure: BTreeMap::from([
                 (
-                    "X.Api".to_string(),
-                    vec!["X::Api::Wiring".to_string()],
+                    "Alpha".to_string(),
+                    vec!["Alpha::Api::Wiring".to_string()],
                 ),
                 (
-                    "Y.Api".to_string(),
-                    vec!["Y::Api::Program".to_string()],
+                    "Beta".to_string(),
+                    vec!["Beta::Api::Program".to_string()],
                 ),
                 // A second top module keeps this model off the trivial-fold
                 // path: the fold under test is the roles-key fold, not the
                 // projection's descent.
                 (
-                    "Shared.Lib".to_string(),
+                    "Shared".to_string(),
                     vec!["Shared::Lib::Core".to_string()],
                 ),
             ]),
             roles: BTreeMap::from([
-                ("X::Api".to_string(), Role::Facade),
-                ("Y::Api".to_string(), Role::Composition),
+                ("Alpha::Api".to_string(), Role::Facade),
+                ("Beta::Api".to_string(), Role::Composition),
             ]),
             ..base
         };
@@ -2372,8 +2546,8 @@ mod tests {
         let model = Model {
                 dynamic_import_wildcards: Default::default(),
             roles: BTreeMap::from([
-                ("X::Api".to_string(), Role::Facade),
-                ("Y::Api".to_string(), Role::Facade),
+                ("Alpha::Api".to_string(), Role::Facade),
+                ("Beta::Api".to_string(), Role::Facade),
             ]),
             ..model
         };
@@ -3072,5 +3246,184 @@ mod tests {
             BTreeSet::from(["packages/beta/src/tests.ts".to_string()]);
         let body = ledger_markdown(&model);
         assert_eq!(body, format!("{LEDGER_CLEAN_STATEMENT}\n"));
+    }
+
+    // --- GitHub issue #61: dotted module names render whole ------------------
+
+    /// A c#-shaped model: dotted unit names, namespace paths lifting `.` to
+    /// `::`, unit edges between the units.
+    fn dotted_model(
+        units: &[(&str, &[&str])],
+        edges: &[(&str, &str)],
+        roles: &[(&str, Role)],
+    ) -> Model {
+        let mut model = Model::new("csharp");
+        model.units = units
+            .iter()
+            .map(|(name, _)| Unit {
+                name: (*name).to_string(),
+                kind: "project".to_string(),
+                path: format!("src/{name}"),
+                root: format!("{name}.csproj"),
+                crate_ids: BTreeSet::from([(*name).to_string()]),
+            })
+            .collect();
+        model.edges = edges
+            .iter()
+            .map(|(from, to)| Edge {
+                from: (*from).to_string(),
+                to: (*to).to_string(),
+            })
+            .collect();
+        model.soft_structure = units
+            .iter()
+            .map(|(name, paths)| {
+                (
+                    (*name).to_string(),
+                    paths.iter().map(|path| (*path).to_string()).collect(),
+                )
+            })
+            .collect();
+        model.roles = roles
+            .iter()
+            .map(|(key, role)| ((*key).to_string(), *role))
+            .collect();
+        model
+    }
+
+    /// The #61 repro shape: `Webhooks.API` (namespace `Webhooks.API`, paths
+    /// spelling its own name) referencing single-word projects. Its fold
+    /// truncated the name to `API`; the render now shows the full name.
+    fn issue61_repro_model() -> Model {
+        dotted_model(
+            &[
+                ("Webhooks.API", &["Webhooks::API", "Webhooks::API::Exceptions"]),
+                ("EventBus", &["eShop::EventBus", "eShop::EventBus::Abstractions"]),
+                ("Catalog", &["eShop::Catalog", "eShop::Catalog::API"]),
+            ],
+            &[("Webhooks.API", "EventBus"), ("Webhooks.API", "Catalog")],
+            &[("Webhooks::API", Role::Composition)],
+        )
+    }
+
+    #[test]
+    fn issue61_dotted_name_renders_full_not_truncated() {
+        let graph = modules_graph(&issue61_repro_model());
+        assert!(
+            graph.nodes.contains("Webhooks.API"),
+            "the declared dotted name must render verbatim: {:?}",
+            graph.nodes
+        );
+        assert!(
+            !graph.nodes.contains("API"),
+            "the truncated collision node must not exist: {:?}",
+            graph.nodes
+        );
+        // The role key spelling `Webhooks::API` folds onto the renamed node,
+        // so the composition marker lands on the named node, not on a ghost.
+        assert_eq!(
+            graph.markers.get("Webhooks.API"),
+            Some(&Role::Composition),
+            "the marker folds onto the full name: {:?}",
+            graph.markers
+        );
+        assert!(graph
+            .edges
+            .contains(&("Webhooks.API".to_string(), "EventBus".to_string())));
+    }
+
+    /// The #48 census shape extended to module names: two dotted names whose
+    /// truncated forms collide render as two distinct nodes and the census
+    /// row names BOTH full names.
+    #[test]
+    fn issue61_same_suffix_collision_renders_both_and_notes_both() {
+        let model = dotted_model(
+            &[
+                ("Webhooks.API", &["Webhooks::API"]),
+                ("Internal.API", &["Internal::API"]),
+                ("EventBus", &["eShop::EventBus"]),
+            ],
+            &[("Webhooks.API", "EventBus"), ("Internal.API", "EventBus")],
+            &[],
+        );
+        let graph = modules_graph(&model);
+        assert!(
+            graph.nodes.contains("Webhooks.API") && graph.nodes.contains("Internal.API"),
+            "both modules must render distinctly by full name: {:?}",
+            graph.nodes
+        );
+        assert!(!graph.nodes.contains("API"), "{:?}", graph.nodes);
+        let notes = module_fold_collision_note(&model, projection_node(&model));
+        assert_eq!(
+            notes,
+            vec![
+                "note: module name collision: 2 module names truncate to \"API\" — \
+                 rendered by full name: \"Internal.API\", \"Webhooks.API\""
+            ],
+            "the census row must name both full names: {notes:?}"
+        );
+    }
+
+    /// The collision census is conditional: a fold that truncates one name
+    /// renders it whole and states nothing else (the name itself is the
+    /// statement); a single-word tier truncates nothing and keeps its bytes.
+    #[test]
+    fn issue61_census_is_conditional_and_single_words_stay_inert() {
+        let lone = module_fold_collision_note(&issue61_repro_model(), projection_node(&issue61_repro_model()));
+        assert!(
+            lone.is_empty(),
+            "one truncated name earns no collision row: {lone:?}"
+        );
+        let single_word = dotted_model(
+            &[("Core", &["Core"]), ("Models", &["Models"])],
+            &[("Core", "Models")],
+            &[],
+        );
+        assert_eq!(
+            fold_named(&single_word, top_node, "Core"),
+            top_node("Core"),
+            "a single-word name must fold exactly as before"
+        );
+        assert!(
+            module_fold_collision_note(&single_word, projection_node(&single_word)).is_empty(),
+            "a single-word tier never collides"
+        );
+        // The `::`-spelled unit class (the go tiers) keeps its pinned fold.
+        let go = model_with(
+            "example.com::demo",
+            Vec::new(),
+            vec![("example.com::demo::app", "example.com::demo::app", &[] as &[&str])],
+        );
+        let graph = modules_graph(&go);
+        assert_eq!(
+            graph.nodes.iter().cloned().collect::<Vec<_>>(),
+            vec!["demo".to_string()],
+            "the pinned `::`-name fold must not rename"
+        );
+    }
+
+    /// Determinism: the identity-preserving fold and the census read sorted
+    /// maps; repeated renders are byte-identical.
+    #[test]
+    fn issue61_render_and_census_are_deterministic() {
+        let model = dotted_model(
+            &[
+                ("Webhooks.API", &["Webhooks::API", "Webhooks::API::Exceptions"]),
+                ("Internal.API", &["Internal::API"]),
+                ("EventBus", &["eShop::EventBus"]),
+            ],
+            &[("Webhooks.API", "EventBus"), ("Internal.API", "EventBus")],
+            &[("Webhooks::API", Role::Composition)],
+        );
+        for _ in 0..3 {
+            let graph = modules_graph(&model);
+            let first = render_mermaid(&graph);
+            let again = render_mermaid(&modules_graph(&model));
+            assert_eq!(first, again, "render bytes must repeat");
+            assert_eq!(
+                module_fold_collision_note(&model, projection_node(&model)).len(),
+                1
+            );
+        }
     }
 }

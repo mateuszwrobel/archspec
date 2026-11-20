@@ -1,0 +1,15 @@
+[project]
+language = "rust"
+
+[[module]]
+name = "api"
+matches = { units = ["api"] }
+allowed = { depend_on = ["core"] }
+
+[[module]]
+name = "core"
+matches = { units = ["core"] }
+
+[[constraint]]
+type = "no_cycles"
+

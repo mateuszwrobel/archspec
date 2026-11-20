@@ -7,10 +7,13 @@
 
 use crate::archspec::cli::{self, FlagSpec};
 use crate::archspec::config;
+use crate::archspec::events::derive;
+use crate::archspec::events::patterns;
+use crate::archspec::events::unitid::{ProducerRow, UnitIdIndex};
 use crate::archspec::language::Language;
 use crate::archspec::model::Model;
 use crate::archspec::spec;
-use rust_arch_test_kit::scan::{DeclaredFacts, DeclaredZone};
+use rust_arch_test_kit::scan::{DeclaredFacts, DeclaredPatternVerb, DeclaredZone};
 use std::path::Path;
 
 // The engine surface the verbs consume unchanged: the driver-availability
@@ -112,6 +115,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
     for warning in &model.warnings {
         eprintln!("warning: {warning}");
     }
+    // The literal-site census (workplan events_value_join scenario 03):
+    // one line per declared pattern side on the report surface, never the
+    // machine body — a declared side with zero sites states ZERO, the
+    // never-silent law; a side whose driver collects no literal candidates
+    // (the capability's `not-emitted` reading — go and python today)
+    // states the named `driver-gap` absence row instead. Both are
+    // report-only census lines: they state counts, never verdicts, never
+    // red. A run without declared pattern pairs prints nothing here — the
+    // declaration gate keeps the report surface byte-identical (4.2 arm 1).
+    if let Some(loaded) = loaded.as_ref() {
+        eprint!("{}", literal_site_report(loaded, &model));
+    }
     // `--pretty` is a serialization switch only: same facts, indented layout
     // for readers and diffs; the default bytes are untouched (blind4 D03).
     let json = if parsed.switches.contains("pretty") {
@@ -159,7 +174,304 @@ fn extract_with_spec(
     loaded: Option<&spec::Spec>,
 ) -> Result<Model, String> {
     let declared = loaded.map(declared_facts).unwrap_or_default();
-    rust_arch_test_kit::scan::extract_with(language, root, &declared)
+    let mut model = rust_arch_test_kit::scan::extract_with(language, root, &declared)?;
+    // The pattern-resolution site (workplan events_value_join scenario 03,
+    // decision-check F8): declared pattern sides meet the drivers'
+    // vocabulary-free candidates HERE — one site, engine-side, so drivers
+    // own no interpretation (A6) and the join downstream consumes model
+    // facts only (4.7(i): no engine→scan import). An unresolvable owning
+    // unit prints its named `UNITID-UNRESOLVED` line and writes no row
+    // (fail-closed, the #56 posture, through the ONE canonical site
+    // `events::unitid`, 4.4a(i)). A non-declaring run resolves nothing:
+    // no candidates exist and no byte moves (4.2 arm 1) — the early exit is
+    // the ONE named gate arm, `events::declarations_active` (scenario 08,
+    // F-W1): consulted here once, never re-derived per verb or per arm below.
+    if crate::archspec::events::declarations_active(&declared.patterns) {
+        let mut index = UnitIdIndex::new();
+        for unit in &model.units {
+            let spellings = std::iter::once(unit.name.clone()).chain(unit.crate_ids.iter().cloned());
+            index.register(&unit.path, spellings);
+        }
+        let outcome = patterns::resolve_literal_sites(&index, &declared.patterns, &model.literal_candidates);
+        for refusal in &outcome.refusals {
+            eprintln!("{refusal}");
+        }
+        model.literal_sites = outcome.sites;
+        model.sort_literal_sites();
+        // The value join (workplan events_value_join scenario 04): the
+        // FIRST `Model::async_edges` construction site, at the same
+        // declaration gate — derived machine facts ride the model only
+        // where a pattern side is declared (4.2 arm 1). Orientation came
+        // from the declared role; endpoints are the canonical ids the site
+        // rows carry (4.4a(i)); every matched literal lands joined or in
+        // one named row (F1's zero-silence bar), stated here on the report
+        // surface, never a verdict. `constant_classes` moves the
+        // shared-constant arm (a pair id naming a `[[shared_constant]]`
+        // class feeds values, never edges, 4.4a(iv)); `unfunded` carries
+        // the languages whose literal-site census reads `not-emitted` —
+        // the capability table read HERE, never inside the join (4.7(i)).
+        let constant_classes: std::collections::BTreeSet<String> = loaded
+            .map(|loaded| {
+                loaded
+                    .shared_constant
+                    .iter()
+                    .filter_map(|entry| entry.class.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let unfunded: std::collections::BTreeSet<String> = declared
+            .patterns
+            .iter()
+            .map(|side| side.language.clone())
+            .filter(|name| {
+                crate::archspec::language::from_name(name)
+                    .and_then(|language| {
+                        crate::archspec::capability::emission(
+                            language,
+                            crate::archspec::capability::FACT_LITERAL_SITE_CENSUS,
+                        )
+                    })
+                    == Some(crate::archspec::capability::NOT_EMITTED)
+            })
+            .collect();
+        for line in derive::build_derived_async_edges(
+            &mut model,
+            &declared.patterns,
+            &constant_classes,
+            &unfunded,
+        ) {
+            eprintln!("{line}");
+        }
+        // The dedupe-vs-declared law (issue #48 follow-up, ADR-069 4.4):
+        // the derived rows and the declared `[[async_depends]]` entries
+        // meet at the ONE canonicalization site, `unitid::merge_rows`.
+        // Identity-equal rows merge to one row with exactly one
+        // `PLUGIN-OVERLAP` line — a derived row never suppresses a
+        // declared arrow (the render set at the command seams is the
+        // UNION of both spellings, so a declared arrow renders whatever
+        // the merge says); an unresolvable endpoint spelling prints its
+        // named `UNITID-UNRESOLVED` refusal and the row stays unmerged
+        // (fail-closed, the #56 posture). A tree with no derived rows is
+        // not fed: the shipped declared-only bytes are untouched (D8).
+        if !model.async_edges.is_empty() {
+            let mut producers: Vec<ProducerRow> = model
+                .async_edges
+                .iter()
+                .map(|row| ProducerRow {
+                    from: row.from.clone(),
+                    to: row.to.clone(),
+                    event: row.event.clone(),
+                    producer_dir: row.from.clone(),
+                })
+                .collect();
+            if let Some(loaded) = loaded {
+                for entry in &loaded.async_depends {
+                    if let (Some(from), Some(to), Some(event)) = (
+                        entry.from.as_deref(),
+                        entry.to.as_deref(),
+                        entry.event.as_deref(),
+                    ) && !from.is_empty()
+                        && !to.is_empty()
+                        && !event.is_empty()
+                    {
+                        producers.push(ProducerRow {
+                            from: from.to_string(),
+                            to: to.to_string(),
+                            event: event.to_string(),
+                            producer_dir: String::new(),
+                        });
+                    }
+                }
+            }
+            let merged = crate::archspec::events::unitid::merge_rows(&index, &producers);
+            for overlap in &merged.overlaps {
+                eprintln!("{overlap}");
+            }
+            for refusal in &merged.refusals {
+                eprintln!("{refusal}");
+            }
+            // The derived marker (scenario 04, F4): a derived row no
+            // declared entry carries renders one arrow WITH this marker —
+            // machine fact, stated, never a verdict and never a second
+            // arrow over a merged identity.
+            let declared_ids: std::collections::BTreeSet<
+                crate::archspec::events::unitid::CanonicalRow,
+            > = producers[model.async_edges.len()..]
+                .iter()
+                .filter_map(|row| crate::archspec::events::unitid::canonicalize_row(&index, row).ok())
+                .collect();
+            for row in &model.async_edges {
+                let derived = ProducerRow {
+                    from: row.from.clone(),
+                    to: row.to.clone(),
+                    event: row.event.clone(),
+                    producer_dir: row.from.clone(),
+                };
+                let claimed = crate::archspec::events::unitid::canonicalize_row(&index, &derived)
+                    .is_ok_and(|id| declared_ids.contains(&id));
+                if !claimed {
+                    eprintln!(
+                        "async-row derived row=({}, {}, {}) — derived machine fact, \
+                         no declared entry",
+                        row.from, row.to, row.event
+                    );
+                }
+            }
+            // The attribution-ambiguity census (workplan events_value_join
+            // scenario 05, ADR-069 4.4a(b) — the M-4 class made VISIBLE): a
+            // hand-declared row that passes the verify arms while naming
+            // the DECLARING side instead of the DISPATCHING side prints
+            // exactly ONE named census line per mismatching declared
+            // identity on the REPORT-ONLY channel — `model.report_only_lines`
+            // is serde-skipped, so the census never reaches `scan.json`
+            // (the report-only channel law), never a verdict, and never a
+            // silent re-key of the row. The dispatch-side facts are the
+            // derived rows: their `from` is the unit the declared role
+            // orients as the publisher. A declaring side equal to the
+            // dispatching side — or no dispatch fact sharing the declared
+            // `(to, event)` pair — yields zero lines, the shipped bytes.
+            // Unresolvable identities are skipped here, never re-named: the
+            // merge above already stated their `UNITID-UNRESOLVED` refusals.
+            if producers.len() > model.async_edges.len() {
+                let to_fact = |row: &ProducerRow| {
+                    crate::archspec::events::unitid::canonicalize_row(&index, row)
+                        .ok()
+                        .map(|id| (id.from, id.to, id.event))
+                };
+                let dispatch_facts: Vec<(String, String, String)> =
+                    producers[..model.async_edges.len()]
+                        .iter()
+                        .filter_map(to_fact)
+                        .collect();
+                let declared_facts: Vec<(String, String, String)> =
+                    producers[model.async_edges.len()..]
+                        .iter()
+                        .filter_map(to_fact)
+                        .collect();
+                let declared_rows: Vec<crate::archspec::events::attribution::FactRow<'_>> =
+                    declared_facts
+                        .iter()
+                        .map(|(from, to, event)| crate::archspec::events::attribution::FactRow {
+                            from,
+                            to,
+                            event,
+                        })
+                        .collect();
+                let dispatch_rows: Vec<crate::archspec::events::attribution::FactRow<'_>> =
+                    dispatch_facts
+                        .iter()
+                        .map(|(from, to, event)| crate::archspec::events::attribution::FactRow {
+                            from,
+                            to,
+                            event,
+                        })
+                        .collect();
+                model.report_only_lines.extend(
+                    crate::archspec::events::attribution::attribution_rows(
+                        &declared_rows,
+                        &dispatch_rows,
+                    ),
+                );
+            }
+        }
+        // The dispatch-blinded projection (workplan events_value_join
+        // scenario 06, F-W4 option a): per zone carrying the shipped
+        // `AMBIGUOUS-MARKERS` dispatch row, ONE report-only census row when
+        // a declared pattern language lost that dispatch — the zero-silence
+        // face over the 4.8 dispatch law's losers. The inputs are existing
+        // rows only: the dispatch surface is the shipped `marker_report`
+        // output RE-READ (the same pure call the verb made before the
+        // agreement precondition, so its lines are byte-identical — this
+        // seam prints none of them), and the file census reads the
+        // model's resolved literal-site rows. No new scanner walk, no new
+        // dispatch law: the authority decision stays clause 4.8's, the
+        // lines are census bytes on the report surface — never the machine
+        // body, never a verdict, and a run without declared pattern sides
+        // never reaches them (4.2 arm 1).
+        let declared_languages: std::collections::BTreeSet<String> = declared
+            .patterns
+            .iter()
+            .map(|side| {
+                crate::archspec::language::from_name(&side.language).map_or_else(
+                    || side.language.clone(),
+                    |language| language.as_str().to_string(),
+                )
+            })
+            .collect();
+        let site_refs: Vec<crate::archspec::events::blindspots::SiteRef<'_>> = model
+            .literal_sites
+            .iter()
+            .map(|site| crate::archspec::events::blindspots::SiteRef {
+                path: site.path.as_str(),
+                language: site.language.as_str(),
+            })
+            .collect();
+        for line in crate::archspec::events::blindspots::dispatch_blinded_rows(
+            &crate::archspec::language::marker_report(root, language),
+            &declared_languages,
+            &site_refs,
+        ) {
+            eprintln!("{line}");
+        }
+    }
+    Ok(model)
+}
+
+/// The literal-site census and driver-gap report lines (workplan
+/// events_value_join scenario 03, F8's named funded driver set): one line
+/// per declared pattern side, in declaration order (`emit` before
+/// `subscribe`). A funded side prints its count — zero included, the
+/// never-silent law; a side whose driver's literal-site census reads
+/// `not-emitted` in the capability table prints the named `driver-gap`
+/// absence row, never silence and never a guess. Report-only, event-
+/// ordered, byte-deterministic.
+fn literal_site_report(loaded: &spec::Spec, model: &Model) -> String {
+    let census = patterns::literal_site_census(&model.literal_sites);
+    let mut out = String::new();
+    for pair in &loaded.pattern_pair {
+        for side in spec::pattern_sides(pair) {
+            let gap = crate::archspec::language::from_name(&side.language)
+                .and_then(|language| {
+                    crate::archspec::capability::emission(
+                        language,
+                        crate::archspec::capability::FACT_LITERAL_SITE_CENSUS,
+                    )
+                })
+                == Some(crate::archspec::capability::NOT_EMITTED);
+            if gap {
+                out.push_str(&format!(
+                    "driver-gap: pattern \"{}\" language \"{}\" — literal-site census \
+                     not-emitted for this driver: the declared side collects no literal \
+                     sites this release\n",
+                    side.id, side.language,
+                ));
+                continue;
+            }
+            let anchor = match &side.verb {
+                DeclaredPatternVerb::CallNameArgPosition { .. } => {
+                    rust_arch_test_kit::model::LiteralAnchor::CallNameArgPosition
+                }
+                DeclaredPatternVerb::ExportedPropertyValue { .. } => {
+                    rust_arch_test_kit::model::LiteralAnchor::ExportedPropertyValue
+                }
+            };
+            let sites = census
+                .get(&(
+                    side.id.clone(),
+                    side.language.clone(),
+                    anchor.as_str().to_string(),
+                ))
+                .copied()
+                .unwrap_or(0);
+            out.push_str(&format!(
+                "literal sites: pattern \"{}\" language \"{}\" anchor {} sites={sites}\n",
+                side.id,
+                side.language,
+                anchor.as_str(),
+            ));
+        }
+    }
+    out
 }
 
 /// Map the loaded spec onto the engine's declared facts: the entries the
@@ -179,6 +491,15 @@ fn declared_facts(loaded: &spec::Spec) -> DeclaredFacts {
             })
             .collect(),
         framework: loaded.project.framework.clone(),
+        // The `[[pattern_pair]]` table flattened to per-side facts: entry
+        // order, `emit` side before `subscribe` side (the declaration's own
+        // order — the same pair, seen twice by the candidate match, is two
+        // provenances, and their roles settle at the join, not here).
+        patterns: loaded
+            .pattern_pair
+            .iter()
+            .flat_map(spec::pattern_sides)
+            .collect(),
     }
 }
 

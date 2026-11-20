@@ -202,7 +202,11 @@ pub const TABLE: &[(&str, &[Cell; VIEWS.len()])] = &[
             Cell::None,
             Cell::NoneByDecision,
             Cell::NoneByDecision,
-            Cell::Marks,
+            // The diagram view folds the same root keys onto one silent node
+            // (single-word projects with corporate `RootNamespace` spellings
+            // since the GitHub issue #61 retarget — dotted PROJECT names
+            // render verbatim and can no longer weld this class).
+            Cell::None,
         ],
     ),
     (
@@ -348,27 +352,37 @@ pub fn materialize(fixture: &str, fx: &Fixture) {
             );
         }
         // The v17b probe shape, widened to corporate naming (roles reality
-        // US 05 corpus): two three-segment projects whose unit names differ
-        // but whose top modules fold onto ONE depgraph node with DIFFERENT
+        // US 05 corpus): two single-word projects whose corporate
+        // `RootNamespace` spellings (`Acorp::Platform::Api`,
+        // `Bcorp::Platform::Api`) fold onto ONE depgraph node with DIFFERENT
         // roles — the conflicting fold with its stated note, welded at the
         // naming depth the root ladder's truncation leg actually speaks.
+        // Single-word PROJECT names keep the fold truncating (GitHub issue
+        // #61 renders dotted project names verbatim, so they can no longer
+        // weld this class).
         "csharp-conflicting-fold" => {
-            csharp_csproj(fx, "Acorp.Platform.Api", "Microsoft.NET.Sdk.Web", &[]);
             fx.write(
-                "Acorp.Platform.Api/Program.cs",
+                "Acorp/Acorp.csproj",
+                "<Project Sdk=\"Microsoft.NET.Sdk.Web\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n    <RootNamespace>Acorp.Platform.Api</RootNamespace>\n  </PropertyGroup>\n</Project>\n",
+            );
+            fx.write(
+                "Acorp/Program.cs",
                 "using Microsoft.Extensions.DependencyInjection;\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddScoped<IThing, Thing>();\nbuilder.Build().Run();\n",
             );
             fx.write(
-                "Acorp.Platform.Api/Thing.cs",
+                "Acorp/Thing.cs",
                 "namespace Acorp.Platform.Api.Things;\npublic interface IThing { }\npublic class Thing : IThing { }\n",
             );
-            csharp_csproj(fx, "Bcorp.Platform.Api", "Microsoft.NET.Sdk", &[]);
             fx.write(
-                "Bcorp.Platform.Api/GlobalUsings.cs",
+                "Bcorp/Bcorp.csproj",
+                "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n    <RootNamespace>Bcorp.Platform.Api</RootNamespace>\n  </PropertyGroup>\n</Project>\n",
+            );
+            fx.write(
+                "Bcorp/GlobalUsings.cs",
                 "using Bcorp.Platform.Api.Internal;\n",
             );
             fx.write(
-                "Bcorp.Platform.Api/Internal/Impl.cs",
+                "Bcorp/Internal/Impl.cs",
                 "namespace Bcorp.Platform.Api.Internal;\npublic class Impl { }\n",
             );
         }

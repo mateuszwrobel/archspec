@@ -513,7 +513,10 @@ fn csharp_unknown_parent_lists_known_names() {
 /// A c# solution whose projects reference each other (Api -> Application ->
 /// Domain) through `ProjectReference` items: the unit graph carries every
 /// edge, and the modules view must project them instead of rendering nodes
-/// only.
+/// only. The nodes carry the declared dotted project names verbatim (GitHub
+/// issue #61): before that fix the view folded them to the trailing segment
+/// (`Api`), which is exactly the truncation the issue reports — a solution
+/// with a second `Internal.Api` project could not be drawn distinctly.
 fn csharp_solution_fixture() -> Fixture {
     let fixture = Fixture::new();
     fixture.write(
@@ -549,13 +552,36 @@ fn csharp_solution_modules_view_draws_project_edges() {
     let output = fixture.run(&["depgraph", "modules"]);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let out = stdout(&output);
+    for name in ["Shop.Api", "Shop.Application", "Shop.Domain"] {
+        assert!(
+            out.contains(&format!("[\"{name}\"]")),
+            "the dotted project name must render verbatim (issue #61):\n{out}"
+        );
+    }
+    let node_id = |name: &str| -> String {
+        let tag = format!("[\"{name}\"]");
+        out.lines()
+            .find(|line| line.contains(&tag))
+            .and_then(|line| line.split('[').next())
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
     assert!(
-        out.contains("Api --> Application"),
-        "ProjectReference edge must project onto the modules view:\n{out}"
+        out.contains(&format!(
+            "{} --> {}",
+            node_id("Shop.Api"),
+            node_id("Shop.Application")
+        )),
+        "ProjectReference edge must project onto the named modules (issue #61):\n{out}"
     );
     assert!(
-        out.contains("Application --> Domain"),
-        "ProjectReference edge must project onto the modules view:\n{out}"
+        out.contains(&format!(
+            "{} --> {}",
+            node_id("Shop.Application"),
+            node_id("Shop.Domain")
+        )),
+        "ProjectReference edge must project onto the named modules (issue #61):\n{out}"
     );
 }
 
@@ -854,39 +880,69 @@ fn modules_marks_csharp_project_root_composition() {
     let output = fixture.run(&["depgraph", "modules"]);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let out = stdout(&output);
+    // The node carries the declared dotted project name verbatim (GitHub
+    // issue #61): the c# project root key `Shop::Api` folds onto the named
+    // node, never onto the truncated `Api` it used to state.
     assert!(
-        out.contains("Api[\"Api [composition]\"]"),
-        "the c# project root key `Shop::Api` must fold onto node `Api`:\n{out}"
+        out.contains("[\"Shop.Api [composition]\"]"),
+        "the c# project root key `Shop::Api` must fold onto the named node:\n{out}"
     );
     assert!(
-        out.contains("Api --> Domain"),
-        "edge lines stay byte-identical:\n{out}"
+        !out.contains("[\"Api ") && !out.lines().any(|line| line.trim() == "Api"),
+        "the truncated node must not exist:\n{out}"
+    );
+    let node_id = |name: &str| -> String {
+        let tag = format!("[\"{name}");
+        out.lines()
+            .find(|line| line.contains(&tag))
+            .and_then(|line| line.split('[').next())
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
+    assert!(
+        out.contains(&format!(
+            "{} --> {}",
+            node_id("Shop.Api"),
+            node_id("Shop.Domain")
+        )),
+        "the edge lands on the named nodes:\n{out}"
     );
 }
 
-/// Two projects whose root module keys (`X::Api`, `Y::Api`) fold onto ONE
-/// node whose roles differ: the fold is too coarse to state a role, so the
+/// Two projects whose root module keys (`X::Api`, `Y::Api` spelling) fold onto
+/// ONE node whose roles differ: the fold is too coarse to state a role, so the
 /// node carries no marker and nothing else moves (acceptance row 35). With
 /// `second_facade` the two agree on one role and the node is marked — once
 /// (acceptance row 36). With `corporate` the same shape is spelled at
-/// three-segment unit names (`Xcorp::Platform::Api`, `Ycorp::Platform::Api`
-/// — the naming depth the root ladder's truncation leg speaks), where the
-/// projection trivially folds at the top tier and descends one level, yet
-/// the rendered nodes, the edge and the stated note keep their bytes.
+/// three-segment root namespaces (`Xcorp::Platform::Api`,
+/// `Ycorp::Platform::Api` — the naming depth the root ladder's truncation leg
+/// speaks), where the projection trivially folds at the top tier and descends
+/// one level, yet the rendered nodes, the edge and the stated note keep their
+/// bytes. The PROJECT names are single words and the root spellings ride the
+/// `RootNamespace` property (GitHub issue #61 made dotted PROJECT names render
+/// verbatim, so they can no longer weld a truncating fold): a single-word
+/// unit name keeps the fold exactly as shipped, and the fold class the note
+/// speaks about — two identities landing on one segment — stands.
 fn csharp_fold_fixture_named(second_facade: bool, corporate: bool) -> Fixture {
     let fixture = Fixture::new();
     let (api_x, api_y, shared) = if corporate {
+        ("Xcorp", "Ycorp", "Zcorp")
+    } else {
+        ("Alpha", "Beta", "Shared")
+    };
+    let (ns_x, ns_y, ns_shared) = if corporate {
         (
             "Xcorp.Platform.Api",
             "Ycorp.Platform.Api",
-            "Ycorp.Platform.Shared",
+            "Zcorp.Platform.Shared",
         )
     } else {
-        ("X.Api", "Y.Api", "Y.Shared")
+        ("Alpha.Api", "Beta.Api", "Shared.Lib")
     };
-    let csproj = |reference: &str| {
+    let csproj = |root_ns: &str, reference: &str| {
         format!(
-            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n{}{}</Project>\n",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n    <RootNamespace>{root_ns}</RootNamespace>\n  </PropertyGroup>\n{}{}</Project>\n",
             if reference.is_empty() { "" } else { "  <ItemGroup>\n" },
             if reference.is_empty() {
                 String::new()
@@ -897,39 +953,43 @@ fn csharp_fold_fixture_named(second_facade: bool, corporate: bool) -> Fixture {
     };
     fixture.write(
         &format!("{api_x}/{api_x}.csproj"),
-        &csproj(&format!("../{shared}/{shared}.csproj")),
+        &csproj(ns_x, &format!("../{shared}/{shared}.csproj")),
     );
     // Root-namespace wiring without declared types: the driver's facade
     // predicate (imports but defines nothing).
     fixture.write(
         &format!("{api_x}/Wiring.cs"),
-        &format!("using {shared};\nnamespace {api_x};\n"),
+        &format!("using {ns_shared};\nnamespace {ns_x};\n"),
     );
     if second_facade {
-        fixture.write(&format!("{api_y}/{api_y}.csproj"), &csproj(""));
+        fixture.write(
+            &format!("{api_y}/{api_y}.csproj"),
+            &csproj(ns_y, &format!("../{shared}/{shared}.csproj")),
+        );
         fixture.write(
             &format!("{api_y}/Wiring.cs"),
-            &format!("using {shared};\nnamespace {api_y};\n"),
+            &format!("using {ns_shared};\nnamespace {ns_y};\n"),
         );
     } else {
         fixture.write(
             &format!("{api_y}/{api_y}.csproj"),
-            &csproj(&format!("../{shared}/{shared}.csproj")),
+            &csproj(ns_y, &format!("../{shared}/{shared}.csproj")),
         );
         fixture.write(
             &format!("{api_y}/Program.cs"),
-            &format!("using Microsoft.Extensions.DependencyInjection;\nusing {shared};\nnamespace {api_y};\npublic static class Program\n{{\n    public static void Main()\n    {{\n        var services = new ServiceCollection();\n        services.AddScoped<ICache, Cache>();\n    }}\n}}\n"),
+            &format!("using Microsoft.Extensions.DependencyInjection;\nusing {ns_shared};\nnamespace {ns_y};\npublic static class Program\n{{\n    public static void Main()\n    {{\n        var services = new ServiceCollection();\n        services.AddScoped<ICache, Cache>();\n    }}\n}}\n"),
         );
     }
-    fixture.write(&format!("{shared}/{shared}.csproj"), &csproj(""));
+    fixture.write(&format!("{shared}/{shared}.csproj"), &csproj(ns_shared, ""));
     fixture.write(
         &format!("{shared}/Shared.cs"),
-        &format!("namespace {shared};\npublic interface ICache {{ }}\npublic class Cache : ICache {{ }}\n"),
+        &format!("namespace {ns_shared};\npublic interface ICache {{ }}\npublic class Cache : ICache {{ }}\n"),
     );
     fixture
 }
 
 /// The two-segment spellings of [`csharp_fold_fixture_named`] — the shapes
+/// whose root resolution keeps the first-two-segments era's exact bytes.
 /// whose root resolution keeps the first-two-segments era's exact bytes.
 fn csharp_fold_fixture(second_facade: bool) -> Fixture {
     csharp_fold_fixture_named(second_facade, false)
@@ -950,7 +1010,7 @@ fn modules_conflicting_fold_prints_no_marker() {
         "a conflicting fold must print no marker syntax (row 35):\n{out}"
     );
     assert!(
-        out.contains("Api --> Shared"),
+        out.contains("Api --> Lib"),
         "the fold's silence must not move an edge:\n{out}"
     );
     // The stated fold (roles reality US 05): silence about the DROP ends —
@@ -1012,7 +1072,7 @@ fn modules_agreeing_fold_marks_the_node_once() {
         "two agreeing roles paths must mark their folded node exactly once:\n{out}"
     );
     assert!(
-        out.contains("Api --> Shared"),
+        out.contains("Api --> Lib"),
         "edge lines stay byte-identical:\n{out}"
     );
     // Conditional note (roles reality US 05): a fold that places every claim

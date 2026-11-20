@@ -158,12 +158,21 @@ pub fn run(args: &[String]) -> Result<(), String> {
         &loaded.constraint,
         &loaded.exempt,
         &loaded.async_depends,
+        &loaded.canonical_producer,
+        &loaded.shared_constant,
     );
     let metrics = report::compute_metrics(&model, &mapping, &loaded.modules, &diff);
     // The async PAIR census (workplan archspec_async_depends, D9/D10):
     // declared rows with all three keys resolved; an absent or empty table
     // computes the empty census and every renderer skips the section (D8).
     let async_census = report::AsyncCensus::from_declared(&loaded.async_depends);
+    // The declaration census (workplan events_value_join scenario 02): the
+    // declared entries of both declaration tables; neither declaring
+    // computes the empty census and every renderer skips the section (D8).
+    let declaration_census = report::DeclarationCensus::from_declared(
+        &loaded.canonical_producer,
+        &loaded.shared_constant,
+    );
 
     let config = config::load(root_path)?;
     // The diagram scale (GitHub issue #52): the CLI flag overrides the
@@ -200,6 +209,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             diagram.as_deref(),
             &environment,
             &async_census,
+            &declaration_census,
         ),
         "json" => report::render_json(
             &loaded.project.language,
@@ -208,6 +218,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &model.roles,
             &environment,
             &async_census,
+            &declaration_census,
         ),
         _ => report::render_text(
             &loaded.project.language,
@@ -216,6 +227,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &model.roles,
             &environment,
             &async_census,
+            &declaration_census,
         ),
     };
 
@@ -282,16 +294,19 @@ fn render_module_diagram(
     if let Some(note) = depgraph::automatic_projection_note(model, &graph) {
         eprintln!("{note}");
     }
+    // The dotted-name collision census (issue #61): the embedded diagram
+    // shares the standalone view's fold, so it shares its census rows too.
+    let node = depgraph::projection_node(model);
+    for note in depgraph::module_fold_collision_note(model, node) {
+        eprintln!("{note}");
+    }
     // The async rows ride BOTH sources exactly as the `depgraph modules`
     // view builds them (workplan archspec_async_depends N2: derived
     // `async_edges` plus the declared table): one set, deduped and ordered
     // by `(from, to, event)`, so the embedded diagram and the standalone
     // view cannot drift.
-    let mut async_rows: std::collections::BTreeSet<(String, String, String)> = model
-        .async_edges
-        .iter()
-        .map(|row| (row.from.clone(), row.to.clone(), row.event.clone()))
-        .collect();
+    let mut async_rows: std::collections::BTreeSet<(String, String, String)> =
+        depgraph::derived_render_rows(model).into_iter().collect();
     for entry in declared {
         if let (Some(from), Some(to), Some(event)) =
             (entry.from.as_deref(), entry.to.as_deref(), entry.event.as_deref())
@@ -302,11 +317,10 @@ fn render_module_diagram(
             async_rows.insert((from.to_string(), to.to_string(), event.to_string()));
         }
     }
-    let node = depgraph::projection_node(model);
     let projection = depgraph::project_async_rows(
         model,
         &graph,
-        move |path| Some(node(path)),
+        move |path| Some(depgraph::fold_named(model, node, path)),
         async_rows.iter().cloned(),
     );
     if let Some(note) = depgraph::async_fold_note(&projection) {

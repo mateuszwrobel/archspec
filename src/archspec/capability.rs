@@ -90,6 +90,26 @@ pub const NO_LEXICAL_SPLIT: &str = "no lexical type/value split (every row a val
 /// inert note (the orphan-census single-pilot precedent).
 pub const FACT_EVENT_DECLARATION_DERIVATION: &str = "event-declaration-derivation";
 
+/// The literal-census fact (workplan events_value_join scenario 03,
+/// decision-check F8's named funded driver set): whether the language's
+/// extraction path collects the vocabulary-free literal candidates — call
+/// sites carrying a string-literal argument, and (ts) exported properties
+/// carrying a string-literal value — that the engine's two matcher verbs
+/// resolve against declared pattern sides. A `not-emitted` row is a NAMED
+/// driver gap: a declared pattern side on that language states the
+/// `driver-gap` census line on the scan report surface, never silence and
+/// never a guess (4.7(iii)'s absence posture).
+pub const FACT_LITERAL_SITE_CENSUS: &str = "literal-site-census";
+
+/// The csharp reading of the literal-census fact: csharp event pairs join
+/// through the existing type-identity facts (`soft_structure`,
+/// `module_public_types`, `module_edges` — the type-identity pilot), so
+/// this driver collects no literal candidates and emits no literal-site
+/// rows; the row names the covering fact source instead of reading
+/// `not-emitted`, so no driver-gap line fires for it (scenario 03 funded
+/// set: csharp covered WITHOUT a literal census).
+pub const VIA_TYPE_IDENTITY: &str = "via type-identity facts (no literal census)";
+
 /// The structural facade-role check of `verify` (rule name unchanged; the
 /// fact source is the model's roles map).
 pub const RULE_FACADE_DEPENDENCY: &str = "facade dependency";
@@ -249,6 +269,22 @@ pub const CAPABILITIES: &[(Language, &str, &str)] = &[
     (Language::Ts, FACT_EVENT_DECLARATION_DERIVATION, NOT_EMITTED),
     (Language::Python, FACT_EVENT_DECLARATION_DERIVATION, NOT_EMITTED),
     (Language::Kotlin, FACT_EVENT_DECLARATION_DERIVATION, NOT_EMITTED),
+    // The literal-census fact (workplan events_value_join scenario 03, F8;
+    // funded through go and python by scenario 09, 2026-11-19): the funded
+    // driver set is NAMED — ts and rust collect literal candidates from
+    // every parsed source file (mandatory), go and python collect them
+    // from every parsed source file, kotlin collects them in-slice; csharp
+    // joins event pairs through the existing type-identity facts WITHOUT a
+    // literal census (E7 — its row names the covering source, so no
+    // driver-gap line fires). No shipped driver rides `not-emitted` today;
+    // the named `driver-gap` census line stays the mechanism for a driver
+    // that is added before its feed ships.
+    (Language::Rust, FACT_LITERAL_SITE_CENSUS, GRANULAR),
+    (Language::Csharp, FACT_LITERAL_SITE_CENSUS, VIA_TYPE_IDENTITY),
+    (Language::Go, FACT_LITERAL_SITE_CENSUS, GRANULAR),
+    (Language::Ts, FACT_LITERAL_SITE_CENSUS, GRANULAR),
+    (Language::Python, FACT_LITERAL_SITE_CENSUS, GRANULAR),
+    (Language::Kotlin, FACT_LITERAL_SITE_CENSUS, GRANULAR),
 ];
 
 /// Checks that consume a capability fact: `(rule, required fact)`. A rule is
@@ -297,7 +333,7 @@ mod tests {
                 .filter(|(row_language, _, _)| *row_language == language)
                 .map(|(_, fact, emission)| (*fact, *emission))
                 .collect();
-            assert_eq!(rows.len(), 12, "{language:?} must state all twelve facts");
+            assert_eq!(rows.len(), 13, "{language:?} must state all thirteen facts");
             for (fact, value) in rows {
                 assert_eq!(
                     emission(language, fact),

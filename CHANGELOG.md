@@ -6,6 +6,375 @@ only.
 
 ## [Unreleased]
 
+## [0.6.125] - 2026-11-20
+
+- Payload hygiene (publish leak-guard cure): two test-suite comments in
+  `tests/events_value_join_patterns.rs` and two release-note lines in this
+  CHANGELOG named an external witness corpus by name; they now name the
+  shape generically (`witness-corpus`), matching the phrasing the sibling
+  surfaces already use. Comment-and-prose only: no behavior string, no cell
+  semantics change — the suites' verdicts are unchanged.
+
+## [0.6.124] - 2026-11-20
+
+- Zero-silence boundary docs and the three-state help disclosure (workplan
+  `visibility_phase2` scenario 04, surface-activation decision-check
+  2026-11-20): the surface-activation fork closes documentation-side, ZERO
+  engine bytes move. The NOT-declared arm is silent for EVERY capability
+  state — the `event-declaration-derivation` capability row is NOT a
+  trigger (ADR-069 §4.2: three arms, no fourth) — and the witness-corpus
+  S1-class zero reclassifies as BY DESIGN, cured by author-side spec text
+  or funded rung-2 derivation. The `value-join rows and zero-silence
+  census` help entry gains the three-state reading of a model with no
+  async facts — declared rows present; non-declaring with a granular
+  driver (author silence: declare the rows); non-declaring with a
+  `not-emitted` driver (a rung-2 gap: declare the rows or fund the rung) —
+  pointing at `archspec capability matrix` with a
+  `[capability event-declaration-derivation ...]` citation welded to the
+  table. The claim registry widens `value-join-rows` with the paragraph
+  fragment, the `reads three ways` signature and the extended owner
+  (help-text fan-out law, same commit). Two weld cells pin the
+  reclassification anchor: the six-row capability weld in
+  `tests/events_value_join_nondeclaring.rs` — a row flip trips the named
+  re-trigger (workplan §Falsifiable re-triggers item 1), never a silent
+  rot — and the help-topic three-state cell in `tests/capability_prose.rs`.
+  The events_value_join scenario files carry their boundary clauses: 08
+  states the by-design silence, the fourth-arm law and the falsifiable
+  re-trigger; 04 scopes zero silence to literals matched by a DECLARED
+  pattern, vacuously satisfied on a non-declaring tree. Coexistence
+  witnesses stay untouched-green: the 08 zero-spoken sweep, the one-gate
+  structural cell, and the eShop/witness-corpus battery legs.
+
+## [0.6.123] - 2026-11-20
+
+- File-level `excluded_sources` for the rust and go drivers (workplan
+  `events_value_join` scenario 11, GitHub issue #60 items 2-3): a declared
+  entry now prunes `.rs` files at `collect_rs_files` and `.go` files at
+  `collect_packages`, each pruned file contributing NO fact — no parse, no
+  module, no edge, no public-API surface, no literal candidate — and stating
+  itself with exactly one report-only `excluded source: <path> —
+  excluded_sources` line, sorted, root-relative (the issue #39
+  never-silent law). The mechanical gates stay the first door and say
+  nothing (rust: dot-entries/`target`/`vendor`; go: dot-entries/`vendor`/
+  `testdata` plus the `*_test.go` tier). Rust units come from manifests, so
+  a fully pruned crate stays a unit with zero file facts; go units come
+  from files, so a fully pruned package yields no unit. A file read by
+  several walks states itself once (BTreeSet census sink threaded through
+  the parse pass, the module walk and the pattern candidate feed).
+  Liveness is unchanged and driver-independent: a pruned file still counts
+  as a match, so an entry that prunes files never reads dead. The census is
+  serde-skipped — non-declaring trees keep their machine body byte-
+  identical (scenario 08 law). The self-inspection (`inspect`) walkers keep
+  the mechanical set — aligning them is a named follow-up — and the python
+  driver keeps its shipped silent-prefix-skip shape, pinned by cells so
+  the divergence stays visible. `archspec help diagnostics` renders the
+  rust and go sentences; the claim registry widens `csharp-excluded-sources`
+  with the two new guard pins. New suites: `tests/rust_excluded_sources.rs`,
+  `tests/go_excluded_sources.rs`; `tests/excluded_sources_report.rs` gains
+  the python-unchanged and rust/go liveness arms.
+
+## [0.6.122] - 2026-11-20
+
+- The driver-port seam (workplan `events_value_join` scenario 10, ADR-069
+  Decision 5's ports rung): the six-arm `Language` match behind
+  `scan::extract_with` moves behind one compile-time object-safe trait
+  table — a new `driver` module declares the one-method `Driver` port
+  (`extract`, today's shape) and `scan::driver` is the one exhaustive
+  match returning `&'static dyn Driver` over six unit-struct drivers,
+  each implemented by its own language module as a one-line handoff. The
+  refactor is pure: every serialized surface and every driver body is
+  byte-identical, proven against the pre-landing binary on the witness
+  battery's declaring scratches (legs 2–3 gain the vs-base arms, the base
+  pin re-pinned to 0.6.121). No runtime registration ships: no register
+  verb, no boxed driver vector, no lock-guarded lookup — the
+  `ARCHSPEC_DISABLE_DRIVERS` availability gate stays outside the table.
+  `tests/port_seam_driver_table.rs` pins the seam (six-variant equality
+  with the direct driver calls, the forbidden-shape greps, the candidate
+  order read through `Model::literal_candidates` — a serde-skipped field
+  `scan.json` never shows — and push-order invariance of the resolved
+  rows through `Model::sort_literal_sites`).
+
+## [0.6.121] - 2026-11-20
+
+- Driver-gap cure for the literal-site census (workplan `events_value_join`
+  scenario 09): the go and python drivers now feed vocabulary-free literal
+  candidates, so their `literal-site-census` capability rows flip from
+  `not-emitted` to `granular` — a declaring scan over a go or python side
+  prints its `literal sites:` count row, never a `driver-gap:` absence row.
+  Go contributes package-qualified call sites (callee = the final path
+  segment) and package-level `const`/`var` string values; python
+  contributes module-level string bindings and call sites; the list element
+  stays the unmatched-shape reading (`sites=0`, a stated zero, never a gap
+  row). Kotlin gains the exported-property arm: a top-level `const val`
+  string is a candidate, curing its false zero (`private`/`internal`
+  declarations stay skipped, the ts-export posture). Matching stays in the
+  patterns module; no vocabulary enters the drivers.
+- `tests/events_value_join_driver_contributions.rs` — one cell per funded
+  contribution (go sites, python sites, kotlin property, cross-language
+  go↔ts replay welded from `join.rs`, kotlin private skip, zero-silence).
+
+## [0.6.120] - 2026-11-19
+
+- `tests/events_value_join_witness_mirrors.rs` — the witness-battery mirror
+  cells (workplan `events_value_join` scenario 07): every corpus expectation
+  of the witness-corpus battery (an internal tool, not shipped here)
+  replayed on synthetic fixtures — the declaration-gate silence face (no
+  `[[pattern_pair]]`: zero new-face lines, no model rows, D8 bytes intact),
+  the joined-or-named zero-silence law with the non-declaring baseline diff
+  (F-W2), the cross-language value join welded from `join.rs`, the
+  shared-constant census (one report row, zero async rows), and the
+  dual-marker zone's `dispatch-blinded-literals` projection row. No
+  behavior strings moved.
+
+## [0.6.119] - 2026-11-19
+
+### Added
+
+- Non-declaring byte-identity suite (`tests/events_value_join_nondeclaring.rs`,
+  workplan events_value_join scenario 08) — the ADR-069 4.2 arm-1 law is now
+  pinned over the whole verb matrix: `scan`, `scan --pretty`, `update` (with
+  the seed spec its writer emits), `verify` (text and `--json`), `report`
+  (text, JSON, markdown), `diagram`, `depgraph modules` and `inspect` run on
+  two recipe-pinned non-declaring rust workspaces, and every surface is
+  compared BYTE-for-BYTE against the bytes recorded from the previous release
+  (`tests/fixtures/nondeclaring/`; refresh is a named, dated
+  `ARCHSPEC_GOLDEN=1` re-record). Companion cells: the new collections
+  serialize NOTHING on a non-declaring tree (the D8 absence law extended from
+  the one verb pinned by `async_model_surface` to the model and report
+  faces), the report-only census family speaks ZERO times until a declaration
+  arms it, and a base-binary diff cell (ARCHSPEC -> PATH -> named SKIP) re-diffs
+  the whole matrix against a resolvable previous-release binary. The `spec`
+  and `spec --schema` surfaces are excluded by name as static grammar
+  reference, with their tree-independence pinned so the exclusion cannot
+  hide a derivation arm.
+
+### Changed
+
+- ONE named declaration-gate arm — `archspec::events::declarations_active`
+  is now the single early-exit predicate for the fact-events face (pattern
+  resolution, the value join, the ambiguous-publish attribution census and
+  the dispatch-blinded projection), consulted at its one site in the scan
+  seam instead of an inline expression; a structural cell refuses any new
+  non-declaring short-circuit (scenario 08, decision-check F-W1). No output
+  moves: the arms are byte-identical before and after.
+
+
+## [0.6.118] - 2026-11-19
+
+### Added
+
+- `dispatch-blinded-literals` census row — the named blindness face of
+  the language-dispatch law: a declaring (`[[pattern_pair]]`) scan prints
+  ONE report-only row per zone whose shipped `AMBIGUOUS-MARKERS` dispatch
+  row models the directory with the run's driver while the declaration
+  carries a pattern side for a language that LOST dispatch there —
+  `dispatch-blinded-literals zone=<path> langs=<set> claimed=<driver>
+  files=<n>`. The row is a PROJECTION over existing rows (the dispatch
+  surface plus the literal-site rows): it names the declared languages
+  whose literal sites were never scanned, so the census zeros inside a
+  blinded zone read as blindness, not as an empty zone. `files=<n>`
+  counts the distinct literal-site files the census sees for the blinded
+  languages under the zone. No new scan machinery, no dispatch-decision
+  change — the authority question stays ADR-069 clause 4.8's; a tree with
+  no dispatch row or no declared side for the losing language prints zero
+  rows, `scan.json` stays byte-identical and the verdict never moves
+  (catalog: `archspec help diagnostics`, the `dispatch-blinded literals
+  census` entry).
+
+## [0.6.117] - 2026-11-19
+
+### Added
+
+- Ambiguous-publish attribution census (ADR-069 4.4a(b)) — a declaring
+  (`[[pattern_pair]]`) scan whose value join produced derived rows now
+  compares every hand-declared `[[async_depends]]` row against the
+  dispatch-side derived facts at the ONE canonicalization site: a declared
+  row that passes the verify arms under declaration trust while naming the
+  DECLARING unit, not the DISPATCHING unit (the assembly-scan class),
+  prints exactly ONE `ambiguous-publish-attribution: row=(<from>, <to>,
+  <event>) dispatching <units>` census line per mismatching declared row
+  on the report-only channel — the row is never re-keyed, the verdict is
+  never reddened, `--strict` never promotes it, and `scan.json` carries no
+  byte of it (the census rides the serde-skipped report-only lines and
+  counts in the Environment census on every report surface). A declared
+  row the dispatch-side facts attribute identically prints zero rows, as
+  does a tree with no derived dispatch-side facts (catalog:
+  `archspec help diagnostics`, the `ambiguous-publish attribution census`
+  entry)
+
+## [0.6.116] - 2026-11-19
+
+### Added
+
+- Generic cross-unit value join — the FIRST construction source of
+  `async_edges`: a declaring (`[[pattern_pair]]`) scan now joins the
+  resolved `literal_sites` rows by the matched string VALUE in ONE key
+  space — never on a symbol, never on a language — and writes derived
+  `(from, to, event)` async rows with tree-root-canonical unit endpoints.
+  Orientation comes from the declared enumerated role only; a site with no
+  single declared role never joins and prints one `ambiguous-leg` row, a
+  pair whose sides state no role prints one `unoriented` row, and a raw
+  value claimed by two declared conventions keys the join per convention
+  with one `value-namespace` row instead of guessing across conventions.
+  Every matched literal lands joined or in exactly ONE named census row
+  (`ambiguous-leg`, `unoriented`, `one-sided-leg`, `shared-constant`,
+  `unfunded-shape`, `value-namespace`) — census lines, never verdicts,
+  exit 0 (catalog: `archspec help diagnostics`, the `value-join rows and
+  zero-silence census` entry).
+- Derived-vs-declared dedupe law (GitHub issue #48 follow-up): a derived
+  row whose identity equals a declared `[[async_depends]]` row merges to
+  ONE rendered arrow and prints exactly ONE `PLUGIN-OVERLAP` row; a
+  derived row never suppresses a declared arrow. A derived-only row
+  renders one arrow and prints one `async-row derived` marker line, and
+  the verdict never goes red for it — the async verdict arms still read
+  the declared table alone.
+
+## [0.6.115] - 2026-11-19
+
+### Added
+
+- Generic literal-site pattern primitives and the declared pattern-pair
+  face: the optional `[[pattern_pair]]` spec table declares a pattern `id`
+  plus an optional `emit` and/or `subscribe` side, each side naming a
+  driver `language`, an optional `role` from the closed set
+  `publish`/`subscribe` (the ONLY orientation source), and exactly one
+  matcher verb — `call` + `arg` (the callee's simple name, matched by
+  EQUALITY, plus a 0-based string-literal argument position) or `property`
+  (an exported property's string-literal value). The engine ships the two
+  verbs and reads the nouns from the declaration alone: renaming a source
+  call and its declaration together moves no verdict, and no naming
+  heuristic exists. A declaring scan resolves every side and serializes
+  `literal_sites` rows `{unit, path, language, value, anchor, pattern}` —
+  the pair id, never the call's name — and prints one `literal sites:`
+  census line per declared side (zero stated, never silent) or one named
+  `driver-gap:` line where the driver's `literal-site-census` capability
+  row reads `not-emitted` (go and python; csharp joins through the
+  existing type-identity facts without a literal census). A run without
+  the table collects, serializes and prints nothing: non-declaring
+  `scan.json` bytes are unchanged. Rows name their owning unit through the
+  ONE canonical unit-id site; an unresolvable owner prints its named
+  `UNITID-UNRESOLVED` line and writes no row. The funded candidate feed:
+  ts (call sites and exported properties), rust (call sites) and kotlin
+  (call sites) contribute vocabulary-free sites that the engine matcher
+  verbs resolve — drivers own no interpretation.
+
+## [0.6.114] - 2026-11-19
+
+### Added
+
+- Canonical-producer declaration face and the shared-constant class: two
+  optional spec tables, `[[canonical_producer]]` and `[[shared_constant]]`,
+  each entry declaring an opaque fact `class` and the ONE canonical
+  `producer` as a tree-root-canonical unit id, both keys mandatory per
+  entry. A shared constant — one exported constant, several readers, no
+  edge to name — declares identity exactly like a canonical producer and is
+  NEVER an async row: `emit`/`subscribe` keys on a shared-constant entry are
+  refused at load in their own message class, and the generated JSON schema
+  and the validator read the one refused-key constant, so neither face can
+  advertise the pair. `verify` adjudicates both tables with three named
+  arms whenever either is non-empty — `declaration producer unresolved`
+  (the spelling answers the tree-root unit index nowhere; a bare `"."`
+  where the tree root owns no unit is the witness shape), `declaration
+  producer not canonical` (a spelling that resolves through another
+  vocabulary names the id it resolves to and is refused: the declaration is
+  the arbitration record other producers merge against), and `declaration
+  producer conflict` (one fact class declared with two producers in one
+  table states no arbitration; rows group by resolved identity, so two
+  spellings of one unit are one producer). `report`, `report --format
+  markdown` and the `declaration_census` json member render one report-only
+  `canonical producer: <class> -> <producer>` row per declared entry, the
+  constant class riding the same row with a ` — shared constant` marker,
+  skipped when neither table declares. A non-declaring run is
+  byte-identical to a run without the face (workplan events_value_join
+  scenario 02, ADR-069 clause 4.4a).
+
+## [0.6.113] - 2026-11-19
+
+### Added
+
+- Tree-root canonical unit-id resolution for multi-producer fact identities:
+  one internal site resolves any unit spelling a producer emits — an
+  ecosystem name, a package path, or a bare `"."` from a build root — to the
+  one tree-root-canonical unit id, the owning unit's canonicalized
+  tree-root-relative directory. Two producers spelling one node identically
+  in different vocabularies now resolve to equal identity bytes and merge with
+  one `PLUGIN-OVERLAP` census line instead of carrying identity-conflicting
+  endpoints into a 4.4 refusal on every scan; an unresolvable spelling refuses
+  by name (`UNITID-UNRESOLVED`) and its row is not merged (fail-closed).
+  No shipped surface changes: `scan`, `verify` and `render` bytes are
+  byte-identical — canonicalization binds NEW multi-producer fact identity
+  only, and the fact writers that consume the site land in a later change.
+
+## [0.6.112] - 2026-11-19
+
+### Fixed
+
+- Dotted module names render full in the `depgraph` views (GitHub issue
+  #61): the projection truncated a path like `Webhooks::API` to its last
+  segment `API`, so the declared identity disappeared from the render and
+  distinct modules sharing a last segment merged onto one node. The fold
+  is now identity-preserving: where a path spells a dotted unit name in
+  full, or where the fold's chosen segment sits strictly inside that
+  name's spelling, the node carries the unit name verbatim (quoted per
+  issue #57). Honest prefix folds stay byte-identical — a path below a
+  corporate prefix still folds to the shared segment (`eShop::Ordering::API`
+  under unit `Ordering.API` renders `Ordering`), single-word module names
+  keep their exact bytes, and `::`- or `/`-spelled candidates are module
+  PATHS, never names. Where two or more distinct dotted names truncate to
+  one segment, one stderr census line names every full name —
+  `note: module name collision: 2 module names truncate to "API" —
+  rendered by full name: "Internal.API", "Webhooks.API"` — the issue #48
+  census shape extended to the module-name class. Wired at the
+  `depgraph modules` auto and explicit tiers, the `depgraph api-usage`
+  grouping, the unit-edge projection and the report-embedded diagram.
+
+## [0.6.111] - 2026-11-19
+
+### Fixed
+
+- Root-marker language dispatch now states its nested selections (GitHub
+  issue #63, ADR-069 clause 4.8): a directory carrying markers for more
+  than one language refused a standalone scan but was claimed SILENTLY by
+  one driver when the scan was rooted higher — the same tree answered two
+  different questions by rooting depth alone. Every nested directory whose
+  marker set spells more than one language now answers ONE deterministic
+  `AMBIGUOUS-MARKERS: <path> — markers: <markers>, modeled as: <winner>`
+  census line on the report surface (stderr, report-only, exit 0, sorted
+  with the `nested foreign marker` lines behind the mechanical exclusion
+  set). VISIBILITY ONLY, deliberately: the winner stays the scan's driver,
+  the model bytes are unchanged for every tree (the losing language stays
+  unmodelled exactly as before), and the standalone refusal arm stays
+  byte-identical — the row states the selection, it does not re-decide it;
+  refusal/authority semantics are a separate future decision. No zone
+  declaration resolves a nested ambiguity yet (the nested-spec face has
+  not shipped), so every ambiguous nested directory rows. Claim
+  `ambiguous-markers` welded to the `help diagnostics` catalog.
+
+## [0.6.110] - 2026-11-19
+
+### Fixed
+
+- The C# scanner honors `excluded_sources` at the `.cs` source-file walk
+  (GitHub issue #60): the declared entries reached the driver but only the
+  project-discovery arm consulted them, so an entry naming a folder inside
+  a KEPT project (a `wwwroot`-style or `generated/` subtree under a kept
+  csproj) was a silent no-op for the model — the files kept contributing
+  their namespaces, types and edges while the liveness census read the
+  entry as active. The file walk now consults the same component-wise
+  matcher on each file's root-relative path behind the unchanged
+  mechanical `bin`/`obj`/`node_modules`/dot gate: a file at or under an
+  entry contributes no unit source facts, no namespace, no using, no type
+  fact and no shape fact, and states itself with one
+  `excluded source: <path> — excluded_sources` census line, sorted, on
+  the report surface (the issue #39 never-silent law). Kept projects
+  only: a project already dropped at discovery (issue #49) never reaches
+  the file gate, so no path states itself twice. Entry liveness is
+  unchanged — the zero-match report stays driver-independent ("any file
+  counts"), so an entry that prunes files stays ACTIVE and prints no
+  `matched nothing` advisory. A tree without entries scans byte-identical,
+  and an entry naming no `.cs` source changes zero machine bytes.
+
+
 ## [0.6.109] - 2026-11-19
 
 ### Fixed

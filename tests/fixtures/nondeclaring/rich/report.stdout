@@ -1,0 +1,24 @@
+Architecture report
+===================
+
+Spec: architecture.spec.toml (language: rust)
+
+adjudicated against BUILT tree
+
+Metrics
+-------
+components:          4
+units:               3
+edges (internal):    1
+edges (external):    1
+cycles detected:     0
+
+Roles
+-----
+facades: gateway
+
+Diff: extracted vs declared
+---------------------------
+no violations found
+
+Result: clean

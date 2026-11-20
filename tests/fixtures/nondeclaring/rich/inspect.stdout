@@ -1,0 +1,20 @@
+graph TD
+  subgraph core
+    subgraph core_src_5e6dfe93["core/src"]
+      core_src_lib_rs_2edc3922["core/src/lib.rs"]
+    end
+  end
+  subgraph gateway
+    subgraph gateway_src_1adfe2bd["gateway/src"]
+      gateway_src_http_rs_23314784["gateway/src/http.rs"]
+      gateway_src_lib_rs_9dddc6f1["gateway/src/lib.rs"]
+      gateway_src_http_rs_23314784 ~~~ gateway_src_lib_rs_9dddc6f1
+    end
+  end
+  subgraph store
+    subgraph store_src_1dc22ebe["store/src"]
+      store_src_lib_rs_ce5996ba["store/src/lib.rs"]
+    end
+  end
+  core_src_lib_rs_2edc3922 ~~~ gateway_src_http_rs_23314784
+  gateway_src_lib_rs_9dddc6f1 ~~~ store_src_lib_rs_ce5996ba

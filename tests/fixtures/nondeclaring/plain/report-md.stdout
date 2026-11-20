@@ -1,0 +1,41 @@
+# Architecture report
+
+Spec: `architecture.spec.toml` (language: rust)
+
+## Environment
+
+adjudicated against BUILT tree
+
+## Metrics
+
+| Metric | Value |
+|---|---|
+| components | 2 |
+| units | 2 |
+| edges (internal) | 1 |
+| edges (external) | 0 |
+| cycles detected | 0 |
+
+## Diagram
+
+```mermaid
+graph TD
+  subgraph api
+    subgraph api_src_d5ba22fb["api/src"]
+      api_src_lib_rs_30867038["api/src/lib.rs"]
+    end
+  end
+  subgraph core
+    subgraph core_src_5e6dfe93["core/src"]
+      core_src_lib_rs_2edc3922["core/src/lib.rs"]
+    end
+  end
+  api_src_lib_rs_30867038 ~~~ core_src_lib_rs_2edc3922
+
+```
+
+## Diff: extracted vs declared
+
+- vacuous constraint: `[constraint #1] no_cycles: no file-grained dependency edges among the constraint's files (file-tier cycle check trivially passes)`
+
+**Result:** clean

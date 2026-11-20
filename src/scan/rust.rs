@@ -1,5 +1,7 @@
 use crate::model::{
-    Edge, FileEdge, FileFactKind, ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Role, Unit,
+    matching_exclusion, DeclaredFacts, Edge, ExclusionEntry, FileEdge, FileFactKind,
+    LiteralCandidate, LiteralCandidateAnchor, ManifestInfo, Model, ModuleDeclaration, ModuleEdge,
+    Role, Unit,
 };
 use crate::collector::{
     cfg_feature_name, flatten_use_tree, glob_token, has_cfg, is_cfg_test, is_public,
@@ -25,7 +27,7 @@ type ModuleRefs = (
     PathBuf,
 );
 
-pub fn extract(root: &Path) -> Result<Model, String> {
+pub fn extract(root: &Path, declared: &DeclaredFacts) -> Result<Model, String> {
     let root_manifest_path = root.join("Cargo.toml");
     if !root_manifest_path.exists() {
         return Err(format!(
@@ -96,14 +98,24 @@ pub fn extract(root: &Path) -> Result<Model, String> {
     let mut file_edges: Vec<FileEdge> = Vec::new();
     let mut roles: BTreeMap<String, Role> = BTreeMap::new();
     let mut edge_set: BTreeSet<(String, String)> = BTreeSet::new();
+    // File-level declared-exclusion census (GitHub issue #60, items 2-3), the
+    // never-silent law's third class on the rust side: one line per `.rs` file
+    // a declared `excluded_sources` entry prunes. A set, because three walks
+    // reach the same file set (parse, module analysis, candidates) and nested
+    // members ride the root unit's parse walk too — the set keeps one FILE at
+    // exactly one line per run, in sorted order. Report-only bytes: the machine
+    // body of a non-declaring tree is untouched (the serde-skip law).
+    let mut excluded_files: BTreeSet<String> = BTreeSet::new();
 
     for unit in &units {
-        parse_unit_sources(root, unit)?;
+        parse_unit_sources(root, unit, &declared.exclusions, &mut excluded_files)?;
         let info = analyze_unit_modules(
             root,
             unit,
             &normalized_units,
             manifest_deps.get(&unit.name),
+            &declared.exclusions,
+            &mut excluded_files,
         )?;
         if !info.soft.is_empty() {
             soft_structure.insert(unit.name.clone(), info.soft);
@@ -196,6 +208,18 @@ pub fn extract(root: &Path) -> Result<Model, String> {
 
     let manifest = manifest_info(&root_manifest, workspace_deps);
 
+    // The literal-candidate feed (workplan events_value_join scenario 03,
+    // decision-check F8): collected ONLY when a declared pattern side names
+    // this driver — the declaration gate is the byte identity (4.2 arm 1),
+    // so a non-declaring run parses nothing twice and appends nothing. The
+    // rows are vocabulary-free: every call site carrying a string-literal
+    // argument, spelled by syntax alone; NO declared name reaches this
+    // walk — name equality is the engine matcher verb's work at the
+    // resolution site (`archspec::events::patterns`), so the driver owns
+    // NO interpretation (A6). Rust contributes the call anchor only: an
+    // exported-property site has no Rust syntactic shape.
+    let literal_candidates = collect_rust_literal_candidates(root, &units, declared, &mut excluded_files);
+
     Ok(Model {
         units,
         edges,
@@ -213,8 +237,121 @@ pub fn extract(root: &Path) -> Result<Model, String> {
         test_gated_modules,
         file_edges,
         roles,
+        literal_candidates,
+        // The file-level declared-exclusion census, sorted by path (GitHub
+        // issue #60, items 2-3): report-only bytes, serde-skipped, never the
+        // machine body.
+        report_only_lines: excluded_files.into_iter().collect(),
         ..Model::new("rust")
     })
+}
+
+/// Gate + collect the rust driver's literal candidates (see `extract`).
+/// A file that fails to parse contributes nothing here — the same file
+/// already failed (or will fail) the analysis walk, and this feed never
+/// adds a second refusal voice.
+fn collect_rust_literal_candidates(
+    root: &Path,
+    units: &[Unit],
+    declared: &DeclaredFacts,
+    census: &mut BTreeSet<String>,
+) -> Vec<LiteralCandidate> {
+    if !declared
+        .patterns
+        .iter()
+        .any(|pattern| pattern.language == crate::language::Language::Rust.as_str())
+    {
+        return Vec::new();
+    }
+    let mut candidates = Vec::new();
+    for unit in units {
+        let src_dir = unit_dir_for(root, unit).join("src");
+        for path in collect_rs_files(root, &src_dir, &declared.exclusions, census) {
+            let Ok(source) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(ast) = syn::parse_file(&source) else {
+                continue;
+            };
+            let Ok(rel) = path.strip_prefix(root) else {
+                continue;
+            };
+            let spelled = rel.to_string_lossy().replace('\\', "/");
+            let mut visitor = CallSiteSites(Vec::new());
+            visitor.visit_file(&ast);
+            for (anchor, value) in visitor.0 {
+                candidates.push(LiteralCandidate {
+                    path: spelled.clone(),
+                    language: crate::language::Language::Rust.as_str().to_string(),
+                    anchor,
+                    value,
+                });
+            }
+        }
+    }
+    candidates
+}
+
+/// The syn walk of the candidate feed: every call or method call whose
+/// argument at position `i` is a plain string literal contributes one
+/// candidate per such argument. The callee is its SIMPLE name — the path's
+/// last segment or the method name — as the source spells it; resolution
+/// against the declared noun happens engine-side.
+struct CallSiteSites(Vec<(LiteralCandidateAnchor, String)>);
+
+impl<'ast> Visit<'ast> for CallSiteSites {
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if let Some(callee) = simple_callee_name(&node.func) {
+            record_string_args(&mut self.0, callee, node.args.iter());
+        }
+        syn::visit::visit_expr_call(self, node);
+    }
+
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        record_string_args(
+            &mut self.0,
+            node.method.to_string(),
+            node.args.iter(),
+        );
+        syn::visit::visit_expr_method_call(self, node);
+    }
+}
+
+fn record_string_args<'a>(
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+    callee: String,
+    args: impl Iterator<Item = &'a syn::Expr>,
+) {
+    for (position, arg) in args.enumerate() {
+        if let syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(text),
+            ..
+        }) = arg
+        {
+            out.push((
+                LiteralCandidateAnchor::Call {
+                    callee: callee.clone(),
+                    position,
+                },
+                text.value(),
+            ));
+        }
+    }
+}
+
+/// The simple name of a call target: the last path segment of a qualified
+/// call, unwrapped through parentheses; anything else (a closure call, an
+/// index call) states no name this verb can read.
+fn simple_callee_name(func: &syn::Expr) -> Option<String> {
+    match func {
+        syn::Expr::Path(path) => path
+            .path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string()),
+        syn::Expr::Paren(inner) => simple_callee_name(&inner.expr),
+        _ => None,
+    }
 }
 
 struct UnitModuleInfo {
@@ -278,11 +415,16 @@ fn manifest_info(manifest: &Value, workspace_deps: Option<&Value>) -> ManifestIn
 /// module hierarchy, intra-crate module edges (from `use crate::`/`super::` and
 /// qualified-path calls), the symbols used along each edge, external crates
 /// referenced from `use`, and the unit's cross-unit edges found in source.
+/// The declared exclusions ride [`collect_rs_files`], so a pruned file yields no
+/// module, no edge, no symbol, no external crate and no public-API surface, and
+/// states itself once in `census` (GitHub issue #60, items 2-3).
 fn analyze_unit_modules(
     root: &Path,
     unit: &Unit,
     normalized_units: &BTreeMap<String, String>,
     manifest_deps: Option<&BTreeSet<String>>,
+    exclusions: &[ExclusionEntry],
+    census: &mut BTreeSet<String>,
 ) -> Result<UnitModuleInfo, String> {
     let empty = UnitModuleInfo {
         soft: Vec::new(),
@@ -311,7 +453,7 @@ fn analyze_unit_modules(
 
     // Parse every `.rs` under `src/`, keyed by its path relative to `src/`.
     let mut files: BTreeMap<PathBuf, syn::File> = BTreeMap::new();
-    for path in collect_rs_files(root, &src_dir) {
+    for path in collect_rs_files(root, &src_dir, exclusions, census) {
         if let Ok(rel) = path.strip_prefix(&src_dir) {
             if files.contains_key(rel) {
                 continue;
@@ -1642,10 +1784,17 @@ fn target_module(full: &[String], known: &BTreeSet<String>) -> Option<(String, V
 /// Parse every `.rs` source under the unit's directory with syn, so a syntax
 /// error aborts extraction naming the failing file (contract: hard fail, no
 /// partial model). The unit path is relative to the workspace root (`.` for the
-/// root crate).
-fn parse_unit_sources(root: &Path, unit: &Unit) -> Result<(), String> {
+/// root crate). A file a declared entry prunes is never read here: the author
+/// took it out of the architecture (GitHub issue #60), so it contributes no
+/// fact and aborts nothing.
+fn parse_unit_sources(
+    root: &Path,
+    unit: &Unit,
+    exclusions: &[ExclusionEntry],
+    census: &mut BTreeSet<String>,
+) -> Result<(), String> {
     let unit_dir = unit_dir_for(root, unit);
-    let files = collect_rs_files(root, &unit_dir);
+    let files = collect_rs_files(root, &unit_dir, exclusions, census);
     for path in files {
         let source = std::fs::read_to_string(&path)
             .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
@@ -1655,9 +1804,29 @@ fn parse_unit_sources(root: &Path, unit: &Unit) -> Result<(), String> {
     Ok(())
 }
 
-/// Collect every `.rs` file under `dir`, excluding dot-entries, `target`, and
-/// `vendor`, in deterministic (sorted) order.
-fn collect_rs_files(root: &Path, dir: &Path) -> Vec<PathBuf> {
+/// Collect every `.rs` file under `dir` in deterministic (sorted) order,
+/// behind TWO doors. The mechanical gate is the first door and says nothing:
+/// dot-entries, `target` and `vendor` were never unit sources, so a file under
+/// them states no line. The declared gate is the second door (GitHub issue #60
+/// items 2-3, the rust arm): each surviving `.rs` file's ROOT-relative path is
+/// adjudicated through the same component-wise [`matching_exclusion`] the
+/// csharp project arm uses — the entry `generated` matches
+/// `crates/app/src/generated/gen.rs`, never `crates/app/src/generated_assets/
+/// gen.rs`. A pruned file contributes NO fact: no parse, no `mod` declaration,
+/// no module or unit edge, no import fact, no selector symbol, no public-API
+/// surface, no literal candidate, no test-gating evidence. Every downstream
+/// walk of this file set (the parse pass, the module walk, the public-API
+/// surface, the literal candidates) therefore reads the pruned set. Each pruned
+/// file states itself exactly once into `census` — the set dedupes the walks
+/// that reach the same file (the root unit's parse pass and a member crate's
+/// own walk both see a nested file), so one FILE prints one line per run and a
+/// directory entry never adds an extra directory line.
+fn collect_rs_files(
+    root: &Path,
+    dir: &Path,
+    exclusions: &[ExclusionEntry],
+    census: &mut BTreeSet<String>,
+) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
         if !entry.file_type().is_file() {
@@ -1672,6 +1841,10 @@ fn collect_rs_files(root: &Path, dir: &Path) -> Vec<PathBuf> {
             continue;
         }
         if entry.path().extension().and_then(|value| value.to_str()) != Some("rs") {
+            continue;
+        }
+        if matching_exclusion(exclusions, rel).is_some() {
+            census.insert(format!("excluded source: {} — excluded_sources", rel.display()));
             continue;
         }
         files.push(entry.path().to_path_buf());
@@ -1967,5 +2140,16 @@ fn display_relative(root: &Path, path: &Path) -> String {
             }
         }
         Err(_) => path.display().to_string(),
+    }
+}
+
+/// The driver-port seam entry (workplan events_value_join scenario 10):
+/// a unit struct implementing `crate::driver::Driver` by calling this
+/// module's own [`extract`] — body logic moves zero lines.
+pub(crate) struct RustDriver;
+
+impl crate::driver::Driver for RustDriver {
+    fn extract(&self, root: &Path, declared: &DeclaredFacts) -> Result<Model, String> {
+        extract(root, declared)
     }
 }

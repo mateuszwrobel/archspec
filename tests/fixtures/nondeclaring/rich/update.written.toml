@@ -1,0 +1,23 @@
+[project]
+language = "rust"
+
+[[module]]
+name = "core"
+matches = { units = ["core"] }
+
+[[module]]
+name = "gateway"
+matches = { units = ["gateway"] }
+allowed = { depend_on = ["core"] }
+
+[[module]]
+name = "store"
+matches = { units = ["store"] }
+
+[[module]]
+name = "gateway::http"
+matches = { modules = ["gateway::http"] }
+
+[[constraint]]
+type = "no_cycles"
+

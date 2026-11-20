@@ -59,9 +59,17 @@ type ScannedFiles = BTreeMap<String, ProjectSources>;
 /// wise form of `model::matching_exclusion` (entry `external` matches
 /// `external/Ext.csproj`, never `externalapp/Ext.csproj`); glob-form
 /// entries match no csproj path and keep the zero-match liveness advisory
-/// unchanged. File-level pruning INSIDE a kept project is a separate class
-/// (issue #60): this arm prunes at the project tier only, and the entry
-/// liveness report (`spec.rs`, "any file counts") stays driver-independent.
+/// unchanged. File-level pruning INSIDE a kept project (GitHub issue #60)
+/// lives in [`scan_project_sources`]: the same entries are consulted on
+/// each `.cs` file's root-relative path behind the unchanged mechanical
+/// gate, and a pruned file contributes no namespace, no using, no type
+/// fact, no shape fact and no composition evidence — one sorted
+/// `excluded source: <path> — excluded_sources` census line per pruned
+/// file, kept projects only (a project already dropped at discovery
+/// never reaches the file gate, so no path states itself twice). The
+/// entry liveness report (`spec.rs`, "any file counts") stays
+/// driver-independent: an entry that prunes files under a kept project
+/// is ACTIVE and prints no `matched nothing` advisory.
 pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     // Absolute base so Include references (which may be absolute or use `..`
     // back to the tree) resolve identically regardless of how the root was
@@ -70,7 +78,7 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
 
     let projects = collect_projects(&root);
     if projects.is_empty() {
-        return extract_single_unit(&root);
+        return extract_single_unit(&root, facts);
     }
 
     // Test-tier classification precedes every production fact; the predicate
@@ -119,8 +127,12 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
             excluded_lines.push(format!("excluded unit: {unit_path} — excluded_sources"));
             // DEAD prefixes, the test-gated law: a production `using` that
             // names an excluded project's namespace must not resurrect it as
-            // a phantom edge, module or seeded boundary.
-            dropped_namespaces.extend(scan_project_sources(project_dir)?.0);
+            // a phantom edge, module or seeded boundary. The declared facts
+            // ride the walk so an entry-internal file of a dropped project
+            // contributes nothing here either; no census sink — the project
+            // has already stated its one line above (issue #60, no
+            // double-report law).
+            dropped_namespaces.extend(scan_project_sources(project_dir, facts, &root, None)?.0);
             continue;
         }
         let evidence = test_gate_evidence(&manifest, project_sdk(full_path).as_deref());
@@ -132,7 +144,7 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
                 _ => ".".to_string(),
             };
             test_gated_lines.push(format!("test-gated unit: {unit_path} — {marker}"));
-            dropped_namespaces.extend(scan_project_sources(project_dir)?.0);
+            dropped_namespaces.extend(scan_project_sources(project_dir, facts, &root, None)?.0);
             continue;
         }
         production.push((rel_path.clone(), full_path.clone(), manifest));
@@ -249,6 +261,12 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     let mut event_bases: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
     let mut event_enums: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut event_bounds: BTreeMap<String, BTreeMap<String, EventBoundShape>> = BTreeMap::new();
+    // File-level declared-exclusion census (GitHub issue #60), the never-silent
+    // law's third class: one line per `.cs` file a declared entry prunes from
+    // a KEPT project's source walk. A set so nested-csproj overlap (two walks
+    // reaching one file) still states each path exactly once; iteration order
+    // is sorted.
+    let mut excluded_file_lines: BTreeSet<String> = BTreeSet::new();
     for unit in &units {
         let project_dir = if unit.path == "." {
             root.to_path_buf()
@@ -256,7 +274,7 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
             root.join(&unit.path)
         };
         let (namespaces, usings, type_facts, shape_facts, entrypoint_file, registration_family, forwarded) =
-            scan_project_sources(&project_dir)?;
+            scan_project_sources(&project_dir, facts, &root, Some(&mut excluded_file_lines))?;
         // The unit's root address resolves from its csproj identity properties
         // and its declared namespaces BEFORE any fact is attributed (US 01).
         let csproj_root = unit_csproj
@@ -695,13 +713,16 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
         roles,
         // The `test-gated unit` census first (project order, unchanged
         // bytes), then the declared-exclusion census sorted by line (GitHub
-        // issue #49 — deterministic, one line per dropped project), then one
-        // sorted line per suppressed test marker under an unevaluated
-        // condition (GitHub issue #45, rung 1) — report-only bytes,
-        // serde-skipped, never the machine body.
+        // issue #49 — deterministic, one line per dropped project), then the
+        // file-level declared-exclusion census, sorted by path (GitHub issue
+        // #60 — one line per excluded source file), then one sorted line per
+        // suppressed test marker under an unevaluated condition (GitHub
+        // issue #45, rung 1) — report-only bytes, serde-skipped, never the
+        // machine body.
         report_only_lines: {
             excluded_lines.sort();
             test_gated_lines.extend(excluded_lines);
+            test_gated_lines.extend(excluded_file_lines);
             test_gated_lines.extend(test_marker_lines(&marker_facts, &root));
             test_gated_lines
         },
@@ -1310,7 +1331,20 @@ fn test_marker_lines(markers: &[(std::path::PathBuf, usize, String)], root: &Pat
 /// composition requires both, this pair plus the csproj's own gate evidence.
 /// `forwarded` marks an assembly-level `TypeForwardedTo` attribute anywhere
 /// in the unit — the facade predicate's re-export evidence (S4).
-fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
+///
+/// `facts` and `root` carry the declared-exclusion gate (GitHub issue #60):
+/// every `.cs` file whose ROOT-relative path sits at or under a declared
+/// entry is skipped before any fact is read — the file contributes nothing
+/// to any tier. `census` is the report-only sink for the
+/// `excluded source: <path> — excluded_sources` census lines: Some only
+/// when this walk belongs to a KEPT project (the project-level drop from
+/// issue #49 already stated its own line — the no-double-report law).
+fn scan_project_sources(
+    project_dir: &Path,
+    facts: &DeclaredFacts,
+    root: &Path,
+    mut census: Option<&mut BTreeSet<String>>,
+) -> Result<ProjectSources, String> {
     let mut namespaces: BTreeSet<String> = BTreeSet::new();
     let mut usings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut type_facts = Some(syntax::TypeFacts::default());
@@ -1330,6 +1364,27 @@ fn scan_project_sources(project_dir: &Path) -> Result<ProjectSources, String> {
         let rel = entry.path().strip_prefix(project_dir).unwrap_or(entry.path());
         let excluded = is_excluded_cs(rel);
         if excluded {
+            continue;
+        }
+        // Declared-exclusion gate (GitHub issue #60): the author's entries
+        // adjudicate on the file's ROOT-relative path through the same
+        // component-wise `model::matching_exclusion` the project arm uses —
+        // entry `generated` matches `App/generated/Gen.cs`, never
+        // `App/generated_assets/Gen.cs`. The mechanical gate above stays the
+        // first door: a `bin`/`obj`/`node_modules`/dot file was never a unit
+        // source, so it never states an exclusion line. A pruned file
+        // contributes NO fact: no namespace, no using, no type fact, no
+        // shape fact, no entrypoint/registration/forwarded evidence. The
+        // census sink is Some only for kept projects, so a project already
+        // dropped at discovery (issue #49) never double-reports.
+        let root_rel = entry.path().strip_prefix(root).unwrap_or(rel);
+        if matching_exclusion(&facts.exclusions, root_rel).is_some() {
+            if let Some(lines) = census.as_deref_mut() {
+                lines.insert(format!(
+                    "excluded source: {} — excluded_sources",
+                    root_rel.display()
+                ));
+            }
             continue;
         }
         let source = std::fs::read_to_string(path)
@@ -2059,8 +2114,10 @@ fn normalize(path: &Path) -> std::path::PathBuf {
 /// The same path as the csproj shape: identical source facts (grammar), the
 /// same prefix resolution, and the same [`edge_target`] addressing — only the
 /// graph is trivial (one unit, no references, empty external tier), so no
-/// attribution branches are specialized here.
-fn extract_single_unit(root: &Path) -> Result<Model, String> {
+/// attribution branches are specialized here. The declared-exclusion file
+/// gate (GitHub issue #60) rides the same walk, and its census lines render
+/// like the csproj shape's: the root unit is one kept project.
+fn extract_single_unit(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let name = canonical
         .file_name()
@@ -2074,8 +2131,9 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
         crate_ids: BTreeSet::new(),
     };
 
+    let mut excluded_file_lines: BTreeSet<String> = BTreeSet::new();
     let (namespaces, usings, type_facts, _shape_facts, entrypoint_file, registration_family, forwarded) =
-        scan_project_sources(&canonical)?;
+        scan_project_sources(&canonical, facts, &canonical, Some(&mut excluded_file_lines))?;
     let mut soft_structure: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut sorted: Vec<String> = namespaces.iter().map(|ns| ns_to_module(ns)).collect();
     let unit_csproj = std::fs::read_dir(root).ok().and_then(|entries| {
@@ -2259,6 +2317,20 @@ fn extract_single_unit(root: &Path) -> Result<Model, String> {
         module_public_types,
         module_external: module_external_model,
         roles,
+        // File-level declared-exclusion census, sorted by path (issue #60):
+        // report-only bytes, serde-skipped, never the machine body.
+        report_only_lines: excluded_file_lines.into_iter().collect(),
         ..Model::new("csharp")
     })
+}
+
+/// The driver-port seam entry (workplan events_value_join scenario 10):
+/// a unit struct implementing `crate::driver::Driver` by calling this
+/// module's own [`extract`] — body logic moves zero lines.
+pub(crate) struct CsharpDriver;
+
+impl crate::driver::Driver for CsharpDriver {
+    fn extract(&self, root: &Path, declared: &DeclaredFacts) -> Result<Model, String> {
+        extract(root, declared)
+    }
 }

@@ -345,6 +345,31 @@ ambiguous settings file (run precondition, always fail-loud — exit 1):
    decision:   none required; scan the sub-root when its facts matter, or
                declare it with an excluded_sources entry and a reason.
 
+AMBIGUOUS-MARKERS (report-only, never a verdict — exit 0):
+  pattern:    AMBIGUOUS-MARKERS: <path> — markers: <file> (<language>), …, modeled as: <language>
+   emitted by: scan, verify and explain (a rooted scan; one line per
+               nested directory carrying root markers for more than one
+               language, behind the mechanical exclusion set; the marker
+               list rides the root-marker table order, the line set sorts
+               by path)
+  meaning:    a directory carrying two language markers is a ZONE with
+               two producers, not a race (ADR-069 clause 4.8). Scanned on
+               its own it refuses with `ambiguous root markers`; a rooted
+               scan models it with the root's driver. This row makes the
+               same fact visible at every depth: it names the marker set
+               and the driver the run models the directory with (the
+               scan's driver — the selection law is UNCHANGED; the row
+               states visibility, not authority, GitHub issue #63). A
+               zone-language declaration would resolve the ambiguity and
+               name itself as the reason; that declaration face has not
+               shipped, so every ambiguous nested directory rows.
+   origin:     tree shape (a polyglot directory below a rooted scan)
+   severity:   report-only (exit 0)
+   follow-up:  archspec scan      (scan the sub-root per language, or
+               declare the subtree with excluded_sources)
+   decision:   none required; the row states what the standalone shape
+               refuses on — scan the sub-root when its facts matter.
+
 unresolvable import (run precondition, always fail-loud — exit 1):
   pattern:    unresolvable import: <file> -> "<specifier>"
    emitted by: ts (the ts driver's resolution law) and python (the relative
@@ -578,9 +603,9 @@ excluded unit (report-only, never a verdict — exit 0):
                csproj sits at or under a declared `excluded_sources` entry,
                GitHub issue #49; the entry matches component-wise —
                `external` matches `external/Ext.csproj`, never
-               `externalapp/Ext.csproj`; the `.cs` file walk keeps its
-               mechanical predicate — file-level pruning inside a kept
-               project is issue #60)
+               `externalapp/Ext.csproj`; files under a dropped project
+               state themselves here, never again at the file walk —
+               see the `excluded source` entry below)
   meaning:    the whole project is declared out of the architecture: no
                unit, no unit edge, no module edge; its namespaces stay DEAD
                prefixes (the test-gated law), so a production `using` that
@@ -588,6 +613,58 @@ excluded unit (report-only, never a verdict — exit 0):
                the census line states it (GitHub issue #39). Entry liveness
                is unchanged: an entry that matched nothing anywhere still
                prints its `excluded source matched nothing` advisory.
+   origin:     code
+   severity:   report-only (exit 0)
+   follow-up:  archspec scan      (stderr carries the lines; the model
+               artifact stays pure — census bytes are serde-skip, so
+               non-declaring trees keep their machine body byte-identical)
+   decision:   none required; the entry with a reason is the declaration.
+
+excluded source (report-only, never a verdict — exit 0):
+  pattern:    excluded source: <path> — excluded_sources
+   emitted by: csharp (one line per `.cs` file the scan drops because it
+               sits at or under a declared `excluded_sources` entry while
+               its project stays in production, GitHub issue #60; the
+               mechanical `bin`/`obj`/`node_modules`/dot gate stays the
+               first door and never states a line — mechanically excluded
+               files were never unit sources; the entry matches
+               component-wise on the root-relative path, so `generated`
+               matches `App/generated/Gen.cs`, never
+               `App/generated_assets/Gen.cs`)
+               rust (one line per `.rs` file the scan drops because it sits
+               at or under a declared `excluded_sources` entry, GitHub issue
+               #60 items 2-3; the mechanical dot-entry/`target`/`vendor` gate
+               stays the first door and never states a line; the entry
+               matches component-wise on the root-relative path, so
+               `generated` matches `app/src/generated/gen.rs`, never
+               `app/src/generated_assets/gen.rs`; one file read by several
+               walks — the parse pass, the module walk, the literal
+               candidates — states itself once)
+               go (one line per `.go` file the scan drops because it sits at
+               or under a declared `excluded_sources` entry, GitHub issue #60
+               items 2-3; the mechanical dot-entry/`vendor`/`testdata` gate
+               and the `*_test.go` test tier stay the first door and state
+               nothing; the entry matches component-wise on the root-relative
+               path, so `external` matches `external/ext.go`, never
+               `externalapp/ext.go`)
+  meaning:    the file is declared out of the architecture: it contributes
+               no unit source count, no namespace, no using, no type fact
+               and no shape fact — the model body loses everything the
+               file held. The drop is never silent — the census line states
+               it (GitHub issue #39), one line per file, sorted, on kept
+               projects only: a project already dropped at discovery
+               states one `excluded unit` line and its files never reach
+               this gate, so no path states itself twice. The rust and go
+               drivers have no project-level arm, so for them this line is
+               the ONLY exclusion census line: a directory entry prints its
+               files and never a directory line. Rust derives units from
+               manifests, so a crate whose every file is pruned stays a unit
+               with zero file facts; Go derives units from files, so a
+               package whose every file is pruned yields no unit and states
+               each file once. Entry liveness is unchanged: a file pruned
+               here still counts as a MATCH for the zero-match report, so
+               an entry that prunes files never reads dead. A project-dir
+               entry keeps printing only its project-level line.
    origin:     code
    severity:   report-only (exit 0)
    follow-up:  archspec scan      (stderr carries the lines; the model
@@ -1285,6 +1362,166 @@ async census section (report-only, never a verdict — exit 0):
   follow-up:  archspec depgraph modules  (the same pairs as dashed
               event-labelled arrows in the graph view)
   decision:   none required; the census is a census, not a verdict.
+
+declaration producer unresolved
+  pattern:    declaration producer unresolved: <class> — <producer> ([<table>] entry #N)
+  emitted by: verify, report and explain (the ONE declaration arm runs
+              whenever either declaration table is non-empty; neither
+              declaring, every path is byte-identical to a run without the
+              face)
+  meaning:    a `[[canonical_producer]]` or `[[shared_constant]]` entry names
+              a producer that answers nothing at the tree-root unit index:
+              no registered unit directory or ecosystem spelling resolves
+              the spelling. The bare per-driver unit name `"."` in a tree
+              with no root unit is the witness shape — a declaration is
+              spec prose, so it carries no producer directory for the dot's
+              ownership arm to resolve through (the row face anchors the dot
+              at the producing unit's own directory; the declaration face
+              has none).
+  origin:     spec (the declaration names an identity the tree does not answer)
+  severity:   error (exit 1)
+  follow-up:  archspec scan      (the model units the tree-root index is built from)
+  decision:   spec-fix — spell the producer as the owning unit's
+              tree-root-canonical id (the canonicalized tree-root-relative
+              directory, `"."` only where the root itself is a unit).
+
+declaration producer not canonical
+  pattern:    declaration producer not canonical: <class> — <producer> resolves to <id> ([<table>] entry #N)
+  emitted by: the same declaration arm as `declaration producer unresolved`
+  meaning:    a declaration's producer spelling resolves at the tree-root
+              unit index — through an ecosystem name or a path inside the
+              owning unit — but it is not itself the owning unit's
+              tree-root-canonical id, which is what the declaration law
+              demands: the declaration is the arbitration record other
+              producers merge against, so its identity must not depend on
+              which vocabulary the author happened to write.
+  origin:     spec (the declaration spells its producer in another vocabulary)
+  severity:   error (exit 1)
+  follow-up:  archspec scan      (the model units the tree-root index is built from)
+  decision:   spec-fix — write the resolved canonical id in the entry.
+
+declaration producer conflict
+  pattern:    declaration producer conflict: <class> — <producer> (entries <numbers>), … ([<table>])
+  emitted by: the same declaration arm; pure spec arithmetic, no model input
+  meaning:    one fact class is declared in one table with two different
+              canonical producers. The canonical-producer declaration is the
+              arbitration precondition that lets several eligible producers
+              merge instead of compete; a class naming two producers states
+              no arbitration at all, so the conflict is refused by name
+              rather than resolved by declaration order. One row per
+              conflicting class, naming every producer and its entry numbers.
+  origin:     spec (a class with two named producers)
+  severity:   error (exit 1)
+  follow-up:  archspec spec      (the declaration table reference)
+  decision:   spec-fix — keep ONE producer per class; when two units
+              genuinely own one class together, one of them is the canonical
+              producer and the other is a merged row producer, not a
+              declaration.
+
+declaration census section (report-only, never a verdict — exit 0):
+  pattern:    Declaration census
+              canonical producer: <class> -> <producer>
+              canonical producer: <class> -> <producer> — shared constant
+  emitted by: report and verify --json (the ONE declaration census section;
+              a table in voice, never a second diagram — the renderers draw
+              it only when `[[canonical_producer]]` or `[[shared_constant]]`
+              resolves at least one entry, so a non-declaring run's report
+              bytes are unchanged)
+  meaning:    the census over the declared tables: one `canonical producer:`
+              row per declared entry (deduplicated, table-then-class order),
+              the shared-constant class riding the SAME row with a
+              ` — shared constant` marker — a shared-constant declaration IS
+              a canonical-producer declaration over a constant fact class
+              and never an async row, so it earns exactly this one census
+              row and zero async rows. `--format json` carries the same rows
+              as a `declaration_census` member, omitted when both tables are
+              empty.
+  origin:     spec (the declared tables this run states)
+  severity:   report-only (exit 0)
+  follow-up:  archspec verify    (the named arms adjudicate the same entries)
+  decision:   none required; the census is a census, not a verdict.
+
+literal sites census and driver gap (report-only, never a verdict — exit 0):
+  pattern:    literal sites: pattern "<id>" language "<lang>" anchor <anchor> sites=<n>
+              driver-gap: pattern "<id>" language "<lang>" — literal-site census not-emitted for this driver: …
+  emitted by: scan (stderr, the report surface) when `[[pattern_pair]]` declares at least one side; a
+              non-declaring run prints nothing and its `scan.json` bytes are unchanged
+  meaning:    the census over the declared pattern sides: one `literal sites:` row per funded side with its
+              match count (anchor `call-name+arg-position` or `exported-property-value`, zero stated, never
+              silent), or one `driver-gap:` row when that driver's `literal-site-census` capability reads
+              `not-emitted` — a declared side on such a driver is a NAMED gap, never silence and never a
+              guessed row. Every driver shipped today is funded (go and python joined the funded set with
+              the driver-gap cure); the gap row stays the named statement for a driver added before its
+              feed ships. The rows resolve the DECLARED noun by equality; the engine ships the two verbs
+              only (no name inference).
+              [capability literal-site-census rust="granular" csharp="via type-identity facts (no literal census)" go="granular" ts="granular" python="granular" kotlin="granular"]
+  origin:     spec (the declared pattern sides this run states)
+  severity:   report-only (exit 0)
+  follow-up:  archspec capability matrix  (the per-driver literal-site-census rows), archspec spec (the pattern-pair
+              declaration face)
+  decision:   none required; the census is a census, not a verdict — a driver-gap is stated, not red.
+
+value-join rows and zero-silence census (report-only, never a verdict — exit 0):
+  pattern:    async-row derived row=(<from>, <to>, <event>) — derived machine fact, no declared entry
+              PLUGIN-OVERLAP row=(<from>, <to>, <event>) producers=<n> — identities equal after canonicalization, merged to one row
+              ambiguous-leg pattern="<id>" value="<v>" anchor <anchor> at=<path> — no single declared role for this site, nothing joined
+              one-sided-leg pattern="<id>" value="<v>" role <role> anchor <anchor> at=<path> — no <counterpart> site carries this value, nothing joined
+              unoriented pattern="<id>" — no declared side states a role, sites carry no orientation
+              shared-constant pattern="<id>" value="<v>" anchor <anchor> at=<path> — declared constant class, never an async row
+              unfunded-shape pattern="<id>" value="<v>" role <role> language="<lang>" at=<path> — the counterpart driver emits no literal sites, nothing joined
+              value-namespace value="<v>" patterns <a>, <b> — two declared conventions match one raw value, the join keys per convention and names both
+  emitted by: scan (stderr, the report surface) when `[[pattern_pair]]` declares at least one side and the
+              value join runs; a non-declaring run prints nothing and its `scan.json` bytes are unchanged
+  meaning:    the cross-unit value join over the resolved literal-site rows — the FIRST construction site of the
+              model's `async_edges` collection. The join keys on the matched string VALUE (a convention
+              namespace where kinds collide, never on a symbol, never on a language); orientation comes ONLY
+              from the declared enumerated role. Every matched literal lands in a joined row or exactly ONE
+              named row above — zero silence (the F1 bar): joined rows state `async-row derived` unless a
+              declared entry carries the same identity, in which case the merge states ONE `PLUGIN-OVERLAP`
+              row and the arrow renders once. A shared-constant class never becomes an async row; an unfunded
+              counterpart driver names itself instead of guessing the missing half.
+              A model with no async facts reads three ways: declared rows present — the tree declares and
+              the model states the joined or named rows (zero silence over matched literals); non-declaring
+              with a granular `event-declaration-derivation` row — author silence, the cure is to declare
+              the rows; non-declaring with a `not-emitted` row — a rung-2 gap (ADR-069 rung 2 unfunded),
+              the cure is to declare the rows or fund the rung. `archspec capability matrix` states the
+              `event-declaration-derivation` row per language — the canonical, falsifiable disclosure of
+              which reading a zero calls for.
+              [capability event-declaration-derivation rust="not-emitted" csharp="granular" go="not-emitted" ts="not-emitted" python="not-emitted" kotlin="not-emitted"]
+  origin:     model (the resolved literal-site rows this run joins)
+  severity:   report-only (exit 0)
+  follow-up:  archspec depgraph  (the merged arrow set), archspec verify  (the declared table's named arms)
+  decision:   none required; the census is a census, not a verdict — a derived row never goes red.
+
+ambiguous-publish attribution census (report-only, never a verdict — exit 0):
+  pattern:    ambiguous-publish-attribution: row=(<from>, <to>, <event>) dispatching <units> — the dispatch-side facts for this value and target name <units>, not the declared from; the declared row stands unchanged
+  emitted by: the report-only channel — one line per mismatching declared row when `[[async_depends]]` declares an edge whose value and target the derived dispatch-side facts name a different publisher for (a declaring (`[[pattern_pair]]`) scan whose join produced rows); scan and verify print the lines on stderr and every report surface counts the class in the Environment census; a run with no mismatch prints nothing and its `scan.json` bytes are unchanged
+  meaning:    the ADR-069 4.4a(b) attribution-ambiguity face: a hand-declared row that passes the verify arms under declaration trust while naming the DECLARING side, not the DISPATCHING side, is green-but-wrong — the assembly-scan class, where no source-level producer→subscriber pair exists to read. The mismatch prints this ONE census row per mismatching declared row: the face makes green-but-wrong VISIBLE, never re-keys the row and never reddens the verdict. A declared row the dispatch-side facts attribute identically prints zero rows, as does a tree with no derived dispatch-side facts.
+  origin:     model (the declared rows and the derived dispatch-side facts this run compares at the merge seam)
+  severity:   report-only (exit 0)
+  follow-up:  archspec verify  (the arms the declared row lawfully passes), archspec help diagnostics  (the value-join zero-silence family the same scan states)
+  decision:   none required; the census is a census, not a verdict — the declared row stands, the ambiguity is named.
+
+dispatch-blinded literals census (report-only, never a verdict — exit 0):
+  pattern:    dispatch-blinded-literals zone=<path> langs=<set> claimed=<driver> files=<n>
+   emitted by: scan, verify and explain (the rooted extract path) when `[[pattern_pair]]` declares at
+              least one side and the run's report surface carries an `AMBIGUOUS-MARKERS` dispatch row
+              whose losing language the declaration carries a pattern side for; one row per such zone,
+              sorted — a tree with no dispatch row or a run with no declared side prints zero rows
+  meaning:    a PROJECTION over shipped rows — the clause 4.8 dispatch row plus the literal-site rows,
+              never new scan machinery. A zone language that LOST dispatch contributes no literal
+              sites to the census, so a declared side of that language collects nothing inside the
+              zone; this row names that blindness instead of leaving the zeros unexplained (the
+              never-silent face of the dispatch law). `langs` are the blinded languages (declared
+              AND losing), `claimed` the driver the dispatch row models the zone with, and
+              `files=<n>` the distinct literal-site files the census DOES see for those languages
+              under the zone — under one-driver dispatch that zero IS the blindness, stated as a
+              number. The row never re-decides the dispatch: authority and refusal stay clause 4.8's.
+   origin:     tree shape (the dispatch row) + spec (the declared pattern languages) + model (the literal-site rows)
+   severity:   report-only (exit 0)
+   follow-up:  archspec help diagnostics  (the `AMBIGUOUS-MARKERS` entry this row projects),
+               archspec scan      (the zone declaration face that would resolve the dispatch — not shipped)
+  decision:   none required; the row names a blindness, never a verdict — the dispatch decision stays 4.8's
 
 note: the model tiers root_public_exports and root_glob_exports are not reported
 as standalone lines; they surface through public api leak, unverifiable glob

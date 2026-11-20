@@ -63,9 +63,12 @@ language = "rust"            # the enum `archspec spec` computes — rust | csha
 # warning-severity finding naming entry and target: `verify --strict` fails
 # it; without `--strict` the run stays green). The entries are consumed by
 # the language agreement check — sources under an excluded path never count
-# towards a language mismatch — and are skipped by the ts and python
-# drivers; `mode` describes ts resolution hits, the counted walks skip
-# files identically under both modes (see `archspec help diagnostics`).
+# towards a language mismatch — and by the file walks: the ts, python and
+# kotlin drivers skip excluded files silently (no per-file lines), while the
+# csharp, rust and go drivers prune every matching source file AND state each
+# one with a report-only line `excluded source: <path> — excluded_sources`
+# (see `archspec help diagnostics`); `mode` describes ts resolution hits, the
+# counted walks skip files identically under both modes.
 excluded_sources = [ { path = "web/vendor", reason = "vendored dependencies" } ]
 
 [[module]]
@@ -113,6 +116,9 @@ On C# casing is asymmetric inside `forbid_external_crates`: scan attributes pack
 | `[[constraint]]` | Named dependency checks over the resolved module graph (see table above) |
 | `[[exempt]]` | Cycle ratchet ledger: one entry per exempted cycle ring — `cycle` (the ring identity exactly as reported, e.g. `a -> b -> a`), `tier` (`file`, `module` or `both`), optional `count` (shrink-only cap on how many findings the entry may suppress), optional `until` (`YYYY-MM-DD` expiry), optional `reason` (free text). See *Cycle ratchet ledger* below |
 | `[[async_depends]]` | Asynchronous (event) dependency edge: the event IDENTITY only — `from` (publishing unit), `to` (consuming unit) and `event` (the event type's fully-qualified dotted name), all three mandatory per entry; payload shape is derived from source on both sides, never declared. See *Async event dependencies* below |
+| `[[canonical_producer]]` | Canonical-producer declaration for one fact class: `class` (an opaque fact-class name — the engine carries no class vocabulary) and `producer` (the ONE canonical producer's tree-root-canonical unit id), both mandatory per entry; the declaration is the arbitration record that lets several eligible producers of one class merge instead of compete. See *Canonical producers and shared constants* below |
+| `[[shared_constant]]` | Shared-constant declaration — the canonical-producer face over a constant fact class (one constant, several readers, no edge to name): `class` and `producer`, both mandatory per entry; a shared constant is NEVER an async row, and the `emit`/`subscribe` pattern-pair keys do not exist on this table. See *Canonical producers and shared constants* below |
+| `[[pattern_pair]]` | Literal-site pattern pair: the DECLARED noun side of the literal-site fact source — a pair `id` plus an optional `emit` and/or `subscribe` side table, each side stating `language`, optional `role` (`publish`/`subscribe`), and exactly one matcher verb: `call` + `arg` (call-name + 0-based argument position) or `property` (exported-property value). The engine ships the two verbs; the nouns live only here. See *Pattern pairs for literal-site fact sources* below |
 
 ## Async event dependencies
 
@@ -184,6 +190,115 @@ Where a driver's row reads `not-emitted` the arms skip with the
 capability-named inert note (see `../commands/verify/output.md`, Capability
 notes). Payload shapes of events are never declared and never diffed — this
 table adjudicates identities and participation, not message structure.
+
+## Canonical producers and shared constants
+
+`[[canonical_producer]]` declares which unit is the ONE canonical producer of
+a fact class; `[[shared_constant]]` is the same face over a constant fact
+class — a shared constant (one exported constant, several readers, no edge to
+name) has producers but no publish/subscribe pattern, so it declares identity
+exactly like a canonical producer and is NEVER an async row (ADR-069 clause
+4.4a(iv)). Both tables are optional and ride the shared key-shape law: `class`
+and `producer` are each required and non-empty per entry — an entry without
+one is refused as `invalid spec` naming the key and the entry
+(`[<table>] entry #N: missing mandatory key "<key>"`), and any other key is
+refused by the shared unknown-key law. The one exception is the pair: an
+`emit` or `subscribe` key on a `[[shared_constant]]` entry is refused in its
+own message class, never folded into the unknown-key echo
+(`[shared_constant] entry #N: key "<key>" — a shared constant is never a
+pattern pair: declare the class with class and producer, a pattern pair
+belongs to the pattern-pair declaration face`), and the generated JSON
+schema (`archspec spec --schema`)
+advertises the pair NOWHERE on either table — the schema and the validator
+read the ONE refused-key constant, so they cannot drift on its absence.
+
+The `class` is an opaque name: the engine carries no fact-class vocabulary,
+no application or framework name. The `producer` is a TREE-ROOT-CANONICAL
+unit id — the canonicalized tree-root-relative directory of the owning unit,
+resolved at the same one site every multi-producer fact identity resolves
+through. `verify` adjudicates both tables with three named arms whenever
+either table is non-empty; an absent or empty pair of tables changes nothing
+in any run.
+
+- **The producer resolves.** The spelling must answer the tree-root unit
+  index — a registered unit directory or one of its ecosystem spellings.
+  A declaration is spec prose, not a row, so it carries no producer directory
+  for the bare per-driver unit name `"."` to resolve through: the dot answers
+  only where the tree root itself is a unit and is refused by name everywhere
+  else.
+  `declaration producer unresolved: <class> — <producer> ([<table>] entry #N)`
+- **The producer is canonical.** A spelling that resolves through another
+  vocabulary — an ecosystem name, a path inside the owning unit — is not the
+  tree-root-canonical id the declaration law demands: the declaration is the
+  arbitration record other producers merge against, so its identity must not
+  depend on which vocabulary the author wrote.
+  `declaration producer not canonical: <class> — <producer> resolves to <id> ([<table>] entry #N)`
+- **One producer per class.** A class declared in one table with two
+  different canonical producers states no arbitration at all — the very
+  precondition the declaration exists to provide — so the conflict is refused
+  by name, never resolved by declaration order; one row per conflicting
+  class, grouped by resolved identity, so two spellings of one unit are one
+  producer.
+  `declaration producer conflict: <class> — <producer> (entries <numbers>), … ([<table>])`
+
+`report` and `verify --json` state the declared entries in the ONE declaration
+census section — one `canonical producer: <class> -> <producer>` row per entry,
+the shared-constant class riding the same row with a ` — shared constant`
+marker — report-only, never a verdict, and skipped when neither table
+declares; the json carries the same rows as a `declaration_census` member.
+The declaration face declares identity only: it emits no fact rows and
+derives nothing, and the async verdict arms read `[[async_depends]]` alone.
+
+## Pattern pairs for literal-site fact sources
+
+`[[pattern_pair]]` declares the NOUN side of the literal-site fact source:
+where in the source a framework call or an exported metadata property carries
+the event string. The engine ships exactly the two matcher VERBS —
+call-name + argument position, and exported-property value — and matches the
+declared noun by EQUALITY: renaming both the source call and the declaration
+moves no verdict, and no naming heuristic ever guesses a site (the
+engine-boundary law: nouns belong to the config, verbs to the engine).
+The schema: `id` is mandatory and unique — a repeated id is refused as
+`invalid spec` naming both entries, and an entry with neither an `emit` nor
+a `subscribe` side table is refused. Each side table carries `language` (a
+driver name, validated at load), an optional `role` from the closed set
+`publish`/`subscribe`, and exactly one verb: `call` + `arg` (0-based argument
+position; `arg` without `call` is refused) or `property`; a side with both
+verbs or with none is refused. `role` is the ONLY orientation source — the
+engine never infers a role from a name.
+
+A declaring scan resolves every declared side against the source and writes
+one `literal_sites` row per matched site — `{unit, path, language, value,
+anchor, pattern}` — where `anchor` is `call-name+arg-position` or
+`exported-property-value`, `pattern` is the declared pair id (never the
+call's name), and `language` is a row field, never a join arm. The report
+surface prints one `literal sites: pattern "<id>" language "<lang>" anchor
+<anchor> sites=<n>` census line per declared side — zero included, the
+never-silent law — or one `driver-gap: pattern "<id>" language "<lang>"`
+absence line when that driver's `literal-site-census` capability row reads
+`not-emitted` — a statement no shipped driver makes today: every shipped
+driver feeds its literal sites, and the row stays the face of a future
+driver added before its feed ships. A side on a driver whose literal sites
+join through the existing type-identity facts (csharp) states no gap: its
+capability row names the covering source. A run WITHOUT declared pattern
+pairs collects and serializes nothing: `scan.json` stays byte-identical to
+the pre-feature digest (the declaration gate, not a special case).
+Rows name their owning unit through the ONE canonical unit-id site; an
+unresolvable owner prints its named `UNITID-UNRESOLVED` line and writes no
+row (fail-closed), never a guessed attribution. The same declaring run then
+joins the resolved rows: the value join meets sites over the matched string
+VALUE in one key space — never on a symbol, never on a language — and
+orients every arrow by the declared enumerated role, never on a name. This
+is the model's first source of derived `async_edges` rows: a declaring
+scan's `scan.json` now states them, and where a declared `[[async_depends]]`
+entry carries the same `(from, to, event)` identity the two merge to one
+rendered row — a derived row never suppresses a declared arrow. A site that
+cannot orient, a pair whose sides state no role, a half whose counterpart
+driver brings no sites, a site of a constant-class pair, and a raw value two
+conventions claim all land in named census lines on the report surface
+instead of silent absence — report-only, exit 0 (catalog:
+`archspec help diagnostics`, the `value-join rows and zero-silence census`
+entry).
 
 ## Cycle ratchet ledger
 

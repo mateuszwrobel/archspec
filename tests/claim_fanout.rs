@@ -543,7 +543,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 81] = [
+    let required: [&str; 92] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -589,6 +589,7 @@ fn registry_owns_claim_identity() {
         "tsconfig-extends-not-installed",
         "ambiguous-root-markers",
         "nested-foreign-marker",
+        "ambiguous-markers",
         "dynamic-import-wildcard",
         "ts-vacuity-carriers",
         "kotlin-model-honesty",
@@ -628,6 +629,28 @@ fn registry_owns_claim_identity() {
         // verify --json machine body, rendered iff the declared table
         // resolves a pair.
         "async-census-section",
+        // Registered by the events_value_join scenario 02 (2026-11-19): the
+        // declaration-face refusal classes, its census section, and the
+        // shared-constant pattern-pair load refusal (ADR-069 4.4a).
+        "declaration-producer-unresolved",
+        "declaration-producer-not-canonical",
+        "declaration-producer-conflict",
+        "declaration-census-section",
+        "shared-constant-pattern-pair-refusal",
+        // Registered by the literal-site pattern primitives (workplan
+        // events_value_join scenario 03): the two generic matcher verbs, the
+        // scan-report census lines and the named driver-gap absence row.
+        "literal-site-pattern-primitives",
+        // Registered by the value join (workplan events_value_join scenario 04):
+        // the derived markers, the PLUGIN-OVERLAP merge row and the named
+        // zero-silence row set of the FIRST async_edges construction site.
+        "value-join-rows",
+        "attribution-census-rows",
+        // Registered by the dispatch-blinded projection (workplan
+        // events_value_join scenario 06, F-W4): the ONE report-only census
+        // row per zone whose 4.8 dispatch row dispatches a declared
+        // pattern language out — a projection over the shipped rows.
+        "dispatch-blinded-literals",
         // Registered by the issue-8 fail-closed law (2026-11-05): the one
         // shared key-shape table behind the emitted schema and the runtime
         // unknown-key refusal.
@@ -658,6 +681,10 @@ fn registry_owns_claim_identity() {
         // exclusion — the per-project census line of `excluded_sources` at
         // project discovery.
         "csharp-excluded-units",
+        // Registered by GitHub issue #60 (2026-11-19): the csharp declared
+        // exclusion at the FILE walk — the per-source-file census line of
+        // `excluded_sources` inside a kept project.
+        "csharp-excluded-sources",
         // Registered by GitHub issue #28 (2026-11-17): the import-order repro
         // emitter — the verify help flag line, the repro block per runtime
         // file ring, and the named skip row of a language without the
@@ -877,9 +904,13 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                     .split_once("<path>")
                     .expect("the fold note is a templated canonical");
                 let fx = Fixture::new();
-                let csproj = |reference: &str| {
+                // Single-word project names with corporate `RootNamespace`
+                // spellings (GitHub issue #61 made dotted project names
+                // render verbatim, so they can no longer weld a truncating
+                // fold): the two root keys still fold onto one `Api` node.
+                let csproj = |root_ns: &str, reference: &str| {
                     format!(
-                        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n{}{}</Project>\n",
+                        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n    <RootNamespace>{root_ns}</RootNamespace>\n  </PropertyGroup>\n{}{}</Project>\n",
                         if reference.is_empty() { "" } else { "  <ItemGroup>\n" },
                         if reference.is_empty() {
                             String::new()
@@ -888,17 +919,23 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                         }
                     )
                 };
-                fx.write("X.Api/X.Api.csproj", &csproj("../Y.Shared/Y.Shared.csproj"));
-                fx.write("X.Api/Wiring.cs", "using Y.Shared;\nnamespace X.Api;\n");
-                fx.write("Y.Api/Y.Api.csproj", &csproj("../Y.Shared/Y.Shared.csproj"));
                 fx.write(
-                    "Y.Api/Program.cs",
-                    "using Microsoft.Extensions.DependencyInjection;\nusing Y.Shared;\nnamespace Y.Api;\npublic static class Program\n{\n    public static void Main()\n    {\n        var services = new ServiceCollection();\n        services.AddScoped<ICache, Cache>();\n    }\n}\n",
+                    "Alpha/Alpha.csproj",
+                    &csproj("Alpha.Api", "../Shared/Shared.csproj"),
                 );
-                fx.write("Y.Shared/Y.Shared.csproj", &csproj(""));
+                fx.write("Alpha/Wiring.cs", "using Shared.Lib;\nnamespace Alpha.Api;\n");
                 fx.write(
-                    "Y.Shared/Shared.cs",
-                    "namespace Y.Shared;\npublic interface ICache { }\npublic class Cache : ICache { }\n",
+                    "Beta/Beta.csproj",
+                    &csproj("Beta.Api", "../Shared/Shared.csproj"),
+                );
+                fx.write(
+                    "Beta/Program.cs",
+                    "using Microsoft.Extensions.DependencyInjection;\nusing Shared.Lib;\nnamespace Beta.Api;\npublic static class Program\n{\n    public static void Main()\n    {\n        var services = new ServiceCollection();\n        services.AddScoped<ICache, Cache>();\n    }\n}\n",
+                );
+                fx.write("Shared/Shared.csproj", &csproj("Shared.Lib", ""));
+                fx.write(
+                    "Shared/Shared.cs",
+                    "namespace Shared.Lib;\npublic interface ICache { }\npublic class Cache : ICache { }\n",
                 );
                 let out = fx.run(&["depgraph", "modules"]);
                 // The conflicting fold (facade + composition onto one `Api`
@@ -1271,12 +1308,14 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             | "tsconfig-extends-not-installed"
             | "ambiguous-root-markers"
             | "nested-foreign-marker"
+            | "ambiguous-markers"
             | "dynamic-import-wildcard"
             | "orphan-file"
             | "orphan-file-census"
             | "csharp-test-gated-units"
             | "csharp-conditioned-test-markers"
             | "csharp-excluded-units"
+            | "csharp-excluded-sources"
             | "async-event-unresolved"
             | "async-publish-not-derived"
             | "async-subscribe-not-derived"
@@ -1284,8 +1323,344 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             | "async-drift-enum-projection"
             | "async-endpoint-unclaimed"
             | "async-cycle-advisory"
-            | "async-event-collision-advisory" => {
+            | "async-event-collision-advisory"
+            | "declaration-producer-unresolved"
+            | "declaration-producer-not-canonical"
+            | "declaration-producer-conflict" => {
                 contains_canonical(&mut errors, claim, "help diagnostics")
+            }
+            // The declaration-face census (workplan events_value_join
+            // scenario 02): live probe, both sides — a rust run whose
+            // `[[shared_constant]]` table resolves one entry renders the
+            // section header on the report surface; a run with neither
+            // declaration table renders no census bytes at all (D8).
+            "declaration-census-section" => {
+                contains_canonical(&mut errors, claim, "help diagnostics");
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"declweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub const PROTOCOL_VERSION: u32 = 4;\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"declweld\"\nmatches = { units = [\"declweld\"] }\n\n[[shared_constant]]\nclass = \"protocol-version\"\nproducer = \".\"\n",
+                );
+                let declaring = fx.run(&["report"]);
+                if !stdout(&declaring).contains("Declaration census") {
+                    errors.push(format!(
+                        "claim `{}` drifted: a declaring rust report does not render the section header: {}",
+                        claim.id,
+                        stdout(&declaring)
+                    ));
+                }
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"declweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub fn api() {}\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"declweld\"\nmatches = { units = [\"declweld\"] }\n",
+                );
+                let non_declaring = fx.run(&["report"]);
+                if stdout(&non_declaring).contains("Declaration census") {
+                    errors.push(format!(
+                        "claim `{}` drifted: a non-declaring run renders census bytes (D8): {}",
+                        claim.id,
+                        stdout(&non_declaring)
+                    ));
+                }
+            }
+            // The F-W3 load-time refusal (workplan events_value_join
+            // scenario 02): a live run whose `[[shared_constant]]` entry
+            // names the `emit` key exits 1 with the registered message
+            // bytes, its own class, never the unknown-key echo.
+            "shared-constant-pattern-pair-refusal" => {
+                // Live bytes from the registered template: the weld runs
+                // the `emit` key at entry #1, so the placeholders resolve
+                // to those concrete tokens here.
+                let canonical = claim
+                    .canonical
+                    .clone()
+                    .expect("canonical")
+                    .replace("<key>", "emit")
+                    .replace("entry #N", "entry #1");
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"pairweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub const PROTOCOL_VERSION: u32 = 4;\n");
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"pairweld\"\nmatches = { units = [\"pairweld\"] }\n\n[[shared_constant]]\nclass = \"protocol-version\"\nproducer = \".\"\nemit = \"publish\"\n",
+                );
+                let refused = fx.run(&["verify"]);
+                if refused.status.code() != Some(1)
+                    || !stderr(&refused).contains(canonical.as_str())
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the pattern-pair load refusal bytes differ from the registered canonical — exit {:?}, stderr {:?}",
+                        claim.id,
+                        refused.status.code(),
+                        stderr(&refused)
+                    ));
+                }
+            }
+            "literal-site-pattern-primitives" => {
+                contains_canonical(&mut errors, claim, "help diagnostics");
+                // Live probe (workplan events_value_join scenario 03): a ts
+                // fixture whose declared emit side matches one call site
+                // prints the registered census line with the placeholders
+                // resolved — the never-silent funded arm — and a run without
+                // the table prints no census bytes at all (4.2 arm 1).
+                let line = claim.canonical_fragments[0]
+                    .replace("<id>", "weld-bus")
+                    .replace("<lang>", "ts")
+                    .replace("<anchor>", "call-name+arg-position")
+                    .replace("<n>", "1");
+                let fx = Fixture::new();
+                fx.write(
+                    "package.json",
+                    "{\n  \"name\": \"patternweld\",\n  \"version\": \"1.0.0\"\n}\n",
+                );
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"ts\"\n\n[[pattern_pair]]\nid = \"weld-bus\"\n\n[pattern_pair.emit]\nlanguage = \"ts\"\nrole = \"publish\"\ncall = \"notify\"\narg = 0\n",
+                );
+                fx.write(
+                    "src/a.ts",
+                    "export function go() {\n  notify(\"thing.done\");\n}\n",
+                );
+                let declaring = fx.run(&["scan", "--output", "-"]);
+                if declaring.status.code() != Some(0)
+                    || !stderr(&declaring).contains(line.as_str())
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: a declaring ts scan does not print the registered census line {line:?} — exit {:?}, stderr {:?}",
+                        claim.id,
+                        declaring.status.code(),
+                        stderr(&declaring)
+                    ));
+                }
+                let fx = Fixture::new();
+                fx.write(
+                    "package.json",
+                    "{\n  \"name\": \"patternweld\",\n  \"version\": \"1.0.0\"\n}\n",
+                );
+                fx.write("src/a.ts", "export function go() {}\n");
+                let quiet = fx.run(&["scan", "--output", "-"]);
+                if stderr(&quiet).contains("literal sites:") || stderr(&quiet).contains("driver-gap:") {
+                    errors.push(format!(
+                        "claim `{}` drifted: a non-declaring run prints census or gap bytes (4.2 arm 1): {}",
+                        claim.id,
+                        stderr(&quiet)
+                    ));
+                }
+            }
+            "value-join-rows" => {
+                contains_canonical(&mut errors, claim, "help diagnostics");
+                // Live probe (workplan events_value_join scenario 04): a
+                // declaring rust fixture whose publish and subscribe sites
+                // share one value prints the registered derived-row line
+                // with the placeholders resolved, and a non-declaring run
+                // prints no value-join bytes at all (4.2 arm 1).
+                let line = claim.canonical_fragments[0]
+                    .replace("<from>", "pubweld")
+                    .replace("<to>", "subweld")
+                    .replace("<event>", "thing.done");
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[workspace]\nmembers = [\"pubweld\", \"subweld\"]\nresolver = \"2\"\n",
+                );
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\n\n[[pattern_pair]]\nid = \"weld-bus\"\n\n[pattern_pair.emit]\nlanguage = \"rust\"\nrole = \"publish\"\ncall = \"notify\"\narg = 0\n\n[pattern_pair.subscribe]\nlanguage = \"rust\"\nrole = \"subscribe\"\ncall = \"attach\"\narg = 0\n",
+                );
+                fx.write(
+                    "pubweld/Cargo.toml",
+                    "[package]\nname = \"pubweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write(
+                    "pubweld/src/lib.rs",
+                    "pub fn go() {\n    notify(\"thing.done\");\n}\n\nfn notify(_event: &str) {}\n",
+                );
+                fx.write(
+                    "subweld/Cargo.toml",
+                    "[package]\nname = \"subweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write(
+                    "subweld/src/lib.rs",
+                    "pub fn init() {\n    attach(\"thing.done\");\n}\n\nfn attach(_event: &str) {}\n",
+                );
+                let declaring = fx.run(&["scan", "--output", "-"]);
+                if declaring.status.code() != Some(0)
+                    || !stderr(&declaring).contains(line.as_str())
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: a declaring rust scan does not print the registered derived-row line {line:?} — exit {:?}, stderr {:?}",
+                        claim.id,
+                        declaring.status.code(),
+                        stderr(&declaring)
+                    ));
+                }
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"joinweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub fn go() {}\n");
+                let quiet = fx.run(&["scan", "--output", "-"]);
+                if stderr(&quiet).contains("async-row derived")
+                    || stderr(&quiet).contains("one-sided-leg")
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: a non-declaring run prints value-join bytes (4.2 arm 1): {}",
+                        claim.id,
+                        stderr(&quiet)
+                    ));
+                }
+            }
+            "attribution-census-rows" => {
+                contains_canonical(&mut errors, claim, "help diagnostics");
+                // Live probe (workplan events_value_join scenario 05): a
+                // declaring fixture whose hand-declared row names the
+                // declaring unit while the dispatch-side fact names the
+                // publishing unit prints the registered census line with
+                // the placeholders resolved, exactly once, exit 0; the
+                // same tree with the row attributed to the dispatching
+                // unit prints no attribution bytes (4.4a(b) both arms).
+                let line = claim.canonical_fragments[0]
+                    .replace("<from>", "declweld")
+                    .replace("<to>", "subweld")
+                    .replace("<event>", "pubweld::ThingDone")
+                    .replace("<units>", "pubweld");
+                let spec_text = |from: &str| {
+                    format!(
+                        "[project]\nlanguage = \"rust\"\n\n[[module]]\nname = \"pubweld\"\nmatches = {{ units = [\"pubweld\"] }}\n\n[[module]]\nname = \"subweld\"\nmatches = {{ units = [\"subweld\"] }}\n\n[[module]]\nname = \"declweld\"\nmatches = {{ units = [\"declweld\"] }}\n\n[[pattern_pair]]\nid = \"weld-bus\"\n\n[pattern_pair.emit]\nlanguage = \"rust\"\nrole = \"publish\"\ncall = \"notify\"\narg = 0\n\n[pattern_pair.subscribe]\nlanguage = \"rust\"\nrole = \"subscribe\"\ncall = \"listen\"\narg = 0\n\n[[async_depends]]\nfrom = \"{from}\"\nto = \"subweld\"\nevent = \"pubweld::ThingDone\"\n"
+                    )
+                };
+                let workspace = |fx: &Fixture, spec_from: &str| {
+                    fx.write(
+                        "Cargo.toml",
+                        "[workspace]\nmembers = [\"pubweld\", \"subweld\", \"declweld\"]\nresolver = \"2\"\n",
+                    );
+                    fx.write("architecture.spec.toml", spec_text(spec_from).as_str());
+                    fx.write(
+                        "pubweld/Cargo.toml",
+                        "[package]\nname = \"pubweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                    );
+                    fx.write(
+                        "pubweld/src/lib.rs",
+                        "pub struct ThingDone;\n\npub fn go() {\n    notify(\"pubweld::ThingDone\");\n}\n\nfn notify(_event: &str) {}\n",
+                    );
+                    fx.write(
+                        "subweld/Cargo.toml",
+                        "[package]\nname = \"subweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                    );
+                    fx.write(
+                        "subweld/src/lib.rs",
+                        "pub fn init() {\n    listen(\"pubweld::ThingDone\");\n}\n\nfn listen(_event: &str) {}\n",
+                    );
+                    fx.write(
+                        "declweld/Cargo.toml",
+                        "[package]\nname = \"declweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                    );
+                    fx.write("declweld/src/lib.rs", "pub fn wiring() {}\n");
+                };
+                let fx = Fixture::new();
+                workspace(&fx, "declweld");
+                let mismatching = fx.run(&["verify", "."]);
+                let hits = stderr(&mismatching)
+                    .lines()
+                    .filter(|line| line.contains("ambiguous-publish-attribution"))
+                    .count();
+                if mismatching.status.code() != Some(0)
+                    || hits != 1
+                    || !stderr(&mismatching).contains(line.as_str())
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: a mismatching declared row does not print the registered census line {line:?} exactly once — exit {:?}, stderr {:?}",
+                        claim.id,
+                        mismatching.status.code(),
+                        stderr(&mismatching)
+                    ));
+                }
+                let fx = Fixture::new();
+                workspace(&fx, "pubweld");
+                let attributed = fx.run(&["verify", "."]);
+                if stderr(&attributed).contains("ambiguous-publish-attribution") {
+                    errors.push(format!(
+                        "claim `{}` drifted: a row whose declaring side equals the dispatching side prints attribution bytes (4.4a(b) zero-row arm): {}",
+                        claim.id,
+                        stderr(&attributed)
+                    ));
+                }
+            }
+            // Registered by the dispatch-blinded projection (workplan
+            // events_value_join scenario 06, F-W4): the row reads the
+            // shipped dispatch rows plus the literal-site rows and prints
+            // ONE census line per blinded zone — report-only, never new
+            // scan machinery, never a verdict.
+            "dispatch-blinded-literals" => {
+                contains_canonical(&mut errors, claim, "help diagnostics");
+                // Live probe: a declaring fixture whose dual-marker zone
+                // dispatches a declared language OUT prints the registered
+                // line with the placeholders resolved; the same tree with
+                // no pattern pair prints no dispatch-blinded bytes at all.
+                let line = claim.canonical_fragments[0]
+                    .replace("<path>", "weldzone")
+                    .replace("<set>", "\"ts\"")
+                    .replace("<driver>", "rust")
+                    .replace("<n>", "0");
+                let fx = Fixture::new();
+                fx.write(
+                    "Cargo.toml",
+                    "[package]\nname = \"blindweld\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write("src/lib.rs", "pub fn api() {}\n");
+                fx.write(
+                    "weldzone/Cargo.toml",
+                    "[package]\nname = \"blindweld-zone\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                );
+                fx.write(
+                    "weldzone/package.json",
+                    "{\"name\": \"blindweld-zone\", \"version\": \"0.1.0\"}\n",
+                );
+                fx.write(
+                    "weldzone/events.ts",
+                    "export function init() {\n    attach(\"weld.done\");\n}\n\nfunction attach(_event: string) {}\n",
+                );
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\nexcluded_sources = [ { path = \"weldzone\", reason = \"the zone ships its ts side separately\" } ]\n\n[[pattern_pair]]\nid = \"weld-blind\"\n\n[pattern_pair.emit]\nlanguage = \"rust\"\nrole = \"publish\"\ncall = \"notify\"\narg = 0\n\n[pattern_pair.subscribe]\nlanguage = \"ts\"\nrole = \"subscribe\"\ncall = \"attach\"\narg = 0\n",
+                );
+                let declaring = fx.run(&["scan", "--output", "-"]);
+                if declaring.status.code() != Some(0)
+                    || !stderr(&declaring).contains(line.as_str())
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: a declaring dual-marker scan does not print the registered dispatch-blinded line {line:?} — exit {:?}, stderr {:?}",
+                        claim.id,
+                        declaring.status.code(),
+                        stderr(&declaring)
+                    ));
+                }
+                fx.write(
+                    "architecture.spec.toml",
+                    "[project]\nlanguage = \"rust\"\nexcluded_sources = [ { path = \"weldzone\", reason = \"the zone ships its ts side separately\" } ]\n",
+                );
+                let quiet = fx.run(&["scan", "--output", "-"]);
+                if stderr(&quiet).contains("dispatch-blinded-literals") {
+                    errors.push(format!(
+                        "claim `{}` drifted: a non-declaring run prints dispatch-blinded bytes (4.2 arm 1): {}",
+                        claim.id,
+                        stderr(&quiet)
+                    ));
+                }
             }
             "async-depends-inert-notes" => {
                 // Live probe: a rust run with a NON-EMPTY async_depends table

@@ -1,0 +1,4 @@
+graph TD
+  api
+  core
+  api --> core

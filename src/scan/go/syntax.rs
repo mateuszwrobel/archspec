@@ -71,6 +71,7 @@
 use tree_sitter::Node;
 
 use crate::language::Language;
+use crate::model::LiteralCandidateAnchor;
 use crate::parse::grammar::{node_text, parse_tree};
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -207,6 +208,201 @@ fn literal_value(text: &str) -> String {
         .and_then(|inner| inner.strip_suffix(['"', '`']))
         .unwrap_or(text)
         .to_string()
+}
+
+/// The literal-candidate feed of one `.go` file (workplan events_value_join
+/// scenario 09, decision A6): vocabulary-free syntactic sites carrying a
+/// string literal — every call site with a string-literal argument (call
+/// anchor) and every string-literal value of a package-level `const`/`var`
+/// binding (exported-property anchor). NO declared name reaches this walk:
+/// the callee's simple name and the binding's name ride as spelled; name
+/// equality is the engine matcher verb's work at the resolution site
+/// (`archspec::events::patterns`), so the driver owns no interpretation.
+/// The caller runs this only when a declared pattern names the go driver —
+/// the declaration gate is the byte identity (4.2 arm 1). A file that
+/// cannot be read or parsed states no candidate.
+pub(crate) fn literal_candidates(path: &Path) -> Vec<(LiteralCandidateAnchor, String)> {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    literal_candidates_source(&source)
+}
+
+/// The tree walk behind [`literal_candidates`], split out so the unit
+/// tests feed source text directly (the `scan_go_source` precedent).
+pub(crate) fn literal_candidates_source(source: &str) -> Vec<(LiteralCandidateAnchor, String)> {
+    let Ok(tree) = parse_tree(Language::Go, source) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_call_candidates(tree.root_node(), source, &mut out);
+    collect_package_property_candidates(tree.root_node(), source, &mut out);
+    out
+}
+
+/// The call-anchor walk: every `call_expression` in the tree, wherever it
+/// sits (nested calls each contribute their own candidates); one candidate
+/// per argument position whose node is a plain string literal. The callee's
+/// simple name is the spelled last segment — `filepath.Join` reads `Join`,
+/// the same last-name law the ts and kotlin walkers state.
+fn collect_call_candidates<'a>(
+    node: Node<'a>,
+    source: &'a str,
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    if node.kind() == "call_expression"
+        && let (Some(callee), Some(arguments)) = (
+            node.child_by_field_name("function")
+                .and_then(|target| simple_callee_name(target, source)),
+            node.child_by_field_name("arguments"),
+        )
+    {
+        for (position, argument) in arguments.named_children(&mut arguments.walk()).enumerate() {
+            if let Some(value) = string_literal_value(argument, source) {
+                out.push((
+                    LiteralCandidateAnchor::Call {
+                        callee: callee.clone(),
+                        position,
+                    },
+                    value,
+                ));
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_call_candidates(child, source, out);
+    }
+}
+
+/// The simple name of a call target as the source spells it: a bare
+/// `identifier` or the `field:` of a `selector_expression` (the method or
+/// package-qualified name, the last segment). A call of a call result or a
+/// parenthesized target states no simple name this verb can read.
+fn simple_callee_name<'a>(node: Node<'a>, source: &'a str) -> Option<String> {
+    match node.kind() {
+        "identifier" => Some(node_text(&node, source).to_string()),
+        "selector_expression" => node
+            .child_by_field_name("field")
+            .map(|field| node_text(&field, source).to_string()),
+        _ => None,
+    }
+}
+
+/// The exported-property-anchor walk: the `const_declaration` and
+/// `var_declaration` nodes that are DIRECT children of `source_file` — the
+/// package-level bindings. Function-body and block-local declarations are
+/// not exported surface and contribute nothing. One candidate per spec
+/// whose single name is bound to a single plain string literal; every other
+/// shape (multiple names, `iota`, typed or expression values) states no
+/// literal value for this verb.
+fn collect_package_property_candidates<'a>(
+    node: Node<'a>,
+    source: &'a str,
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "const_declaration" | "var_declaration" => {
+                let mut spec_cursor = child.walk();
+                for spec in child.named_children(&mut spec_cursor) {
+                    if !matches!(spec.kind(), "const_spec" | "var_spec") {
+                        continue;
+                    }
+                    // The `name:` field is repeatable (multi-name specs), so
+                    // it is read through the DIRECT named children: value
+                    // expressions never appear as direct identifiers (they
+                    // ride inside `expression_list`), so every direct
+                    // `identifier` here is a name.
+                    let mut name_cursor = spec.walk();
+                    let names: Vec<Node<'_>> = spec
+                        .named_children(&mut name_cursor)
+                        .filter(|name| name.kind() == "identifier")
+                        .collect();
+                    let [name] = names.as_slice() else {
+                        continue;
+                    };
+                    let value = spec
+                        .child_by_field_name("value")
+                        .filter(|list| list.named_child_count() == 1)
+                        .and_then(|list| list.named_child(0))
+                        .and_then(|value| string_literal_value(value, source));
+                    if let Some(value) = value {
+                        out.push((
+                            LiteralCandidateAnchor::ExportedProperty {
+                                property: node_text(name, source).to_string(),
+                            },
+                            value,
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The value of a plain string-literal node: an `interpreted_string_literal`
+/// joins its content fragments and decoded escapes IN ORDER (the ts
+/// `string_text` posture), a `raw_string_literal` carries its content bytes
+/// verbatim. Every other expression — concatenation, call results,
+/// identifiers — states no literal value.
+fn string_literal_value(node: Node, source: &str) -> Option<String> {
+    match node.kind() {
+        "interpreted_string_literal" => {
+            let mut text = String::new();
+            let mut saw_content = false;
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                match child.kind() {
+                    "interpreted_string_literal_content" => {
+                        saw_content = true;
+                        text.push_str(node_text(&child, source));
+                    }
+                    "escape_sequence" => {
+                        saw_content = true;
+                        text.push_str(&decode_escape(node_text(&child, source)));
+                    }
+                    _ => {}
+                }
+            }
+            if saw_content {
+                Some(text)
+            } else {
+                // Damaged or empty literal: the node text minus its quotes,
+                // never the quoted raw (the ts fallback posture).
+                Some(literal_value(node_text(&node, source)))
+            }
+        }
+        "raw_string_literal" => {
+            let mut cursor = node.walk();
+            if let Some(content) = node.named_children(&mut cursor).next() {
+                return Some(node_text(&content, source).to_string());
+            }
+            Some(literal_value(node_text(&node, source)))
+        }
+        _ => None,
+    }
+}
+
+/// Decode the single-form Go escape sequences (the kotlin/ts subset: the
+/// common control escapes plus quote and backslash); anything else stays as
+/// spelled — an exact-value claim over exotic escapes is not this verb's.
+fn decode_escape(text: &str) -> String {
+    match text {
+        "\\n" => "\n".into(),
+        "\\r" => "\r".into(),
+        "\\t" => "\t".into(),
+        "\\b" => "\u{8}".into(),
+        "\\f" => "\u{c}".into(),
+        "\\v" => "\u{b}".into(),
+        "\\a" => "\u{7}".into(),
+        "\\\"" => "\"".into(),
+        "\\'" => "'".into(),
+        "\\\\" => "\\".into(),
+        other => other.to_string(),
+    }
 }
 
 #[cfg(test)]

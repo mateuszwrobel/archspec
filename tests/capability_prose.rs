@@ -336,3 +336,64 @@ fn posture_rows_weld_the_table_the_capability_rows_and_adr_023() {
         );
     }
 }
+
+/// The three-state disclosure weld (surface-activation record §7 cell 6,
+/// landed by workplan visibility_phase2 scenario 04): the `value-join rows
+/// and zero-silence census` entry of `help diagnostics` must name all three
+/// readings of a zero-async model — declared rows present; non-declaring
+/// with a granular driver (author silence); non-declaring with a
+/// `not-emitted` driver (rung-2 gap) — and point at `archspec capability
+/// matrix`. The paragraph is the disclosure the reclassification rests on
+/// (record §4.3/§5); a removed sentence is a silent rot of the disclosure,
+/// so this cell refuses it. The entry runs from its title line to the blank
+/// line that separates catalog entries.
+#[test]
+fn the_value_join_topic_names_all_three_states_and_the_matrix() {
+    let fixture = common::Fixture::new();
+    let output = fixture.run(&["help", "diagnostics"]);
+    assert!(
+        output.status.success(),
+        "help diagnostics must print cleanly: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let manual = String::from_utf8_lossy(&output.stdout);
+    let mut entry = String::new();
+    let mut inside = false;
+    for line in manual.lines() {
+        if line.starts_with("value-join rows and zero-silence census") {
+            inside = true;
+        } else if inside && line.trim().is_empty() {
+            break;
+        }
+        if inside {
+            entry.push_str(line);
+            entry.push(' ');
+        }
+    }
+    assert!(
+        !entry.is_empty(),
+        "the diagnostics catalog must hold the `value-join rows and zero-silence census` entry"
+    );
+    let flat = entry
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    for marker in [
+        "reads three ways",
+        "declared rows present",
+        "author silence",
+        "not-emitted",
+        "rung-2 gap",
+        "capability matrix",
+    ] {
+        assert!(
+            flat.contains(marker),
+            "the `value-join rows and zero-silence census` entry no longer names \
+             {marker:?} — the three-state reading of a zero-async model is the \
+             disclosure surface of the reclassification (surface-activation record \
+             §4.3); the disclosure cannot rot silently (workplan visibility_phase2 \
+             scenario 04)"
+        );
+    }
+}
