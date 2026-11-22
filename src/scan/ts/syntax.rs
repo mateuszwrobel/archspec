@@ -117,7 +117,62 @@ pub(crate) fn literal_candidates(
     let mut out = Vec::new();
     collect_call_candidates(tree.root_node(), source, &mut out);
     collect_export_property_candidates(tree.root_node(), source, &mut out);
+    collect_field_value_candidates(tree.root_node(), source, &mut out);
     out
+}
+
+/// The field-value walk (workplan visibility_phase2 scenario 02, verb 3's
+/// driver feed): every `pair` node in the tree, wherever it sits — a
+/// keyed pair inside an object-like construction is a field position no
+/// matter what encloses it — contributes one candidate when its value is
+/// a plain string, and one candidate per plain-string element when its
+/// value IS an array literal. The key is a source key or a string key,
+/// one anchor, carried as spelled; a computed key or a shorthand pair
+/// states no field name this verb can read. Tuple and other non-field
+/// array positions collect nothing (the F3 fence: only keyed-value
+/// positions earn candidates). NO declared name reaches this walk.
+fn collect_field_value_candidates<'a>(
+    node: Node<'a>,
+    source: &'a [u8],
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    if node.kind() == "pair" {
+        let key = node
+            .child_by_field_name("key")
+            .filter(|key| {
+                matches!(key.kind(), "property_identifier" | "identifier" | "string")
+            })
+            .and_then(|key| {
+                if key.kind() == "string" {
+                    string_text(key, source)
+                } else {
+                    Some(node_text(&key, source).to_string())
+                }
+            });
+        if let (Some(field), Some(value)) = (key, node.child_by_field_name("value")) {
+            if value.kind() == "string"
+                && let Some(value) = string_text(value, source)
+            {
+                out.push((LiteralCandidateAnchor::Field { field }, value));
+            } else if value.kind() == "array" {
+                for element in children(&value) {
+                    if element.kind() == "string"
+                        && let Some(value) = string_text(element, source)
+                    {
+                        out.push((
+                            LiteralCandidateAnchor::Field {
+                                field: field.clone(),
+                            },
+                            value,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    for child in children(&node) {
+        collect_field_value_candidates(child, source, out);
+    }
 }
 
 /// The call-anchor walk: every `call_expression` in the tree, wherever it

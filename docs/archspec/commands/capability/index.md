@@ -32,7 +32,7 @@ stated facts (`role-facade`, `role-composition`, `module-tier`, `symbols`,
 `root-module-declarations`, `test-tier`, `external-packages`,
 `public-api-surface`, `file-grained-dependency-facts`, `orphan-census`,
 `type-only-dependency-facts`, `event-declaration-derivation`,
-`literal-site-census`), and `<emission>`
+`literal-site-census`, `field-value-census`), and `<emission>`
 the granularity: `granular`, `not-emitted`, or a conditional string (e.g.
 `file tier only (*_test.go excluded at scan)`). Parsing these
 rows is equivalent to reading the table — this is what the prose-drift guards

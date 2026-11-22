@@ -23,6 +23,11 @@
 //!
 //! Endpoints carry the tree-root-canonical unit ids (4.4a(i), scenario 01);
 //! the pattern sides come from scenario 03; the nouns are synthetic (F10).
+//!
+//! Workplan `visibility_phase2` scenario 02 extends this file with cells
+//! G..J: the third matcher verb (field value) fed through the SAME welded
+//! join — the join reads value bytes only, so field sites earn the same
+//! rows the two shipped verbs earn.
 
 mod common;
 
@@ -431,5 +436,232 @@ fn two_conventions_on_one_raw_value_do_not_join_and_name_both() {
         count_lines(&err, "ambiguous-leg"),
         0,
         "oriented sites never fall to the ambiguous arm (stderr: {err})"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// cells G..J — the third matcher verb: field value (workplan
+// visibility_phase2 scenario 02). The join is UNTOUCHED: these cells feed it
+// field-value sites and assert the SAME rows the two shipped verbs earn —
+// the join reads value bytes only, never the anchor (join.rs is welded
+// here, so its immutability is proven by this file compiling against the
+// frozen bytes plus the empty byte-diff leg of the lane record).
+// ---------------------------------------------------------------------------
+
+/// The field-value pair on the rust driver: emit side `field = "topic"`
+/// (publish), subscribe side `field = "handles"` (subscribe) — the sides
+/// carry DISTINCT nouns exactly as the shipped call-verb pairs do: one
+/// noun on both sides would put every site under both roles (the
+/// ambiguous-leg arm is the honest answer for that declaration, not a
+/// join). SYNTHETIC nouns (F10): `topic` and `handles` are generic words
+/// no corpus declaration owns.
+const FIELD_BUS_PAIR: &str = "[project]\nlanguage = \"rust\"\n\n[[pattern_pair]]\nid = \"field-bus\"\n\n\
+    [pattern_pair.emit]\nlanguage = \"rust\"\nrole = \"publish\"\nfield = \"topic\"\n\n\
+    [pattern_pair.subscribe]\nlanguage = \"rust\"\nrole = \"subscribe\"\nfield = \"handles\"\n";
+
+/// cell G — the collector faces: a struct-expression field, a macro-token
+/// object, and an array that IS a field value all contribute field-value
+/// sites; a non-field position (a plain call argument, a tuple-position
+/// string, a struct field of a non-matching noun) contributes none. Three
+/// matching publish sites in `api` plus one subscribe site in `worker`
+/// over ONE value join to ONE row — the volume-collapse shape the
+/// openmercato ACL class shows, at fixture scale.
+#[test]
+fn field_value_sites_from_every_object_like_position_join_to_one_row() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"api\", \"worker\"]\nresolver = \"2\"\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        &format!(
+            "{FIELD_BUS_PAIR}\n[[module]]\nname = \"api\"\nmatches = {{ units = [\"api\"] }}\n\n[[module]]\nname = \"worker\"\nmatches = {{ units = [\"worker\"] }}\n"
+        ),
+    );
+    fixture.write(
+        "api/Cargo.toml",
+        "[package]\nname = \"api\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "api/src/lib.rs",
+        "macro_rules! frame {\n    ($($t:tt)*) => {};\n}\n\n\
+         struct Envelope {\n    topic: &'static str,\n    label: &'static str,\n    body: u8,\n}\n\n\
+         pub fn announce() {\n    let message = Envelope { topic: \"orders.created\", label: \"none\", body: 1 };\n    \
+         frame!(meta: { topic: \"orders.created\" });\n    frame!(topic: [\"orders.created\"]);\n    \
+         frame!(frame: (\"orders.created\", \"tuple.field\"));\n    send(\"orders.created\");\n}\n\n\
+         fn send(_event: &str) {}\n",
+    );
+    fixture.write(
+        "worker/Cargo.toml",
+        "[package]\nname = \"worker\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "worker/src/lib.rs",
+        "struct Handler {\n    handles: &'static str,\n}\n\n\
+         pub fn handler() -> Handler {\n    Handler { handles: \"orders.created\" }\n}\n",
+    );
+    let output = scan(&fixture);
+    let json = stdout(&output);
+    let err = stderr(&output);
+    assert_eq!(
+        err
+            .lines()
+            .filter(|line| line.starts_with("literal sites:") && line.contains("sites=4"))
+            .count(),
+        2,
+        "one census line per side over the merged (pattern, language, \
+         anchor) key: the three topic-keyed emit sites plus the one \
+         handles-keyed subscribe site (stderr: {err})"
+    );
+    assert_eq!(
+        count_lines(&err, "async-row derived"),
+        1,
+        "four sites over one value collapse to ONE derived row — the \
+         (from, to, event) law is the join's, untouched (stderr: {err})"
+    );
+    assert!(
+        !err.contains("ambiguous-leg") && !err.contains("one-sided-leg"),
+        "oriented joined sites name nothing extra (stderr: {err})"
+    );
+    assert!(
+        !json.contains("tuple.field"),
+        "a tuple position states no site and no candidate (json: {json})"
+    );
+    assert_eq!(
+        json.matches("\"pattern\":\"field-bus\"").count(),
+        4,
+        "exactly four literal_sites rows carry the declared pattern — the \
+         non-matching nouns are candidates, never sites (json: {json})"
+    );
+    assert!(
+        json.contains("\"anchor\":\"field-value\""),
+        "the rows carry the third anchor word (json: {json})"
+    );
+}
+
+/// cell H — the ts collector faces: source keys, string keys and array
+/// values all earn field-value sites; a call argument, an object inside a
+/// non-field array, and a shorthand pair state none. Emit-only pair: every
+/// matched site names `one-sided-leg` (zero silence), no join fires.
+#[test]
+fn ts_field_value_sites_cover_source_string_and_array_keys() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "package.json",
+        "{\n  \"name\": \"demo-app\",\n  \"version\": \"1.0.0\"\n}\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"ts\"\n\n[[pattern_pair]]\nid = \"field-bus\"\n\n\
+         [pattern_pair.emit]\nlanguage = \"ts\"\nrole = \"publish\"\nfield = \"channel\"\n",
+    );
+    fixture.write(
+        "src/publish.ts",
+        "const sourceKey = {\n  channel: \"bus.one\",\n  label: \"bus.decoy\",\n};\n\
+         const stringKey = {\n  \"channel\": \"bus.two\",\n};\n\
+         const grouped = {\n  channel: [\"bus.three\", \"bus.four\"],\n  list: [[\"bus.nested\"]],\n  alias,\n};\n\
+         function run() {\n  send(\"bus.callarg\");\n  register([\"bus.tuple\"]);\n}\n\
+         function send(_e: string) {}\nfunction register(_e: string[]) {}\n",
+    );
+    let output = scan(&fixture);
+    let err = stderr(&output);
+    assert_eq!(
+        count_lines(&err, "literal sites: pattern \"field-bus\" language \"ts\" anchor field-value sites=4"),
+        1,
+        "source key, string key and the two array elements of a field value \
+         are sites; decoys are not (stderr: {err})"
+    );
+    assert_eq!(
+        count_lines(&err, "one-sided-leg"),
+        4,
+        "every matched publish site names itself — zero silence, no \
+         subscribe side exists (stderr: {err})"
+    );
+    for decoy in ["bus.callarg", "bus.tuple", "bus.nested", "bus.decoy"] {
+        assert!(
+            !err.contains(decoy),
+            "the non-field position {decoy:?} states no row (stderr: {err})"
+        );
+    }
+}
+
+/// cell I — one raw value under two field conventions: the join keys per
+/// convention (the value-namespace arm, read through verb 3 for the first
+/// time) and names both sites. Cell F's shape with field nouns.
+#[test]
+fn two_field_conventions_on_one_raw_value_do_not_join_and_name_both() {
+    let spec = "[project]\nlanguage = \"rust\"\n\n[[pattern_pair]]\nid = \"conv-a\"\n\n\
+        [pattern_pair.emit]\nlanguage = \"rust\"\nrole = \"publish\"\nfield = \"channel\"\n\n\
+        [[pattern_pair]]\nid = \"conv-b\"\n\n\
+        [pattern_pair.emit]\nlanguage = \"rust\"\nrole = \"publish\"\nfield = \"label\"\n";
+    let source = "struct A {\n    channel: &'static str,\n}\n\nstruct B {\n    label: &'static str,\n}\n\n\
+        pub fn shapes() {\n    let a = A { channel: \"shared.value\" };\n    let b = B { label: \"shared.value\" };\n}\n";
+    let fixture = single_crate_tree(spec, source);
+    let output = scan(&fixture);
+    let json = stdout(&output);
+    let err = stderr(&output);
+    assert!(
+        !json.contains("\"async_edges\":[{"),
+        "a convention collision joins nothing across the conventions:\n{json}"
+    );
+    assert_eq!(
+        count_lines(&err, "value-namespace"),
+        1,
+        "the collision on the raw value names itself once (stderr: {err})"
+    );
+    assert_eq!(
+        count_lines(&err, "one-sided-leg"),
+        2,
+        "both sites land in their own named rows (stderr: {err})"
+    );
+}
+
+/// cell J — renaming the field noun moves zero verdicts: the declaration
+/// and the source keys rename together, and the joined rows are the same
+/// bytes (the F3 no-name-inference law read through verb 3 — a site is a
+/// KEYED POSITION the declaration names, never a name the engine knows).
+#[test]
+fn renaming_the_declared_field_noun_moves_zero_verdicts() {
+    fn tree(noun: &str) -> Fixture {
+        let fixture = Fixture::new();
+        fixture.write(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"api\", \"worker\"]\nresolver = \"2\"\n",
+        );
+        fixture.write(
+            "architecture.spec.toml",
+            &format!(
+                "[project]\nlanguage = \"rust\"\n\n[[pattern_pair]]\nid = \"field-bus\"\n\n\
+                 [pattern_pair.emit]\nlanguage = \"rust\"\nrole = \"publish\"\nfield = \"{noun}\"\n\n\
+                 [pattern_pair.subscribe]\nlanguage = \"rust\"\nrole = \"subscribe\"\nfield = \"handles\"\n\n\
+                 [[module]]\nname = \"api\"\nmatches = {{ units = [\"api\"] }}\n\n[[module]]\nname = \"worker\"\nmatches = {{ units = [\"worker\"] }}\n"
+            ),
+        );
+        for (name, key) in [("api", noun), ("worker", "handles")] {
+            fixture.write(
+                &format!("{name}/Cargo.toml"),
+                &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            );
+            fixture.write(
+                &format!("{name}/src/lib.rs"),
+                &format!(
+                    "struct Frame {{\n    {key}: &'static str,\n}}\n\npub fn frame() -> Frame {{\n    Frame {{ {key}: \"orders.created\" }}\n}}\n"
+                ),
+            );
+        }
+        fixture
+    }
+    let before = stdout(&scan(&tree("topic")));
+    let after = stdout(&scan(&tree("xyzzy")));
+    let edges = |json: &str| {
+        let start = json.find("\"async_edges\":").expect("async_edges present");
+        let rest = &json[start..];
+        rest[..rest.find(']').expect("edges list ends")].to_string()
+    };
+    assert_eq!(
+        edges(&before),
+        edges(&after),
+        "renaming the noun in the declaration AND the source moves no verdict"
     );
 }

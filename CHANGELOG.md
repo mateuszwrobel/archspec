@@ -6,6 +6,410 @@ only.
 
 ## [Unreleased]
 
+## [0.6.146] - 2026-11-22
+
+- Release mechanics: the publish release-notes step stops quoting git commit
+  subjects. Release notes are the curated changelog section only, so the
+  door's "rewrite it before publishing" advice stays actionable on curable
+  bytes (decision-check 2026-11-22). Payload bytes unchanged vs 0.6.145.
+
+## [0.6.145] - 2026-11-21
+
+- Docs fan-out for the shipped condition evaluator (workplan
+  `csharp_condition_eval` scenario 03 — no behavior bytes move): the
+  `test marker under unevaluated condition` entry of `archspec help
+  diagnostics` now states the evaluated face the binary already ships —
+  the designed subset (`==`/`!=` on quoted or unquoted operands,
+  case-insensitive; the reserved property `$(MSBuildProjectName)` alone;
+  the case-sensitive `.EndsWith`/`.StartsWith`/`.Equals`; well-formed
+  And/Or/Not), the tri-state verdict with the first-match-wins `Choose`
+  chain, the row firing for UNEVALUATED conditions only, and the named
+  non-goals (no `Regex.IsMatch`, no full MSBuild semantics; the
+  `Directory.Build.targets` / `<Import>` face stays named by the
+  `condition face not walked` entry). The scan input doc cites the
+  diagnostics entry instead of restating it; the claim-registry comment
+  and owner wording move with it — canonical fragments byte-identical.
+
+## [0.6.144] - 2026-11-21
+
+- The csharp walk now consumes the condition evaluator (workplan
+  `csharp_condition_eval` scenario 02): every `Condition` face the driver
+  already reads — csproj and central-props items, `ItemGroup` scopes and
+  `Choose`/`When`/`Otherwise` chains — is decided per CONSUMING project
+  through `scan::csharp::condition` (M4: no per-props-file cache exists).
+  An evaluated TRUE test marker is gating evidence: the project drops to
+  the test tier and the run states the one existing
+  `test-gated unit: <path> — <marker>` census line naming the promotion
+  (F7). An evaluated FALSE marker condition leaves the item absent with no
+  diagnostic row, every unconditional fact byte-unchanged (F8 defense). An
+  unevaluated condition keeps the byte-identical rung-1 row
+  `test marker under unevaluated condition: <file>:<line>` (deduped on
+  `(file, line, Include)`, sorted) — the whole `$(IsTestProject)`-class
+  behavior is pinned unchanged. `Choose` is no longer a blanket-unevaluated
+  subtree: the B1 chain rule decides each arm — first match wins, an
+  unevaluable earlier arm vetoes later arms and the `Otherwise` to the
+  diagnostic path. A conditioned non-test reference keeps the rung-1
+  counting whatever the verdict says (D6: no verdict erases a non-marker
+  fact). No verdict line ships new: only the row MIX moves; the
+  `condition face not walked:` rows for `Directory.Build.targets` and
+  `Import` faces stay loud (the walked set is unchanged).
+
+## [0.6.143] - 2026-11-21
+
+- The condition evaluator core (workplan `csharp_condition_eval` scenario 01):
+  new pure module `scan::csharp::condition` — `ConditionVerdict` answers
+  exactly `True`/`False`/`Unevaluated` (M2 tri-state); `evaluate` decides the
+  designed subset — the reserved property `$(MSBuildProjectName)` (the
+  project-file stem; the reserved set is exactly that one name, F9/D3),
+  `.EndsWith`/`.StartsWith`/`.Equals` compared case-SENSITIVELY (M1),
+  `==`/`!=` compared case-INSENSITIVELY on quoted or unquoted operands
+  (M1, m2), well-formed `And`/`Or`/`Not` only, a partial parse making the
+  WHOLE condition `Unevaluated` (no Kleene shortcuts); unknown property
+  expansion never resolves to the empty string; `Regex.IsMatch` spellings are
+  dropped from the subset and answer `Unevaluated` (M3). `choose_verdict`
+  implements the B1 first-match-wins chain rule —
+  effective(`When_k`) = `C_k` AND NOT `C_1` … NOT `C_{k-1}`,
+  effective(`Otherwise`) = NOT `C_1` … NOT `C_n` — an unevaluable earlier arm
+  answers every later arm through `Unevaluated`. The module ships uncalled:
+  no driver output moves, no new verdict line is emitted; walk integration is
+  scenario 02 and the docs/claim fan-out is scenario 03.
+
+## [0.6.142] - 2026-11-21
+
+- The condition-face gap row (workplan `csharp_condition_eval` scenario 04,
+  the F2 never-silent cure): a csharp tree whose test markers sit only in a
+  root `Directory.Build.targets` or in props brought in by an `<Import>`
+  now names the unwalked sources instead of erasing the face silently. One
+  `condition face not walked: <file>` line per distinct `Directory.Build.targets`
+  the per-project upward walk visits and one
+  `condition face not walked: <file> — imported by <importing-file>:<line>`
+  line per distinct (`Import` target, importing site) of the csproj and
+  walked props files — resolved path root-relative, attribute text verbatim
+  under glob or `$(...)` residue, `Import` line via the existing line
+  machinery. PRESENCE ONLY: the contents stay unwalked (the named non-goal
+  stands, no new semantics), rows are report-only — machine body
+  byte-identical, exit 0 — deduped on the row bytes and sorted. The
+  `help diagnostics` catalog carries the new entry; the conditioned-marker
+  entry's superseded "neither modeled nor diagnosed" sentence now cites it;
+  the claim registry welds `csharp-condition-face-unwalked` to the new
+  `tests/csharp_condition_gap.rs` guard.
+
+## [0.6.141] - 2026-11-21
+
+- Fixture mirrors of the witness-battery level corpus receipts (workplan
+  `level_views` scenario 07): `tests/level_views_witness_mirrors.rs` welds
+  the receipt laws at fixture scale — the ledger row `drawn + self = raw`
+  exact at every level with the raw term equal to the artefact's module-edge
+  rows, the dir fold's first-segment buckets with the tree-root class named,
+  bucket-relative reldir1 labels carrying no path separator, and the
+  over-ceiling refusal naming the fits plus the two-step narrowing grammar
+  verbatim with the two steps executing on a scanned subtree. No payload
+  behavior moved; the cells mirror the battery legs so corpus drift and
+  engine drift stay separable.
+
+## [0.6.140] - 2026-11-21
+
+- `--layer` × `--level` composition weld (workplan `level_views` scenario
+  06): the layer select happens on the projected rows — one fold feeds every
+  composed pair, so the accounting ledger stays `drawn + self = raw` exact
+  AND byte-identical across `direct`, `indirect` and `both` at every level;
+  `direct` never draws an async row, `indirect` never draws a structural
+  row, and `both` draws exactly the union of the two families, every row
+  once. A folded async row lands self-accounted at every fold: each declared
+  row either draws its arrow or rides the fold-away note — never both, never
+  neither. The descriptive-only row and the completeness restatement ride
+  STDERR only — the render body is byte-identical with and without them
+  (a gap-census move never touches the body bytes), `--check` stays green
+  with the rows present, and a bucket cycle without a module-tier cycle
+  draws descriptively at exit 0: `verify` keeps gating the module tier. The
+  weld audit swept every `--layer` value × every `--level` value, resolved
+  every verb+flag pair in every level refusal row against the live help
+  surfaces from the claim registry, pinned the capability matrix to no
+  flag-level facts, and greps the tree so only owner surfaces spell the
+  ceiling numbers — the facts stay parsed from `archspec diagram --help`.
+
+## [0.6.139] - 2026-11-21
+
+- Emitted-byte ceiling in the level-viewer document (workplan `level_views`
+  scenario 05): the `--format viewer` emit carries a MEASURED byte ceiling —
+  floor 1 MB, value the binary 1 MB — sized on the pane-fold witnesses (the
+  two corpus-scale witness trees emit 0.02 MB and 0.28 MB through the pane
+  fold, both under the floor). A document over the ceiling ships nothing:
+  the emit refuses at exit 64 with the named row `this viewer document
+  exceeds the emitted-byte ceiling of <bytes> — measured <bytes> bytes, and
+  a document over the ceiling ships nothing; largest scope that fits: level
+  <level> — measured <bytes> bytes` followed by the two-step narrowing
+  grammar, or the named empty-scope row when no fold fits. The largest
+  fitting scope is decided EMIT-AND-MEASURE on the document's own bytes over
+  the fit-set walk — pane-embedded folds make the byte mass non-monotone in
+  the fold, so the measurement, not an assumption, picks the scope. The
+  document's embedded refusal rows charge its own total once, so a refusal
+  can never re-trigger the gate (no feedback loop); panes keep embedding
+  PRECOMPUTED folds, never raw rows.
+
+## [0.6.138] - 2026-11-21
+
+- Recursive panes in the level-viewer document (workplan `level_views`
+  scenario 04): `archspec diagram --source scan --level <level> --format
+  viewer` now drills into every bucket that carries internal structural
+  rows. A pane re-projects its rows RELATIVE TO THE BUCKET ROOT — the
+  FOLD-ROOT LAW: a pane never folds at global directory depth — through the
+  ONE fold site, and draws the FINEST relative fold that fits the ceilings.
+  A pane over ceiling at its finest relative granularity speaks the named
+  in-pane refusal row `pane over ceiling at <granularity> — narrow:
+  archspec scan <bucket-path> --output <artefact>, then archspec diagram
+  --source scan <artefact> [--level <fit>]` with the real bucket path
+  substituted (the TERMINATION LAW: never an empty pane, never a raw dump)
+  and restates the completeness census row inside the pane region. Pane
+  node ids are PANE-SCOPED — the bucket path plus the relative label — so
+  identical relative labels in distinct panes stay distinct nodes. The
+  document states one whole-document total row exactly once per emit —
+  `document total: <n> top-cross + <n> pane-internal = <n> raw rows` — and
+  each pane nests inside its bucket node as scope, never ownership. The
+  bucket graph, the stderr ledger and every non-level `--format viewer`
+  document stay byte-identical; the click handler gained
+  `stopPropagation` so a pane-node click no longer re-selects the parent
+  group.
+
+## [0.6.137] - 2026-11-21
+
+- The NAME-THE-FITS refusal on the over-ceiling `--level` render (workplan
+  `level_views` scenario 02): a level render whose EMITTED bytes exceed a
+  shipped ceiling — the ceilings parsed from `archspec diagram --help` at
+  run time — emits nothing and refuses at exit 64 naming the fits: every
+  fold up to the first OVER one with cross-edges above 0 (the degenerate
+  fold stays out, BLOCKER-2), each with its self-share percent, measured
+  emit-and-measure on the emitter's own bytes with the badge shape counted
+  (MAJOR-7), never a char estimate. Fold enumeration stops at the first
+  OVER level (MINOR-19); no finer fold's bytes are emitted to prove the
+  refusal and no coarser level is silently auto-picked. A zero-cross model
+  prints the named `fits: none — no fold fits at these ceilings` row
+  instead, never silence (B2/M10). The refusal names the two-step
+  narrowing — `narrow with: archspec scan <bucket-path> --output
+  <artefact>, then archspec diagram --source scan <artefact> [--level
+  <fit>]` (MAJOR-20) — and its steps run as printed; `archspec scan` stays
+  unchanged, its exit-1 gap law governing the first step.
+
+## [0.6.136] - 2026-11-21
+
+- The declared-vs-projected unit delta census on the
+  `archspec diagram --source scan --level unit` render surface (workplan
+  `level_views` scenario 03): the projected unit graph and the model's
+  declared unit edges are TWO graphs, and the run names their delta LOUD on
+  stderr — a `unit delta model-only: <n> — <pairs>` row (pairs the model
+  declares that the fold draws nowhere) and a `unit delta projection-only:
+  <n> — <pairs>` row (pairs the fold draws that the model does not declare),
+  `none` when a class is empty, each pair spelled `from→to`. The rows are
+  ADVISORY (decision-check MAJOR-5 fix, MAJOR-13 posture): a healthy rc=0
+  artefact stays rc=0 with the delta named, the census never enters the
+  render body or the model, and the exit-1 gap law stays `scan`-only. The
+  census composes with the scenario-01 ledger — `accounting exact: <d> drawn
+  + <s> self = <r> raw` stays exact at the unit level — and the projected
+  side is the drawn graph (aggregated cross pairs plus placed async pairs;
+  a self-folded row is a pair neither graph draws). The same scan at
+  `--tiers units` keeps drawing the declared graph unchanged and prints no
+  census row, so the two graphs never ship silently. New claims
+  `level-unit-delta-model-only`, `level-unit-delta-projection-only`; guards
+  `tests/level_unit_census.rs` and the `diagram/level-unit-delta`
+  e2e-matrix cell.
+
+
+## [0.6.135] - 2026-11-21
+
+- The `--level` projection fold and its accounting block on the
+  `archspec diagram --source scan` render surface (workplan `level_views`
+  scenario 01): `--level <unit|dir:<k>|module|file>` projects the artefact's
+  `module_edges` rows onto buckets at ONE fold site feeding every format arm
+  — an aggregated cross-bucket edge draws as one labelled row with its
+  raw-row count and intra-bucket rows draw no arrow. The run prints its
+  accounting block on stderr: `note: descriptive only — verify gates the
+  module tier`, the `self rows:` tally, the exact ledger
+  `accounting exact: <d> drawn + <s> self = <r> raw rows at level <lv>` (a
+  zero-row artefact prints `empty model: 0 raw rows at level <lv>` instead),
+  and `completeness restated:` restating the scan census row whenever the
+  gap census is non-empty. Async rows fold through the shipped projection:
+  folded pairs ride the self term and the fold-away note keeps its bytes.
+  Files at the tree root bucket into one named `root` class at every level.
+  `--level` rides the scan source only — with `--source spec` or `--tiers`
+  it refuses at exit 64, and an unknown value (including `dir:0`) names the
+  supported values. The flag absent renders byte-identical bytes and prints
+  no accounting rows. New claims `level-selector-refusal`,
+  `level-dir-floor-refusal`, `level-source-refusal`, `level-tiers-refusal`,
+  `level-descriptive-note`, `level-accounting-exact`, `level-empty-model`,
+  `level-completeness-restatement`; guards `tests/level_projection.rs`,
+  the extended `tests/async_render.rs` fold-to-self cell, and the
+  `diagram/level-fold` / `diagram/level-invalid` e2e-matrix cells.
+
+## [0.6.134] - 2026-11-20
+
+- The ts multi-unit owner lookup is an index walk, not a member scan (perf
+  record 2026-11-20 H1/H8): every source row asked every workspace member dir
+  in turn whether it owned the file's path, so a multi-package scan cost
+  `rows × member dirs` — once in the module-edge assembly, once again in the
+  declarations census. The member dirs now key a lookup that walks the file's
+  OWN ancestors and stops at the first member dir it meets. That is the
+  deepest-first ownership law byte-for-byte — two members that both own a path
+  sit on one ancestor chain, so the walk meets the deeper one first, the row
+  the descending scan returned — and a path no member owns still falls back to
+  the root unit. The cost per row is the path's depth, never the member count.
+  `scan.json` is byte-identical before and after on three corpora: the
+  committed synthetic tree (20 000 `.ts` files, 800 members), and two
+  multi-package working trees of 19 010 and 64 944 files. Wall, median of
+  three warm `scan` runs on the reference machine: 3 089 → 382 ms on the
+  synthetic tree, 10 530 → 4 949 ms on the 64 944-file tree, 5 554 → 4 719 ms
+  on the 19 010-file tree. `tests/ts_owner_shape.rs` pins the shape: two
+  generated trees of equal file count and equal module-edge-row count over
+  2 048 and 64 member dirs must scan with the wide wall at most 6x the narrow
+  wall (measured 1.59x–1.96x indexed under fleet load and idle; the pre-fix
+  scan measured 16.5x).
+  `tests/ts_workspace.rs` pins the law itself on a member dir inside a member
+  dir, through both the module-edge rows and the declarations census.
+
+## [0.6.133] - 2026-11-20
+
+- The declared-exclusion walk lookup is a component trie (perf cure, H6):
+  the ts collection walk indexes `excluded_sources` once per walk and
+  answers each visited path with one O(depth) structural descent, replacing
+  the scan of the whole table per visited entry (entries x table — on a
+  785-entry spec ~18.4 M comparisons, ~650 ms of walk wall on a measured
+  corpus). Verdicts are unchanged by construction: the same component-wise
+  `Path::starts_with` law (the entry `web` still never matches `webapp`),
+  and the mechanical-directory check now runs once on the absolute path
+  (the relative-path second pass was subsumed cost). Scan output is
+  byte-identical on every measured corpus. Guard cells:
+  `declared_index_matches_componentwise_never_by_prefix_text` and
+  `excluded_walk_prunes_declared_subtrees_without_visiting_them`.
+
+## [0.6.132] - 2026-11-20
+
+- The mermaid ceiling law armed at the emit seam (improvement-sweep HIGH-1
+  cure): every `--format mermaid` render of `archspec diagram` (whole-model,
+  `--module` territory, `--modules-dir` batch) and `archspec depgraph` now
+  measures its rendered body against the pinned host ceilings the ceiling
+  rationale states — 500 edges and 50,000 characters — and an over-ceiling
+  render refuses at exit 64 naming the measured counts and the clear-arms its
+  own surface accepts (`--format dot`/`svg`/`viewer`, `--tiers units`,
+  `--aggregate`, `--format plantuml`). Nothing is emitted or written on
+  refusal, the batch renders every claim before writing any file, and a
+  render at either ceiling is unchanged. New claim `mermaid-ceiling-refusal`;
+  guard `tests/mermaid_ceiling.rs`.
+
+## [0.6.131] - 2026-11-20
+
+- The csharp manifest path-item walk and the csharp literal-candidate feed
+  (workplan `visibility_phase2` scenario 03): the driver reads EVERY item
+  element's `Include` value path-resolved — item-element names are never
+  read (name-free law, the `Protobuf` census) — and classifies each
+  unconditional path: under another kept project → unit edge (deduped with
+  the `ProjectReference` arm through one edge set), under self → silent
+  SDK-default content, under no project → `shared source: <path> — host
+  units: <n>` census row (a no-manifest directory gains NO unit, no
+  namespace rows, no edges), under a dropped project → named no-edge row;
+  values that resolve nowhere (`$(…)`, `%(…)`, globs, absent paths) and
+  items inside `Target`s or under `Condition`s each print their one named
+  report-only row — five skip classes, zero new silent passes. A malformed
+  csproj refuses with the loud named error, never a silent zero. Csharp
+  joins the literal-candidate contributors (the sixth driver): plain
+  string-literal call arguments feed call anchors (callee simple name +
+  argument position) behind the declaration gate, so a non-declaring run
+  keeps its machine body byte-identical (scenario 08 law) and csharp trees
+  answer `shared-constant` rows and `one-sided-leg` naming through the
+  existing `pattern_pair` grammar. The `literal-site-census` capability
+  row flips `via type-identity facts (no literal census)` → `granular`.
+  `archspec help diagnostics` renders the two new catalog entries; the
+  claim registry adds `csharp-manifest-path-items` and
+  `csharp-shared-source-census`; ADR-069 §Doctrine limits gains the copied-
+  contract and composition-graph rows. New suite:
+  `tests/csharp_manifest_items.rs`; the vocabulary census extends over
+  `src/scan/csharp/**` with a zero baseline.
+## [0.6.130] - 2026-11-20
+
+- Payload hygiene (leak-guard cure, round 2): the witness-corpus name
+  re-entered the payload through two later feature landings (the layer
+  ceiling rationale and the diagram layers suite) — four lines: the
+  claim-registry canonical, the `diagram --help` rationale paragraph, and
+  two comments in `tests/diagram_layers.rs`. All four now use the
+  established generic (`corpus-scale witness`); the weld and help cells
+  pass unchanged on the genericized bytes. The full-tree fallback scan is
+  the door that named this residue.
+
+## [0.6.129] - 2026-11-20
+
+- The third matcher verb: field value (visibility phase 2, scenario 02).
+  A `[[pattern_pair]]` side may now declare `field = "<noun>"`: the site is
+  a string literal at the value position of a keyed pair in an object-like
+  construction (source keys and string keys are one anchor) or a string
+  element of an array that IS such a value; tuple and other non-field
+  positions collect nothing. Matched sites carry the `field-value` anchor
+  and join through the unchanged value-join machinery — the join reads
+  value bytes only, so the new sites earn the same rows the shipped verbs
+  earn, and `join.rs` is untouched. The rust driver collects struct-field
+  literals and walks every macro body's token trees structurally (token
+  KINDS only — no macro, crate or producer name is read); the ts driver
+  walks every `pair` node by grammar kind. A new capability fact
+  `field-value-census` names the funding per driver (rust and ts
+  `granular`, the rest `not-emitted`): a declared `field` side on an
+  unfunded driver prints the named `driver-gap` census line naming the
+  field-value shape — never a `sites=0` silence-adjacent zero — and the
+  funded counterpart half lands in the join's own `unfunded-shape` row.
+  A run without declared pattern pairs stays byte-identical.
+
+## [0.6.128] - 2026-11-20
+
+- `--format viewer` on `diagram --source scan` (workplan `visibility_phase2`
+  scenario 06): ONE self-contained, zero-dependency `viewer.html` over the
+  assembled scan graph, generated end to end by the binary — the law the
+  `Viewer law:` paragraph of `archspec diagram --help` states. Clicking a
+  node highlights its connections, a generated legend states the drawn node
+  and edge classes, and a `direct | indirect | both` toggle rides the
+  scenario-05 layer semantics. The format rides the scan source only, and
+  the whole-model-graph refusal now names it beside `dot` and `svg`. The
+  payload ships a GitHub Pages channel (`.github/workflows/pages.yml`) for
+  the document; the `Viewer channels:` help paragraph states the gitea
+  limitation and names the two alternatives NOT built here: gitea-side
+  infrastructure hosting and a future `archspec serve` verb.
+
+## [0.6.127] - 2026-11-20
+
+- `--layer <direct|indirect|both>` on `diagram` and the `depgraph` graph
+  views, plus the `--format dot` and `--format svg` emitter arms (workplan
+  `visibility_phase2` scenario 05). The selector is a render-side read of
+  the two collections the model keeps separate by construction: `direct`
+  draws the structural arrows, `indirect` the dashed event-labelled async
+  rows, and `both` — the default, flag absent — draws every row exactly as
+  the shipped render, byte-identical. `dot` emits graphviz source and
+  `svg` a hand-emitted deterministic layout carrying the same node/edge
+  inventory; both arms draw a GENERATED legend whenever `both` draws both
+  edge families, and the help states the mermaid-host ceilings (500 edges,
+  50,000 characters) and the corpus-scale witness that make the split
+  mandatory rather than stylistic. One graph assembly site feeds every
+  format; mermaid and plantuml bytes are untouched.
+## [0.6.126] - 2026-11-20
+
+- Unresolvable imports no longer destroy the run (visibility phase 2,
+  scenario 01): the ts and python drivers now ALWAYS land the model. Each
+  evidence-less miss still prints its anchored
+  `unresolvable import: <file> -> "<specifier>"` line byte-identically
+  and contributes to exactly one
+  `unresolvable imports census: <N> specifiers across <M> files — top: …`
+  line on the report surface (distinct specifiers/files, sorted
+  count-desc then specifier-asc). `scan` exits 1 if and only if the
+  census is non-empty — a non-empty census forces exit 1 even when
+  `--check` compares fresh bytes; `verify` folds the anchored lines into
+  its warnings channel (green-with-warnings; `--strict` promotes to exit
+  1) and the census names itself once. An empty census leaves every byte
+  of both verbs unchanged. Config faults (tsconfig load failures, invalid
+  manifests, unclassified resolver errors) keep the fail-loud abort and
+  the census never launders a silent extractor past the tripwire. Two
+  mechanical evidence arms route misses to shipped report-only classes
+  instead of the census: R7b-ext — an alias dead-end whose identity a
+  manifest up to the registry root DECLARES (nearest-manifest priority
+  intact) or a root lockfile NAMES lands the external fact with the
+  install line — and NAPI-ext — a `<loader-package-name>-<platform-triple>`
+  required from a file carrying the `auto-generated by NAPI-RS` marker is
+  the generated class (`generated source not built`). Both arms are
+  vocabulary-free.
+
 ## [0.6.125] - 2026-11-20
 
 - Payload hygiene (publish leak-guard cure): two test-suite comments in
@@ -43,7 +447,8 @@ only.
   re-trigger; 04 scopes zero silence to literals matched by a DECLARED
   pattern, vacuously satisfied on a non-declaring tree. Coexistence
   witnesses stay untouched-green: the 08 zero-spoken sweep, the one-gate
-  structural cell, and the eShop/witness-corpus battery legs.
+  structural cell, and the witness-corpus battery legs.
+
 
 ## [0.6.123] - 2026-11-20
 
@@ -317,7 +722,7 @@ only.
   full, or where the fold's chosen segment sits strictly inside that
   name's spelling, the node carries the unit name verbatim (quoted per
   issue #57). Honest prefix folds stay byte-identical — a path below a
-  corporate prefix still folds to the shared segment (`eShop::Ordering::API`
+  corporate prefix still folds to the shared segment (`Corp::Ordering::API`
   under unit `Ordering.API` renders `Ordering`), single-word module names
   keep their exact bytes, and `::`- or `/`-spelled candidates are module
   PATHS, never names. Where two or more distinct dotted names truncate to
@@ -405,7 +810,7 @@ only.
   candidate set is the unit's OWN module-path membership — the same set the
   solid arrows project through — so a unit whose module paths spell a
   different prefix than the unit name (the c# RootNamespace class:
-  `eShop::Ordering::API` under unit `Ordering.API`) places on the rendered
+  `Corp::Ordering::API` under unit `Ordering.API`) places on the rendered
   module node instead of folding away. The zero/several-attribution note
   law is UNCHANGED: rows that still place nothing fold away with the named
   count. In the spec-source `diagram` an async endpoint naming a unit
@@ -585,7 +990,7 @@ only.
   file-duplication bug), and folding it silently would hide it. Entries
   differing on ANY field stay accepted: the same `from`/`to` pair over
   distinct events is the legal multi-event class, untouched. Distinct
-  entries — the eShop shape of 18 subscriptions over few pairs — parse and
+  entries — the witness-corpus shape of 18 subscriptions over few pairs — parse and
   render byte-identically.
 
 ## [0.6.99] - 2026-11-18

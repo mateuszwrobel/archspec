@@ -671,12 +671,13 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rust-arch-test-kit"
-version = "0.6.125"
+version = "0.6.146"
 dependencies = [
  "brokk-tree-sitter-kotlin",
  "hotpath",
  "mimalloc",
  "oxc_resolver",
+ "proc-macro2",
  "quick-xml",
  "serde",
  "serde_json",

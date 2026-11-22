@@ -1,6 +1,6 @@
 [package]
 name = "rust-arch-test-kit"
-version = "0.6.125"  # released — entry lives in CHANGELOG.md under [0.6.42]; do not bump past the tag until the release commit
+version = "0.6.146"  # released — entry lives in CHANGELOG.md under [0.6.42]; do not bump past the tag until the release commit
 edition = "2024"
 
 rust-version = "1.99"
@@ -12,6 +12,10 @@ publish = ["gitea"]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 syn = { version = "2", features = ["full", "visit"] }
+# Token-tree face of the macro bodies the field-value collector walks
+# (workplan visibility_phase2 scenario 02, A4: grammar-node collection,
+# ZERO macro-name reads): syn hands every macro's body as this stream.
+proc-macro2 = "1"
 quick-xml = "0.42"
 toml = "0.8"
 walkdir = "2.5"

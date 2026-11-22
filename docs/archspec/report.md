@@ -10,7 +10,7 @@ Metrics
 components:          17
 units:               2
 edges (internal):    1
-edges (external):    14
+edges (external):    15
 cycles detected:     0
 
 Roles

@@ -21,8 +21,8 @@
 //!   subscriber never fires prints no async row and ONE named row, verdict
 //!   not red;
 //! - (cell F) the capability weld: `capability matrix` reads granular for
-//!   go and python, csharp keeps the type-identity covering source, and no
-//!   shipped driver's `literal-site-census` row reads `not-emitted` — the
+//!   go, python and csharp, and no shipped driver's `literal-site-census`
+//!   row reads `not-emitted` — the
 //!   sweep that keeps the `driver-gap:` row a future-language face.
 //!
 //! Names are synthetic; no corpus, vendor or account string appears in
@@ -489,11 +489,12 @@ fn go_dangling_subscriber_joins_zero_and_names_one_row() {
 // cell F — the capability weld
 // ---------------------------------------------------------------------------
 
-/// `capability matrix` is the machine surface of the flip: the go and
-/// python `literal-site-census` rows read `granular`, csharp keeps its
-/// type-identity covering source, and the sweep proves NO shipped driver
-/// states `not-emitted` for this fact — the `driver-gap:` row keeps its
-/// meaning as the face of a FUTURE driver, never a live one.
+/// `capability matrix` is the machine surface of the flip: the go, python
+/// and csharp `literal-site-census` rows read `granular`, and the sweep
+/// proves NO shipped driver states `not-emitted` for this fact — the
+/// `driver-gap:` row keeps its meaning as the face of a FUTURE driver,
+/// never a live one (csharp joined the funded set with the literal-candidate
+/// feed of workplan visibility_phase2 scenario 03).
 #[test]
 fn capability_matrix_reads_funded_for_go_and_python() {
     let fixture = Fixture::new();
@@ -513,15 +514,15 @@ fn capability_matrix_reads_funded_for_go_and_python() {
         "the python row must read granular:\n{rows:#?}"
     );
     assert!(
-        rows.contains(&"capability csharp literal-site-census via type-identity facts (no literal census)"),
-        "csharp keeps the type-identity covering source:\n{rows:#?}"
+        rows.contains(&"capability csharp literal-site-census granular"),
+        "the csharp row must read granular after the candidate feed:\n{rows:#?}"
     );
     assert!(
         !rows.iter().any(|row| row.ends_with("not-emitted")),
         "no shipped driver's literal-site-census row may read not-emitted \
          after the driver-gap cure:\n{rows:#?}"
     );
-    for language in ["rust", "go", "ts", "python", "kotlin"] {
+    for language in ["rust", "go", "ts", "python", "kotlin", "csharp"] {
         let granular = fixture.run(&["capability", "granular", language, "literal-site-census"]);
         assert_eq!(
             granular.status.code(),

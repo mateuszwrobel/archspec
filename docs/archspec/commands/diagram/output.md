@@ -11,8 +11,19 @@
 |---|---|---|
 | `--format mermaid` (default) | Mermaid flowchart | `graph TD`, component clusters |
 | `--format plantuml` | PlantUML | component packages |
+| `--format dot` | Graphviz source | `digraph`, generated legend when `both` draws both edge families |
+| `--format svg` | SVG | hand-emitted deterministic layout, same node/edge inventory |
+| `--format viewer` | HTML | ONE self-contained interactive document over a scan artefact (see below) |
 
-Both formats are deterministic text (ADR-013) — no SVG, no images.
+The text formats are deterministic (ADR-013). The `dot`, `svg` and `viewer` arms render one whole-model graph, so they refuse the territory flags `--module` and `--modules-dir`; `viewer` rides `--source scan`.
+
+## Viewer document
+
+`--format viewer` emits a single HTML file: generated SVG markup, a generated script, click-to-highlight over the node inventory, a legend stating the drawn classes with generated counts, and a `direct | indirect | both` toggle riding the `--layer` semantics of the run that emitted the file. The emit is deterministic — the same artefact renders the same bytes.
+
+Law: the document carries every byte it needs. The emitter writes the markup and the script, so no third-party renderer ships in the payload or in the document, and the file pulls nothing from a network location. Model-derived strings are HTML-escaped when the document is built, and the script updates the DOM through `textContent`, so model text is never parsed as markup; the payload ships no standalone JS asset. The interactive population is the unit and module tiers — the tiers the host ceilings starve (the rationale `archspec diagram --help` states).
+
+Channel: the mirror repository's GitHub Pages publishes the document through the payload's `.github/workflows/pages.yml`, which builds the binary from the checkout, scans it, emits the viewer and deploys exactly that one file. Enabling Pages on the repository is a repository-settings action. The gitea limitation and both alternatives the project declares unbuilt (`archspec serve`, gitea-side infrastructure hosting) ride the help surface verbatim; `claim-registry.toml` owns those canonical bytes.
 
 ## Diagram structure
 

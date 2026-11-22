@@ -19,7 +19,10 @@ use std::path::Path;
 // The engine surface the verbs consume unchanged: the driver-availability
 // gate, the report-surface helpers, and the driver modules the `inspect`
 // renderers walk directly.
-pub use rust_arch_test_kit::scan::{csharp, driver_available, driver_unavailable, go, report_only_report, wildcard_report};
+pub use rust_arch_test_kit::scan::{
+    csharp, driver_available, driver_unavailable, go, report_only_report, unresolvable_census_line,
+    wildcard_report,
+};
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -115,6 +118,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
     for warning in &model.warnings {
         eprintln!("warning: {warning}");
     }
+    // The unresolvable-import census (visibility phase 2, scenario 01):
+    // the anchored miss lines print byte-identically to the pre-fix
+    // finding bytes, then the ONE census line aggregates them. The model
+    // landed anyway — a dead edge states itself here, never in the
+    // machine body. An empty census prints zero bytes (shipped-bytes
+    // guard); the verdict (exit 1 iff non-empty) rides the emit tail.
+    for entry in &model.unresolvable_imports {
+        eprintln!("{}", entry.line);
+    }
+    if let Some(census) = unresolvable_census_line(&model.unresolvable_imports) {
+        eprintln!("{census}");
+    }
     // The literal-site census (workplan events_value_join scenario 03):
     // one line per declared pattern side on the report surface, never the
     // machine body — a declared side with zero sites states ZERO, the
@@ -146,8 +161,27 @@ pub fn run(args: &[String]) -> Result<(), String> {
         false,
     );
     let check = parsed.switches.contains("check");
-    config::emit(&json, route, check, "model", "scan", None)
+    config::emit(&json, route, check, "model", "scan", None)?;
+    // A non-empty census forces exit 1 EVEN WHEN the bytes are fresh
+    // (scenario 01 exit law): the model landed with dead edges, and a
+    // green `--check` must not hide that. The sentinel rides the shipped
+    // "verdict already stated" arm (`report` set the precedent) — the
+    // census line printed above IS the statement, so dispatch echoes no
+    // second error. An empty census reaches neither arm: every byte and
+    // the exit code stay exactly as they were (shipped-bytes guard, C2).
+    if model.unresolvable_imports.is_empty() {
+        Ok(())
+    } else {
+        Err(RULE_VIOLATION_REPORTED.to_string())
+    }
 }
+
+/// The sentinel naming "a verdict already stated itself": dispatch exits 1
+/// without echoing the message again (the verify/report arm). The census
+/// exit rides it, so the line lives HERE — `scan-core` claims this module
+/// and never depends on the commands group (the spec's boundary law);
+/// `commands::verify` re-exports this same owner for its own verdicts.
+pub const RULE_VIOLATION_REPORTED: &str = "\u{1}archspec-rule-violation-reported";
 
 /// The verbs' entry: load the root spec the way the drivers used to
 /// (silently — an invalid spec failed the verb earlier where the verb
@@ -222,17 +256,32 @@ fn extract_with_spec(
         let unfunded: std::collections::BTreeSet<String> = declared
             .patterns
             .iter()
-            .map(|side| side.language.clone())
-            .filter(|name| {
-                crate::archspec::language::from_name(name)
+            .filter(|side| {
+                crate::archspec::language::from_name(&side.language)
                     .and_then(|language| {
+                        // Per-side SHAPE fact (workplan visibility_phase2
+                        // scenario 02, A3): a field side is unfunded when
+                        // the driver's `field-value-census` reads
+                        // `not-emitted`; the other verbs keep reading the
+                        // `literal-site-census` row unchanged. The join's
+                        // `unfunded` input stays the shipped language-
+                        // keyed set (join.rs unchanged): a language
+                        // enters it through ANY of its sides' shape facts,
+                        // and the arm consults it only for the counterpart
+                        // side of the site's own pattern.
                         crate::archspec::capability::emission(
                             language,
-                            crate::archspec::capability::FACT_LITERAL_SITE_CENSUS,
+                            match &side.verb {
+                                DeclaredPatternVerb::FieldValue { .. } => {
+                                    crate::archspec::capability::FACT_FIELD_VALUE_CENSUS
+                                }
+                                _ => crate::archspec::capability::FACT_LITERAL_SITE_CENSUS,
+                            },
                         )
                     })
                     == Some(crate::archspec::capability::NOT_EMITTED)
             })
+            .map(|side| side.language.clone())
             .collect();
         for line in derive::build_derived_async_edges(
             &mut model,
@@ -430,18 +479,31 @@ fn literal_site_report(loaded: &spec::Spec, model: &Model) -> String {
     let mut out = String::new();
     for pair in &loaded.pattern_pair {
         for side in spec::pattern_sides(pair) {
+            // Per-side SHAPE fact (workplan visibility_phase2 scenario 02,
+            // A3/F6): a declared `field` side is funded by the driver's
+            // `field-value-census` row, not by the `literal-site-census`
+            // row — a driver that collects call/property candidates but no
+            // field-value candidates names the gap, never a `sites=0`
+            // silence-adjacent zero.
+            let (fact, census_name, site_name) = match &side.verb {
+                DeclaredPatternVerb::FieldValue { .. } => (
+                    crate::archspec::capability::FACT_FIELD_VALUE_CENSUS,
+                    "field-value",
+                    "field-value",
+                ),
+                _ => (
+                    crate::archspec::capability::FACT_LITERAL_SITE_CENSUS,
+                    "literal-site",
+                    "literal",
+                ),
+            };
             let gap = crate::archspec::language::from_name(&side.language)
-                .and_then(|language| {
-                    crate::archspec::capability::emission(
-                        language,
-                        crate::archspec::capability::FACT_LITERAL_SITE_CENSUS,
-                    )
-                })
+                .and_then(|language| crate::archspec::capability::emission(language, fact))
                 == Some(crate::archspec::capability::NOT_EMITTED);
             if gap {
                 out.push_str(&format!(
-                    "driver-gap: pattern \"{}\" language \"{}\" — literal-site census \
-                     not-emitted for this driver: the declared side collects no literal \
+                    "driver-gap: pattern \"{}\" language \"{}\" — {census_name} census \
+                     not-emitted for this driver: the declared side collects no {site_name} \
                      sites this release\n",
                     side.id, side.language,
                 ));
@@ -453,6 +515,9 @@ fn literal_site_report(loaded: &spec::Spec, model: &Model) -> String {
                 }
                 DeclaredPatternVerb::ExportedPropertyValue { .. } => {
                     rust_arch_test_kit::model::LiteralAnchor::ExportedPropertyValue
+                }
+                DeclaredPatternVerb::FieldValue { .. } => {
+                    rust_arch_test_kit::model::LiteralAnchor::FieldValue
                 }
             };
             let sites = census

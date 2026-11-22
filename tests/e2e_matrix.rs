@@ -233,6 +233,265 @@ fn registry() -> Vec<Cell> {
             "plantuml body"
         ),
         cell!(
+            "diagram/format-dot",
+            "diagram",
+            "--format dot",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram", "--format", "dot"],
+            0,
+            &["digraph"],
+            &[],
+            &[],
+            None,
+            "graphviz dot source body (scenario 05)"
+        ),
+        cell!(
+            "diagram/format-svg",
+            "diagram",
+            "--format svg",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram", "--format", "svg"],
+            0,
+            &["<svg"],
+            &[],
+            &[],
+            None,
+            "hand-emitted SVG layout body (scenario 05)"
+        ),
+        cell!(
+            "diagram/format-viewer",
+            "diagram",
+            "--format viewer",
+            "mode",
+            "rust-probe",
+            &[&["scan", "--output", "scan.json"]],
+            &["diagram", "--source", "scan", "scan.json", "--format", "viewer"],
+            0,
+            &["<!DOCTYPE html>"],
+            &[],
+            &[],
+            None,
+            "single-file interactive viewer document from the scan artefact (scenario 06)"
+        ),
+        cell!(
+            "diagram/format-viewer-level-panes",
+            "diagram",
+            "--format viewer --level",
+            "mode",
+            "rust-probe",
+            &[&["scan", "--output", "scan.json"]],
+            &[
+                "diagram",
+                "--source",
+                "scan",
+                "scan.json",
+                "--level",
+                "dir:1",
+                "--format",
+                "viewer",
+            ],
+            0,
+            &["<!DOCTYPE html>", "document total:"],
+            &[],
+            &[],
+            None,
+            "the level-viewer document states the whole-document total row over its recursive panes (level_views scenario 04)"
+        ),
+        cell!(
+            "diagram/format-viewer-byte-ceiling",
+            "diagram",
+            "--format viewer byte ceiling",
+            "exit-class",
+            "scan-byte-ceiling-artefact",
+            NO_PRE,
+            &[
+                "diagram",
+                "--source",
+                "scan",
+                "model.json",
+                "--level",
+                "module",
+                "--format",
+                "viewer",
+            ],
+            64,
+            &[],
+            &[
+                "exceeds the emitted-byte ceiling of",
+                "largest scope that fits: level ",
+            ],
+            &[],
+            None,
+            "an over-ceiling viewer document ships nothing and names the largest fitting scope (level_views scenario 05)"
+        ),
+        cell!(
+            "diagram/viewer-scan-source-only",
+            "diagram",
+            "--format viewer on the spec source",
+            "exit-class",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram", "--format", "viewer"],
+            64,
+            &[],
+            &["--format viewer rides the scan source"],
+            &[],
+            None,
+            "the viewer document rides the scan source only (scenario 06)"
+        ),
+        cell!(
+            "diagram/layer",
+            "diagram",
+            "--layer",
+            "mode",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram", "--layer", "direct"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "the direct layer selection renders the structural graph (scenario 05)"
+        ),
+        cell!(
+            "diagram/layer-invalid",
+            "diagram",
+            "--layer invalid",
+            "exit-class",
+            "rust-probe",
+            &[&["update"]],
+            &["diagram", "--layer", "sideways"],
+            64,
+            &[],
+            &["supported layers: direct, indirect, both"],
+            &[],
+            None,
+            "an unknown layer value is a usage error naming the supported layers"
+        ),
+        cell!(
+            "diagram/level-fold",
+            "diagram",
+            "--level",
+            "mode",
+            "rust-probe",
+            &[&["@model.json={\"schema_version\":1,\"language\":\"rust\",\"units\":[{\"name\":\"alpha\",\"kind\":\"lib\",\"path\":\"src/alpha\"},{\"name\":\"beta\",\"kind\":\"lib\",\"path\":\"src/beta\"}],\"edges\":[],\"module_edges\":[{\"unit\":\"alpha\",\"from\":\"alpha::gateway\",\"to\":\"beta::store\",\"symbols\":[]},{\"unit\":\"alpha\",\"from\":\"alpha::gateway\",\"to\":\"beta::gateway\",\"symbols\":[]}]}"]],
+            &["diagram", "--source", "scan", "model.json", "--level", "module"],
+            0,
+            &["graph TD"],
+            &[
+                "accounting exact: 1 drawn + 1 self = 2 raw rows at level module",
+                "descriptive only — verify gates the module tier",
+            ],
+            &["self rows"],
+            None,
+            "the level fold draws the projected buckets and prints its ledger on stderr (level_views scenario 01)"
+        ),
+        cell!(
+            "diagram/level-invalid",
+            "diagram",
+            "--level invalid",
+            "exit-class",
+            "rust-probe",
+            &[],
+            &["diagram", "--level", "sideways"],
+            64,
+            &[],
+            &["supported levels: unit, dir:<k>, module, file"],
+            &[],
+            None,
+            "an unknown level value is a usage error naming the supported levels (level_views scenario 01)"
+        ),
+        cell!(
+            "diagram/level-unit-delta",
+            "diagram",
+            "--level unit",
+            "mode",
+            "rust-probe",
+            &[&["@model.json={\"schema_version\":1,\"language\":\"rust\",\"units\":[{\"name\":\"workspace\",\"kind\":\"lib\",\"path\":\".\"},{\"name\":\"alpha\",\"kind\":\"lib\",\"path\":\"src/alpha\"},{\"name\":\"beta\",\"kind\":\"lib\",\"path\":\"src/beta\"},{\"name\":\"gamma\",\"kind\":\"lib\",\"path\":\"src/gamma\"}],\"edges\":[{\"from\":\"alpha\",\"to\":\"beta\"},{\"from\":\"beta\",\"to\":\"alpha\"},{\"from\":\"beta\",\"to\":\"gamma\"}],\"module_edges\":[{\"unit\":\"alpha\",\"from\":\"alpha::x\",\"to\":\"beta::store\",\"symbols\":[]},{\"unit\":\"beta\",\"from\":\"beta::q\",\"to\":\"alpha::y\",\"symbols\":[]},{\"unit\":\"beta\",\"from\":\"beta::m\",\"to\":\"beta::n\",\"symbols\":[]},{\"unit\":\"workspace\",\"from\":\"tools/x.rs\",\"to\":\"beta::store\",\"symbols\":[]}]}"]],
+            &["diagram", "--source", "scan", "model.json", "--level", "unit"],
+            0,
+            &["graph TD"],
+            &[
+                "unit delta model-only: 1 — beta→gamma",
+                "unit delta projection-only: 1 — workspace→beta",
+                "accounting exact: 3 drawn + 1 self = 4 raw rows at level unit",
+            ],
+            &["unit delta"],
+            None,
+            "the unit-level render names the declared-vs-projected delta on stderr and stays rc=0 (level_views scenario 03)"
+        ),
+        cell!(
+            "diagram/level-layer-composition",
+            "diagram",
+            "--layer x --level composition",
+            "mode",
+            "rust-probe",
+            &[&["@model.json={\"schema_version\":1,\"language\":\"rust\",\"units\":[{\"name\":\"alpha\",\"kind\":\"lib\",\"path\":\"pkg/alpha\"},{\"name\":\"beta\",\"kind\":\"lib\",\"path\":\"pkg/beta\"},{\"name\":\"gamma\",\"kind\":\"lib\",\"path\":\"svc/gamma\"}],\"edges\":[{\"from\":\"alpha\",\"to\":\"beta\"},{\"from\":\"gamma\",\"to\":\"alpha\"}],\"module_edges\":[{\"unit\":\"alpha\",\"from\":\"pkg/alpha/gateway\",\"to\":\"pkg/beta/store\",\"symbols\":[]},{\"unit\":\"gamma\",\"from\":\"svc/gamma/store\",\"to\":\"pkg/alpha/gateway\",\"symbols\":[]},{\"unit\":\"alpha\",\"from\":\"pkg/alpha/gateway\",\"to\":\"pkg/alpha/gateway\",\"symbols\":[]}],\"async_edges\":[{\"from\":\"alpha\",\"to\":\"beta\",\"event\":\"ping::PingEvent\",\"kind\":\"async\"},{\"from\":\"beta\",\"to\":\"beta\",\"event\":\"loop::LoopEvent\",\"kind\":\"async\"}]}"]],
+            &["diagram", "--source", "scan", "model.json", "--layer", "direct", "--level", "dir:1"],
+            0,
+            &["graph TD"],
+            &[
+                "accounting exact: 1 drawn + 4 self = 5 raw rows at level dir:1",
+                "descriptive only — verify gates the module tier",
+            ],
+            &["-.->"],
+            None,
+            "the layer select rides the projected rows: the ledger stays exact under --layer direct and async rows never draw (level_views scenario 06)"
+        ),
+        cell!(
+            "diagram/level-fit-refusal-grammar",
+            "diagram",
+            "--level ceiling refusal grammar in help",
+            "exit-class",
+            "empty",
+            &[],
+            &["diagram", "--help"],
+            0,
+            &["narrow with: archspec scan <bucket-path> --output <artefact>, then archspec diagram --source scan <artefact> [--level <fit>]"],
+            &[],
+            &[],
+            None,
+            "the diagram help states the fit-set refusal narrowing grammar (level_views scenario 02)"
+        ),
+        cell!(
+            "diagram/level-fit-refusal",
+            "diagram",
+            "--level over-ceiling fit-set refusal",
+            "exit-class",
+            "scan-fit-refusal-artefact",
+            &[],
+            &["diagram", "--source", "scan", "model.json", "--level", "file"],
+            64,
+            &[],
+            &[
+                "renders nothing; fits: unit (0% self), dir:1 (0% self)",
+                "narrow with: archspec scan <bucket-path> --output <artefact>, then archspec diagram --source scan <artefact> [--level <fit>]",
+            ],
+            &[],
+            None,
+            "the over-ceiling level render emits nothing and names the fits plus the two-step narrowing (level_views scenario 02)"
+        ),
+        cell!(
+            "diagram/ceiling-refusal",
+            "diagram",
+            "mermaid ceiling",
+            "exit-class",
+            "scan-ceiling-artefact",
+            &[],
+            &["diagram", "--source", "scan", "model.json"],
+            64,
+            &[],
+            &["this render exceeds the mermaid ceilings of 500 edges and 50,000 characters"],
+            &["graph TD"],
+            None,
+            "a render over the pinned mermaid ceilings refuses at the emit seam with nothing emitted"
+        ),
+        cell!(
             "diagram/tiers",
             "diagram",
             "--tiers",
@@ -872,6 +1131,66 @@ fn registry() -> Vec<Cell> {
             "plantuml body"
         ),
         cell!(
+            "depgraph/format-dot",
+            "depgraph",
+            "--format dot",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "modules", "--format", "dot"],
+            0,
+            &["digraph"],
+            &[],
+            &[],
+            None,
+            "graphviz dot source body (scenario 05)"
+        ),
+        cell!(
+            "depgraph/format-svg",
+            "depgraph",
+            "--format svg",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "modules", "--format", "svg"],
+            0,
+            &["<svg"],
+            &[],
+            &[],
+            None,
+            "hand-emitted SVG layout body (scenario 05)"
+        ),
+        cell!(
+            "depgraph/layer",
+            "depgraph",
+            "--layer",
+            "mode",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "modules", "--layer", "direct"],
+            0,
+            &["graph"],
+            &[],
+            &[],
+            None,
+            "the direct layer selection renders the structural graph (scenario 05)"
+        ),
+        cell!(
+            "depgraph/layer-invalid",
+            "depgraph",
+            "--layer invalid",
+            "exit-class",
+            "rust-probe",
+            NO_PRE,
+            &["depgraph", "modules", "--layer", "sideways"],
+            64,
+            &[],
+            &["supported layers: direct, indirect, both"],
+            &[],
+            None,
+            "an unknown layer value is a usage error naming the supported layers"
+        ),
+        cell!(
             "depgraph/parent",
             "depgraph",
             "--parent",
@@ -1378,6 +1697,70 @@ fn build_corpus(name: &str, fx: &Fixture) -> Result<(), String> {
                     },
                 );
             }
+            Ok(())
+        }
+        // The ceiling witness artefact (sweep HIGH-1 cure): 501 unit-tier
+        // edge rows — one over the pinned 500-edge mermaid ceiling — as a
+        // synthetic scan artefact, so the refusal cell is hermetic.
+        "scan-ceiling-artefact" => {
+            let units: Vec<String> = (0..=501)
+                .map(|i| format!("  {{ \"name\": \"u{i:03}\", \"kind\": \"lib\", \"path\": \"u{i:03}\" }}"))
+                .collect();
+            let edges: Vec<String> = (0..501)
+                .map(|i| format!("  {{ \"from\": \"u{i:03}\", \"to\": \"u{:03}\" }}", i + 1))
+                .collect();
+            fx.write(
+                "model.json",
+                &format!(
+                    "{{\n  \"schema_version\": 1,\n  \"language\": \"rust\",\n  \"units\": [\n{}\n  ],\n  \"edges\": [\n{}\n  ],\n  \"external\": [],\n  \"async_edges\": []\n}}\n",
+                    units.join(",\n"),
+                    edges.join(",\n"),
+                ),
+            );
+            Ok(())
+        }
+        // The viewer byte-ceiling artefact (workplan level_views scenario
+        // 05): 120 directories x 24 internal rows — the UNIT fold's
+        // document stays tiny while the finer folds draw a pane per
+        // directory and pass the emitted-byte ceiling. The refusal with
+        // the named fitting scope is the golden witness.
+        "scan-byte-ceiling-artefact" => {
+            let edges: Vec<String> = (0..120)
+                .flat_map(|dir| (0..24).map(move |row| (dir, row)))
+                .map(|(dir, row)| {
+                    format!(
+                        "  {{ \"unit\": \"model\", \"from\": \"w/d{dir}/g{row}/f.rs\", \"to\": \"w/d{dir}/h{row}/f.rs\", \"symbols\": [] }}"
+                    )
+                })
+                .collect();
+            fx.write(
+                "model.json",
+                &format!(
+                    "{{\n  \"schema_version\": 1,\n  \"language\": \"rust\",\n  \"units\": [\n  {{ \"name\": \"w\", \"kind\": \"lib\", \"path\": \"w\" }}\n  ],\n  \"edges\": [],\n  \"external\": [],\n  \"module_edges\": [\n{}\n  ]\n}}\n",
+                    edges.join(",\n"),
+                ),
+            );
+            Ok(())
+        }
+        "scan-fit-refusal-artefact" => {
+            // The level_views scenario 02 golden fixture: 501 distinct
+            // cross-directory module-edge pairs — unit and dir:1 aggregate
+            // to one drawn row each (FIT), dir:2 draws 501 rows (first
+            // OVER). The fit-set refusal rows are the golden witness.
+            let edges: Vec<String> = (0..501)
+                .map(|i| {
+                    format!(
+                        "  {{ \"unit\": \"alpha\", \"from\": \"alpha/d{i}/f.rs\", \"to\": \"beta/e{i}.rs\" }}"
+                    )
+                })
+                .collect();
+            fx.write(
+                "model.json",
+                &format!(
+                    "{{\n  \"schema_version\": 1,\n  \"language\": \"rust\",\n  \"units\": [\n  {{ \"name\": \"alpha\", \"kind\": \"lib\", \"path\": \"alpha\" }},\n  {{ \"name\": \"beta\", \"kind\": \"lib\", \"path\": \"beta\" }}\n  ],\n  \"edges\": [],\n  \"external\": [],\n  \"module_edges\": [\n{}\n  ]\n}}\n",
+                    edges.join(",\n"),
+                ),
+            );
             Ok(())
         }
         other => Err(format!(

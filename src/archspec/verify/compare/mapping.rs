@@ -413,8 +413,8 @@ pub fn augment_with_modules(mapping: &Mapping, model: &Model, modules: &[Module]
                         // different entry names it. An ANCESTOR-territory
                         // pattern naming only the unit's namespace (`Acme`
                         // covering `Acme::Client`'s paths) or a shared
-                        // root outside it (`eShop` covering
-                        // `eShop::WebhookClient`) is not a claim on the
+                        // root outside it (`Corp` covering
+                        // `Corp::WebhookClient`) is not a claim on the
                         // unit: that absorb is the silent-deletion shape
                         // this arm cures.
                         let unit_norm = unit.replace(['.', '/'], "::");

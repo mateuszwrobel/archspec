@@ -210,7 +210,7 @@ pub(super) fn check_missing_edges(
     diff: &mut Diff,
 ) {
     // Issue #17 inversion: the pair set scanned per declared entry made the
-    // loop quadratic (54k claims x 54k pairs in the openclaw repro), and the
+    // loop quadratic (54k claims x 54k pairs in the corpus-scale witness repro), and the
     // per-verdict reason scan re-read the whole edge list for every missing
     // pair. Both relations are folded ONCE per pair/edge here; the per-claim
     // loop is left with logarithmic set lookups.

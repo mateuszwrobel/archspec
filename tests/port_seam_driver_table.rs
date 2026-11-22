@@ -444,6 +444,7 @@ fn candidate_shape(candidates: &[LiteralCandidate]) -> Vec<(String, String, Stri
                 LiteralCandidateAnchor::ExportedProperty { property } => {
                     format!("property({property})")
                 }
+                LiteralCandidateAnchor::Field { field } => format!("field({field})"),
             };
             (candidate.path.clone(), anchor, candidate.value.clone())
         })
@@ -513,15 +514,21 @@ fn literal_candidate_order_is_pinned_per_driver() {
         "kotlin: the property arm keeps its order through the seam"
     );
 
-    // csharp feeds NO candidates — the type-identity covering source is its
-    // literal-site census (scenario 09's capability law), so the contribution
-    // path the seam must carry identically is the EMPTY one.
+    // csharp feeds the call arm (workplan visibility_phase2 scenario 03,
+    // the sixth driver): the two call sites under walk order — sorted in
+    // the pin, WalkDir file order being unpinned — with call anchors.
     let fixture = fixture_for(Language::Csharp);
     let model = scan::extract_with(Language::Csharp, &fixture.root, &declared_for(Language::Csharp))
         .expect("csharp fixture scans");
-    assert!(
-        model.literal_candidates.is_empty(),
-        "csharp contributes no candidates (type-identity covering source): {:?}",
+    let mut shape = candidate_shape(&model.literal_candidates);
+    shape.sort();
+    assert_eq!(
+        shape,
+        vec![
+            ("App/First.cs".to_string(), "call(Emit@0)".to_string(), "seam-a".to_string()),
+            ("App/Second.cs".to_string(), "call(Emit@0)".to_string(), "seam-b".to_string()),
+        ],
+        "csharp contributes the call candidates through the seam: {:?}",
         model.literal_candidates
     );
 }

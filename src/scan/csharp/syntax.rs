@@ -129,6 +129,7 @@
 use tree_sitter::Node;
 
 use crate::language::Language;
+use crate::model::LiteralCandidateAnchor;
 use crate::parse::grammar::{node_text, parse_tree};
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -1354,6 +1355,98 @@ fn string_compared_field(node: &Node<'_>, source: &str) -> Option<(String, Strin
 fn type_tail(text: &str) -> String {
     let plain = text.split('<').next().unwrap_or(text).trim();
     plain.rsplit('.').next().unwrap_or(plain).trim().to_string()
+}
+
+/// The literal-candidate feed (workplan visibility_phase2 scenario 03, the
+/// sixth driver): one candidate per plain string-literal argument position of
+/// every `invocation_expression` in the tree, carrying the callee's SIMPLE
+/// name (the method name as the source spells it) and the 0-based argument
+/// position — the shape the ts/rust/go/python/kotlin feeds ship. The walk is
+/// vocabulary-free (A6): names ride as spelled, the engine matcher verbs
+/// decide equality at the resolution site, no name is read here. A named
+/// argument (`name:` form) states no positional candidate; non-plain strings
+/// (interpolated, verbatim, raw, escaped, char literals) state none — the
+/// feed is literal-only, the same floor the other drivers state.
+pub(crate) fn literal_candidates(source: &str) -> Vec<(LiteralCandidateAnchor, String)> {
+    let Ok(tree) = parse_tree(Language::Csharp, source) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_call_candidates(&tree.root_node(), source, &mut out);
+    out
+}
+
+fn collect_call_candidates(node: &Node<'_>, source: &str, out: &mut Vec<(LiteralCandidateAnchor, String)>) {
+    if node.kind() == "invocation_expression" {
+        let callee = node
+            .child_by_field_name("function")
+            .and_then(|target| simple_callee_name(target, source));
+        if let Some(callee) = callee
+            && let Some(arguments) = node.child_by_field_name("arguments")
+        {
+            let mut cursor = arguments.walk();
+            for (position, argument) in arguments.named_children(&mut cursor).enumerate() {
+                // The named-argument form spells an argument name; the
+                // position is not what the call means — no candidate stated.
+                if argument.child_by_field_name("name").is_some() {
+                    continue;
+                }
+                let mut argument_cursor = argument.walk();
+                let value = argument
+                    .named_children(&mut argument_cursor)
+                    .find_map(|child| plain_string_value(&child, source));
+                if let Some(value) = value {
+                    out.push((
+                        LiteralCandidateAnchor::Call {
+                            callee: callee.clone(),
+                            position,
+                        },
+                        value,
+                    ));
+                }
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_call_candidates(&child, source, out);
+    }
+}
+
+/// The callee's simple name: an `identifier` callee as spelled, the method
+/// segment of a member-access or qualified chain (the chain's dot parts are
+/// receiver noise for the matcher); anything else (a lambda target, a
+/// generic instantiation, an index) states no name and no candidate.
+fn simple_callee_name(node: Node<'_>, source: &str) -> Option<String> {
+    match node.kind() {
+        "identifier" => Some(node_text(&node, source).to_string()),
+        "member_access_expression" | "qualified_name" => node
+            .child_by_field_name("name")
+            .filter(|name| name.kind() == "identifier")
+            .map(|name| node_text(&name, source).to_string()),
+        _ => None,
+    }
+}
+
+/// The value of a PLAIN string literal: the exact concatenation of the
+/// `string_literal_content` pieces of a `string_literal` node. Any escape
+/// sequence makes the value not exact, so nothing is stated (the kotlin
+/// interpolation law reused); every other literal form
+/// (`verbatim_string_literal`, `raw_string_literal`, char, interpolated)
+/// states no plain value here.
+fn plain_string_value(node: &Node<'_>, source: &str) -> Option<String> {
+    if node.kind() != "string_literal" {
+        return None;
+    }
+    let mut value = String::new();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "string_literal_content" => value.push_str(node_text(&child, source)),
+            _ => return None,
+        }
+    }
+    Some(value)
 }
 
 #[cfg(test)]

@@ -189,6 +189,21 @@ pub struct Model {
     /// must.
     #[serde(skip, default)]
     pub warnings: Vec<String>,
+    /// The unresolvable-import census entries (visibility phase 2,
+    /// scenario 01): every miss the drivers refuse to adjudicate — the
+    /// model still lands, the finding still names itself. Structured so
+    /// the verbs can COUNT (distinct specifiers, distinct files) and
+    /// PRINT (`line`, the byte-identical pre-fix finding) from one
+    /// source. Transient like `warnings` on the WRITE arm: no serialized
+    /// model ever carries it, so every model-body byte stays byte-identical
+    /// (the shipped-bytes guard). The READ arm accepts the key (level_views
+    /// scenario 01, MAJOR-6): an artefact that carries a gap census — the
+    /// shape a run with a non-empty census and a persisted census array
+    /// states — loads with its entries, so the level accounting block can
+    /// restate the completeness census row; an artefact without the key
+    /// keeps the empty default, byte-for-byte unchanged behavior.
+    #[serde(default, skip_serializing)]
+    pub unresolvable_imports: Vec<UnresolvableImport>,
     /// The event payload-shape facts the derived drift census diffs
     /// (workplan archspec_async_depends, D2/M5, scenario 04): TWO derived
     /// facts — the publisher's record-declaration shape and the consumer's
@@ -202,6 +217,21 @@ pub struct Model {
     /// empty and the census stays silent there (M5).
     #[serde(skip, default)]
     pub event_shapes: EventShapes,
+}
+
+/// One unresolvable-import census entry (visibility phase 2, scenario
+/// 01): the importing file, the specifier as spelled, and the finding
+/// line in the pre-fix bytes (`unresolvable import: <file> ->
+/// "<specifier>"<why>`). Construction order follows the walk (sorted
+/// file order), and the census site re-sorts for its own determinism
+/// law; the line list prints in walk order. The serde pair mirrors the
+/// level_views read-arm widening above: `Model::from_json` accepts the
+/// rows, no serialized model ever carries them.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UnresolvableImport {
+    pub file: String,
+    pub specifier: String,
+    pub line: String,
 }
 
 /// Container of the two event-shape derivations the drift census diffs
@@ -472,10 +502,10 @@ pub struct AsyncEdge {
 
 /// The closed anchor vocabulary of a literal-site row (workplan
 /// events_value_join scenario 03, ADR-069 4.4a, decision-check F2/F8): HOW
-/// the site presents the string — the two matcher verbs the engine ships,
+/// the site presents the string — the matcher verbs the engine ships,
 /// spelled by syntax alone. The serialized spellings are the exact F8 seam
 /// labels; `as_str` is the one source, same law as `Role::as_str`.
-/// Engine-boundary law (operator law 2026-11-17): the two words name
+/// Engine-boundary law (operator law 2026-11-17): these words name
 /// syntactic positions, not frameworks — the nouns live in the declared
 /// pattern, never here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -488,6 +518,12 @@ pub enum LiteralAnchor {
     /// name matched the declared pattern.
     #[serde(rename = "exported-property-value")]
     ExportedPropertyValue,
+    /// A field-value position: the string is the value of a keyed pair in
+    /// an object-like construction (or a string element of an array that
+    /// IS such a value), the pair's key matched the declared pattern
+    /// (workplan visibility_phase2 scenario 02, verb 3).
+    #[serde(rename = "field-value")]
+    FieldValue,
 }
 
 impl LiteralAnchor {
@@ -497,6 +533,7 @@ impl LiteralAnchor {
         match self {
             LiteralAnchor::CallNameArgPosition => "call-name+arg-position",
             LiteralAnchor::ExportedPropertyValue => "exported-property-value",
+            LiteralAnchor::FieldValue => "field-value",
         }
     }
 }
@@ -545,7 +582,7 @@ pub struct LiteralCandidate {
     pub value: String,
 }
 
-/// The syntactic shape of a candidate site — the input face of the two
+/// The syntactic shape of a candidate site — the input face of the
 /// matcher verbs (`events::patterns`), never a match statement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LiteralCandidateAnchor {
@@ -555,6 +592,13 @@ pub enum LiteralCandidateAnchor {
     Call { callee: String, position: usize },
     /// An exported property named `property` whose value is a string literal.
     ExportedProperty { property: String },
+    /// A keyed pair inside an object-like construction whose value is the
+    /// string literal (or a string element of an array that IS such a
+    /// value); `field` is the key as the source spells it — a source key
+    /// or a string key, one anchor (workplan visibility_phase2 scenario
+    /// 02: the field-value candidate shape, verbs engine-side, nouns in
+    /// the declaration).
+    Field { field: String },
 }
 
 impl Model {
@@ -596,6 +640,7 @@ impl Model {
             literal_candidates: Vec::new(),
             report_only_lines: Vec::new(),
             warnings: Vec::new(),
+            unresolvable_imports: Vec::new(),
             event_shapes: EventShapes::default(),
         }
     }
@@ -821,9 +866,9 @@ pub struct DeclaredPattern {
     pub verb: DeclaredPatternVerb,
 }
 
-/// The two matcher verbs the engine ships (decision-check F2: the engine
-/// implements the verbs, the repo config supplies the nouns) — exactly two,
-/// and the declaration schema carries nothing else.
+/// The matcher verbs the engine ships (decision-check F2: the engine
+/// implements the verbs, the repo config supplies the nouns) — the
+/// declaration schema carries nothing else.
 #[derive(Debug, Clone)]
 pub enum DeclaredPatternVerb {
     /// Call-name + argument position: the site is a call whose callee's
@@ -833,6 +878,13 @@ pub enum DeclaredPatternVerb {
     /// Exported-property value: the site is an exported property named
     /// `property` whose string-literal value is the site's value.
     ExportedPropertyValue { property: String },
+    /// Field value (workplan visibility_phase2 scenario 02, verb 3): the
+    /// site is a keyed pair inside an object-like construction whose value
+    /// is the string literal (or a string element of an array that IS such
+    /// a value), the pair's key EQUALS the declared `field` — name
+    /// equality, the same channel as the two shipped verbs (F3: no
+    /// name-inference arm).
+    FieldValue { field: String },
 }
 
 /// One declared module's zone claim over the tree (name + match patterns).
@@ -1065,6 +1117,7 @@ mod tests {
         for (anchor, word) in [
             (LiteralAnchor::CallNameArgPosition, "call-name+arg-position"),
             (LiteralAnchor::ExportedPropertyValue, "exported-property-value"),
+            (LiteralAnchor::FieldValue, "field-value"),
         ] {
             assert_eq!(anchor.as_str(), word);
             let json = serde_json::to_string(&anchor).expect("anchor serializes");

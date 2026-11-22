@@ -385,14 +385,15 @@ fn an_undeclared_member_import_is_an_unresolvable_import() {
     );
     tree.write(
         "packages/loose/main.ts",
-        "import { ui } from \"@org/ui\";\nexport const l = ui;\n",
+        "import { ui } from \"@org/ui\";\nimport { h } from \"./helper\";\nexport const l = ui + h;\n",
     );
+    tree.write("packages/loose/helper.ts", "export const h = 1;\n");
 
     let scan = tree.run(&["scan", "."]);
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "case (iv) fails loud like the linker's owner: {}",
+        "case (iv) keeps exit 1 (the census): {}",
         common::stdout(&scan)
     );
     let text = format!("{}{}", common::stdout(&scan), common::stderr(&scan));
@@ -428,8 +429,9 @@ fn undeclared_member_tree(lockfile: Option<&str>) -> Fixture {
     );
     tree.write(
         "packages/loose/main.ts",
-        "import { ui } from \"@org/ui\";\nexport const l = ui;\n",
+        "import { ui } from \"@org/ui\";\nimport { h } from \"./helper\";\nexport const l = ui + h;\n",
     );
+    tree.write("packages/loose/helper.ts", "export const h = 1;\n");
     tree
 }
 
@@ -521,13 +523,16 @@ fn the_same_tree_under_pnpm_lock_stays_an_unresolvable_import() {
         !text.contains("undeclared member import"),
         "the refusing family emits no case-(iv) line: {text}"
     );
-    // The red scan prints no model JSON to stdout (pre-existing red
-    // behavior, family-independent), so the no-edge carrier is the
-    // combined text: the membership edge would name the member's entry,
-    // and the green twin pins the edge's JSON shape positively.
+    // The census law lands the model on the refusing red (scenario 01),
+    // so the no-edge carrier is the ADJUDICATED edge set: the membership
+    // edge would name the member's entry as a module_edge target, and
+    // the green twin pins that shape positively.
+    let model = json_model(&scan);
     assert!(
-        !text.contains("packages/ui/index.ts"),
-        "no membership edge is conjured against the refusing linker: {text}"
+        module_edges(&model)
+            .into_iter()
+            .all(|(_, _, to)| to != "packages/ui/index.ts"),
+        "no membership edge is conjured against the refusing linker: {model}"
     );
     assert!(
         text.contains("unresolvable import") && text.contains("@org/ui"),
@@ -950,14 +955,14 @@ fn a_member_subpath_without_a_target_stays_an_unresolvable_import() {
     let tree = undeclared_member_tree(Some("yarn.lock"));
     tree.write(
         "packages/loose/main.ts",
-        "import { utils } from \"@org/ui/src/utils\";\nexport const l = utils;\n",
+        "import { utils } from \"@org/ui/src/utils\";\nimport { h } from \"./helper\";\nexport const l = utils + h;\n",
     );
     let scan = tree.run(&["scan", "."]);
     let text = format!("{}{}", common::stdout(&scan), common::stderr(&scan));
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "a member subpath with no target stays honest: {text}"
+        "a member subpath with no target stays honest (the census): {text}"
     );
     assert!(
         text.contains("unresolvable import") && text.contains("\"@org/ui/src/utils\""),
@@ -1674,12 +1679,19 @@ fn member_subpath_absent_without_gitignore_evidence_stays_red() {
     );
     tree.write("packages/ui/src/x.ts", "export const x = 1;\n");
     tree.write(".gitignore", "node_modules/\n");
+    // One live first-party edge keeps the silence tripwire out (C7 owns
+    // that pairing), so this cell pins the CENSUS red.
+    tree.write(
+        "packages/app/src/main.ts",
+        "import { k } from \"./helper\";\nimport { x } from \"@org/ui/x\";\nexport const v = x + k;\n",
+    );
+    tree.write("packages/app/src/helper.ts", "export const k = 1;\n");
     let scan = tree.run(&["scan", "."]);
     let text = format!("{}{}", common::stdout(&scan), common::stderr(&scan));
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "no ignore evidence keeps the fail-loud red — attribution never softens it: {text}"
+        "no ignore evidence keeps the red (the census) — attribution never softens it: {text}"
     );
     assert!(
         text.contains("unresolvable import"),
@@ -2003,5 +2015,99 @@ fn the_member_subpath_and_relative_arms_land_on_the_same_ts_source() {
     assert!(
         !text.contains("unresolvable import"),
         "the package-subpath arm kept no red: {text}"
+    );
+}
+
+/// The DEEPEST-FIRST owner law (perf-hotspots record 2026-11-20, H1): a file
+/// attributes to the deepest member dir along its path, and a path no member
+/// owns stays with the root unit. The lookup is a member-dir index instead of
+/// a scan over every member, so the law keeps its own witness: a member dir
+/// INSIDE another member dir, with one file at every depth the two own. Both
+/// `file_unit` arms are asserted — the module-edge rows (the arm H1 measured)
+/// and the declarations census (H8, the same lookup).
+#[test]
+fn a_nested_member_dir_owns_its_files_and_the_outer_member_keeps_the_rest() {
+    let tree = Fixture::new();
+    tree.write(
+        "package.json",
+        "{\n  \"name\": \"mono\",\n  \"workspaces\": [\"pkgs/*\", \"pkgs/outer/nested\"]\n}\n",
+    );
+    tree.write("pkgs/outer/package.json", "{\n  \"name\": \"@org/outer\"\n}\n");
+    tree.write(
+        "pkgs/outer/nested/package.json",
+        "{\n  \"name\": \"@org/nested\"\n}\n",
+    );
+    tree.write(
+        "root.ts",
+        "import { a } from \"./pkgs/outer/src/a\";\nexport const r = a;\n",
+    );
+    tree.write(
+        "pkgs/outer/src/a.ts",
+        "import { b } from \"../nested/src/b\";\nexport const a = b;\n",
+    );
+    tree.write(
+        "pkgs/outer/nested/src/b.ts",
+        "import { a } from \"../../../outer/src/a\";\nexport const b = a;\n",
+    );
+    let scan = tree.run(&["scan", "."]);
+    let text = format!("{}{}", common::stdout(&scan), common::stderr(&scan));
+    assert_eq!(
+        scan.status.code(),
+        Some(0),
+        "a workspace with a member inside a member scans green: {text}"
+    );
+    let model = json_model(&scan);
+    assert_eq!(
+        unit_names(&model),
+        vec!["@org/nested".to_string(), "@org/outer".to_string(), "mono".to_string()],
+        "both member dirs are units, the nested one included: {text}"
+    );
+    // The row arm: every module edge names the unit owning its `from` file.
+    let mut rows: Vec<(String, String)> = module_edges(&model)
+        .into_iter()
+        .map(|(unit, from, _)| (from, unit))
+        .collect();
+    rows.sort();
+    rows.dedup();
+    assert_eq!(
+        rows,
+        vec![
+            ("pkgs/outer/nested/src/b.ts".to_string(), "@org/nested".to_string()),
+            ("pkgs/outer/src/a.ts".to_string(), "@org/outer".to_string()),
+            ("root.ts".to_string(), "mono".to_string()),
+        ],
+        "the deepest member dir owns the file; the outer member keeps the rest; \
+         a file no member owns stays with the root unit: {text}"
+    );
+    // The census arm: the same lookup answers the declarations of every unit.
+    let declarations: Vec<(String, Vec<String>)> = model["root_module_declarations"]
+        .as_object()
+        .expect("declarations census")
+        .iter()
+        .map(|(unit, files)| {
+            let mut names: Vec<String> = files
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|file| file["file"].as_str().unwrap_or_default().to_string())
+                .collect();
+            names.sort();
+            (unit.clone(), names)
+        })
+        .collect();
+    assert_eq!(
+        declarations,
+        vec![
+            (
+                "@org/nested".to_string(),
+                vec!["pkgs/outer/nested/src/b.ts".to_string()]
+            ),
+            (
+                "@org/outer".to_string(),
+                vec!["pkgs/outer/src/a.ts".to_string()]
+            ),
+            ("mono".to_string(), vec!["root.ts".to_string()]),
+        ],
+        "the declarations census attributes each file to the same deepest owner"
     );
 }

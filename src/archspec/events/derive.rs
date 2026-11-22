@@ -75,6 +75,12 @@ pub fn build_derived_async_edges(
                         &candidate.anchor,
                     )
                 }
+                crate::archspec::model::LiteralCandidateAnchor::Field { .. } => {
+                    crate::archspec::events::patterns::matches_field_site(
+                        &side.verb,
+                        &candidate.anchor,
+                    )
+                }
             };
             if matched {
                 pairs.push((ci, side, false));
@@ -97,6 +103,9 @@ pub fn build_derived_async_edges(
                     ) | (
                         crate::archspec::model::LiteralCandidateAnchor::ExportedProperty { .. },
                         crate::archspec::model::LiteralAnchor::ExportedPropertyValue,
+                    ) | (
+                        crate::archspec::model::LiteralCandidateAnchor::Field { .. },
+                        crate::archspec::model::LiteralAnchor::FieldValue,
                     )
                 )
         });
@@ -110,6 +119,9 @@ pub fn build_derived_async_edges(
                 crate::archspec::model::DeclaredPatternVerb::ExportedPropertyValue {
                     property,
                 } => property.clone(),
+                crate::archspec::model::DeclaredPatternVerb::FieldValue { field } => {
+                    field.clone()
+                }
             }
         }));
     }
@@ -140,6 +152,7 @@ pub fn build_derived_async_edges(
                 crate::archspec::model::DeclaredPatternVerb::ExportedPropertyValue {
                     property,
                 } => property,
+                crate::archspec::model::DeclaredPatternVerb::FieldValue { field } => field,
             },
             role: side.role.as_deref(),
         })

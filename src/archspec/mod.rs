@@ -13,6 +13,7 @@ pub mod scan;
 pub mod spec;
 pub mod update;
 pub mod verify;
+pub mod viewer;
 
 // The fact-events layer (ADR-069 4.4a) lands as the canonical resolution
 // site BEFORE its consumers: the multi-producer fact writers import the unit

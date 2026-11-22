@@ -304,7 +304,7 @@ fn a_not_emitted_driver_stays_silent_with_the_capability_named_note() {
 
 // ---------------------------------------------------------------------------
 // consumer-fix round 1 (scenario 07): base-following, both-sides silence,
-// live projection row — the eShop verdict's three named classes on the
+// live projection row — the witness-corpus verdict's three named classes on the
 // 0.6.86 census.
 // ---------------------------------------------------------------------------
 
@@ -469,12 +469,12 @@ fn an_enum_string_projection_prints_the_named_row_once_per_qualifying_entry() {
 
 // ---------------------------------------------------------------------------
 // consumer re-run refinement (2026-11-17, binding steering on scenario 07):
-// the eShop base chain runs TWO HOPS and crosses a project boundary — the
+// the witness-corpus base chain runs TWO HOPS and crosses a project boundary — the
 // event record lives in the unit's own namespace, its far base in a unit the
 // publisher record does not share. The Id-FP class must land at EXACTLY 0.
 // ---------------------------------------------------------------------------
 
-/// The eShop `IntegrationEvent` shape: declared under its own (third) unit's
+/// The witness-corpus `IntegrationEvent` shape: declared under its own (third) unit's
 /// namespace in that unit's file, reached only at the SECOND hop of the
 /// publisher record's base chain.
 const FAR_BASE_RECORDS: &str = "namespace App.Abstractions;\npublic record IntegrationEvent\n\
@@ -482,7 +482,7 @@ const FAR_BASE_RECORDS: &str = "namespace App.Abstractions;\npublic record Integ
 
 /// Publisher records: `OrderPlaced` (own field) -> `BaseOrderEvent` (same
 /// unit) -> `IntegrationEvent` (the far unit) — two hops, one across the
-/// project boundary, the eShop chain shape. `extra` prepends declarations.
+/// project boundary, the witness-corpus chain shape. `extra` prepends declarations.
 fn far_chain_events(extra: &str) -> String {
     format!(
         "namespace App.Contracts;\n{extra}\
@@ -763,7 +763,7 @@ fn a_direct_warning_cycle_still_exits_one_under_strict() {
 /// `OrderPlaced`. The publisher's copy types the status member `OrderStatus`,
 /// the worker's copy declares the same member as a plain `string`, and the
 /// handler binds it through a typed `Handle` parameter with NO projection
-/// syntax — the eShop shape that printed zero rows. `enum_in_third_unit`
+/// syntax — the witness-corpus shape that printed zero rows. `enum_in_third_unit`
 /// moves the ENUM declaration to a THIRD project (`App.Enums`) the publisher
 /// file names; the pairing must print its row whichever unit hosts the enum.
 /// `worker_binds` names the single field the handler reads — the never-bound
@@ -874,7 +874,7 @@ fn assert_projection_row_once(tree: &Fixture, field: &str) {
 fn a_duplicated_contract_enum_to_string_projection_prints_the_named_row_once() {
     // The enum declared in the PUBLISHER's unit: the projection rides the
     // pair of per-unit declarations, not the binding syntax — the class the
-    // consumer verdict found silent on 3 qualifying eShop entries.
+    // consumer verdict found silent on 3 qualifying witness-corpus entries.
     let tree = duplicated_projection_tree(false, "Status");
     assert_projection_row_once(&tree, "Status");
 }
@@ -919,7 +919,7 @@ fn a_declared_string_field_the_handler_never_reads_prints_nothing() {
     // USAGE SITES ("binds"), not on the subscriber record's DECLARATION
     // site. The worker's copy of `OrderPlaced` still DECLARES `Status` as a
     // plain string, but no handler body reads it — declaration alone is
-    // SILENT, the subset-consumption-silent law (eShop proves it: 0 rows,
+    // SILENT, the subset-consumption-silent law (a corpus-scale witness proves it: 0 rows,
     // and a one-line handler read makes exactly 1 row appear). The
     // read-armed sibling — `a_duplicated_contract_enum_to_string_projection_
     // prints_the_named_row_once` — is that probe: the same tree speaks

@@ -12,6 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// The files allowed to reference the library crate: the two graph engines,
+/// the viewer emitter (a third consumer of the shared render vocabulary),
 /// the inspect renderers (one directory, all members), the re-export facade
 /// (`mod.rs`), the scan CLI glue over the library scan engine, the spec
 /// loader consuming the model's exclusion vocabulary, and the pattern shim.
@@ -28,6 +29,7 @@ const LIB_IMPORT_ALLOWLIST: &[&str] = &[
     "src/archspec/scan.rs",
     "src/archspec/spec.rs",
     "src/archspec/verify/compare/pattern.rs",
+    "src/archspec/viewer.rs",
 ];
 
 /// The import marker: a path into the library crate. Matching on the `::`

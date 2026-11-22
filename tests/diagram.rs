@@ -337,7 +337,7 @@ fn diagram_behavior_20_rejects_unsupported_format() {
 
     assert_ne!(output.status.code(), Some(0));
     assert!(
-        stderr(&output).contains("unsupported format: bmp (supported: mermaid, plantuml)"),
+        stderr(&output).contains("unsupported format: bmp (supported: mermaid, plantuml, dot, svg, viewer)"),
         "must name the value and the supported set:\n{}",
         stderr(&output)
     );

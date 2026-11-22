@@ -158,6 +158,9 @@ pub(crate) struct Engine {
     guard_cache: HashMap<(PathBuf, String), Option<PathBuf>>,
     /// Declared-name sets per manifest path (the class-(b) declared test).
     declared_cache: HashMap<PathBuf, BTreeSet<String>>,
+    /// R7b-ext (scenario 01): one text read per root lockfile per scan,
+    /// keyed by path; `None` is the stable absent/unreadable fact.
+    lockfile_cache: RefCell<HashMap<PathBuf, Option<Arc<String>>>>,
     /// The workspace registry (R5): empty on every single-package tree —
     /// the precedence law engages only when the registry proves members.
     registries: Vec<super::workspace::Registry>,
@@ -231,6 +234,7 @@ impl Engine {
             report_only: BTreeSet::new(),
             guard_cache: HashMap::new(),
             declared_cache: HashMap::new(),
+            lockfile_cache: RefCell::new(HashMap::new()),
             registries: Vec::new(),
             gitignore: gitignore::Evaluator::new(root),
             gensrc: RefCell::new(HashMap::new()),
@@ -1304,30 +1308,107 @@ impl Engine {
             }
             current = candidate_dir.parent();
         };
-        let names = self.declared_cache.entry(manifest.clone()).or_insert_with(|| {
-            manifest
-                .to_str()
-                .and_then(|text| std::fs::read_to_string(text).ok())
-                .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-                .map(|value| {
-                    [
-                        "dependencies",
-                        "devDependencies",
-                        "peerDependencies",
-                        "optionalDependencies",
-                    ]
-                    .iter()
-                    .filter_map(|field| value.get(*field).and_then(serde_json::Value::as_object))
-                    .flat_map(|map| map.keys().cloned())
-                    .collect()
-                })
-                .unwrap_or_default()
-        });
+        let names = self
+            .declared_cache
+            .entry(manifest.clone())
+            .or_insert_with(|| manifest_dependency_names(&manifest));
         if names.contains(identity) {
             Some(manifest)
         } else {
             None
         }
+    }
+
+    /// R7b-ext (visibility phase 2, scenario 01, M1): the generalized
+    /// declared-name walk of `declared_nearest_manifest` — the walk keeps
+    /// climbing PAST manifests that do not declare the identity, up to and
+    /// including the scan root. Nearest-manifest priority stands: the
+    /// FIRST declaring manifest on the climb answers, so a member that
+    /// declares the package itself still reports its own manifest. A
+    /// missing or unreadable manifest names nothing (same law). Returns
+    /// the declaring manifest path.
+    fn declared_up_to_root(&mut self, dir: &Path, identity: &str) -> Option<PathBuf> {
+        let mut current = Some(dir);
+        loop {
+            let candidate_dir = current?;
+            let candidate = candidate_dir.join("package.json");
+            if candidate.is_file() {
+                let names = self.declared_cache.entry(candidate.clone()).or_insert_with(|| {
+                    manifest_dependency_names(&candidate)
+                });
+                if names.contains(identity) {
+                    return Some(candidate);
+                }
+            }
+            if candidate_dir == self.root {
+                return None;
+            }
+            current = candidate_dir.parent();
+        }
+    }
+
+    /// R7b-ext identity evidence on the ROOT lockfile (scenario 01, M1):
+    /// one of `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`,
+    /// `bun.lock` at the scan root whose text NAMES `identity` as a whole
+    /// package-name token. Lockfiles were name-only material before this
+    /// arm — the R7b law parsed NAMES from manifests only; this is a NEW,
+    /// narrower read: it never parses resolution data and never resolves
+    /// a version, it answers the ONE question "does this lockfile name
+    /// this package". A name token is bounded by characters outside the
+    /// package-name alphabet (letters, digits, `.`, `-`, `_`, `/`, `@`):
+    /// `@scope/name@1.2.3` and `"name": ` are hits; `other-name` is not.
+    /// Returns the lockfile path when it names the identity.
+    fn lockfile_naming(&mut self, identity: &str) -> Option<PathBuf> {
+        for name in ["pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock"] {
+            let path = self.root.join(name);
+            if !path.is_file() {
+                continue;
+            }
+            let text = {
+                let mut cache = self.lockfile_cache.borrow_mut();
+                cache
+                    .entry(path.clone())
+                    .or_insert_with(|| std::fs::read_to_string(&path).ok().map(Arc::new))
+                    .clone()
+            };
+            let Some(text) = text.as_deref() else {
+                continue;
+            };
+            if names_package_token(text, identity) {
+                return Some(path);
+            }
+        }
+        None
+    }
+
+    /// NAPI-ext (visibility phase 2, scenario 01, M2): the platform-addon
+    /// probe a NAPI-RS loader writes. Mechanical evidence only, the same
+    /// posture as `napi_loader_absent`: (1) the IMPORTING file carries the
+    /// generator marker `auto-generated by NAPI-RS` (case-insensitive,
+    /// the shipped arm's exact string); (2) the package identity is the
+    /// importing package's manifest `name` extended by a platform-triple
+    /// suffix — `<name>-<os>-<arch>[-<abi>]` from the generic grammar in
+    /// [`napi_platform_triple`], the bare name or a foreign suffix is not
+    /// the class. A subpath spelling (`<pkg>/package.json`) is adjudicated
+    /// on its package identity. No target probing, no package-name
+    /// vocabulary: application names never appear here (engine boundary
+    /// law). Returns the loader file's repo-relative spelling and the
+    /// marker line for the report.
+    fn napi_loader_sibling(&self, importing: &Path, identity: &str) -> Option<(String, usize)> {
+        let bytes = std::fs::read(importing).ok()?;
+        let text = std::str::from_utf8(&bytes).ok()?;
+        let (at, _) = text.lines().enumerate().find(|(_, line)| {
+            line.to_ascii_lowercase()
+                .contains("auto-generated by napi-rs")
+        })?;
+        let dir = importing.parent()?;
+        let manifest_value = self.member_manifest(dir)?;
+        let name = manifest_value.get("name")?.as_str()?;
+        let rest = identity.strip_prefix(name)?.strip_prefix('-')?;
+        if !napi_platform_triple(rest) {
+            return None;
+        }
+        Some((relative(importing, &self.root)?, at + 1))
     }
 
     /// The message-only alias lookup of the entry's preloaded configs
@@ -1400,6 +1481,32 @@ impl Engine {
                 identity,
                 None,
             ));
+        }
+        // R7b-ext (scenario 01, M1): the nearest manifest answered
+        // nothing, so the climb continues to the registry ROOT — a name a
+        // root manifest DECLARES or a root lockfile NAMES is an install
+        // gap (the R7b class), not a dead edge. Nearest-manifest priority
+        // stood above; this is the same law one walk further.
+        if let Some(declared_in) = self.declared_up_to_root(&dir, identity) {
+            let spelled = manifest_spelling(&self.root, &declared_in);
+            self.report_only.insert(format!(
+                "external not installed: {identity} — declared in {spelled}, absent from disk"
+            ));
+            return Some(Resolved::External(identity.to_string()));
+        }
+        if let Some(lockfile) = self.lockfile_naming(identity) {
+            let spelled = relative(&lockfile, &self.root)?;
+            self.report_only.insert(format!(
+                "external not installed: {identity} — named in {spelled}, absent from disk"
+            ));
+            return Some(Resolved::External(identity.to_string()));
+        }
+        // NAPI-ext (scenario 01, M2): the miss is a platform-addon probe
+        // written by a NAPI-RS loader — report-only generated class, never
+        // a census entry, never an external fact (the addon is neither
+        // first-party source nor an install gap: it is not built).
+        if let Some((loader, line)) = self.napi_loader_sibling(importing, identity) {
+            return Some(self.reported_napi_loader(&loader, line, specifier));
         }
         None
     }
@@ -1762,6 +1869,110 @@ fn manifest_has_imports_key(manifest: &Path, specifier: &str) -> bool {
 /// payload, so an upstream enum addition surfaces here, never silence.
 fn unclassified_finding(error: &ResolveError) -> String {
     format!("unclassified resolver error: {error:?}")
+}
+
+/// The declared-name set of a manifest: dependencies ∪ devDependencies ∪
+/// peerDependencies ∪ optionalDependencies; a missing, unreadable or
+/// unparseable manifest declares nothing (the R7b law, extracted for the
+/// R7b-ext walk — same semantics, one implementation).
+fn manifest_dependency_names(manifest: &Path) -> BTreeSet<String> {
+    manifest
+        .to_str()
+        .and_then(|text| std::fs::read_to_string(text).ok())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .map(|value| {
+            [
+                "dependencies",
+                "devDependencies",
+                "peerDependencies",
+                "optionalDependencies",
+            ]
+            .iter()
+            .filter_map(|field| value.get(*field).and_then(serde_json::Value::as_object))
+            .flat_map(|map| map.keys().cloned())
+            .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// True when `text` names `identity` as a WHOLE package-name token: every
+/// occurrence is flanked by characters outside the package-name alphabet
+/// (letters, digits, `.`, `-`, `_`, `/`, `@`). The R7b-ext lockfile read
+/// (scenario 01): presence as a bounded name is install-plan evidence,
+/// nothing else is read.
+fn names_package_token(text: &str, identity: &str) -> bool {
+    let is_name_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '/' | '@');
+    text.match_indices(identity).any(|(at, _)| {
+        let before_ok = text[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !is_name_char(c));
+        let after_ok = text[at + identity.len()..]
+            .chars()
+            .next()
+            // A package name carries `@` at index 0 ONLY, so a trailing
+            // `@` is the version separator of a lockfile key
+            // (`'@acme/tool@2.0.0':`) — a token END, never a continuation.
+            .is_none_or(|c| !is_name_char(c) || c == '@');
+        before_ok && after_ok
+    })
+}
+
+/// The generic NAPI-RS platform-triple grammar (scenario 01, M2): the
+/// target suffix a generated loader appends to its own package name —
+/// `<os>-<arch>` or `<os>-<arch>-<abi>`. The token sets are the
+/// platform/arch/libc names the generator's own target table spells
+/// (ecosystem target vocabulary, not application vocabulary: the engine
+/// boundary law holds — NO package or product name appears here). An
+/// empty rest (the loader package itself) is not a triple.
+fn napi_platform_triple(rest: &str) -> bool {
+    const OS: [&str; 9] = [
+        "aix",
+        "android",
+        "darwin",
+        "freebsd",
+        "ios",
+        "linux",
+        "openharmony",
+        "wasm32",
+        "win32",
+    ];
+    const ARCH: [&str; 19] = [
+        "aarch64",
+        "arm",
+        "arm64",
+        "armv7",
+        "ia32",
+        "loong64",
+        "loongarch64",
+        "mips",
+        "mips64el",
+        "mipsel",
+        "ppc64",
+        "riscv32gc",
+        "riscv64",
+        "s390",
+        "s390x",
+        "wasi",
+        "x64",
+        "x86",
+        "universal",
+    ];
+    const ABI: [&str; 7] = [
+        "eabi",
+        "gnueabihf",
+        "gnu",
+        "musleabihf",
+        "musl",
+        "msvc",
+        "ohos",
+    ];
+    let tokens: Vec<&str> = rest.split('-').collect();
+    match tokens.len() {
+        2 => OS.contains(&tokens[0]) && ARCH.contains(&tokens[1]),
+        3 => OS.contains(&tokens[0]) && ARCH.contains(&tokens[1]) && ABI.contains(&tokens[2]),
+        _ => false,
+    }
 }
 
 /// The alias map's first candidate (plan §Alias map): configs in entry

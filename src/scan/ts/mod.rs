@@ -32,7 +32,7 @@ mod workspace;
 
 mod common;
 use common::{
-    exclusion_verdict, is_excluded, candidates, mechanically_excluded, relative, strip_query,
+    exclusion_verdict, is_excluded, candidates, relative, strip_query,
     TS_SOURCE_EXTS, Exclusions, Resolved,
 };
 
@@ -40,7 +40,8 @@ use crate::language;
 use crate::model::{LiteralCandidate, ManifestInfo, Model, ModuleDeclaration, ModuleEdge, Unit};
 use crate::model::DeclaredFacts;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -62,6 +63,11 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     let mut wildcards: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut exports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut findings: Vec<String> = Vec::new();
+    // The unresolvable-import census entries (visibility phase 2, scenario
+    // 01): the class that no longer aborts. The model lands; the lines and
+    // the counts ride the transient model field to the verbs. Config faults
+    // (the seam's findings below) keep the fail-closed abort byte-identical.
+    let mut unresolvables: Vec<crate::model::UnresolvableImport> = Vec::new();
     // The warn-mode exclusion findings (issue-8 phase 2): deduped and sorted
     // (a BTreeSet) so the warning bytes are run-order free, like every other
     // collected report channel. They never join the findings error below —
@@ -200,7 +206,15 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
                     module_external.entry(file.clone()).or_default().insert(package);
                 }
                 Resolved::Unresolvable(why) => {
-                    findings.push(format!("unresolvable import: {file} -> \"{}\"{why}", edge.specifier));
+                    // The census entry (scenario 01): the pre-fix finding
+                    // bytes, plus the structured pair the census counts.
+                    let line =
+                        format!("unresolvable import: {file} -> \"{}\"{why}", edge.specifier);
+                    unresolvables.push(crate::model::UnresolvableImport {
+                        file: file.clone(),
+                        specifier: edge.specifier.clone(),
+                        line,
+                    });
                 }
                 // The warn-mode dial (issue-8 phase 2): the hit is stated,
                 // never aborted. The finding is pre-rendered in the warnings
@@ -224,13 +238,34 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
         }
     }
 
-    // The seam's category lines ride the same channel as the anchor lines
-    // above: findings as generated, deduped by the engine. The report-only
+    // The seam's category lines ride the same channel as the findings
+    // above: config faults (tsconfig/manifest homes, unclassified resolver
+    // errors) as generated, deduped by the engine. Scenario 01 split: the
+    // unresolvable-import class left this abort for the census field —
+    // what still aborts here is a RUN PRECONDITION (a config nothing
+    // adjudicated against), not a dead edge. The seam's own unresolvable
+    // lines (the relative-class misses it renders) join the CENSUS here,
+    // ahead of the per-edge entries: every finding of this channel either
+    // aborts or becomes a census entry, never a silent drop. The report-only
     // lines are taken here too: a virtual-specifier line is a STATED outcome
     // (round 4 C: the law never reddens a run), so it must also satisfy the
     // silence tripwire below — every other report-only class already rides
     // a fact, so this changes behavior for the `Reported` arm only.
-    findings.extend(engine.take_findings());
+    for finding in engine.take_findings() {
+        if let Some(rest) = finding.strip_prefix("unresolvable import: ") {
+            let (file, spec) = match rest.split_once(" -> ") {
+                Some((file, spec)) => (file.to_string(), spec.to_string()),
+                None => continue,
+            };
+            unresolvables.push(crate::model::UnresolvableImport {
+                file,
+                specifier: spec.trim_matches('"').to_string(),
+                line: finding,
+            });
+        } else {
+            findings.push(finding);
+        }
+    }
     if !findings.is_empty() {
         return Err(findings.join("\n"));
     }
@@ -247,6 +282,13 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
         return Err(tripwire);
     }
 
+    // The unresolvable-import census (visibility phase 2, scenario 01):
+    // computed STRICTLY AFTER the tripwire, and never itself a tripwire
+    // arm (MINOR-2, the D7/B1 ordering law the orphan census above owns) —
+    // a findings-only extractor stays red, the census launders nothing
+    // green. The entries ride the transient channel like `warnings`: the
+    // lines print at the verbs, the counts ride the same list, and no
+    // serialized byte ever changes.
     // The orphan census (workplan workplan_archspec_unreferenced_census):
     // computed STRICTLY AFTER the tripwire above, and its lines never feed
     // the tripwire's stated-fact arms — a dead extractor cannot launder
@@ -330,8 +372,21 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     // every member dir under the root is a unit of its own. A file
     // attributes to the deepest owning dir along its path.
     let mut units = vec![unit.clone()];
-    let mut owners: Vec<(PathBuf, String)> = Vec::new();
+    // The owner index (perf-hotspots record 2026-11-20, H1): the member dirs
+    // key a lookup that walks the file's OWN ancestors and stops at the first
+    // member dir it meets. That is the deepest-first law byte-for-byte — two
+    // members that both own a path sit on one ancestor chain, so the walk
+    // meets the deeper one first, exactly the row the descending scan of
+    // every member returned — and a path no member owns still falls back to
+    // the root unit. `members_under_root` dedups member dirs, so no key is
+    // ever rewritten; where a duplicate could reach here the FIRST member row
+    // keeps the dir, which is what the stable sort used to resolve to. Cost
+    // per row is the path's depth in lookups, never `members.len()`.
+    let mut owner_by_dir: HashMap<&Path, &str> = HashMap::with_capacity(members.len());
     for (dir, name) in &members {
+        owner_by_dir
+            .entry(dir.as_path())
+            .or_insert_with(|| name.as_str());
         units.push(Unit {
             name: name.clone(),
             kind: "package".to_string(),
@@ -339,16 +394,12 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
             root: String::new(),
             crate_ids: BTreeSet::from([name.clone()]),
         });
-        owners.push((dir.clone(), name.clone()));
     }
-    owners.sort_by(|left, right| right.0.cmp(&left.0));
     let file_unit = |file: &str| -> String {
         let path = root.join(file);
-        owners
-            .iter()
-            .find(|(dir, _)| path.starts_with(dir))
-            .map(|(_, name)| name.clone())
-            .unwrap_or_else(|| unit.name.clone())
+        path.ancestors()
+            .find_map(|dir| owner_by_dir.get(dir))
+            .map_or_else(|| unit.name.clone(), |name| (*name).to_string())
     };
     // C2 test-tier facts: a file carries the tier only when framework
     // evidence and naming convention co-occur. The evidence is the owning
@@ -479,6 +530,9 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
         // route precisely because that route can never go red under
         // `--strict`.
         warnings: warnings.into_iter().collect(),
+        // The unresolvable-import census entries (scenario 01): transient,
+        // never serialized, read by `scan` and `verify` only.
+        unresolvable_imports: unresolvables,
         ..Model::new("ts")
     };
     Ok(model)
@@ -552,10 +606,32 @@ fn orphan_census_lines(
 /// The scanned source files, repo-relative, git spelling, sorted. Excluded
 /// trees contribute no files (D1/D2/D14).
 fn collect_files(root: &Path, declared: Option<&Exclusions>) -> Result<Vec<String>, String> {
+    collect_files_recorded(root, declared, None)
+}
+
+/// The collection walk with an optional visit ledger (the test seam the
+/// pruning cell reads): every path the exclusion filter evaluates rides
+/// `visits`, repo-relative. `None` — every shipped path — carries no ledger.
+fn collect_files_recorded(
+    root: &Path,
+    declared: Option<&Exclusions>,
+    mut visits: Option<&mut Vec<String>>,
+) -> Result<Vec<String>, String> {
+    // The H6 cure (probe record 2026-11-20): the declared table is indexed
+    // ONCE per walk, so each visited path pays one O(depth) structural
+    // descent instead of one comparison per declared entry per path.
+    let index = declared.map(|exclusions| DeclaredIndex::new(&exclusions.declared));
     let mut files = Vec::new();
     for entry in WalkDir::new(root)
         .into_iter()
-        .filter_entry(|entry| !excluded_walk(entry.path(), root, declared))
+        .filter_entry(|entry| {
+            if let Some(ledger) = visits.as_deref_mut()
+                && let Some(rel) = relative(entry.path(), root)
+            {
+                ledger.push(rel);
+            }
+            !excluded_walk(entry.path(), root, index.as_ref())
+        })
     {
         let entry = entry.map_err(|err| format!("cannot scan tree: {err}"))?;
         if !entry.file_type().is_file() {
@@ -572,10 +648,95 @@ fn collect_files(root: &Path, declared: Option<&Exclusions>) -> Result<Vec<Strin
     Ok(files)
 }
 
-fn excluded_walk(path: &Path, root: &Path, declared: Option<&Exclusions>) -> bool {
+/// One component-trie node: `terminal` flags an entry path ending here;
+/// `edges` keys the next component by exact OsStr bytes — the
+/// `Path::starts_with` equality law (case-sensitive, never prefix-text).
+#[derive(Default)]
+struct TrieNode<'a> {
+    terminal: bool,
+    edges: HashMap<&'a OsStr, u32>,
+}
+
+/// The declared `excluded_sources` table seen as a component trie (the H6
+/// cure). [`DeclaredIndex::matches`] answers "some entry path is a
+/// component-wise prefix of this path" in one O(depth) descent — the same
+/// verdict the linear `rel.starts_with(&entry.path)` scan gave: the entry
+/// `web` matches `web` and `web/app.ts`, never `webapp/app.ts`, and a
+/// matched directory is pruned by the walker before its subtree is read.
+struct DeclaredIndex<'a> {
+    nodes: Vec<TrieNode<'a>>,
+    /// Entries carrying a non-Normal component (the loader refuses them at
+    /// load; the linear law stays their home so no verdict can drift).
+    literal: Vec<&'a Path>,
+}
+
+impl<'a> DeclaredIndex<'a> {
+    fn new(entries: &'a [crate::model::ExclusionEntry]) -> Self {
+        let mut index = Self {
+            nodes: vec![TrieNode::default()],
+            literal: Vec::new(),
+        };
+        for entry in entries {
+            let mut node = 0usize;
+            let mut trie_home = true;
+            for component in entry.path.components() {
+                let Component::Normal(name) = component else {
+                    trie_home = false;
+                    break;
+                };
+                let known = index.nodes[node].edges.get(name).copied();
+                node = match known {
+                    Some(next) => next as usize,
+                    None => {
+                        index.nodes.push(TrieNode::default());
+                        let next = index.nodes.len() as u32 - 1;
+                        index.nodes[node].edges.insert(name, next);
+                        next as usize
+                    }
+                };
+            }
+            if trie_home {
+                index.nodes[node].terminal = true;
+            } else {
+                index.literal.push(&entry.path);
+            }
+        }
+        index
+    }
+
+    /// True when one entry path component-prefixes `rel` — byte-identical
+    /// to `entries.iter().any(|entry| rel.starts_with(&entry.path))`.
+    fn matches(&self, rel: &Path) -> bool {
+        if self.nodes[0].terminal {
+            // An empty entry path prefixes every path (the starts_with law).
+            return true;
+        }
+        let mut node = 0usize;
+        for component in rel.components() {
+            let Component::Normal(name) = component else {
+                return self.literal.iter().any(|entry| rel.starts_with(*entry));
+            };
+            let Some(&next) = self.nodes[node].edges.get(name) else {
+                return self.literal.iter().any(|entry| rel.starts_with(*entry));
+            };
+            node = next as usize;
+            if self.nodes[node].terminal {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+fn excluded_walk(path: &Path, root: &Path, declared: Option<&DeclaredIndex<'_>>) -> bool {
     // The absolute classes carry over the whole path (segments ABOVE the
     // scan root exclude too); the VENDORED class narrows to nothing —
-    // it never excludes in the ts scan (R11, one law).
+    // it never excludes in the ts scan (R11, one law). A relative path's
+    // components are a suffix of this path's components, so this one scan
+    // covers the mechanical set for both spellings — the old second
+    // `mechanically_excluded(rel)` pass (with its per-component String
+    // allocations) decided nothing the scan above did not (the probe
+    // record's rider).
     if path
         .components()
         .any(|component| matches!(component, Component::Normal(name)
@@ -583,18 +744,9 @@ fn excluded_walk(path: &Path, root: &Path, declared: Option<&Exclusions>) -> boo
     {
         return true;
     }
+    // The declared table answers through the component trie (H6 cure).
     relative(path, root)
-        .map(|rel| {
-            let rel = Path::new(&rel);
-            mechanically_excluded(rel)
-                || declared.is_some_and(|exclusions| {
-                    exclusions
-                        .declared
-                        .iter()
-                        .any(|entry| rel.starts_with(&entry.path))
-                })
-        })
-        .unwrap_or(false)
+        .is_some_and(|rel| declared.is_some_and(|index| index.matches(Path::new(&rel))))
 }
 
 fn source_extension(path: &Path) -> Option<&'static str> {
@@ -945,6 +1097,110 @@ mod tests {
         assert_eq!(
             exclusion_hit(Path::new("node_modules/pkg/index.ts"), Some(&declared)),
             "node_modules"
+        );
+    }
+
+    /// The walk-side twin of language.rs's pinned census law: the declared
+    /// component trie matches by components only, never by prefix text.
+    #[test]
+    fn declared_index_matches_componentwise_never_by_prefix_text() {
+        let entries: Vec<crate::model::ExclusionEntry> = ["web", "gen/r000/deep", "a/b.ts"]
+            .iter()
+            .map(|path| crate::model::ExclusionEntry {
+                path: PathBuf::from(path),
+                mode: "abort",
+            })
+            .collect();
+        let index = DeclaredIndex::new(&entries);
+        // The entry `web` matches its own root and its subtree…
+        assert!(index.matches(Path::new("web")));
+        assert!(index.matches(Path::new("web/app.ts")));
+        // …and NEVER the look-alike sibling (component-wise, not prefix-text).
+        assert!(!index.matches(Path::new("webapp/app.ts")));
+        // A declared root only prefixes: mid-path occurrences stay in scope.
+        assert!(!index.matches(Path::new("src/web/app.ts")));
+        // Deep entries: the subtree matches, the parent and the sibling do not.
+        assert!(index.matches(Path::new("gen/r000/deep/a/b/c.ts")));
+        assert!(!index.matches(Path::new("gen/r000")));
+        assert!(!index.matches(Path::new("gen/r000x/deep/a.ts")));
+        // A file-level entry matches itself, never a look-alike file.
+        assert!(index.matches(Path::new("a/b.ts")));
+        assert!(!index.matches(Path::new("a/b.tsx")));
+        assert!(!index.matches(Path::new("")));
+    }
+
+    /// The H6 pruning cell (probe record 2026-11-20): with a large declared
+    /// table the walk must PRUNE every declared root at the root itself —
+    /// no path strictly inside a declared subtree is ever evaluated. The
+    /// visit ledger decides; no wall clock is read, so no flake is possible.
+    #[test]
+    fn excluded_walk_prunes_declared_subtrees_without_visiting_them() {
+        let scratch = tempfile::TempDir::new().expect("scratch tree");
+        let root = scratch.path();
+        let mut entries = Vec::new();
+        for n in 0..300usize {
+            let dir = root.join(format!("gen/r{n:03}/deep/a/b"));
+            std::fs::create_dir_all(&dir).expect("deep dir");
+            std::fs::write(dir.join("c.ts"), "export const x = 1;\n").expect("deep file");
+            entries.push(crate::model::ExclusionEntry {
+                path: PathBuf::from(format!("gen/r{n:03}")),
+                mode: "abort",
+            });
+        }
+        // Component-wise look-alikes of two declared roots stay whole:
+        // `gen/r300` never reaches `gen/r300x`, `web` never reaches `webapp`.
+        std::fs::create_dir_all(root.join("gen/r300x/keep")).expect("look-alike dir");
+        std::fs::write(root.join("gen/r300x/keep/k.ts"), "export const k = 1;\n")
+            .expect("look-alike file");
+        std::fs::create_dir_all(root.join("webapp")).expect("webapp dir");
+        std::fs::write(root.join("webapp/keep.ts"), "export const w = 1;\n").expect("webapp file");
+        std::fs::create_dir_all(root.join("src")).expect("src dir");
+        std::fs::write(root.join("src/keep.ts"), "export const s = 1;\n").expect("src file");
+        entries.push(crate::model::ExclusionEntry {
+            path: PathBuf::from("gen/r300"),
+            mode: "abort",
+        });
+        entries.push(crate::model::ExclusionEntry {
+            path: PathBuf::from("web"),
+            mode: "abort",
+        });
+        let declared = Exclusions { declared: entries };
+        let mut visits: Vec<String> = Vec::new();
+        let files =
+            collect_files_recorded(root, Some(&declared), Some(&mut visits)).expect("collection");
+        assert_eq!(
+            files,
+            vec![
+                "gen/r300x/keep/k.ts".to_string(),
+                "src/keep.ts".to_string(),
+                "webapp/keep.ts".to_string(),
+            ],
+            "the 301 declared subtrees contribute no files; the look-alikes stay whole"
+        );
+        // THE PRUNING LAW: the filter never evaluated a path strictly INSIDE
+        // a declared root — the walk met each declared directory itself (the
+        // prune point) and never descended.
+        let inside: Vec<&String> = visits
+            .iter()
+            .filter(|visit| {
+                let visited = Path::new(visit.as_str());
+                declared
+                    .declared
+                    .iter()
+                    .any(|entry| visited.starts_with(&entry.path) && visited != entry.path)
+            })
+            .collect();
+        assert!(
+            inside.is_empty(),
+            "the walk descended into a declared subtree: {inside:?}"
+        );
+        // Structural scale, timing-free: the scan root + `gen` + 301
+        // declared root dirs + the 3-path look-alike chain + `webapp` +
+        // its file + `src` + its file = one evaluation per surviving path.
+        assert_eq!(
+            visits.len(),
+            309,
+            "every surviving path evaluated exactly once, nothing pruned was read"
         );
     }
 }

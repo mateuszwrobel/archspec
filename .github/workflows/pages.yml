@@ -1,0 +1,74 @@
+# Pages channel for the interactive viewer (workplan visibility_phase2
+# scenario 06): publishes the single-file `viewer.html` emitted over THIS
+# repository's own scan model. One artifact, one channel — the job builds
+# the binary from the checkout, scans the checkout, emits the viewer, and
+# deploys exactly that one document.
+#
+# Posture (the `release.yml` precedent, no secrets): this workflow holds no
+# token beyond the ephemeral GITHUB_TOKEN. The Pages deploy runs on the
+# least-privilege permission set below — `pages: write` plus
+# `id-token: write` (the OIDC deploy credential), the Trusted-Publishing
+# shape. Enabling Pages on the repository is a one-off repository-settings
+# action, not scripted here.
+#
+# Channel law: the mirror repository's GitHub Pages is the channel this
+# file owns. gitea has no Pages (the feature is gone in the 28.x line) —
+# the gitea-side channels are named and not built here; see
+# `archspec diagram --help` for the limitation rows.
+
+name: Deploy viewer to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time; a newer main always wins over a queued run.
+concurrency:
+  group: archspec-pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-viewer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+      - name: Build the binary from the checkout
+        run: cargo build --release --locked
+      - name: Emit the viewer over the model of this repository
+        env:
+          ARCHSPEC: ${{ github.workspace }}/target/release/archspec
+        run: |
+          set -eu
+          "$ARCHSPEC" scan . --output scan.json
+          mkdir -p _site
+          "$ARCHSPEC" diagram --source scan scan.json --format viewer \
+            --output _site/viewer.html
+          test -s _site/viewer.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build-viewer
+    runs-on: ubuntu-latest
+    # Job-level permissions REPLACE the workflow-level set: pages:write and
+    # id-token:write are the deploy credential; contents:read stays needed
+    # for the checkout the deploy action performs.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy the viewer document
+        id: deployment
+        uses: actions/deploy-pages@v4

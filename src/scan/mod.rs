@@ -85,6 +85,43 @@ pub fn report_only_report(model: &Model) -> String {
     out
 }
 
+/// The unresolvable-imports census line (visibility phase 2, scenario 01).
+///
+/// ONE implementation owned by the scan engine, read by `scan` and
+/// `verify`. Line shape — `unresolvable imports census: <N> specifiers
+/// across <M> files — top: <spec> ×<k>, …` — where `<N>` counts DISTINCT
+/// specifiers and `<M>` DISTINCT files (a repeated edge counts once per
+/// dimension); the top list is complete, sorted count-descending then
+/// specifier-ascending (the MINOR-1 determinism law). `None` when the
+/// census is empty: an empty census is ZERO bytes (the shipped-bytes
+/// guard), and the line is never a tripwire arm — it is ABSENCE computed
+/// from the walk, the D7/B1 ordering law the orphan census restates. The
+/// anchored miss lines print separately, from the same list, in walk
+/// order.
+pub fn unresolvable_census_line(entries: &[crate::model::UnresolvableImport]) -> Option<String> {
+    if entries.is_empty() {
+        return None;
+    }
+    let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    let mut files: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for entry in entries {
+        *counts.entry(entry.specifier.as_str()).or_insert(0) += 1;
+        files.insert(entry.file.as_str());
+    }
+    let mut rows: Vec<(&str, usize)> = counts.into_iter().collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let top: Vec<String> = rows
+        .iter()
+        .map(|(spec, count)| format!("{spec} ×{count}"))
+        .collect();
+    Some(format!(
+        "unresolvable imports census: {} specifiers across {} files — top: {}",
+        rows.len(),
+        files.len(),
+        top.join(", ")
+    ))
+}
+
 /// Extract with the driver-availability gate applied, spec-free (see
 /// [`extract`]). Every consumer that extracts through a language driver
 /// must go through this so the env-controlled test invariant cannot be

@@ -356,8 +356,8 @@ fn schema_json() -> String {
 /// the KEY SET rides `SPEC_KEY_SHAPES["pattern_side"]` — the same constant
 /// the runtime walker reads — while the value domains state their own types
 /// (a closed role vocabulary, a non-negative argument position). The
-/// one-verb-per-side law rides `oneOf`: exactly the `call`+`arg` arm or the
-/// `property` arm, never both, never neither.
+/// one-verb-per-side law rides `oneOf`: exactly the `call`+`arg` arm, the
+/// `property` arm, or the `field` arm — never two, never neither.
 fn pattern_side_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
@@ -367,12 +367,14 @@ fn pattern_side_schema() -> serde_json::Value {
             "role": { "enum": spec::PATTERN_ROLE_VALUES },
             "call": { "type": "string", "minLength": 1 },
             "arg": { "type": "integer", "minimum": 0 },
-            "property": { "type": "string", "minLength": 1 }
+            "property": { "type": "string", "minLength": 1 },
+            "field": { "type": "string", "minLength": 1 }
         },
         "required": ["language"],
         "oneOf": [
             { "required": ["call", "arg"] },
-            { "required": ["property"] }
+            { "required": ["property"] },
+            { "required": ["field"] }
         ]
     })
 }

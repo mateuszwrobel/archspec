@@ -7,7 +7,7 @@
 //! here is byte-pinned (D8, follow-up 6; law: N2 — the renderers consume
 //! the census rows, never a re-derivation).
 //!
-//! Scenario 08 (consumer-fix round 1, eShop verdict on 0.6.86) moves the
+//! Scenario 08 (consumer-fix round 1, witness-corpus verdict on 0.6.86) moves the
 //! ARROW law: exactly ONE arrow line per declared entry — the projected
 //! module-node-pair fan-out is gone — and the short `unit::SimpleName`
 //! label (never the declared FQN). Issue #51 (P3) moves the ENDPOINT law
@@ -126,7 +126,7 @@ event = "api::OrderPlaced"
 
 /// The multi-module-endpoint fixture (scenario 08): unit `api` carries TWO
 /// modules (`gateway` and `admin`), so its paths fold to TWO rendered module
-/// nodes — the eShop shape that made 18 entries render 26 arrow lines on
+/// nodes — the witness-corpus shape that made 18 entries render 26 arrow lines on
 /// 0.6.86. Unit `core` folds to the one `handler` node. Three entries are
 /// declared, two of them the same `api -> core` pair over different events,
 /// one event given as a dotted FQN — under the one-arrow law this renders
@@ -181,12 +181,12 @@ event = "core::AppEvent"
     fixture
 }
 
-/// The eShop-shaped fixture (GitHub issue #56): the multi-module publisher of
-/// the eShop verdict tree — EIGHTEEN DISTINCT subscriptions over two unit
+/// The witness-corpus-shaped fixture (GitHub issue #56): the multi-module publisher of
+/// the witness-corpus verdict tree — EIGHTEEN DISTINCT subscriptions over two unit
 /// pairs, several events per pair (the legal collision class), no two entries
 /// identical. The exact-duplicate law must never fire on this shape: the
 /// parse accepts it and the renders keep their byte-for-byte behavior.
-fn eshop_shaped_fixture() -> Fixture {
+fn witness_shaped_fixture() -> Fixture {
     let fixture = Fixture::new();
     fixture.write("Cargo.toml", "[workspace]\nmembers = [\"api\", \"core\"]\nresolver = \"2\"\n");
     fixture.write(
@@ -560,13 +560,13 @@ fn multi_module_endpoint_entries_fold_away_in_modules_and_render_in_units() {
     );
 }
 
-/// The eShop shape at scale (GitHub issue #56): 18 DISTINCT entries over two
+/// The witness-corpus shape at scale (GitHub issue #56): 18 DISTINCT entries over two
 /// unit pairs parse green and render one arrow per DISTINCT fact — the exact
 /// byte behavior the pre-duplicate-law binary produced for the same shape.
 /// The entry accounting (explain's row count) equals the table's entry count.
 #[test]
-fn eshop_shaped_eighteen_distinct_entries_parse_and_render_one_arrow_each() {
-    let fixture = eshop_shaped_fixture();
+fn witness_shaped_eighteen_distinct_entries_parse_and_render_one_arrow_each() {
+    let fixture = witness_shaped_fixture();
 
     // The parse accepts 18 distinct entries — no duplicate refusal anywhere.
     let units = fixture.run(&["depgraph", "modules", "--aggregate", "units"]);
@@ -604,7 +604,7 @@ fn eshop_shaped_eighteen_distinct_entries_parse_and_render_one_arrow_each() {
     );
 
     // Entry accounting at scale: explain prints one row per entry, each
-    // numbered once — the #56 double-count cannot recur on the eShop shape.
+    // numbered once — the #56 double-count cannot recur on the witness-corpus shape.
     let trace = fixture.run(&["explain", "api", "core"]);
     assert_eq!(trace.status.code(), Some(0), "{}", stdout(&trace));
     let trace_out = stdout(&trace);
@@ -637,7 +637,7 @@ fn eshop_shaped_eighteen_distinct_entries_parse_and_render_one_arrow_each() {
     );
 }
 
-/// The fold-to-self class (issue #51 P3, eShop fold-to-self shape): every
+/// The fold-to-self class (issue #51 P3, witness-corpus fold-to-self shape): every
 /// declaring endpoint's paths land on the SAME rendered node, so the rows
 /// fold onto self-edges the renderer drops. The stdout keeps zero async
 /// bytes, the units tier keeps rendering its rows, and the note still rides
@@ -673,6 +673,67 @@ fn fold_to_self_rows_render_no_arrows_and_the_note_names_no_endpoint() {
         !String::from_utf8_lossy(&units.stderr).contains("folded away"),
         "the units tier folds nothing away:\n{}",
         String::from_utf8_lossy(&units.stderr)
+    );
+
+    // Level-views extension (workplan level_views scenario 01, MAJOR-4):
+    // the same fold-to-self pair rendered through `diagram --source scan
+    // --level module --layer both` keeps the note bytes EXACTLY as above
+    // and self-accounts the folded row inside the accounting ledger — the
+    // folded count never vanishes. The shipped assertions above stay as
+    // they were; this arm only extends the cell.
+    let scanned = fixture.run(&["scan", "--output", "scan.json"]);
+    assert_eq!(
+        scanned.status.code(),
+        Some(0),
+        "scan must exit 0: {}",
+        String::from_utf8_lossy(&scanned.stderr)
+    );
+    let artefact_path = fixture.path("scan.json");
+    let mut artefact: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&artefact_path).expect("read the scan artefact"),
+    )
+    .expect("parse the scan artefact");
+    artefact["async_edges"] = serde_json::json!([
+        {"from": "alpha", "to": "beta", "event": "ping::PingEvent", "kind": "async"}
+    ]);
+    std::fs::write(&artefact_path, artefact.to_string()).expect("write the artefact");
+    let folded = fixture.run(&[
+        "diagram",
+        "--source",
+        "scan",
+        "scan.json",
+        "--level",
+        "module",
+        "--layer",
+        "both",
+    ]);
+    assert_eq!(
+        folded.status.code(),
+        Some(0),
+        "the level render must exit 0: {}",
+        String::from_utf8_lossy(&folded.stderr)
+    );
+    let rendered = stdout(&folded);
+    assert!(
+        !rendered.contains(" -.->|") && !rendered.contains("PingEvent"),
+        "the level fold draws no arrow for the folded pair:\n{rendered}"
+    );
+    let err = String::from_utf8_lossy(&folded.stderr);
+    assert!(
+        err.contains("note: 1 async rows folded away in this projection"),
+        "the level fold keeps the shipped fold-to-self note bytes (MAJOR-4):\n{err}"
+    );
+    assert!(
+        !err.contains("endpoints outside"),
+        "every endpoint placed a node in the level fold, so the note names none:\n{err}"
+    );
+    assert!(
+        err.contains("accounting exact: 0 drawn + 1 self = 1 raw rows at level module"),
+        "the folded async row is self-accounted in the ledger, never dropped:\n{err}"
+    );
+    assert!(
+        err.contains("self rows: gateway ×1"),
+        "the folded async row rides the self tally with its count:\n{err}"
     );
 }
 

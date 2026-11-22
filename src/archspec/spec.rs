@@ -143,7 +143,8 @@ pub struct PatternPair {
 /// — 4.4a(v)/F3: the engine carries no name-inference arm, and an absent
 /// role is the unoriented state the value join routes to a named
 /// `ambiguous-leg` row), and exactly ONE matcher verb: call-name+argument
-/// position (`call` + `arg`) or exported-property value (`property`).
+/// position (`call` + `arg`), exported-property value (`property`), or
+/// field value (`field`, workplan visibility_phase2 scenario 02).
 /// Generic by law: every field is data — the nouns live here, the verbs
 /// live in `events::patterns` (F2 drafting law).
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -158,6 +159,8 @@ pub struct PatternSide {
     pub arg: Option<usize>,
     #[serde(default)]
     pub property: Option<String>,
+    #[serde(default)]
+    pub field: Option<String>,
 }
 
 /// Flatten one `[[pattern_pair]]` entry to its pattern-side facts: entry
@@ -169,13 +172,16 @@ pub struct PatternSide {
 pub fn pattern_sides(pair: &PatternPair) -> Vec<DeclaredPattern> {
     let mut sides = Vec::new();
     for side in [pair.emit.as_ref(), pair.subscribe.as_ref()].into_iter().flatten() {
-        let verb = match (&side.call, side.arg, &side.property) {
-            (Some(call), Some(arg), None) => DeclaredPatternVerb::CallNameArgPosition {
+        let verb = match (&side.call, side.arg, &side.property, &side.field) {
+            (Some(call), Some(arg), None, None) => DeclaredPatternVerb::CallNameArgPosition {
                 call: call.clone(),
                 arg,
             },
-            (None, None, Some(property)) => DeclaredPatternVerb::ExportedPropertyValue {
+            (None, None, Some(property), None) => DeclaredPatternVerb::ExportedPropertyValue {
                 property: property.clone(),
+            },
+            (None, None, None, Some(field)) => DeclaredPatternVerb::FieldValue {
+                field: field.clone(),
             },
             _ => continue,
         };
@@ -824,7 +830,7 @@ pub const SPEC_KEY_SHAPES: &[(&str, &[&str])] = &[
     ("match", &["modules", "names", "paths", "units"]),
     ("module", &["allowed", "contract", "matches", "name", "submodules"]),
     ("pattern_pair", &["emit", "id", "subscribe"]),
-    ("pattern_side", &["arg", "call", "language", "property", "role"]),
+    ("pattern_side", &["arg", "call", "field", "language", "property", "role"]),
     ("project", &["excluded_sources", "framework", "language"]),
     ("shared_constant", &["class", "producer"]),
     ("stereotype", &["match", "name"]),
@@ -1305,18 +1311,20 @@ fn check_pattern_side(
     let call = table.get("call").and_then(toml::Value::as_str);
     let arg = table.get("arg").and_then(toml::Value::as_integer);
     let property = table.get("property").and_then(toml::Value::as_str);
-    match (call, property) {
-        (None, None) => Err(format!(
+    let field = table.get("field").and_then(toml::Value::as_str);
+    let verbs = [call, property, field].iter().filter(|verb| verb.is_some()).count();
+    match (call, property, field) {
+        (None, None, None) => Err(format!(
             "invalid spec: {}: {entry}: no matcher verb — a pattern side declares exactly \
-             one verb: call with arg, or property",
+             one verb: call with arg, property, or field",
             spec_path.display(),
         )),
-        (Some(_), Some(_)) => Err(format!(
-            "invalid spec: {}: {entry}: declares both matcher verbs (call and property) — \
-             a pattern side declares exactly one verb",
+        _ if verbs > 1 => Err(format!(
+            "invalid spec: {}: {entry}: declares more than one matcher verb (call, property, \
+             field) — a pattern side declares exactly one verb",
             spec_path.display(),
         )),
-        (Some(name), None) => {
+        (Some(name), None, None) => {
             if name.is_empty() {
                 return Err(format!(
                     "invalid spec: {}: {entry}: key \"call\" is empty — the verb's call name \
@@ -1338,7 +1346,7 @@ fn check_pattern_side(
                 Some(_) => Ok(()),
             }
         }
-        (None, Some(name)) => {
+        (None, Some(name), None) => {
             if name.is_empty() {
                 return Err(format!(
                     "invalid spec: {}: {entry}: key \"property\" is empty — the verb's \
@@ -1356,6 +1364,29 @@ fn check_pattern_side(
             }
             Ok(())
         }
+        (None, None, Some(name)) => {
+            if name.is_empty() {
+                return Err(format!(
+                    "invalid spec: {}: {entry}: key \"field\" is empty — the verb's field \
+                     name is the declared noun the keyed pair's key is compared to",
+                    spec_path.display(),
+                ));
+            }
+            if table.contains_key("arg")
+                || table.contains_key("call")
+                || table.contains_key("property")
+            {
+                return Err(format!(
+                    "invalid spec: {}: {entry}: field verb carries a side key of another verb \
+                     — the field-value verb takes field alone",
+                    spec_path.display(),
+                ));
+            }
+            Ok(())
+        }
+        // A non-string verb value is the generic typed-key voice elsewhere;
+        // reaching this arm means the verb keys are otherwise well-formed.
+        _ => Ok(()),
     }?;
     check_pattern_role(table, &entry, spec_path)
 }

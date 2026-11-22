@@ -68,7 +68,11 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     let mut rows: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
     let mut external: BTreeSet<String> = BTreeSet::new();
     let mut module_external: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let mut findings: Vec<String> = Vec::new();
+    // The unresolvable-import census entries (visibility phase 2, scenario
+    // 01, the ts twin): every relative miss lands here instead of aborting
+    // the run; the model always lands. Python has no config-fault class in
+    // this function, so the findings abort dies with the twin.
+    let mut unresolvables: Vec<crate::model::UnresolvableImport> = Vec::new();
     let mut report_only: Vec<String> = Vec::new();
     let mut import_statements = 0usize;
 
@@ -169,17 +173,25 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
                     let Some(anchor) = climb(file, *level) else {
                         // The NAMED python variant clause (P3, reused
                         // category): depth exceeding the package root.
-                        findings.push(format!(
-                            "unresolvable import: {file} -> \"{}\" — relative depth beyond package root",
-                            relative_spelling(*level, module.as_deref())
-                        ));
+                        unresolvables.push(crate::model::UnresolvableImport {
+                            file: file.clone(),
+                            specifier: relative_spelling(*level, module.as_deref()),
+                            line: format!(
+                                "unresolvable import: {file} -> \"{}\" — relative depth beyond package root",
+                                relative_spelling(*level, module.as_deref())
+                            ),
+                        });
                         continue;
                     };
                     if !resolution.anchor_in_package(&anchor) {
-                        findings.push(format!(
-                            "unresolvable import: {file} -> \"{}\" — relative depth beyond package root",
-                            relative_spelling(*level, module.as_deref())
-                        ));
+                        unresolvables.push(crate::model::UnresolvableImport {
+                            file: file.clone(),
+                            specifier: relative_spelling(*level, module.as_deref()),
+                            line: format!(
+                                "unresolvable import: {file} -> \"{}\" — relative depth beyond package root",
+                                relative_spelling(*level, module.as_deref())
+                            ),
+                        });
                         continue;
                     }
                     let base = match module {
@@ -194,10 +206,14 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
                                 // construction; landing nowhere (not even a
                                 // deeper existing prefix) is the reused
                                 // unresolvable category with its shipped bytes.
-                                findings.push(format!(
-                                    "unresolvable import: {file} -> \"{}\"",
-                                    relative_spelling(*level, module.as_deref())
-                                ));
+                                unresolvables.push(crate::model::UnresolvableImport {
+                                    file: file.clone(),
+                                    specifier: relative_spelling(*level, module.as_deref()),
+                                    line: format!(
+                                        "unresolvable import: {file} -> \"{}\"",
+                                        relative_spelling(*level, module.as_deref())
+                                    ),
+                                });
                                 continue;
                             }
                         }
@@ -212,9 +228,9 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
             }
         }
     }
-    if !findings.is_empty() {
-        return Err(findings.join("\n"));
-    }
+    // Scenario 01 twin law: the unresolvable-abort class is removed — the
+    // entries ride the model, the tripwire below stays untouched (the
+    // census never launders a silent extractor green).
 
     // The tripwire law (the ts D2 precedent, G1 vacuity law): scannable
     // files with parsed imports whose model states no edge or external fact
@@ -307,6 +323,8 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
         // channel (the ts R7b lineage): stderr via the report renderer,
         // never the machine body.
         report_only_lines: report_only,
+        // The unresolvable-import census entries (scenario 01 twin).
+        unresolvable_imports: unresolvables,
         literal_candidates,
         ..Model::new("python")
     })

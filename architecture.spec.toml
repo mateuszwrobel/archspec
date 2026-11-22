@@ -37,6 +37,7 @@ matches = { units = ["archspec"], modules = [
   "archspec::archspec::verify*",
   "archspec::archspec::depgraph*",
   "archspec::archspec::diagram*",
+  "archspec::archspec::viewer*",
   "archspec::archspec::report*",
   "archspec::archspec::update*",
   "archspec::archspec::inspect*",

@@ -327,7 +327,7 @@ fn render_module_diagram(
         eprintln!("{note}");
     }
     depgraph::attach_async_rows(&mut graph, projection.rows);
-    let mut body = depgraph::render_mermaid(&graph);
+    let mut body = depgraph::render_mermaid(&graph, depgraph::LayerSelection::Both);
     // The stated fold rides the fence exactly as the depgraph view's mermaid
     // body carries it (roles reality US 05): one fact, one byte spelling.
     if graph.unplaced_claims > 0 {

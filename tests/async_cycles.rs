@@ -1,7 +1,7 @@
 //! Scenario 03 (archspec_async_depends): the async ring census and its
 //! adjacent surfaces. The `[[async_depends]]` declaration gains the verdict
 //! parts of issue #44: the no_cycles adjudication stays direct-only (the
-//! eShop-style pub→sub→pub round trip stays green at the error class), the
+//! witness-corpus-style pub→sub→pub round trip stays green at the error class), the
 //! census walks direct ∪ async legs over the strongly-connected components
 //! and prints one named advisory row per ring (`async cycle: <path> (mixed)`
 //! or `async cycle: <path> (async)` — green without `--strict` and green
@@ -13,12 +13,12 @@
 //! traces a pair with async legs through the async-edges section.
 //!
 //! Law source: `docs/archspec/spec.md` §Async event dependencies; the
-//! eShop evidence: opentelemetry's InMemoryExporter publishes `Activity` the
+//! witness-corpus evidence: opentelemetry's InMemoryExporter publishes `Activity` the
 //! instrumentation SDK subscribes to while referencing
 //! `OpenTelemetry.Instrumentation.Wip` — https://github.com/open-telemetry/opentelemetry-net-instrumentation/pull/1/files
 //! (`ActivitySource.AddActivityListener` composes a delegate calling
-//! `Activity.StartStopSwitch`); a grpc client is the direct sibling of the
-//! same shape: https://github.com/dotnet/eShop/pull/268/files.
+//! `Activity.StartStopSwitch`); a grpc client in the same corpus is the direct$
+//! sibling of the same shape.
 //!
 //! The round-trip fixture is the minimal Rust rendering of that shape: unit
 //! `orders` declares `EventOne` and unit `catalog` declares `EventTwo`; the

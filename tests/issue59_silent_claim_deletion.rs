@@ -44,7 +44,7 @@ fn csproj_with_reference(tf: &str, reference: &str) -> String {
     )
 }
 
-/// The issue's repro shape (the eShop Webhooks deletion, minimized): the
+/// The issue's repro shape (the witness-corpus Webhooks deletion, minimized): the
 /// project `Acme.Widget` is named by NO claim once its entry is deleted —
 /// only the wiring claim's `matches.modules` territory `Acme` covers its
 /// soft paths through the ancestor rule — and it uses `Acme.Core`, a
@@ -69,8 +69,8 @@ fn widget_fixture(spec: &str) -> common::Fixture {
 }
 
 /// The deleted-claim spec: `Acme.Widget` names no entry anymore; the wiring
-/// claim's territory `Acme` still covers the project's paths (the eShop
-/// `wiring::root` `modules = ["eShop"]` shape).
+/// claim's territory `Acme` still covers the project's paths (the witness-corpus
+/// `wiring::root` `modules = [<namespace root>]` shape).
 const DELETED: &str = "[project]\nlanguage = \"csharp\"\n\n[[module]]\nname = \"core\"\nmatches = { units = [\"Acme.Core\"], modules = [\"Acme::Core\"] }\n\n[[module]]\nname = \"wiring\"\nmatches = { modules = [\"Acme\"] }\nallowed = { depend_on = [\"core\"] }\n";
 
 /// The claim-present spec: `Acme.Widget` is named by its own `units` claim;

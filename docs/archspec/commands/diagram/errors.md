@@ -15,6 +15,8 @@ Every failure produces a clear human message naming the cause and a **non-zero e
 | scan artefact is not a valid model snapshot | the artefact path and that it is invalid | non-zero |
 | model contains nothing to render | that there is no model content | non-zero |
 | unsupported `--format` value | the value and the supported formats | non-zero |
+| `--format viewer` with `--source spec` | that the viewer document rides the scan artefact, with the invocation that works | `64` |
+| `--format dot`, `svg` or `viewer` with `--module` or `--modules-dir` | that these formats render one whole-model graph while the territory views and the batch write mermaid and plantuml artefacts | `64` |
 | unsupported `--source` value | the value and the supported sources | non-zero |
 | `--source scan` without an artefact path | that an artefact path is required | non-zero |
 | `--tiers` value outside `units`, `modules`, `files` — invalid name, duplicate entry, or empty list | the offending value and the supported tiers: `invalid value "namespaces" for --tiers — supported tiers: units, modules, files` | `64` |
@@ -64,7 +66,7 @@ error: no model content to render
 
 # message names the unsupported value and the supported set
 $ archspec diagram --format bmp .
-error: unsupported format: bmp (supported: mermaid, plantuml)
+error: unsupported format: bmp (supported: mermaid, plantuml, dot, svg, viewer)
 
 # message names the unsupported source and the supported set
 $ archspec diagram --source gif .

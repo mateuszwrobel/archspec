@@ -212,6 +212,17 @@ fn surface(fixture: &Fixture, args: &[&str]) -> String {
     stdout(&output)
 }
 
+/// The synthetic scan artefact the level accounting welds run against
+/// (workplan level_views scenario 01): three raw rows aggregating onto one
+/// cross-bucket pair (gateway→store) and one row folding onto the self
+/// bucket (gateway→gateway), so the ledger reads `3 drawn + 1 self = 4 raw`.
+fn level_weld_artefact(fx: &Fixture) {
+    fx.write(
+        "model.json",
+        r#"{"schema_version":1,"language":"rust","units":[{"name":"alpha","kind":"lib","path":"src/alpha"},{"name":"beta","kind":"lib","path":"src/beta"}],"edges":[],"module_edges":[{"unit":"alpha","from":"alpha::gateway","to":"beta::store","symbols":["a"]},{"unit":"alpha","from":"alpha::gateway","to":"beta::store","symbols":["b"]},{"unit":"alpha","from":"alpha::gateway","to":"beta::store","symbols":[]},{"unit":"alpha","from":"alpha::gateway","to":"beta::gateway","symbols":[]}]}"#,
+    );
+}
+
 /// Every markdown surface shipped in the payload.
 fn payload_docs() -> Vec<(String, String)> {
     let mut files = vec![format!("{}/README.md", manifest())];
@@ -543,7 +554,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 92] = [
+    let required: [&str; 116] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -638,7 +649,7 @@ fn registry_owns_claim_identity() {
         "declaration-census-section",
         "shared-constant-pattern-pair-refusal",
         // Registered by the literal-site pattern primitives (workplan
-        // events_value_join scenario 03): the two generic matcher verbs, the
+        // events_value_join scenario 03): the three generic matcher verbs, the
         // scan-report census lines and the named driver-gap absence row.
         "literal-site-pattern-primitives",
         // Registered by the value join (workplan events_value_join scenario 04):
@@ -677,6 +688,11 @@ fn registry_owns_claim_identity() {
         // conditioned test-marker suppression line — a test marker under an
         // unevaluated MSBuild Condition gates nothing and says so.
         "csharp-conditioned-test-markers",
+        // Registered by workplan csharp_condition_eval scenario 04
+        // (2026-11-21, the F2 rider): the condition-face gap rows — the
+        // `Directory.Build.targets` files and `Import` targets the csharp
+        // driver does not walk name themselves, presence only.
+        "csharp-condition-face-unwalked",
         // Registered by GitHub issue #49 (2026-11-19): the csharp declared
         // exclusion — the per-project census line of `excluded_sources` at
         // project discovery.
@@ -685,6 +701,11 @@ fn registry_owns_claim_identity() {
         // exclusion at the FILE walk — the per-source-file census line of
         // `excluded_sources` inside a kept project.
         "csharp-excluded-sources",
+        // Registered by workplan visibility_phase2 scenario 03 (2026-11-20):
+        // the manifest path-item rows (the five named skip classes of the
+        // name-free item walk) and the shared-source census row.
+        "csharp-manifest-path-items",
+        "csharp-shared-source-census",
         // Registered by GitHub issue #28 (2026-11-17): the import-order repro
         // emitter — the verify help flag line, the repro block per runtime
         // file ring, and the named skip row of a language without the
@@ -697,6 +718,47 @@ fn registry_owns_claim_identity() {
         // and the --strict help sentence naming the async census-row exception.
         "verify-verdict-headline",
         "verify-help-strict-flag",
+        // Registered by workplan visibility_phase2 scenario 05 (2026-11-20):
+        // the `--layer` refusal bytes and the ceiling rationale the diagram
+        // help owns.
+        "layer-selector-refusal",
+        "layer-ceiling-rationale",
+        // Registered by the improvement-sweep HIGH-1 cure (2026-11-20): the
+        // ceiling rationale armed at the mermaid emit seam — the refusal row
+        // every over-ceiling `--format mermaid` render prints at exit 64.
+        "mermaid-ceiling-refusal",
+        // Registered by workplan visibility_phase2 scenario 06 (2026-11-20):
+        // the single-file viewer law and the viewer channels/limitation the
+        // diagram help owns.
+        "viewer-single-file-law",
+        "viewer-channels-limitation",
+        // Registered by workplan level_views scenario 01 (2026-11-20): the
+        // `--level` refusal bytes and the accounting block its renders print.
+        "level-selector-refusal",
+        "level-dir-floor-refusal",
+        "level-source-refusal",
+        "level-tiers-refusal",
+        "level-descriptive-note",
+        "level-accounting-exact",
+        "level-empty-model",
+        "level-completeness-restatement",
+        // Registered by workplan level_views scenario 03 (2026-11-21): the
+        // declared-vs-projected unit delta census `--level unit` prints
+        // advisory-LOUD on stderr (rc unchanged).
+        "level-unit-delta-model-only",
+        "level-unit-delta-projection-only",
+        // Registered by workplan level_views scenario 02 (2026-11-21): the
+        // NAME-THE-FITS refusal rows on the over-ceiling level render and
+        // the two-step narrowing grammar.
+        "level-fits-listing",
+        "level-empty-fits-row",
+        "level-narrowing-grammar",
+        // Registered by workplan level_views scenario 04 (2026-11-21): the
+        // recursive panes — the in-pane TERMINATION refusal and the
+        // whole-document total row of the level-viewer document.
+        "level-pane-refusal",
+        "level-document-total",
+        "viewer-byte-ceiling-refusal",
     ];
     for required in required {
         assert!(
@@ -734,6 +796,31 @@ fn registry_owns_claim_identity() {
 fn check_weld(claims: &[Claim]) -> Vec<String> {
     let mut errors = Vec::new();
     let surfaces = rendered_surfaces();
+    // The pane-explosion mass: 120 directories, each a 24-row internal
+    // grid. The UNIT fold aggregates the rows into cross-rows (a tiny
+    // document); the finer folds draw a pane per directory — over the
+    // viewer emitted-byte ceiling (workplan level_views scenario 05). The
+    // largest-fitting-scope weld runs against it, as do the cells of
+    // `tests/level_viewer_bytes.rs`.
+    let ceiling_fixture = {
+        let fx = Fixture::new();
+        let mut edges: Vec<String> = Vec::new();
+        for dir in 0..120 {
+            for row in 0..24 {
+                edges.push(format!(
+                    "{{\"unit\":\"model\",\"from\":\"w/d{dir}/g{row}/f.rs\",\"to\":\"w/d{dir}/h{row}/f.rs\",\"symbols\":[]}}"
+                ));
+            }
+        }
+        fx.write(
+            "model.json",
+            &format!(
+                "{{\"schema_version\":1,\"language\":\"rust\",\"units\":[{{\"name\":\"w\",\"kind\":\"lib\",\"path\":\"w\"}}],\"edges\":[],\"module_edges\":[{}]}}",
+                edges.join(",")
+            ),
+        );
+        fx
+    };
     let rendered = |key: &str| -> String {
         surfaces
             .iter()
@@ -1290,6 +1377,13 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                 }
             }
             "artefact-dirt-map" => contains_canonical(&mut errors, claim, "help diagnostics"),
+            // The csharp manifest walk (workplan visibility_phase2
+            // scenario 03): the skip-class row grammars and the
+            // shared-source census row are the diagnostics catalog rows;
+            // the dedicated guard welds them to the live scanner output.
+            "csharp-manifest-path-items" | "csharp-shared-source-census" => {
+                contains_canonical(&mut errors, claim, "help diagnostics")
+            }
             "tsconfig-not-found"
             | "tsconfig-load-failed"
             | "tsconfig-cycle"
@@ -1314,6 +1408,7 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             | "orphan-file-census"
             | "csharp-test-gated-units"
             | "csharp-conditioned-test-markers"
+            | "csharp-condition-face-unwalked"
             | "csharp-excluded-units"
             | "csharp-excluded-sources"
             | "async-event-unresolved"
@@ -2081,6 +2176,468 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                     errors.push(format!(
                         "claim `{}` drifted: the promoted run no longer prints the registered mismatch headline:\n{out}",
                         claim.id
+                    ));
+                }
+            }
+            "layer-selector-refusal" => {
+                // Live probes, not prose: both verbs refuse an unknown layer
+                // with the registered canonical bytes at exit 64 (workplan
+                // visibility_phase2 scenario 05). The flag parses before any
+                // model load, so an empty fixture reaches the refusal.
+                let canonical = claim.canonical.clone().expect("canonical");
+                let fx = Fixture::new();
+                for args in [
+                    ["diagram", "--layer", "sideways"].as_slice(),
+                    ["depgraph", "modules", "--layer", "sideways"].as_slice(),
+                ] {
+                    let refused = fx.run(args);
+                    if refused.status.code() != Some(64)
+                        || !stderr(&refused).contains(canonical.as_str())
+                    {
+                        errors.push(format!(
+                            "claim `{}` drifted: `{}` does not refuse with the registered canonical bytes at exit 64 — exit {:?}, stderr {:?}",
+                            claim.id,
+                            args.join(" "),
+                            refused.status.code(),
+                            stderr(&refused)
+                        ));
+                    }
+                }
+            }
+            "layer-ceiling-rationale" => {
+                contains_canonical(&mut errors, claim, "diagram --help");
+            }
+            "mermaid-ceiling-refusal" => {
+                // The live refusal bytes at the emit seam (sweep HIGH-1
+                // cure): a 501-edge synthetic artefact refuses at exit 64
+                // with the registered template's head and edge count, and
+                // emits no body — the failure never waits for a mermaid
+                // host to stay silent.
+                let canonical = claim.canonical.clone().expect("canonical");
+                let chunks: Vec<&str> = canonical.split("<path>").collect();
+                let fx = Fixture::new();
+                let units: Vec<String> = (0..=501)
+                    .map(|i| format!("  {{ \"name\": \"u{i:03}\", \"kind\": \"lib\", \"path\": \"u{i:03}\" }}"))
+                    .collect();
+                let edges: Vec<String> = (0..501)
+                    .map(|i| format!("  {{ \"from\": \"u{i:03}\", \"to\": \"u{:03}\" }}", i + 1))
+                    .collect();
+                fx.write(
+                    "model.json",
+                    &format!(
+                        "{{\n  \"schema_version\": 1,\n  \"language\": \"rust\",\n  \"units\": [\n{}\n  ],\n  \"edges\": [\n{}\n  ],\n  \"external\": [],\n  \"async_edges\": []\n}}\n",
+                        units.join(",\n"),
+                        edges.join(",\n"),
+                    ),
+                );
+                let refused = fx.run(&["diagram", "--source", "scan", "model.json"]);
+                let err = stderr(&refused);
+                let head_with_count = format!("{}501{}", chunks[0], chunks[1]);
+                if refused.status.code() != Some(64)
+                    || !err.contains(head_with_count.as_str())
+                    || !err.contains(chunks[2])
+                    || stdout(&refused).contains("graph")
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the live over-ceiling render does not refuse with the registered template bytes at exit 64 — exit {:?}, stderr {:?}",
+                        claim.id,
+                        refused.status.code(),
+                        err
+                    ));
+                }
+            }
+            "viewer-single-file-law" | "viewer-channels-limitation" => {
+                contains_canonical(&mut errors, claim, "diagram --help");
+                contains_canonical(&mut errors, claim, "help diagram");
+            }
+            "level-selector-refusal"
+            | "level-dir-floor-refusal"
+            | "level-source-refusal"
+            | "level-tiers-refusal" => {
+                // Live probes, not prose: the flag parses before any model
+                // load (the layer refusals' precedent), so an empty fixture
+                // reaches every `--level` usage refusal at exit 64 with the
+                // registered canonical bytes (workplan level_views 01).
+                let canonical = claim.canonical.clone().expect("canonical");
+                let fx = Fixture::new();
+                let probes: &[&[&str]] = match claim.id.as_str() {
+                    "level-selector-refusal" => &[["diagram", "--level", "sideways"].as_slice()],
+                    "level-dir-floor-refusal" => &[["diagram", "--level", "dir:0"].as_slice()],
+                    "level-source-refusal" => &[["diagram", "--level", "module"].as_slice()],
+                    _ => &[[
+                        "diagram",
+                        "--source",
+                        "scan",
+                        "model.json",
+                        "--tiers",
+                        "units",
+                        "--level",
+                        "unit",
+                    ]
+                    .as_slice()],
+                };
+                for args in probes {
+                    let refused = fx.run(args);
+                    if refused.status.code() != Some(64)
+                        || !stderr(&refused).contains(canonical.as_str())
+                    {
+                        errors.push(format!(
+                            "claim `{}` drifted: `{}` does not refuse with the registered canonical bytes at exit 64 — exit {:?}, stderr {:?}",
+                            claim.id,
+                            args.join(" "),
+                            refused.status.code(),
+                            stderr(&refused)
+                        ));
+                    }
+                }
+            }
+            "level-descriptive-note" | "level-accounting-exact" => {
+                let fx = Fixture::new();
+                level_weld_artefact(&fx);
+                let run = fx.run(&["diagram", "--source", "scan", "model.json", "--level", "module"]);
+                let err = stderr(&run);
+                if run.status.code() != Some(0) {
+                    errors.push(format!(
+                        "claim `{}` drifted: the level render exits {:?}: {}",
+                        claim.id,
+                        run.status.code(),
+                        err
+                    ));
+                } else if claim.id == "level-descriptive-note" {
+                    let canonical = claim.canonical.clone().expect("canonical");
+                    if !err.contains(canonical.as_str()) {
+                        errors.push(format!(
+                            "claim `{}` drifted: the level render does not print the registered note: {err}",
+                            claim.id
+                        ));
+                    }
+                } else {
+                    // The weld instantiates the registered template with the
+                    // fixture's fixed counts and re-checks the arithmetic:
+                    // 3 drawn + 1 self = 4 raw rows at level module.
+                    let canonical = claim.canonical.clone().expect("canonical");
+                    let chunks: Vec<&str> = canonical.split("<path>").collect();
+                    let row = format!(
+                        "{}3{}1{}4{}module",
+                        chunks[0], chunks[1], chunks[2], chunks[3]
+                    );
+                    if !err.contains(row.as_str()) {
+                        errors.push(format!(
+                            "claim `{}` drifted: the ledger row does not instantiate the registered template — expected {row:?} in: {err}",
+                            claim.id
+                        ));
+                    }
+                    if !err.contains("self rows: gateway") {
+                        errors.push(format!(
+                            "claim `{}` drifted: the accounting block omits the self tally: {err}",
+                            claim.id
+                        ));
+                    }
+                    if !stdout(&run).contains("|3 rows|") {
+                        errors.push(format!(
+                            "claim `{}` drifted: the aggregated edge does not draw its raw-row count: {}",
+                            claim.id,
+                            stdout(&run)
+                        ));
+                    }
+                }
+            }
+            "level-empty-model" => {
+                let fx = Fixture::new();
+                fx.write(
+                    "model.json",
+                    r#"{"schema_version":1,"language":"rust","units":[{"name":"auth","kind":"crate","path":"crates/auth"}],"edges":[]}"#,
+                );
+                let run = fx.run(&["diagram", "--source", "scan", "model.json", "--level", "unit"]);
+                let err = stderr(&run);
+                let canonical = claim.canonical.clone().expect("canonical");
+                let head = canonical.split("<path>").next().expect("the row head");
+                if run.status.code() != Some(0)
+                    || !err.contains(&format!("{head}unit"))
+                    || err.contains("accounting exact:")
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the zero-row level render does not print the named empty-model row in place of the ledger row — exit {:?}, stderr {:?}",
+                        claim.id,
+                        run.status.code(),
+                        err
+                    ));
+                }
+            }
+            "level-completeness-restatement" => {
+                let fx = Fixture::new();
+                fx.write(
+                    "model.json",
+                    r#"{"schema_version":1,"language":"rust","units":[{"name":"auth","kind":"crate","path":"crates/auth"}],"edges":[],"module_edges":[{"unit":"auth","from":"crates/auth/login","to":"crates/auth/store","symbols":[]}],"unresolvable_imports":[{"file":"crates/auth/login.rs","specifier":"ghost::x","line":"3"}]}"#,
+                );
+                let run = fx.run(&["diagram", "--source", "scan", "model.json", "--level", "dir:1"]);
+                let err = stderr(&run);
+                if run.status.code() != Some(0)
+                    || !err.contains("completeness restated: unresolvable imports census:")
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the level render does not restate the completeness census row — exit {:?}, stderr {:?}",
+                        claim.id,
+                        run.status.code(),
+                        err
+                    ));
+                }
+            }
+            "level-unit-delta-model-only" | "level-unit-delta-projection-only" => {
+                // Live probe plus the help-parity row (workplan level_views
+                // scenario 03): the delta fixture renders rc=0 with both
+                // census classes named, and the `--level` help row states
+                // the class head verbatim.
+                let fx = Fixture::new();
+                fx.write(
+                    "model.json",
+                    r#"{"schema_version":1,"language":"rust","units":[{"name":"workspace","kind":"lib","path":"."},{"name":"alpha","kind":"lib","path":"src/alpha"},{"name":"beta","kind":"lib","path":"src/beta"},{"name":"gamma","kind":"lib","path":"src/gamma"}],"edges":[{"from":"alpha","to":"beta"},{"from":"beta","to":"alpha"},{"from":"beta","to":"gamma"}],"module_edges":[{"unit":"alpha","from":"alpha::x","to":"beta::store","symbols":[]},{"unit":"beta","from":"beta::q","to":"alpha::y","symbols":[]},{"unit":"beta","from":"beta::m","to":"beta::n","symbols":[]},{"unit":"workspace","from":"tools/x.rs","to":"beta::store","symbols":[]}]}"#,
+                );
+                let run = fx.run(&["diagram", "--source", "scan", "model.json", "--level", "unit"]);
+                let err = stderr(&run);
+                if run.status.code() != Some(0) {
+                    errors.push(format!(
+                        "claim `{}` drifted: the unit-level render exits {:?}: {err}",
+                        claim.id,
+                        run.status.code()
+                    ));
+                }
+                let canonical = claim.canonical.clone().expect("canonical");
+                let head = canonical.split("<path>").next().expect("the row head");
+                let row = match claim.id.as_str() {
+                    "level-unit-delta-model-only" => format!("{head}1 — beta→gamma"),
+                    _ => format!("{head}1 — workspace→beta"),
+                };
+                if !err.contains(row.as_str()) {
+                    errors.push(format!(
+                        "claim `{}` drifted: the census does not instantiate the registered template — expected {row:?} in: {err}",
+                        claim.id
+                    ));
+                }
+                if stdout(&run).contains("unit delta") {
+                    errors.push(format!(
+                        "claim `{}` drifted: a census row entered the render body: {}",
+                        claim.id,
+                        stdout(&run)
+                    ));
+                }
+                let help = flatten(&rendered("diagram --help")).to_lowercase();
+                if !help.contains(&flatten(head).to_lowercase()) {
+                    errors.push(format!(
+                        "claim `{}` drifted: `archspec diagram --help` no longer states the census class head {head:?}",
+                        claim.id
+                    ));
+                }
+            }
+            // Over-ceiling level fixture for the fit-set refusal welds
+            // (workplan level_views scenario 02): 501 distinct cross-directory
+            // pairs — the unit and dir:1 folds aggregate them to one drawn
+            // edge each (FIT), the dir:2 fold draws 501 edge rows (the first
+            // OVER fold), and every finer fold goes unmeasured.
+            "level-fits-listing" => {
+                let fx = Fixture::new();
+                let edges: Vec<String> = (0..501)
+                    .map(|i| {
+                        format!(
+                            "{{\"unit\":\"alpha\",\"from\":\"alpha/d{i}/f.rs\",\"to\":\"beta/e{i}/f.rs\",\"symbols\":[]}}"
+                        )
+                    })
+                    .collect();
+                fx.write(
+                    "model.json",
+                    &format!(
+                        "{{\"schema_version\":1,\"language\":\"rust\",\"units\":[{{\"name\":\"alpha\",\"kind\":\"lib\",\"path\":\"alpha\"}},{{\"name\":\"beta\",\"kind\":\"lib\",\"path\":\"beta\"}}],\"edges\":[],\"module_edges\":[{}]}}",
+                        edges.join(",")
+                    ),
+                );
+                let run =
+                    fx.run(&["diagram", "--source", "scan", "model.json", "--level", "file"]);
+                let err = stderr(&run);
+                if run.status.code() != Some(64) || !err.contains("fits: unit (0% self)") {
+                    errors.push(format!(
+                        "claim `{}` drifted: the over-ceiling level refusal does not name the fits — exit {:?}, stderr {:?}",
+                        claim.id,
+                        run.status.code(),
+                        err
+                    ));
+                }
+            }
+            "level-empty-fits-row" => {
+                // Zero-cross-at-every-fold fixture: 3000 self rows whose
+                // file-level node rows cross the char ceiling while every
+                // fold keeps cross-edges at 0 — the named empty-fits row,
+                // never silence (B2/M10).
+                let fx = Fixture::new();
+                let edges: Vec<String> = (0..3000)
+                    .map(|i| {
+                        format!(
+                            "{{\"unit\":\"src\",\"from\":\"src/s/f{i}.rs\",\"to\":\"src/s/f{i}.rs\",\"symbols\":[]}}"
+                        )
+                    })
+                    .collect();
+                fx.write(
+                    "model.json",
+                    &format!(
+                        "{{\"schema_version\":1,\"language\":\"rust\",\"units\":[{{\"name\":\"src\",\"kind\":\"lib\",\"path\":\"src\"}}],\"edges\":[],\"module_edges\":[{}]}}",
+                        edges.join(",")
+                    ),
+                );
+                let run =
+                    fx.run(&["diagram", "--source", "scan", "model.json", "--level", "file"]);
+                let err = stderr(&run);
+                if run.status.code() != Some(64)
+                    || !err.contains("fits: none — no fold fits at these ceilings")
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the zero-cross over-ceiling refusal does not print the named empty-fits row — exit {:?}, stderr {:?}",
+                        claim.id,
+                        run.status.code(),
+                        err
+                    ));
+                }
+            }
+            "level-narrowing-grammar" => {
+                let fx = Fixture::new();
+                let edges: Vec<String> = (0..501)
+                    .map(|i| {
+                        format!(
+                            "{{\"unit\":\"alpha\",\"from\":\"alpha/d{i}/f.rs\",\"to\":\"beta/e{i}/f.rs\",\"symbols\":[]}}"
+                        )
+                    })
+                    .collect();
+                fx.write(
+                    "model.json",
+                    &format!(
+                        "{{\"schema_version\":1,\"language\":\"rust\",\"units\":[{{\"name\":\"alpha\",\"kind\":\"lib\",\"path\":\"alpha\"}},{{\"name\":\"beta\",\"kind\":\"lib\",\"path\":\"beta\"}}],\"edges\":[],\"module_edges\":[{}]}}",
+                        edges.join(",")
+                    ),
+                );
+                let run =
+                    fx.run(&["diagram", "--source", "scan", "model.json", "--level", "file"]);
+                let err = stderr(&run);
+                if run.status.code() != Some(64)
+                    || !err.contains(
+                        "narrow with: archspec scan <bucket-path> --output <artefact>, then archspec diagram --source scan <artefact> [--level <fit>]",
+                    )
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the over-ceiling level refusal does not name the two-step narrowing — exit {:?}, stderr {:?}",
+                        claim.id,
+                        run.status.code(),
+                        err
+                    ));
+                }
+            }
+            // Level-viewer pane welds (workplan level_views scenario 04):
+            // the recursive panes of the `--format viewer` level document.
+            "viewer-byte-ceiling-refusal" => {
+                // The pane-explosion mass over the viewer emitted-byte
+                // ceiling: the emit ships nothing, refuses in the usage
+                // class, and names the largest scope that fits.
+                let run = ceiling_fixture.run(&[
+                    "diagram",
+                    "--source",
+                    "scan",
+                    "model.json",
+                    "--level",
+                    "module",
+                    "--format",
+                    "viewer",
+                ]);
+                let err = stderr(&run);
+                if run.status.code() != Some(64)
+                    || !err.contains("exceeds the emitted-byte ceiling of")
+                    || !err.contains("largest scope that fits")
+                    || !err.contains("narrow with: archspec scan <bucket-path> --output <artefact>")
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the over-ceiling viewer emit does not refuse with the fitting scope — exit {:?}, stderr {err:?}",
+                        claim.id,
+                        run.status.code()
+                    ));
+                }
+            }
+            "level-pane-refusal" => {
+                // Bucket `b` is over ceiling at its FINEST relative
+                // granularity (600 distinct `dir:1` pairs over the root
+                // `b`): the pane speaks the named refusal row with the
+                // real bucket path substituted, and restates the census.
+                let fx = Fixture::new();
+                let edges: Vec<String> = (0..600)
+                    .map(|i| {
+                        format!(
+                            "{{\"unit\":\"model\",\"from\":\"b/g{i}/x{i}.rs\",\"to\":\"b/h{i}/y{i}.rs\",\"symbols\":[]}}"
+                        )
+                    })
+                    .collect();
+                fx.write(
+                    "model.json",
+                    &format!(
+                        "{{\"schema_version\":1,\"language\":\"rust\",\"units\":[{{\"name\":\"beta\",\"kind\":\"lib\",\"path\":\"b\"}}],\"edges\":[],\"module_edges\":[{}],\"unresolvable_imports\":[{{\"file\":\"b/g1/x1.rs\",\"specifier\":\"ghost-one\",\"line\":\"1\"}},{{\"file\":\"b/g2/x2.rs\",\"specifier\":\"ghost-two\",\"line\":\"1\"}}]}}",
+                        edges.join(",")
+                    ),
+                );
+                let run = fx.run(&[
+                    "diagram",
+                    "--source",
+                    "scan",
+                    "model.json",
+                    "--level",
+                    "dir:1",
+                    "--format",
+                    "viewer",
+                ]);
+                let out = stdout(&run);
+                let row = "pane over ceiling at dir:1 — narrow: archspec scan b --output <artefact>, then archspec diagram --source scan <artefact> [--level <fit>]"
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;");
+                if run.status.code() != Some(0)
+                    || !out.contains(&row)
+                    || !out.contains("completeness restated: unresolvable imports census:")
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the refusal pane does not speak the named row with the census restated — exit {:?}, stdout {out:?}",
+                        claim.id,
+                        run.status.code()
+                    ));
+                }
+            }
+            "level-document-total" => {
+                // Two panes plus one cross-bucket row: the document states
+                // the total row exactly once and its arithmetic holds.
+                let fx = Fixture::new();
+                fx.write(
+                    "model.json",
+                    "{\"schema_version\":1,\"language\":\"rust\",\"units\":[{\"name\":\"charlie\",\"kind\":\"lib\",\"path\":\"c\"},{\"name\":\"delta\",\"kind\":\"lib\",\"path\":\"d\"}],\"edges\":[],\"module_edges\":[{\"unit\":\"model\",\"from\":\"c/x/a/mod.rs\",\"to\":\"c/x/b/util.rs\",\"symbols\":[]},{\"unit\":\"model\",\"from\":\"d/x/a/mod.rs\",\"to\":\"d/x/b/util.rs\",\"symbols\":[]},{\"unit\":\"model\",\"from\":\"c/x/a/mod.rs\",\"to\":\"d/x/a/mod.rs\",\"symbols\":[]}]}",
+                );
+                let run = fx.run(&[
+                    "diagram",
+                    "--source",
+                    "scan",
+                    "model.json",
+                    "--level",
+                    "dir:1",
+                    "--format",
+                    "viewer",
+                ]);
+                let out = stdout(&run);
+                let row = out
+                    .lines()
+                    .find(|line| line.contains("document total: "))
+                    .unwrap_or("");
+                let numbers: Vec<usize> = row
+                    .split_whitespace()
+                    .filter_map(|token| token.parse::<usize>().ok())
+                    .collect();
+                if run.status.code() != Some(0)
+                    || out.matches("document total: ").count() != 1
+                    || numbers.len() != 3
+                    || numbers[0] + numbers[1] != numbers[2]
+                {
+                    errors.push(format!(
+                        "claim `{}` drifted: the level-viewer document does not state the total row exactly once with its arithmetic holding — exit {:?}, row {row:?}",
+                        claim.id,
+                        run.status.code()
                     ));
                 }
             }

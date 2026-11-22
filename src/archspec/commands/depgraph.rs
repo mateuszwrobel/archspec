@@ -6,9 +6,9 @@ use crate::archspec::scan;
 use crate::archspec::spec;
 use std::path::Path;
 
-const GRAPH_FORMATS: &[&str] = &["mermaid", "plantuml"];
+const GRAPH_FORMATS: &[&str] = &["mermaid", "plantuml", "dot", "svg"];
 
-pub const HELP: &str = "usage: archspec depgraph <modules|api-usage|submodules|ledger> [path] [--format <fmt>] [--parent <module>] [--aggregate <units|modules>] [--output <path>] [--check]\ncurrent-state dependency views of a project, straight from the extracted model\n\n  modules        top-level module dependency graph; one level deeper when that projection folds to a single node (default format: mermaid); an automatic render above 200 nodes adds one stderr note naming the degraded projection — stdout and exit are unchanged\n  api-usage      Markdown table of used APIs grouped by target module (markdown only)\n  submodules     graph of one module's immediate children (requires --parent)\n  ledger         the inversion-debt ledger: two named sections over the model's own facts — `used but undeclared` pairs (the code imports across a unit pair the importer's manifest omits, with evidence locs) and `declared but unused` pairs (the manifest declares while the model holds no code evidence); a model without a declaration tier states it cannot answer; a clean model states the ledger is clean by name (markdown only)\n  path           directory to scan (default: current directory)\n  --format <fmt> mermaid or plantuml for graphs; markdown for api-usage and ledger\n  --parent <m>   parent top-level module to expand (submodules view only)\n  --aggregate <level> modules view only: force the projection level, bypassing the automatic fold/descend rule — units renders the model's units and their edges; modules renders top-level modules with no descent\n  --output <p>   write the body to that file (default: stdout); `--output -` writes to stdout and creates no file — never a path positional\n  --check        compare the body to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n\nlanguages      rust and csharp render directly; when the model has no module tier the command refuses with: depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of\n\ndepgraph does not read archspec.toml [output] — an artefact path comes only from an explicit --output.\n\nNode labels fold units — unit ownership lives in the `root_module_declarations` map that `archspec scan` emits in its scan JSON.\n\nThe `mod` label is a unit's root-module bucket: the namespace-less root where the composition/wiring code lives.\n\nTest-gated/soft edges (test namespaces and their consumers) can appear in depgraph projections while being excluded from `depend_on` comparison exactly when the language's test gate marks them — rust `cfg(test)`; ts a test-file name in a package whose manifest declares vitest or jest — otherwise they adjudicate like any other edge.\n\nTo ask which edges are wrong, render the same model with `archspec diagram --source scan <scan.json> --tiers modules` — under a governing spec that view marks spec-violating edges.\n";
+pub const HELP: &str = "usage: archspec depgraph <modules|api-usage|submodules|ledger> [path] [--format <fmt>] [--layer <direct|indirect|both>] [--parent <module>] [--aggregate <units|modules>] [--output <path>] [--check]\ncurrent-state dependency views of a project, straight from the extracted model\n\n  modules        top-level module dependency graph; one level deeper when that projection folds to a single node (default format: mermaid); an automatic render above 200 nodes adds one stderr note naming the degraded projection — stdout and exit are unchanged\n  api-usage      Markdown table of used APIs grouped by target module (markdown only)\n  submodules     graph of one module's immediate children (requires --parent)\n  ledger         the inversion-debt ledger: two named sections over the model's own facts — `used but undeclared` pairs (the code imports across a unit pair the importer's manifest omits, with evidence locs) and `declared but unused` pairs (the manifest declares while the model holds no code evidence); a model without a declaration tier states it cannot answer; a clean model states the ledger is clean by name (markdown only)\n  path           directory to scan (default: current directory)\n  --format <fmt> mermaid, plantuml, dot or svg for graphs; markdown for api-usage and ledger; dot emits graphviz source and svg a hand-emitted layout — the SVG materializes from the dot body by piping it through `dot -Tsvg` in a container\n  --layer <layer> direct, indirect or both (default: both) for graphs: direct draws the structural arrows, indirect the dashed event-labelled async rows, both draws every row exactly as the shipped render — byte-identical; the dot and svg arms draw a GENERATED legend whenever both draws both families (the ceiling rationale rides `archspec diagram --help`)\n  --parent <m>   parent top-level module to expand (submodules view only)\n  --aggregate <level> modules view only: force the projection level, bypassing the automatic fold/descend rule — units renders the model's units and their edges; modules renders top-level modules with no descent\n  --output <p>   write the body to that file (default: stdout); `--output -` writes to stdout and creates no file — never a path positional\n  --check        compare the body to its destination without writing; exit non-zero if stale or missing; a fresh check prints `ok: <path> up to date`\n\nlanguages      rust and csharp render directly; when the model has no module tier the command refuses with: depgraph needs the module tier, which this model has none of; the module tier is derived from package references, which this tree records none of\n\ndepgraph does not read archspec.toml [output] — an artefact path comes only from an explicit --output.\n\nNode labels fold units — unit ownership lives in the `root_module_declarations` map that `archspec scan` emits in its scan JSON.\n\nThe `mod` label is a unit's root-module bucket: the namespace-less root where the composition/wiring code lives.\n\nTest-gated/soft edges (test namespaces and their consumers) can appear in depgraph projections while being excluded from `depend_on` comparison exactly when the language's test gate marks them — rust `cfg(test)`; ts a test-file name in a package whose manifest declares vitest or jest — otherwise they adjudicate like any other edge.\n\nTo ask which edges are wrong, render the same model with `archspec diagram --source scan <scan.json> --tiers modules` — under a governing spec that view marks spec-violating edges.\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let parsed = cli::parse(
@@ -16,6 +16,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
         &[
             FlagSpec {
                 name: "format",
+                takes_value: true,
+            },
+            FlagSpec {
+                name: "layer",
                 takes_value: true,
             },
             FlagSpec {
@@ -81,9 +85,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     } else if !GRAPH_FORMATS.contains(&format) {
         return Err(format!(
-            "unsupported format: {format} (supported: mermaid, plantuml)"
+            "unsupported format: {format} (supported: mermaid, plantuml, dot, svg)"
         ));
     }
+
+    // `--layer` selects the edge layer of the graph views (workplan
+    // visibility_phase2 scenario 05): the flag absent is `both`, whose
+    // mermaid/plantuml bytes are the shipped render. api-usage and ledger
+    // carry no arrows, so the flag there is a named usage error.
+    let layer = match parsed.values.get("layer").map(String::as_str) {
+        Some(selection) => {
+            if matches!(view, "api-usage" | "ledger") {
+                return Err(cli::usage_error(
+                    "--layer selects an edge layer for the graph views — api-usage and ledger carry no arrows",
+                ));
+            }
+            depgraph::LayerSelection::parse(selection).map_err(cli::usage_error)?
+        }
+        None => depgraph::LayerSelection::both(),
+    };
 
     let parent = parsed.values.get("parent").map(String::as_str);
     if view == "submodules" && parent.is_none() {
@@ -235,7 +255,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 eprintln!("{note}");
             }
             depgraph::attach_async_rows(&mut graph, projection.rows);
-            render_graph(&graph, format)?
+            render_graph(&graph, format, layer)?
         }
         "submodules" => {
             let parent = parent.expect("checked above");
@@ -248,7 +268,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 eprintln!("{note}");
             }
             depgraph::attach_async_rows(&mut graph, projection.rows);
-            render_graph(&graph, format)?
+            render_graph(&graph, format, layer)?
         }
         _ => unreachable!("view validated above"),
     };
@@ -273,21 +293,91 @@ pub fn run(args: &[String]) -> Result<(), String> {
     )
 }
 
-fn render_graph(graph: &depgraph::ModuleGraph, format: &str) -> Result<String, String> {
+fn render_graph(
+    graph: &depgraph::ModuleGraph,
+    format: &str,
+    layer: depgraph::LayerSelection,
+) -> Result<String, String> {
     let mut body = match format {
-        "mermaid" => depgraph::render_mermaid(graph),
-        "plantuml" => depgraph::render_plantuml(graph),
+        "mermaid" => depgraph::render_mermaid(graph, layer),
+        "plantuml" => depgraph::render_plantuml(graph, layer),
+        "dot" => depgraph::render_dot(graph, layer),
+        "svg" => depgraph::render_svg(graph, layer),
         _ => unreachable!("format validated above"),
     };
     // The stated fold (roles reality US 05): a fold that silences markers on
     // a node because DIFFERENT roles landed there says so — conditional, so
-    // views whose fold places every claim keep their exact bytes.
+    // views whose fold places every claim keep their exact bytes. Each
+    // format carries the note in its own comment grammar (scenario 05 adds
+    // the dot and svg grammars).
     if graph.unplaced_claims > 0 {
         let note = depgraph::fold_note(graph.unplaced_claims);
         match format {
             "mermaid" => body.push_str(&format!("  %% {note}\n")),
+            "dot" => body.push_str(&format!("// {note}\n")),
+            "svg" => body.push_str(&format!("<!-- {note} -->\n")),
             _ => body.push_str(&format!("'{note}\n")),
         }
     }
+    // The ceiling law at the mermaid emit seam (claim
+    // `layer-ceiling-rationale` armed by the sweep HIGH-1 cure, the same
+    // arm the diagram command carries): the measured body is the exact
+    // render — fold note included — so the counts are honest, and an
+    // over-ceiling render refuses in the layer arms' usage class with
+    // nothing emitted. The clear-arms name only flags this view accepts:
+    // the dot and svg formats carry no mermaid-host ceiling, and the two
+    // forced aggregation levels are the degraded note's own pair —
+    // `--aggregate units` cures the file-granularity descent,
+    // `--aggregate modules` pins the top level.
+    if format == "mermaid"
+        && let Some(msg) = crate::archspec::diagram::mermaid_ceiling_error(
+            &body,
+            "--format dot, --format svg, --aggregate units or --aggregate modules",
+        )
+    {
+        return Err(cli::usage_error(msg));
+    }
     Ok(body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::archspec::depgraph::LayerSelection;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// A module graph drawing `edges` structural arrows between distinct
+    /// nodes — the seam measures what the mermaid body would carry.
+    fn graph_with(edges: usize) -> depgraph::ModuleGraph {
+        let mut graph = depgraph::ModuleGraph {
+            nodes: BTreeSet::new(),
+            edges: BTreeSet::new(),
+            async_edges: BTreeSet::new(),
+            markers: BTreeMap::new(),
+            unplaced_claims: 0,
+        };
+        for i in 0..edges {
+            graph.nodes.insert(format!("m{i}"));
+            graph.nodes.insert(format!("n{i}"));
+            graph.edges.insert((format!("m{i}"), format!("n{i}")));
+        }
+        graph
+    }
+
+    #[test]
+    fn the_mermaid_arm_refuses_over_the_ceiling_and_keeps_dot_svg_and_plantuml() {
+        // The sweep HIGH-1 shape on this seam: an over-ceiling projection
+        // must refuse with the registered row, never print and exit 0 —
+        // while the ceiling-free formats keep their shipped bytes.
+        let refused = render_graph(&graph_with(501), "mermaid", LayerSelection::Both)
+            .expect_err("a 501-edge projection refuses at the seam");
+        let (code, bare) = cli::classify(&refused).expect("the refusal carries a class");
+        assert_eq!(code, cli::EX_USAGE, "over-ceiling rides the layer arms' class");
+        assert!(bare.starts_with("this render exceeds the mermaid ceilings of 500 edges and 50,000 characters — measured 501 edges and "), "{bare}");
+        assert!(bare.contains("--aggregate units or --aggregate modules"), "{bare}");
+        assert!(render_graph(&graph_with(500), "mermaid", LayerSelection::Both).is_ok());
+        assert!(render_graph(&graph_with(501), "dot", LayerSelection::Both).is_ok());
+        assert!(render_graph(&graph_with(501), "svg", LayerSelection::Both).is_ok());
+        assert!(render_graph(&graph_with(501), "plantuml", LayerSelection::Both).is_ok());
+    }
 }

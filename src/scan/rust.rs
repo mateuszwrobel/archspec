@@ -277,7 +277,7 @@ fn collect_rust_literal_candidates(
                 continue;
             };
             let spelled = rel.to_string_lossy().replace('\\', "/");
-            let mut visitor = CallSiteSites(Vec::new());
+            let mut visitor = CandidateSites(Vec::new());
             visitor.visit_file(&ast);
             for (anchor, value) in visitor.0 {
                 candidates.push(LiteralCandidate {
@@ -294,12 +294,14 @@ fn collect_rust_literal_candidates(
 
 /// The syn walk of the candidate feed: every call or method call whose
 /// argument at position `i` is a plain string literal contributes one
-/// candidate per such argument. The callee is its SIMPLE name — the path's
-/// last segment or the method name — as the source spells it; resolution
-/// against the declared noun happens engine-side.
-struct CallSiteSites(Vec<(LiteralCandidateAnchor, String)>);
+/// candidate per such argument, and — workplan visibility_phase2 scenario
+/// 02 — every keyed string-literal value at an object-like position
+/// contributes one field-value candidate. The callee is its SIMPLE name —
+/// the path's last segment or the method name — as the source spells it;
+/// resolution against the declared noun happens engine-side.
+struct CandidateSites(Vec<(LiteralCandidateAnchor, String)>);
 
-impl<'ast> Visit<'ast> for CallSiteSites {
+impl<'ast> Visit<'ast> for CandidateSites {
     fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
         if let Some(callee) = simple_callee_name(&node.func) {
             record_string_args(&mut self.0, callee, node.args.iter());
@@ -315,6 +317,124 @@ impl<'ast> Visit<'ast> for CallSiteSites {
         );
         syn::visit::visit_expr_method_call(self, node);
     }
+
+    fn visit_expr_struct(&mut self, node: &'ast syn::ExprStruct) {
+        collect_struct_field_sites(node, &mut self.0);
+        syn::visit::visit_expr_struct(self, node);
+    }
+
+    fn visit_macro(&mut self, node: &'ast syn::Macro) {
+        // >>> field-value collector — token-tree arm (vocabulary cell
+        // reads this region: zero string literals, zero macro-name reads).
+        collect_macro_field_sites(&node.tokens, &mut self.0);
+        // <<< field-value collector
+        syn::visit::visit_macro(self, node);
+    }
+}
+
+/// The object-like arm of the rust field-value feed: a struct-expression
+/// field whose value is a plain string literal is a keyed string-literal
+/// value at a field position — the rust spelling of an object literal
+/// (source key, one anchor with the string keys; the design grammar).
+fn collect_struct_field_sites(
+    node: &syn::ExprStruct,
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    for field in &node.fields {
+        let syn::Member::Named(name) = &field.member else {
+            continue;
+        };
+        let value: &syn::Expr = &field.expr;
+        if let syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(text),
+            ..
+        }) = value
+        {
+            out.push((
+                LiteralCandidateAnchor::Field {
+                    field: name.to_string(),
+                },
+                text.value(),
+            ));
+        }
+    }
+}
+
+/// The macro-token-tree arm of the rust field-value feed: a macro body
+/// that STRUCTURALLY parses as object/array literals carries keyed
+/// string-literal values exactly as an object literal does (A4: grammar-
+/// node knowledge — the walk reads token KINDS: a key, a colon, a value.
+/// It names no macro, no crate, no producer: every macro body is walked
+/// the same way, and the shape decides).
+fn collect_macro_field_sites(
+    stream: &proc_macro2::TokenStream,
+    out: &mut Vec<(LiteralCandidateAnchor, String)>,
+) {
+    let trees: Vec<proc_macro2::TokenTree> = stream.clone().into_iter().collect();
+    let mut i = 0;
+    while i < trees.len() {
+        // A keyed pair at this level: key, colon, value.
+        if i + 3 <= trees.len()
+            && field_value_key(&trees[i]).is_some()
+            && matches!(&trees[i + 1], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ':')
+        {
+            let key = field_value_key(&trees[i]).unwrap_or_default();
+            match &trees[i + 2] {
+                proc_macro2::TokenTree::Literal(lit) => {
+                    if let Some(value) = token_string_literal(lit) {
+                        out.push((LiteralCandidateAnchor::Field { field: key }, value));
+                    }
+                }
+                proc_macro2::TokenTree::Group(group) => {
+                    // (ii): string elements of an array that IS the value.
+                    if group.delimiter() == proc_macro2::Delimiter::Bracket {
+                        for element in group.stream() {
+                            if let proc_macro2::TokenTree::Literal(lit) = element
+                                && let Some(value) = token_string_literal(&lit)
+                            {
+                                out.push((
+                                    LiteralCandidateAnchor::Field {
+                                        field: key.clone(),
+                                    },
+                                    value,
+                                ));
+                            }
+                        }
+                    }
+                    // Nested constructions inside the value keep walking.
+                    collect_macro_field_sites(&group.stream(), out);
+                }
+                _ => {}
+            }
+            i += 3;
+            continue;
+        }
+        // No pair here: descend into every group for nested structures
+        // (array positions that are NOT field values name nothing — the
+        // F3 fence: only keyed-value positions earn candidates).
+        if let proc_macro2::TokenTree::Group(group) = &trees[i] {
+            collect_macro_field_sites(&group.stream(), out);
+        }
+        i += 1;
+    }
+}
+
+/// The key of a keyed pair in a token tree: a string key or a source
+/// (identifier) key — the same anchor, one spelling channel (the design
+/// grammar: "source keys or string keys"). Anything else states no key.
+fn field_value_key(tree: &proc_macro2::TokenTree) -> Option<String> {
+    match tree {
+        proc_macro2::TokenTree::Literal(lit) => token_string_literal(lit),
+        proc_macro2::TokenTree::Ident(name) => Some(name.to_string()),
+        _ => None,
+    }
+}
+
+/// The plain string-literal value of a token, if it is one.
+fn token_string_literal(lit: &proc_macro2::Literal) -> Option<String> {
+    syn::parse_str::<syn::LitStr>(&lit.to_string())
+        .map(|text| text.value())
+        .ok()
 }
 
 fn record_string_args<'a>(

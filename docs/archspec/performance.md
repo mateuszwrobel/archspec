@@ -65,6 +65,21 @@ findings and their order are byte-identical on the ring corpus and on the
 first-party specs. The same corpus now measures 94.8 ms — 2.3 % of `compare`,
 1.3 % of the total. Treat only the table as data.
 
+## The scan row in context
+
+CONTEXT, superseded for one phase by a later change: the `scan` row above was
+measured 2026-11-11, before the ts multi-unit owner lookup was indexed (perf
+record 2026-11-20 H1). The owner of each source file used to be found by
+scanning every workspace member dir per row, so that phase cost
+`rows × member dirs`. It now walks the file's own ancestor chain, so the cost
+per row is the path's depth. On the same committed corpus the whole-tree
+`scan` command wall moved from 3 089 ms to 382 ms (median of three warm runs
+per binary, same machine class). The table keeps the 2026-11-11 numbers: the
+verify pipeline was not re-probed for this change, so read `scan` as an upper
+bound — the phase it names now costs less.
+The shape stays pinned by `tests/ts_owner_shape.rs`, which times two generated
+trees of equal file and module-edge-row counts over 2 048 and 64 member dirs.
+
 ## What the harness is not
 
 The numbers are data for agents and maintainers, not a shipped behavior

@@ -1,10 +1,12 @@
+pub mod condition;
 pub mod syntax;
 
 use crate::model::{
-    DeclaredFacts, Edge, EventBoundShape, EventRecordMember, EventShapes, ManifestInfo, Model,
-    ModuleEdge, Role, Unit, matching_exclusion,
+    DeclaredFacts, Edge, EventBoundShape, EventRecordMember, EventShapes, LiteralCandidate,
+    ManifestInfo, Model, ModuleEdge, Role, Unit, matching_exclusion,
 };
 
+use self::condition::{ConditionVerdict, EvalContext};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use walkdir::WalkDir;
@@ -27,6 +29,19 @@ type ProjectSources = (
     bool,
 );
 type ScannedFiles = BTreeMap<String, ProjectSources>;
+
+/// The candidate-feed declaration gate for this driver: one expression,
+/// consulted at both feed arms (the multi-project walk in [`extract`] and
+/// the single-unit path in [`extract_single_unit`], whose paths are
+/// mutually exclusive). The seam census in
+/// `tests/events_value_join_nondeclaring.rs` counts this expression once
+/// per funded driver, so the gate must never be re-spelled inline.
+fn candidates_declared(facts: &DeclaredFacts) -> bool {
+    facts
+        .patterns
+        .iter()
+        .any(|pattern| pattern.language == crate::language::Language::Csharp.as_str())
+}
 
 /// C# driver (csharp): units = projects, hard edges = project references,
 /// soft tier = namespaces (converted to `::` module paths so the shared
@@ -70,11 +85,39 @@ type ScannedFiles = BTreeMap<String, ProjectSources>;
 /// entry liveness report (`spec.rs`, "any file counts") stays
 /// driver-independent: an entry that prunes files under a kept project
 /// is ACTIVE and prints no `matched nothing` advisory.
+/// Manifest path items (workplan visibility_phase2 scenario 03): every
+/// item element's `Include` value (not an item-element NAME — the name-free
+/// law, A5) is normalized and resolved against the kept-unit directory
+/// census: under another kept unit it is a unit edge through the same
+/// `edge_set` the `ProjectReference` arm fills (one edge, deduped), under
+/// self it is SDK-default content and states nothing, under a dropped
+/// project it prints the named no-edge row, and under no project at all it
+/// joins the `shared source: <path> — host units: <n>` census — numbers,
+/// never a unit (a no-manifest directory compiles as itself nowhere).
+/// Values the static floor cannot read (`Target` content, `Condition`ed
+/// items, `$(…)`, `%(…)`, globs, absent paths) each state their one named
+/// report-only row; a malformed csproj refuses loud, never a silent zero.
+/// The literal-candidate feed: plain string-literal call arguments become
+/// call anchors (callee simple name + position) ONLY when a declared
+/// pattern side names this driver — the declaration gate is the byte
+/// identity, so a non-declaring run serializes nothing extra.
 pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     // Absolute base so Include references (which may be absolute or use `..`
     // back to the tree) resolve identically regardless of how the root was
     // given (relative, `.`, or absolute).
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+
+    // The literal-candidate feed (workplan visibility_phase2 scenario 03,
+    // the sixth driver): collected ONLY when a declared pattern side names
+    // this driver — the declaration gate is the byte identity (4.2 arm 1),
+    // so a non-declaring run parses nothing twice and appends nothing. The
+    // candidates are vocabulary-free (A6): callee name and literal ride as
+    // spelled, the engine matcher verbs decide equality at the resolution
+    // site (the ts/go precedent, `scan::ts`). One gate expression per
+    // driver — the seam census of `tests/events_value_join_nondeclaring.rs`
+    // (`candidates_declared` below).
+    let collect_candidates = candidates_declared(facts);
+    let mut literal_candidates: Vec<LiteralCandidate> = Vec::new();
 
     let projects = collect_projects(&root);
     if projects.is_empty() {
@@ -101,12 +144,31 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     // dropped projects included — so a marker the conditions hide states
     // itself once whatever gate its project lands on (issue #45, rung 1).
     let mut marker_facts: Vec<(std::path::PathBuf, usize, String)> = Vec::new();
+    // Condition-face gap facts (workplan csharp_condition_eval scenario 04,
+    // the F2 never-silent cure): the `Directory.Build.targets` files the
+    // per-project upward walk visits, and the LITERAL `Import` targets of
+    // every csproj and walked props file read — presence only, contents
+    // never opened from these rows, the machine body untouched.
+    let mut targets_files: BTreeSet<std::path::PathBuf> = BTreeSet::new();
+    let mut import_facts: Vec<(std::path::PathBuf, usize, String)> = Vec::new();
     // Declared-exclusion census lines (GitHub issue #49), the never-silent
     // law's second class at the project tier, sorted before rendering.
     let mut excluded_lines: Vec<String> = Vec::new();
+    // Normalized dirs of every project dropped at discovery (excluded and
+    // test-gated alike): the path-item walk classifies an item resolving
+    // under a dropped project as the named no-edge row (workplan
+    // visibility_phase2 scenario 03, SP3 — the never-silent project-tier
+    // law one level down).
+    let mut dropped_dirs: Vec<std::path::PathBuf> = Vec::new();
     for (rel_path, full_path) in &projects {
         let project_dir = full_path.parent().unwrap_or(&root);
-        let manifest = manifest_info(project_dir, &root, full_path, &mut marker_facts);
+        let manifest =
+            manifest_info(project_dir, &root, full_path, &mut marker_facts, &mut import_facts);
+        // The targets presence probe rides the same per-project loop as the
+        // central-props walk (scenario 04): a `Directory.Build.targets` the
+        // upward walk passes is a condition face this driver does not walk,
+        // and it states itself by presence — the file is never opened.
+        targets_files.extend(central_targets_files(project_dir, &root));
         // The declared-exclusion consult precedes the test gate: an entry the
         // author declared is the stronger statement, and one dropped project
         // prints exactly one census line. The consult is the existing
@@ -132,7 +194,8 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
             // contributes nothing here either; no census sink — the project
             // has already stated its one line above (issue #60, no
             // double-report law).
-            dropped_namespaces.extend(scan_project_sources(project_dir, facts, &root, None)?.0);
+            dropped_dirs.push(normalize(project_dir));
+            dropped_namespaces.extend(scan_project_sources(project_dir, facts, &root, None, None)?.0);
             continue;
         }
         let evidence = test_gate_evidence(&manifest, project_sdk(full_path).as_deref());
@@ -144,7 +207,8 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
                 _ => ".".to_string(),
             };
             test_gated_lines.push(format!("test-gated unit: {unit_path} — {marker}"));
-            dropped_namespaces.extend(scan_project_sources(project_dir, facts, &root, None)?.0);
+            dropped_dirs.push(normalize(project_dir));
+            dropped_namespaces.extend(scan_project_sources(project_dir, facts, &root, None, None)?.0);
             continue;
         }
         production.push((rel_path.clone(), full_path.clone(), manifest));
@@ -184,6 +248,39 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
     }
     let from_csproj = |rel_path: &str| normalize(&root.join(rel_path));
 
+    // Path-item derivation (workplan visibility_phase2 scenario 03, S2+S7):
+    // every kept unit's csproj item elements carry `Include` values resolved
+    // exactly like `ProjectReference` includes above (backslashes → `/`,
+    // root-joined, `..`-resolved), classified by owner — under another kept
+    // unit → unit edge through the SAME `edge_set` (F2 dedup: a path item and
+    // a `ProjectReference` to one unit state ONE edge); under self → local
+    // SDK-default content, silent; under no unit → the shared-source census
+    // row (S7: a census, never a unit, never an edge); under a dropped
+    // project → the named no-edge row (SP3); anything that resolves nowhere
+    // (a `$(...)` placeholder, an item-metadata expression, a glob, a
+    // non-path value, a missing file) → the SP2 `manifest path item
+    // unresolved` row. The walk reads NO item-element name (A5 name-free:
+    // the rule is "every item element's `Include` value, path-resolved");
+    // conditioned items keep the marker posture (never an edge) and items
+    // inside a `Target` state the named target row.
+    let mut unit_by_dir: BTreeMap<std::path::PathBuf, String> = BTreeMap::new();
+    for (rel_path, full_path, _manifest) in &production {
+        unit_by_dir.insert(
+            normalize(full_path.parent().unwrap_or(&root)),
+            project_name(rel_path),
+        );
+    }
+    let dropped_prefixes: Vec<std::path::PathBuf> = dropped_dirs
+        .iter()
+        .filter(|dir| !unit_by_dir.contains_key(dir.as_path()))
+        .cloned()
+        .collect();
+    let mut manifest_lines: Vec<String> = Vec::new();
+    // Resolved shared-source path -> the kept units that compile it. One
+    // census row per file, the host-unit count stated as a number (SP4: the
+    // census states numbers, never thresholds).
+    let mut shared_files: BTreeMap<std::path::PathBuf, BTreeSet<String>> = BTreeMap::new();
+
     let mut edge_set: BTreeSet<(String, String)> = BTreeSet::new();
     for (rel_path, full_path, _manifest) in &production {
         let from = project_name(rel_path);
@@ -200,6 +297,76 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
                     edge_set.insert((from.clone(), name.clone()));
                 }
         }
+        for item in path_items(full_path)? {
+            if item.in_target {
+                manifest_lines.push(format!(
+                    "manifest path item in target: {rel_path}:{}",
+                    item.line
+                ));
+                continue;
+            }
+            if item.conditioned {
+                manifest_lines.push(format!(
+                    "manifest path item under unevaluated condition: {rel_path}:{}",
+                    item.line
+                ));
+                continue;
+            }
+            // MSBuild item values conventionally use backslash separators;
+            // normalize like the reference arm above. Placeholders, metadata
+            // expressions and globs resolve nowhere by construction — they
+            // state the SP2 row instead of a guessed path.
+            let opaque = item.include.contains("$(")
+                || item.include.contains("%(")
+                || item.include.contains('*')
+                || item.include.contains('?');
+            let resolved = normalize(&project_dir.join(Path::new(&item.include.replace('\\', "/"))));
+            if opaque || !resolved.exists() {
+                manifest_lines.push(format!(
+                    "manifest path item unresolved: {rel_path}:{}",
+                    item.line
+                ));
+                continue;
+            }
+            // Longest enclosing kept-unit directory owns the path.
+            let self_dir = normalize(project_dir);
+            let owner = owner_dir(&unit_by_dir, &resolved, &self_dir);
+            match owner {
+                Some(name) => {
+                    edge_set.insert((from.clone(), name));
+                }
+                None if resolved.starts_with(&self_dir) => {}
+                None => {
+                    let under_dropped = dropped_prefixes
+                        .iter()
+                        .any(|dir| resolved.starts_with(dir));
+                    if under_dropped {
+                        let spelled = resolved
+                            .strip_prefix(&root)
+                            .unwrap_or(resolved.as_path())
+                            .to_string_lossy()
+                            .replace('\\', "/");
+                        manifest_lines.push(format!(
+                            "manifest path item under dropped project: {rel_path}:{} — {spelled}",
+                            item.line
+                        ));
+                    } else {
+                        shared_files.entry(resolved).or_default().insert(from.clone());
+                    }
+                }
+            }
+        }
+    }
+    for (path, hosts) in &shared_files {
+        let spelled = path
+            .strip_prefix(&root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        manifest_lines.push(format!(
+            "shared source: {spelled} — host units: {}",
+            hosts.len()
+        ));
     }
     let edges: Vec<Edge> = edge_set
         .into_iter()
@@ -274,7 +441,13 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
             root.join(&unit.path)
         };
         let (namespaces, usings, type_facts, shape_facts, entrypoint_file, registration_family, forwarded) =
-            scan_project_sources(&project_dir, facts, &root, Some(&mut excluded_file_lines))?;
+            scan_project_sources(
+                &project_dir,
+                facts,
+                &root,
+                Some(&mut excluded_file_lines),
+                collect_candidates.then_some(&mut literal_candidates),
+            )?;
         // The unit's root address resolves from its csproj identity properties
         // and its declared namespaces BEFORE any fact is attributed (US 01).
         let csproj_root = unit_csproj
@@ -711,19 +884,33 @@ pub fn extract(root: &Path, facts: &DeclaredFacts) -> Result<Model, String> {
         module_external: module_external_model,
         unit_manifests,
         roles,
+        // The literal-candidate feed: transient, serde-skipped, collected
+        // only behind the declaration gate (4.2 arm 1, the ts shape).
+        literal_candidates,
         // The `test-gated unit` census first (project order, unchanged
         // bytes), then the declared-exclusion census sorted by line (GitHub
         // issue #49 — deterministic, one line per dropped project), then the
         // file-level declared-exclusion census, sorted by path (GitHub issue
         // #60 — one line per excluded source file), then one sorted line per
         // suppressed test marker under an unevaluated condition (GitHub
-        // issue #45, rung 1) — report-only bytes, serde-skipped, never the
-        // machine body.
+        // issue #45, rung 1), then the manifest path-item rows, then the
+        // condition-face gap census sorted by line bytes (workplan
+        // csharp_condition_eval scenario 04 — the F2 never-silent cure:
+        // unwalked `Directory.Build.targets` and `Import` targets name
+        // themselves) — report-only bytes, serde-skipped, never the machine
+        // body.
         report_only_lines: {
             excluded_lines.sort();
+            manifest_lines.sort();
             test_gated_lines.extend(excluded_lines);
             test_gated_lines.extend(excluded_file_lines);
             test_gated_lines.extend(test_marker_lines(&marker_facts, &root));
+            // The manifest path-item rows (workplan visibility_phase2
+            // scenario 03): the named skip classes and the shared-source
+            // census, sorted by line — report-only bytes, same channel and
+            // law as every row above, never the machine body.
+            test_gated_lines.extend(manifest_lines);
+            test_gated_lines.extend(condition_face_gap_lines(&targets_files, &import_facts, &root));
             test_gated_lines
         },
         // The drift census reads these rows from `verify`'s own scan; no
@@ -939,6 +1126,132 @@ fn project_references(_project_dir: &Path, full_path: &Path) -> Result<Vec<Strin
     Ok(references)
 }
 
+/// One path-valued item element found by [`path_items`]: its raw `Include`
+/// value (as spelled, separators untouched), its line in the csproj, and the
+/// two structural postures the caller classifies first — under an unevaluated
+/// condition (the `CondStack` posture the test markers use: marker, never an
+/// edge) and inside a `Target` element (executed content, outside the parse
+/// floor). The walk reads NO item-element name: the rule is "every item
+/// element's `Include` value", so no vocabulary is needed at all (workplan
+/// visibility_phase2 scenario 03, A5 name-free). `Target` is a platform
+/// schema element name — schema, not framework vocabulary (the same kind
+/// `Sdk` and `ItemGroup` already are in this driver).
+struct PathItemHit {
+    include: String,
+    line: usize,
+    conditioned: bool,
+    in_target: bool,
+}
+
+/// Walk a csproj for path-valued item elements. Malformed XML refuses with
+/// the loud named error — the `project_references` posture (SP1): a broken
+/// manifest never answers a silent zero. `ProjectReference` and
+/// `PackageReference` are the two structural exclusions: the first is the
+/// edge arm already parsed by [`project_references`], the second carries
+/// package ids, not paths.
+fn path_items(full_path: &Path) -> Result<Vec<PathItemHit>, String> {
+    let raw = std::fs::read_to_string(full_path)
+        .map_err(|err| format!("failed to read {}: {err}", full_path.display()))?;
+    let newline_offsets: Vec<usize> = raw
+        .bytes()
+        .enumerate()
+        .filter(|(_, byte)| *byte == b'\n')
+        .map(|(offset, _)| offset)
+        .collect();
+    let line_at = |offset: usize| 1 + newline_offsets.partition_point(|position| *position < offset);
+    let mut reader = quick_xml::Reader::from_str(&raw);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+    // Open-element stack: (name, conditioned, in-target). An item is
+    // conditioned when its own element or any ancestor carries a `Condition`
+    // attribute, and inside a target when any ancestor is a `Target` element
+    // — condition inheritance rides the stack, never a re-parse.
+    let mut stack: Vec<(String, bool, bool)> = Vec::new();
+    let mut hits = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(quick_xml::events::Event::Start(ref e)) => {
+                let name = e.name().as_ref().to_string();
+                let (parent_conditioned, parent_target) =
+                    stack.last().map_or((false, false), |(_, held, target)| {
+                        (*held, *target)
+                    });
+                let conditioned =
+                    xml_attribute(e, "Condition").is_some() || parent_conditioned;
+                let in_target = name == "Target" || parent_target;
+                if !matches!(name.as_str(), "ProjectReference" | "PackageReference")
+                    && let Some(include) = xml_attribute(e, "Include")
+                {
+                    hits.push(PathItemHit {
+                        include,
+                        line: line_at(reader.buffer_position() as usize),
+                        conditioned,
+                        in_target,
+                    });
+                }
+                stack.push((name, conditioned, in_target));
+            }
+            Ok(quick_xml::events::Event::Empty(ref e)) => {
+                let name = e.name().as_ref().to_string();
+                let (parent_conditioned, parent_target) =
+                    stack.last().map_or((false, false), |(_, held, target)| {
+                        (*held, *target)
+                    });
+                let conditioned =
+                    xml_attribute(e, "Condition").is_some() || parent_conditioned;
+                let in_target = name == "Target" || parent_target;
+                if !matches!(name.as_str(), "ProjectReference" | "PackageReference")
+                    && let Some(include) = xml_attribute(e, "Include")
+                {
+                    hits.push(PathItemHit {
+                        include,
+                        line: line_at(reader.buffer_position() as usize),
+                        conditioned,
+                        in_target,
+                    });
+                }
+            }
+            Ok(quick_xml::events::Event::End(ref e)) => {
+                let name = e.name().as_ref().to_string();
+                if let Some(index) = stack.iter().rposition(|(open, ..)| *open == name) {
+                    stack.truncate(index);
+                }
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Err(_) => {
+                return Err(format!(
+                    "failed to parse manifest item walk: {}",
+                    full_path.display()
+                ));
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(hits)
+}
+
+/// The value of attribute `key` on one element event, `None` when absent.
+fn xml_attribute(event: &quick_xml::events::BytesStart<'_>, key: &str) -> Option<String> {
+    event.attributes().flatten().find_map(|attr| {
+        (attr.key.as_ref() == key).then(|| attr.value.into_owned())
+    })
+}
+
+/// Longest enclosing kept-unit directory of `resolved` other than `self_dir`
+/// — the path-item owner. Component-wise prefix matching, no second matcher.
+fn owner_dir(
+    unit_by_dir: &BTreeMap<std::path::PathBuf, String>,
+    resolved: &Path,
+    self_dir: &Path,
+) -> Option<String> {
+    unit_by_dir
+        .iter()
+        .filter(|(dir, _)| dir.as_path() != self_dir && resolved.starts_with(dir.as_path()))
+        .max_by_key(|(dir, _)| dir.components().count())
+        .map(|(_, name)| name.clone())
+}
+
 /// Per-unit manifest facts from the project's csproj. `publish` maps
 /// `IsPackable=false` to `Some(false)` (a package explicitly not packable);
 /// a project that is packable or omits the flag resolves as publishable.
@@ -948,21 +1261,38 @@ fn project_references(_project_dir: &Path, full_path: &Path) -> Result<Vec<Strin
 /// management — under CPM the versions live in props `PackageVersion` items,
 /// so a csproj reference may carry no version; both shapes resolve to the
 /// same name tier). `features` has no C# analog and stays empty.
-/// A `PackageReference` covered by an unevaluated MSBuild `Condition` (on the
-/// item, its `ItemGroup`, or inside a `Choose` subtree) never gates: when its
-/// `Include` names a test package it is EXCLUDED from `dependencies` — so the
-/// test-tier predicates stay clean — and recorded in `markers` for the
-/// report-only diagnostic (GitHub issue #45, rung 1); a conditioned non-test
-/// reference counts, its presence being real. `markers` carries
 /// `(file, line, include)` triples for every project walked through this
-/// function, dropped ones included; the caller renders them.
+/// function, dropped ones included; the caller renders them. `imports`
+/// carries `(importing file, line, attribute text)` triples for every
+/// `Import` element this walk and the props walks read — the LITERAL
+/// `Project` attribute, no property substitution (workplan
+/// csharp_condition_eval scenario 04); the caller renders the gap rows.
+///
+/// Scenario 02 (the walk integration): every condition face this walk reads
+/// is now evaluated per CONSUMING project through `condition::evaluate` —
+/// truth is decided for this project's file stem, never cached per file
+/// (M4). An evaluated TRUE test marker joins `dependencies` like an
+/// unconditional one (F7: it becomes gating evidence and the driver census
+/// names the promotion); an evaluated FALSE test marker leaves the item
+/// absent with no diagnostic row (F8 defense); an unevaluated condition
+/// keeps the rung-1 posture byte-for-byte (marker recorded, no gating).
+/// Non-test references keep the rung-1 counting unchanged whatever the
+/// verdict says (D6: no verdict erases a non-marker fact).
 pub fn manifest_info(
     project_dir: &Path,
     root: &Path,
     full_path: &Path,
     markers: &mut Vec<(std::path::PathBuf, usize, String)>,
+    imports: &mut Vec<(std::path::PathBuf, usize, String)>,
 ) -> ManifestInfo {
     let raw = std::fs::read_to_string(full_path).unwrap_or_default();
+    // The per-consuming-project context (M4): the reserved property is this
+    // csproj's file stem; the props walks derive the same context here.
+    let file_name = full_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ctx = EvalContext::from_project_file_name(&file_name);
     let mut publish = None;
     let mut dependencies = BTreeSet::new();
     let mut reader = quick_xml::Reader::from_str(&raw);
@@ -970,6 +1300,10 @@ pub fn manifest_info(
     let mut buf = Vec::new();
     let mut in_is_packable = false;
     let mut scopes = CondStack(Vec::new());
+    // One chain per OPEN `Choose`: the `When` arms seen so far in document
+    // order (the arm texts feed `condition::effective_arm_verdicts` — the
+    // B1 rule stays the module's single implementation, D9).
+    let mut chains: Vec<Vec<Option<String>>> = Vec::new();
     let mut previous = 0usize;
     loop {
         let event = reader.read_event_into(&mut buf);
@@ -979,18 +1313,31 @@ pub fn manifest_info(
         match event {
             Ok(quick_xml::events::Event::Start(ref e)) => {
                 if e.name().as_ref() == "ItemGroup" {
-                    scopes.push(has_condition(e));
+                    scopes.push(scope_verdict(e, &ctx));
                 } else if e.name().as_ref() == "Choose" {
-                    scopes.push(true);
+                    chains.push(Vec::new());
+                } else if e.name().as_ref() == "When" {
+                    if let Some(chain) = chains.last_mut() {
+                        chain.push(condition_attribute(e));
+                        let verdict = arm_effective_verdict(chain, false, &ctx);
+                        scopes.push(Some(verdict));
+                    }
+                } else if e.name().as_ref() == "Otherwise" {
+                    if let Some(chain) = chains.last() {
+                        scopes.push(Some(arm_effective_verdict(chain, true, &ctx)));
+                    }
                 } else if e.name().as_ref() == "PackageReference" {
                     note_csproj_reference(
                         e,
                         &scopes,
+                        &ctx,
                         full_path,
                         event_line(&raw, since, position, e.name().as_ref()),
                         markers,
                         &mut dependencies,
                     );
+                } else if e.name().as_ref() == "Import" {
+                    note_import(e, full_path, event_line(&raw, since, position, "Import"), imports);
                 } else if e.name().as_ref() == "IsPackable" {
                     in_is_packable = true;
                 }
@@ -1000,11 +1347,14 @@ pub fn manifest_info(
                     note_csproj_reference(
                         e,
                         &scopes,
+                        &ctx,
                         full_path,
                         event_line(&raw, since, position, e.name().as_ref()),
                         markers,
                         &mut dependencies,
                     );
+                } else if e.name().as_ref() == "Import" {
+                    note_import(e, full_path, event_line(&raw, since, position, "Import"), imports);
                 }
             }
             Ok(quick_xml::events::Event::Text(ref e)) => {
@@ -1015,7 +1365,13 @@ pub fn manifest_info(
                 }
             }
             Ok(quick_xml::events::Event::End(ref e)) => {
-                if e.name().as_ref() == "ItemGroup" || e.name().as_ref() == "Choose" {
+                if e.name().as_ref() == "ItemGroup" {
+                    scopes.pop();
+                } else if e.name().as_ref() == "Choose" {
+                    chains.pop();
+                } else if (e.name().as_ref() == "When" || e.name().as_ref() == "Otherwise")
+                    && !chains.is_empty()
+                {
                     scopes.pop();
                 } else if e.name().as_ref() == "IsPackable" {
                     in_is_packable = false;
@@ -1028,7 +1384,7 @@ pub fn manifest_info(
         buf.clear();
     }
 
-    dependencies.extend(central_reference_names(project_dir, root, markers));
+    dependencies.extend(central_reference_names(project_dir, root, &ctx, markers, imports));
 
     ManifestInfo {
         publish,
@@ -1037,16 +1393,19 @@ pub fn manifest_info(
     }
 }
 
-/// One csproj `PackageReference`: unconditional items count as before; a
-/// conditioned item whose `Include` names a test package is excluded from
-/// `dependencies` and recorded as a marker (rung-1 posture — a marker the
-/// scan cannot evaluate gates nothing and says so); a conditioned non-test
-/// item counts, its presence being real (GitHub issue #45, rung 1). `line`
-/// is the source line of the item's opening tag, computed by the walk with
-/// [`event_line`].
+/// One csproj `PackageReference` under the scenario-02 verdict law: an
+/// unconditional item or an evaluated TRUE item counts; an unevaluated
+/// test-marker item is excluded from `dependencies` and recorded as a
+/// marker (the rung-1 posture — a marker the scan cannot evaluate gates
+/// nothing and says so, GitHub issue #45); an evaluated FALSE test marker
+/// leaves the item absent with NO marker row (F8 defense); a non-test item
+/// counts whatever the verdict says, its presence being real (D6: no
+/// verdict erases a non-marker fact). `line` is the source line of the
+/// item's opening tag, computed by the walk with [`event_line`].
 fn note_csproj_reference(
     event: &quick_xml::events::BytesStart<'_>,
     scopes: &CondStack,
+    ctx: &EvalContext,
     full_path: &Path,
     line: usize,
     markers: &mut Vec<(std::path::PathBuf, usize, String)>,
@@ -1055,15 +1414,39 @@ fn note_csproj_reference(
     let Some(include) = include_attribute(event).filter(|value| !value.is_empty()) else {
         return;
     };
-    if has_condition(event) || scopes.conditioned() {
-        if is_test_framework_package(&include) {
-            markers.push((full_path.to_path_buf(), line, include));
-        } else {
-            dependencies.insert(include);
+    if is_test_framework_package(&include) {
+        match scopes.verdict(scope_verdict(event, ctx)) {
+            ConditionVerdict::True => {
+                dependencies.insert(include);
+            }
+            ConditionVerdict::Unevaluated => {
+                markers.push((full_path.to_path_buf(), line, include));
+            }
+            ConditionVerdict::False => {}
         }
     } else {
+        // D6 unchanged: the rung-1 csproj counting never let a condition
+        // erase a non-test reference — verdicts change no non-marker fact.
         dependencies.insert(include);
     }
+}
+
+/// One `Import` element of a csproj or walked props file (workplan
+/// csharp_condition_eval scenario 04): its `Project` attribute is recorded
+/// LITERALLY — no property substitution, no glob expansion (the row is
+/// presence-only; the scenario-01 evaluator is not a precondition) — with
+/// the importing file and the element's line for the report rendering. A
+/// missing or empty attribute states nothing.
+fn note_import(
+    event: &quick_xml::events::BytesStart<'_>,
+    importing: &Path,
+    line: usize,
+    imports: &mut Vec<(std::path::PathBuf, usize, String)>,
+) {
+    let Some(project) = import_attribute(event).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    imports.push((importing.to_path_buf(), line, project));
 }
 
 /// The centrally declared `PackageReference` names applying to a project:
@@ -1073,11 +1456,16 @@ fn note_csproj_reference(
 /// project's central entries and it shadows any farther props file
 /// (project-level overrides root, mirroring MSBuild discovery). `PackageVersion`
 /// entries are version bookkeeping only — versions do not imply usage — and
-/// the model has no version fields, so neither reaches the tier.
+/// the model has no version fields, so neither reaches the tier. The
+/// `EvalContext` rides from the CONSUMING project (M4): the same props file
+/// visited for two projects is evaluated twice, once per project — no
+/// per-props-file verdict cache exists here by construction.
 fn central_reference_names(
     project_dir: &Path,
     root: &Path,
+    ctx: &EvalContext,
     markers: &mut Vec<(std::path::PathBuf, usize, String)>,
+    imports: &mut Vec<(std::path::PathBuf, usize, String)>,
 ) -> BTreeSet<String> {
     let mut dir = project_dir.to_path_buf();
     loop {
@@ -1087,7 +1475,7 @@ fn central_reference_names(
             if candidate.is_file() {
                 found
                     .get_or_insert_with(BTreeSet::new)
-                    .extend(props_package_references(&candidate, markers));
+                    .extend(props_package_references(&candidate, ctx, markers, imports));
             }
         }
         if let Some(names) = found {
@@ -1103,23 +1491,54 @@ fn central_reference_names(
     }
 }
 
+/// F2 rider (workplan csharp_condition_eval scenario 04): the presence
+/// probe that walks upward from the project directory to the tree root and
+/// records every `Directory.Build.targets` FILE the walk passes. MSBuild
+/// evaluates `Condition` attributes in these files, so test markers can
+/// live on a face the driver never reads — and that gap is never silent.
+/// PRESENCE ONLY: the file is never opened and its contents are never
+/// parsed (the named non-goal of the 2026-11-18 adversarial plan m3 stands
+/// — no new semantics ride here, no property substitution, no walk
+/// extension; the scenario-01 evaluator is not a precondition).
+fn central_targets_files(project_dir: &Path, root: &Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let mut dir = project_dir.to_path_buf();
+    loop {
+        let candidate = dir.join("Directory.Build.targets");
+        if candidate.is_file() {
+            files.push(candidate);
+        }
+        if dir == root {
+            return files;
+        }
+        match dir.parent() {
+            Some(parent) if parent.starts_with(root) => dir = parent.to_path_buf(),
+            _ => return files,
+        }
+    }
+}
+
 /// The `PackageReference` include names declared in one props file, parsed
 /// with the same lightweight XML-event walk as the csproj reader. Only
 /// `Include` counts: an `Update` attribute edits an item declared elsewhere
-/// and never evidences a reference of this project. A `PackageReference`
-/// bearing an MSBuild `Condition` — on the item, its `ItemGroup`, or inside
-/// a `Choose`/`When`/`Otherwise` subtree — is ignored as tier evidence and
-/// as an external dependency alike: conditions (`Condition="'$(IsTestProject)'=='true'"`
-/// is the common test-wiring shape) are unevaluable without MSBuild, and
-/// counting them would silently mark every project below the props file test
-/// tier and erase the production model. Honesty over false precision: the
-/// conditional reference is not modeled at all. The suppression is never
-/// silent for a TEST marker (GitHub issue #45, rung 1): when the suppressed
-/// item's `Include` names a test package, the item is recorded in `markers`
-/// so the run states one report-only diagnostic line for it.
+/// and never evidences a reference of this project. Scenario 02 verdict
+/// law, evaluated per CONSUMING project through `ctx` (M4 — the context
+/// derives from the project being scanned, never from the props file, and
+/// no per-props-file verdict cache is constructed): an evaluated TRUE item
+/// joins the names (test markers included — a TRUE marker gates this
+/// project, F7); an unevaluated condition keeps the rung-1 posture — a
+/// test-marker item states itself once in `markers` and gates nothing
+/// (GitHub issue #45, rung 1), a non-test item stays unmodeled (its rung-1
+/// counting: the suppression stays, honesty over false precision); an
+/// evaluated FALSE item leaves the names with NO diagnostic row (F8).
+/// The file's `Import` elements are recorded LITERALLY in `imports` —
+/// presence only, no property substitution (workplan csharp_condition_eval
+/// scenario 04).
 fn props_package_references(
     path: &Path,
+    ctx: &EvalContext,
     markers: &mut Vec<(std::path::PathBuf, usize, String)>,
+    imports: &mut Vec<(std::path::PathBuf, usize, String)>,
 ) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let Ok(raw) = std::fs::read_to_string(path) else {
@@ -1129,6 +1548,7 @@ fn props_package_references(
     reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
     let mut scopes = CondStack(Vec::new());
+    let mut chains: Vec<Vec<Option<String>>> = Vec::new();
     let mut previous = 0usize;
     loop {
         let event = reader.read_event_into(&mut buf);
@@ -1136,59 +1556,66 @@ fn props_package_references(
         let since = &raw[previous..position];
         previous = position;
         match event {
-            Ok(quick_xml::events::Event::Start(ref e))
-                if e.name().as_ref() == "ItemGroup" || e.name().as_ref() == "Choose" =>
-            {
-                // A `Choose` subtree is unevaluated as a whole — the push
-                // covers its `When` and `Otherwise` arms without tracking
-                // those elements.
-                scopes.push(e.name().as_ref() == "Choose" || has_condition(e));
+            Ok(quick_xml::events::Event::Start(ref e)) if e.name().as_ref() == "ItemGroup" => {
+                scopes.push(scope_verdict(e, ctx));
+            }
+            Ok(quick_xml::events::Event::Start(ref e)) if e.name().as_ref() == "Choose" => {
+                chains.push(Vec::new());
+            }
+            Ok(quick_xml::events::Event::Start(ref e)) if e.name().as_ref() == "When" => {
+                if let Some(chain) = chains.last_mut() {
+                    chain.push(condition_attribute(e));
+                    let verdict = arm_effective_verdict(chain, false, ctx);
+                    scopes.push(Some(verdict));
+                }
+            }
+            Ok(quick_xml::events::Event::Start(ref e)) if e.name().as_ref() == "Otherwise" => {
+                if let Some(chain) = chains.last() {
+                    scopes.push(Some(arm_effective_verdict(chain, true, ctx)));
+                }
             }
             Ok(quick_xml::events::Event::End(ref e))
-                if e.name().as_ref() == "ItemGroup" || e.name().as_ref() == "Choose" =>
+                if e.name().as_ref() == "ItemGroup"
+                    || ((e.name().as_ref() == "When" || e.name().as_ref() == "Otherwise")
+                        && !chains.is_empty()) =>
             {
                 scopes.pop();
+            }
+            Ok(quick_xml::events::Event::End(ref e)) if e.name().as_ref() == "Choose" => {
+                chains.pop();
+            }
+            Ok(quick_xml::events::Event::Start(ref e))
+            | Ok(quick_xml::events::Event::Empty(ref e))
+                if e.name().as_ref() == "Import" =>
+            {
+                note_import(e, path, event_line(&raw, since, position, "Import"), imports);
             }
             Ok(quick_xml::events::Event::Start(ref e))
             | Ok(quick_xml::events::Event::Empty(ref e))
                 if e.name().as_ref() == "PackageReference" =>
             {
-                if scopes.conditioned() {
-                    // Suppressed by an enclosing scope: excluded from the
-                    // names whatever the item's own attributes say; a test
-                    // package states itself as a marker.
-                    if let Some(include) = include_attribute(e)
-                        .filter(|value| !value.is_empty() && is_test_framework_package(value))
-                    {
-                        markers.push((
-                            path.to_path_buf(),
-                            event_line(&raw, since, position, e.name().as_ref()),
-                            include,
-                        ));
-                    }
-                } else {
-                    match reference_include(e) {
-                        Some(include) => {
-                            if !include.is_empty() {
-                                names.insert(include);
-                            }
+                let verdict = scopes.verdict(scope_verdict(e, ctx));
+                let include = include_attribute(e);
+                match include.filter(|value| !value.is_empty()) {
+                    Some(include) if is_test_framework_package(&include) => match verdict {
+                        ConditionVerdict::True => {
+                            names.insert(include);
                         }
-                        None => {
-                            // `None` means the item carries its own
-                            // `Condition` or no `Include` at all; a
-                            // conditioned test package names itself as a
-                            // marker, a missing `Include` stays silent.
-                            if let Some(include) = include_attribute(e)
-                                .filter(|value| is_test_framework_package(value))
-                            {
-                                markers.push((
-                                    path.to_path_buf(),
-                                    event_line(&raw, since, position, e.name().as_ref()),
-                                    include,
-                                ));
-                            }
+                        ConditionVerdict::Unevaluated => {
+                            // The rung-1 diagnostic, unchanged: a marker the
+                            // scan cannot evaluate gates nothing and says so.
+                            markers.push((path.to_path_buf(), event_line(&raw, since, position, e.name().as_ref()), include));
                         }
+                        ConditionVerdict::False => {}
+                    },
+                    // Rung-1 counting preserved: an unevaluated or FALSE
+                    // condition leaves a non-test central item unmodeled
+                    // exactly as before; an evaluated TRUE one is a real
+                    // central reference of THIS project.
+                    Some(include) if verdict == ConditionVerdict::True => {
+                        names.insert(include);
                     }
+                    _ => {}
                 }
             }
             Ok(quick_xml::events::Event::Eof) => break,
@@ -1200,24 +1627,28 @@ fn props_package_references(
     names
 }
 
-fn reference_include(event: &quick_xml::events::BytesStart<'_>) -> Option<String> {
-    if has_condition(event) {
-        return None;
-    }
-    event
-        .attributes()
-        .flatten()
-        .find(|attr| attr.key.as_ref() == "Include")
-        .map(|attr| attr.value.into_owned())
-}
-
-/// True when an element carries an MSBuild `Condition` attribute — its value
-/// is unknowable to a static scan, so conditioned items are never modeled.
+/// True when an element carries an MSBuild `Condition` attribute — the
+/// presence predicate the walks consult before `condition::evaluate`; the
+/// attribute VALUE decides the verdict, never the bare presence (scenario
+/// 02, D9: `has_condition` stays presence, the evaluator owns semantics).
 fn has_condition(event: &quick_xml::events::BytesStart<'_>) -> bool {
     event
         .attributes()
         .flatten()
         .any(|attr| attr.key.as_ref() == "Condition")
+}
+
+/// The verdict an element's own `Condition` contributes at the current
+/// position: `None` (inert truth in the scope conjunction) when the element
+/// carries no `Condition`; the evaluator's answer over the attribute text
+/// when it does — one grammar, the one shipped by `scan::csharp::condition`
+/// (D9), never a second parser here.
+fn scope_verdict(event: &quick_xml::events::BytesStart<'_>, ctx: &EvalContext) -> Option<ConditionVerdict> {
+    has_condition(event).then(|| {
+        condition_attribute(event).map_or(ConditionVerdict::Unevaluated, |text| {
+            condition::evaluate(&text, ctx)
+        })
+    })
 }
 
 /// The `Include` attribute value of an element regardless of any `Condition`
@@ -1231,29 +1662,83 @@ fn include_attribute(event: &quick_xml::events::BytesStart<'_>) -> Option<String
         .map(|attr| attr.value.into_owned())
 }
 
+/// The `Condition` attribute value of an element, decoded verbatim — the
+/// text the scenario-01 evaluator parses; the walk never interprets it.
+fn condition_attribute(event: &quick_xml::events::BytesStart<'_>) -> Option<String> {
+    event
+        .attributes()
+        .flatten()
+        .find(|attr| attr.key.as_ref() == "Condition")
+        .map(|attr| attr.value.into_owned())
+}
+
+/// The `Project` attribute of an `Import` element, decoded verbatim (no
+/// property substitution — the gap row is presence-only, workplan
+/// csharp_condition_eval scenario 04).
+fn import_attribute(event: &quick_xml::events::BytesStart<'_>) -> Option<String> {
+    event
+        .attributes()
+        .flatten()
+        .find(|attr| attr.key.as_ref() == "Project")
+        .map(|attr| attr.value.into_owned())
+}
+
 /// MSBuild condition scopes for the csproj and props XML walks (GitHub
-/// issue #45, rung 1). One entry per OPEN scope element: an `ItemGroup`
-/// pushes whether it carries a `Condition`; a `Choose` pushes `true` always,
-/// because every `Choose` subtree — `When` and `Otherwise` arms alike — is
-/// unevaluated, so the arms need no tracking of their own. A stack rather
-/// than a flag is what keeps a nested unconditioned `ItemGroup` from
+/// issue #45, scenario 02). One entry per OPEN scope element that carries a
+/// `Condition`: an `ItemGroup` pushes the `condition::evaluate` verdict of
+/// its text; a `Choose` element pushes NO entry — its `When` arms push the
+/// B1 chain rule's effective verdict (`condition::effective_arm_verdicts`
+/// over the arms seen so far, first match wins, an unevaluable earlier arm
+/// vetoes later arms), and so does its `Otherwise`. An entry is `None` only
+/// where a scope is unconditioned — inert truth in the conjunction. A stack
+/// rather than a flag is what keeps a nested unconditioned `ItemGroup` from
 /// clobbering the enclosing scope's condition: the matching `End` restores
-/// the parent entry. Presence only — values are never parsed. The deferred
-/// condition evaluator (rung 2) attaches its semantics here.
-struct CondStack(Vec<bool>);
+/// the parent entry. The rung-2 evaluator attached its semantics here; the
+/// note is now the shipped face.
+struct CondStack(Vec<Option<ConditionVerdict>>);
 
 impl CondStack {
-    fn push(&mut self, conditioned: bool) {
-        self.0.push(conditioned);
+    fn push(&mut self, verdict: Option<ConditionVerdict>) {
+        self.0.push(verdict);
     }
     fn pop(&mut self) {
         self.0.pop();
     }
-    /// True when the element at the current position stands under an
-    /// unevaluated condition carried by any enclosing scope.
-    fn conditioned(&self) -> bool {
-        self.0.iter().any(|scope| *scope)
+    /// The effective verdict at the current position: the conjunction of
+    /// every open scope's verdict AND the element's own condition — folded
+    /// with the evaluator's own `combine_and`, so an unevaluated member
+    /// poisons the conjunction (M2, no Kleene shortcuts), a FALSE member
+    /// makes it FALSE, and unconditioned scopes are inert truth.
+    fn verdict(&self, own: Option<ConditionVerdict>) -> ConditionVerdict {
+        self.0
+            .iter()
+            .filter_map(|scope| *scope)
+            .chain(own)
+            .fold(ConditionVerdict::True, condition::combine_and)
     }
+}
+
+/// The B1 effective verdict of the `Choose` arm at the current position.
+/// `chain` holds the `When` arms' `Condition` texts seen so far in document
+/// order (`None` — an arm without a `Condition` — is unconditional truth,
+/// the evaluator's own reading); `include_otherwise` models the `Otherwise`
+/// arm after those `When`s. The chain rule itself is
+/// `condition::effective_arm_verdicts` — the walk never restates it (D9).
+fn arm_effective_verdict(
+    chain: &[Option<String>],
+    include_otherwise: bool,
+    ctx: &EvalContext,
+) -> ConditionVerdict {
+    let mut arms: Vec<condition::ChooseArm<'_>> = chain
+        .iter()
+        .map(|text| condition::ChooseArm::when(text.as_deref()))
+        .collect();
+    if include_otherwise {
+        arms.push(condition::ChooseArm::otherwise());
+    }
+    condition::effective_arm_verdicts(&arms, ctx)
+        .pop()
+        .unwrap_or(ConditionVerdict::False)
 }
 
 /// The 1-based source line holding the opening `<` of the token of the event
@@ -1308,6 +1793,100 @@ fn test_marker_lines(markers: &[(std::path::PathBuf, usize, String)], root: &Pat
         .collect()
 }
 
+/// Render the condition-face gap census (workplan csharp_condition_eval
+/// scenario 04, the F2 never-silent cure): the sources MSBuild evaluates
+/// `Condition` attributes in that this driver does not walk state
+/// themselves once each. One `condition face not walked: <file>` line per
+/// distinct `Directory.Build.targets` the upward walk saw; one
+/// `condition face not walked: <file> — imported by <importing-file>:<line>`
+/// line per distinct (target, importing site) of the `Import` elements the
+/// csproj and props walks read. `<file>` is root-relative in the
+/// `test_marker_lines` path shape — or the literal attribute text when it
+/// holds glob or `$(...)` residue. The claim is PRESENCE ONLY: the contents
+/// are never parsed, no semantics ride. Report-only: deduped on the row
+/// bytes, sorted, never the machine body, exit 0.
+fn condition_face_gap_lines(
+    targets: &BTreeSet<std::path::PathBuf>,
+    imports: &[(std::path::PathBuf, usize, String)],
+    root: &Path,
+) -> Vec<String> {
+    let mut rows: BTreeSet<String> = BTreeSet::new();
+    for path in targets {
+        rows.insert(format!(
+            "condition face not walked: {}",
+            gap_file_display(path, root)
+        ));
+    }
+    for (importing, line, attribute) in imports {
+        let Some(target) = import_gap_target(attribute, importing, root) else {
+            continue;
+        };
+        rows.insert(format!(
+            "condition face not walked: {target} — imported by {}:{line}",
+            gap_file_display(importing, root)
+        ));
+    }
+    rows.into_iter().collect()
+}
+
+/// The path shape shared with `test_marker_lines`: root-relative, the bare
+/// file name at (or outside) the root itself.
+fn gap_file_display(path: &Path, root: &Path) -> String {
+    match path.strip_prefix(root) {
+        Ok(relative) if !relative.as_os_str().is_empty() => relative.to_string_lossy().into_owned(),
+        _ => path
+            .file_name()
+            .map(|value| value.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    }
+}
+
+/// The display name of one LITERAL `Import` target. Names the walk already
+/// covers — `Directory.Packages.props` and `Directory.Build.props` — and the
+/// importing project itself are NOT gap rows. Attribute text holding globs
+/// or `$(...)` residue states itself verbatim; a plain path is resolved
+/// against the importing file's directory and rendered root-relative,
+/// verbatim again when it lands outside the scan root (the resolved bytes
+/// would leak the machine path into the row).
+fn import_gap_target(attribute: &str, importing: &Path, root: &Path) -> Option<String> {
+    let last = attribute.rsplit(['/', '\\']).next().unwrap_or(attribute);
+    if matches!(last, "Directory.Packages.props" | "Directory.Build.props") {
+        return None;
+    }
+    if attribute.contains("$(") || attribute.contains('*') || attribute.contains('?') {
+        return Some(attribute.to_string());
+    }
+    let resolved = importing
+        .parent()
+        .map(|dir| normalize_lexically(&dir.join(attribute)))
+        .unwrap_or_else(|| std::path::PathBuf::from(attribute));
+    if resolved == importing {
+        return None;
+    }
+    if resolved.starts_with(root) {
+        Some(gap_file_display(&resolved, root))
+    } else {
+        Some(attribute.to_string())
+    }
+}
+
+/// Lexical path normalization for import resolution: `.` drops, `..`
+/// cancels the previous component — no filesystem access, no symlink
+/// resolution, so the row states the declaration, never the disk.
+fn normalize_lexically(path: &Path) -> std::path::PathBuf {
+    let mut out = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
 /// Scan every `.cs` file under a project directory for declared namespaces,
 /// `using` targets (both attributed to the namespace they appear in) and the
 /// type-position reference map ([`syntax::TypeFacts`]). Per file the grammar
@@ -1339,11 +1918,16 @@ fn test_marker_lines(markers: &[(std::path::PathBuf, usize, String)], root: &Pat
 /// `excluded source: <path> — excluded_sources` census lines: Some only
 /// when this walk belongs to a KEPT project (the project-level drop from
 /// issue #49 already stated its own line — the no-double-report law).
+/// `candidates` is the literal-candidate feed sink (workplan
+/// visibility_phase2 scenario 03): Some ONLY when a declared pattern side
+/// names this driver — a pruned file contributes no candidate, exactly like
+/// it contributes no other fact.
 fn scan_project_sources(
     project_dir: &Path,
     facts: &DeclaredFacts,
     root: &Path,
     mut census: Option<&mut BTreeSet<String>>,
+    mut candidates: Option<&mut Vec<LiteralCandidate>>,
 ) -> Result<ProjectSources, String> {
     let mut namespaces: BTreeSet<String> = BTreeSet::new();
     let mut usings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -1413,6 +1997,22 @@ fn scan_project_sources(
                 format!("failed to parse {}: {err}", path.display())
             })?;
         shape_facts.merge(per_file_shapes);
+        // The literal-candidate feed (workplan visibility_phase2 scenario
+        // 03, the sixth driver): the same read bytes, never a second read;
+        // a pruned file never reaches here, so it contributes no candidate.
+        // The candidates are vocabulary-free: callee and literal ride as
+        // spelled, the engine matcher verbs decide equality downstream.
+        if let Some(sink) = candidates.as_deref_mut() {
+            let spelled = root_rel.to_string_lossy().replace('\\', "/");
+            for (anchor, value) in syntax::literal_candidates(&source) {
+                sink.push(LiteralCandidate {
+                    path: spelled.clone(),
+                    language: crate::language::Language::Csharp.as_str().to_string(),
+                    anchor,
+                    value,
+                });
+            }
+        }
     }
     Ok((
         namespaces,
@@ -2132,8 +2732,20 @@ fn extract_single_unit(root: &Path, facts: &DeclaredFacts) -> Result<Model, Stri
     };
 
     let mut excluded_file_lines: BTreeSet<String> = BTreeSet::new();
+    // The literal-candidate feed gate: identical law to the csproj path in
+    // [`extract`] via [`candidates_declared`] — a declared pattern side
+    // naming this driver is the one condition that collects anything
+    // (4.2 arm 1 byte identity).
+    let collect_candidates = candidates_declared(facts);
+    let mut literal_candidates: Vec<LiteralCandidate> = Vec::new();
     let (namespaces, usings, type_facts, _shape_facts, entrypoint_file, registration_family, forwarded) =
-        scan_project_sources(&canonical, facts, &canonical, Some(&mut excluded_file_lines))?;
+        scan_project_sources(
+            &canonical,
+            facts,
+            &canonical,
+            Some(&mut excluded_file_lines),
+            collect_candidates.then_some(&mut literal_candidates),
+        )?;
     let mut soft_structure: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut sorted: Vec<String> = namespaces.iter().map(|ns| ns_to_module(ns)).collect();
     let unit_csproj = std::fs::read_dir(root).ok().and_then(|entries| {
@@ -2317,6 +2929,9 @@ fn extract_single_unit(root: &Path, facts: &DeclaredFacts) -> Result<Model, Stri
         module_public_types,
         module_external: module_external_model,
         roles,
+        // The literal-candidate feed: transient, serde-skipped, collected
+        // only behind the declaration gate (4.2 arm 1).
+        literal_candidates,
         // File-level declared-exclusion census, sorted by path (issue #60):
         // report-only bytes, serde-skipped, never the machine body.
         report_only_lines: excluded_file_lines.into_iter().collect(),

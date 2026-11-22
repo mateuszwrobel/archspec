@@ -31,6 +31,7 @@ graph TD
       src_archspec_profile_rs_36763afc["src/archspec/profile.rs"]
       src_archspec_scan_rs_4ece116a["src/archspec/scan.rs"]
       src_archspec_spec_rs_a8194740["src/archspec/spec.rs"]
+      src_archspec_viewer_rs_d3848cff["src/archspec/viewer.rs"]
       src_archspec_capability_rs_d60fec76 ~~~ src_archspec_cli_rs_a6998732
       src_archspec_cli_rs_a6998732 ~~~ src_archspec_config_rs_dfd15f62
       src_archspec_config_rs_dfd15f62 ~~~ src_archspec_depgraph_rs_8874051e
@@ -42,6 +43,7 @@ graph TD
       src_archspec_model_rs_b8d77281 ~~~ src_archspec_profile_rs_36763afc
       src_archspec_profile_rs_36763afc ~~~ src_archspec_scan_rs_4ece116a
       src_archspec_scan_rs_4ece116a ~~~ src_archspec_spec_rs_a8194740
+      src_archspec_spec_rs_a8194740 ~~~ src_archspec_viewer_rs_d3848cff
       subgraph src_archspec_commands_584c01ef["src/archspec/commands"]
         src_archspec_commands_capability_rs_64476979["src/archspec/commands/capability.rs"]
         src_archspec_commands_depgraph_rs_d360365f["src/archspec/commands/depgraph.rs"]
@@ -159,7 +161,7 @@ graph TD
         end
         src_archspec_verify_mod_rs_76886026 ~~~ src_archspec_verify_compare_adjudicate_rs_44538ae0
       end
-      src_archspec_spec_rs_a8194740 ~~~ src_archspec_commands_capability_rs_64476979
+      src_archspec_viewer_rs_d3848cff ~~~ src_archspec_commands_capability_rs_64476979
       src_archspec_commands_verify_rs_bc7cac43 ~~~ src_archspec_events_attribution_rs_28e36a6e
       src_archspec_events_unitid_rs_1299e40a ~~~ src_archspec_init_detect_rs_b8b98ac4
       src_archspec_init_mod_rs_e4f655ce ~~~ src_archspec_inspect_clusters_rs_d7fb49a7
@@ -179,8 +181,10 @@ graph TD
       src_scan_leg_rs_ed45e36a ~~~ src_scan_mod_rs_0952d595
       src_scan_mod_rs_0952d595 ~~~ src_scan_rust_rs_1f3d8aeb
       subgraph src_scan_csharp_baf507aa["src/scan/csharp"]
+        src_scan_csharp_condition_rs_8ac01b7a["src/scan/csharp/condition.rs"]
         src_scan_csharp_mod_rs_f94cd8d3["src/scan/csharp/mod.rs"]
         src_scan_csharp_syntax_rs_00dd0292["src/scan/csharp/syntax.rs"]
+        src_scan_csharp_condition_rs_8ac01b7a ~~~ src_scan_csharp_mod_rs_f94cd8d3
         src_scan_csharp_mod_rs_f94cd8d3 ~~~ src_scan_csharp_syntax_rs_00dd0292
       end
       subgraph src_scan_go_886df52c["src/scan/go"]
@@ -221,7 +225,7 @@ graph TD
         src_scan_ts_resolution_rs_4f1fcd3e ~~~ src_scan_ts_syntax_rs_bdff06f7
         src_scan_ts_syntax_rs_bdff06f7 ~~~ src_scan_ts_workspace_rs_0ebb7c73
       end
-      src_scan_rust_rs_1f3d8aeb ~~~ src_scan_csharp_mod_rs_f94cd8d3
+      src_scan_rust_rs_1f3d8aeb ~~~ src_scan_csharp_condition_rs_8ac01b7a
       src_scan_csharp_syntax_rs_00dd0292 ~~~ src_scan_go_mod_rs_15714254
       src_scan_go_syntax_rs_6676edab ~~~ src_scan_kotlin_gradle_rs_f51840b4
       src_scan_kotlin_syntax_rs_e9d56ad7 ~~~ src_scan_python_mod_rs_09df2ea9
@@ -254,9 +258,12 @@ graph TD
     tests_claim_fanout_rs_b12456af["tests/claim_fanout.rs"]
     tests_cli_pipe_rs_6e496383["tests/cli_pipe.rs"]
     tests_config_rs_0b65e312["tests/config.rs"]
+    tests_csharp_condition_eval_rs_11b849b5["tests/csharp_condition_eval.rs"]
+    tests_csharp_condition_gap_rs_5ff2f2c8["tests/csharp_condition_gap.rs"]
     tests_csharp_di_rs_26824d07["tests/csharp_di.rs"]
     tests_csharp_excluded_projects_rs_b9d6fded["tests/csharp_excluded_projects.rs"]
     tests_csharp_excluded_sources_rs_c46f7150["tests/csharp_excluded_sources.rs"]
+    tests_csharp_manifest_items_rs_8b072bb9["tests/csharp_manifest_items.rs"]
     tests_csharp_modules_rs_52bb4e98["tests/csharp_modules.rs"]
     tests_csharp_public_api_rs_fbf292b1["tests/csharp_public_api.rs"]
     tests_csharp_public_api_allowlist_rs_3e861d4b["tests/csharp_public_api_allowlist.rs"]
@@ -271,6 +278,7 @@ graph TD
     tests_depgraph_violations_pointer_rs_f7e1ee4e["tests/depgraph_violations_pointer.rs"]
     tests_diagram_rs_b546d08e["tests/diagram.rs"]
     tests_diagram_files_tier_rs_7714bc02["tests/diagram_files_tier.rs"]
+    tests_diagram_layers_rs_b4b6e838["tests/diagram_layers.rs"]
     tests_diagram_modules_rs_2a47643b["tests/diagram_modules.rs"]
     tests_doc_surface_nits_rs_cdb2ac7d["tests/doc_surface_nits.rs"]
     tests_doctor_rs_5bb74127["tests/doctor.rs"]
@@ -311,9 +319,17 @@ graph TD
     tests_issue63_dispatch_visibility_rs_95ed7091["tests/issue63_dispatch_visibility.rs"]
     tests_kotlin_driver_rs_8ab631d1["tests/kotlin_driver.rs"]
     tests_language_agreement_rs_90c454cb["tests/language_agreement.rs"]
+    tests_level_fit_refusal_rs_d9e94dd1["tests/level_fit_refusal.rs"]
+    tests_level_layer_composition_rs_5d002fd6["tests/level_layer_composition.rs"]
+    tests_level_projection_rs_6c40e1a2["tests/level_projection.rs"]
+    tests_level_unit_census_rs_e6889e0c["tests/level_unit_census.rs"]
+    tests_level_viewer_bytes_rs_4c39679f["tests/level_viewer_bytes.rs"]
+    tests_level_viewer_panes_rs_f6b3383f["tests/level_viewer_panes.rs"]
+    tests_level_views_witness_mirrors_rs_05ad56a3["tests/level_views_witness_mirrors.rs"]
     tests_lib_imports_guard_rs_c21683b3["tests/lib_imports_guard.rs"]
     tests_lib_scan_surface_rs_c7411cd1["tests/lib_scan_surface.rs"]
     tests_licensing_rs_74473a7f["tests/licensing.rs"]
+    tests_mermaid_ceiling_rs_500a971a["tests/mermaid_ceiling.rs"]
     tests_mermaid_syntax_rs_a63f01b5["tests/mermaid_syntax.rs"]
     tests_npm_channel_rs_d88cc6e4["tests/npm_channel.rs"]
     tests_nuget_channel_rs_3dc7603a["tests/nuget_channel.rs"]
@@ -339,6 +355,8 @@ graph TD
     tests_ts_cycles_rs_d0e5b8f4["tests/ts_cycles.rs"]
     tests_ts_detection_rs_4cef86d3["tests/ts_detection.rs"]
     tests_ts_driver_rs_3a036c39["tests/ts_driver.rs"]
+    tests_ts_owner_shape_rs_1ef3870f["tests/ts_owner_shape.rs"]
+    tests_ts_unresolvable_imports_census_rs_2c8c6237["tests/ts_unresolvable_imports_census.rs"]
     tests_ts_workspace_rs_fedb3131["tests/ts_workspace.rs"]
     tests_type_only_exemption_rs_87b6eab2["tests/type_only_exemption.rs"]
     tests_update_rs_d4d62fa8["tests/update.rs"]
@@ -348,6 +366,7 @@ graph TD
     tests_verify_constraints_rs_885d1ae0["tests/verify_constraints.rs"]
     tests_verify_expose_rs_869304f2["tests/verify_expose.rs"]
     tests_verify_submodules_rs_c8522173["tests/verify_submodules.rs"]
+    tests_viewer_html_rs_78d63758["tests/viewer_html.rs"]
     tests_agents_guide_reporting_rs_c2c89bc7 ~~~ tests_alloc_gate_rs_e9a95b36
     tests_alloc_gate_rs_e9a95b36 ~~~ tests_async_cycles_rs_c16a121f
     tests_async_cycles_rs_c16a121f ~~~ tests_async_depends_spec_rs_b971bc3f
@@ -369,10 +388,13 @@ graph TD
     tests_check_rs_5f25ce5b ~~~ tests_claim_fanout_rs_b12456af
     tests_claim_fanout_rs_b12456af ~~~ tests_cli_pipe_rs_6e496383
     tests_cli_pipe_rs_6e496383 ~~~ tests_config_rs_0b65e312
-    tests_config_rs_0b65e312 ~~~ tests_csharp_di_rs_26824d07
+    tests_config_rs_0b65e312 ~~~ tests_csharp_condition_eval_rs_11b849b5
+    tests_csharp_condition_eval_rs_11b849b5 ~~~ tests_csharp_condition_gap_rs_5ff2f2c8
+    tests_csharp_condition_gap_rs_5ff2f2c8 ~~~ tests_csharp_di_rs_26824d07
     tests_csharp_di_rs_26824d07 ~~~ tests_csharp_excluded_projects_rs_b9d6fded
     tests_csharp_excluded_projects_rs_b9d6fded ~~~ tests_csharp_excluded_sources_rs_c46f7150
-    tests_csharp_excluded_sources_rs_c46f7150 ~~~ tests_csharp_modules_rs_52bb4e98
+    tests_csharp_excluded_sources_rs_c46f7150 ~~~ tests_csharp_manifest_items_rs_8b072bb9
+    tests_csharp_manifest_items_rs_8b072bb9 ~~~ tests_csharp_modules_rs_52bb4e98
     tests_csharp_modules_rs_52bb4e98 ~~~ tests_csharp_public_api_rs_fbf292b1
     tests_csharp_public_api_rs_fbf292b1 ~~~ tests_csharp_public_api_allowlist_rs_3e861d4b
     tests_csharp_public_api_allowlist_rs_3e861d4b ~~~ tests_csharp_rootusings_rs_7413f942
@@ -386,7 +408,8 @@ graph TD
     tests_depgraph_reasons_rs_28dac1e5 ~~~ tests_depgraph_violations_pointer_rs_f7e1ee4e
     tests_depgraph_violations_pointer_rs_f7e1ee4e ~~~ tests_diagram_rs_b546d08e
     tests_diagram_rs_b546d08e ~~~ tests_diagram_files_tier_rs_7714bc02
-    tests_diagram_files_tier_rs_7714bc02 ~~~ tests_diagram_modules_rs_2a47643b
+    tests_diagram_files_tier_rs_7714bc02 ~~~ tests_diagram_layers_rs_b4b6e838
+    tests_diagram_layers_rs_b4b6e838 ~~~ tests_diagram_modules_rs_2a47643b
     tests_diagram_modules_rs_2a47643b ~~~ tests_doc_surface_nits_rs_cdb2ac7d
     tests_doc_surface_nits_rs_cdb2ac7d ~~~ tests_doctor_rs_5bb74127
     tests_doctor_rs_5bb74127 ~~~ tests_e2e_matrix_rs_ef4a1eaa
@@ -426,10 +449,18 @@ graph TD
     tests_issue61_dotted_render_rs_ba9cf993 ~~~ tests_issue63_dispatch_visibility_rs_95ed7091
     tests_issue63_dispatch_visibility_rs_95ed7091 ~~~ tests_kotlin_driver_rs_8ab631d1
     tests_kotlin_driver_rs_8ab631d1 ~~~ tests_language_agreement_rs_90c454cb
-    tests_language_agreement_rs_90c454cb ~~~ tests_lib_imports_guard_rs_c21683b3
+    tests_language_agreement_rs_90c454cb ~~~ tests_level_fit_refusal_rs_d9e94dd1
+    tests_level_fit_refusal_rs_d9e94dd1 ~~~ tests_level_layer_composition_rs_5d002fd6
+    tests_level_layer_composition_rs_5d002fd6 ~~~ tests_level_projection_rs_6c40e1a2
+    tests_level_projection_rs_6c40e1a2 ~~~ tests_level_unit_census_rs_e6889e0c
+    tests_level_unit_census_rs_e6889e0c ~~~ tests_level_viewer_bytes_rs_4c39679f
+    tests_level_viewer_bytes_rs_4c39679f ~~~ tests_level_viewer_panes_rs_f6b3383f
+    tests_level_viewer_panes_rs_f6b3383f ~~~ tests_level_views_witness_mirrors_rs_05ad56a3
+    tests_level_views_witness_mirrors_rs_05ad56a3 ~~~ tests_lib_imports_guard_rs_c21683b3
     tests_lib_imports_guard_rs_c21683b3 ~~~ tests_lib_scan_surface_rs_c7411cd1
     tests_lib_scan_surface_rs_c7411cd1 ~~~ tests_licensing_rs_74473a7f
-    tests_licensing_rs_74473a7f ~~~ tests_mermaid_syntax_rs_a63f01b5
+    tests_licensing_rs_74473a7f ~~~ tests_mermaid_ceiling_rs_500a971a
+    tests_mermaid_ceiling_rs_500a971a ~~~ tests_mermaid_syntax_rs_a63f01b5
     tests_mermaid_syntax_rs_a63f01b5 ~~~ tests_npm_channel_rs_d88cc6e4
     tests_npm_channel_rs_d88cc6e4 ~~~ tests_nuget_channel_rs_3dc7603a
     tests_nuget_channel_rs_3dc7603a ~~~ tests_output_dash_rs_64f5de00
@@ -454,7 +485,9 @@ graph TD
     tests_spec_unknown_keys_rs_5feefcaf ~~~ tests_ts_cycles_rs_d0e5b8f4
     tests_ts_cycles_rs_d0e5b8f4 ~~~ tests_ts_detection_rs_4cef86d3
     tests_ts_detection_rs_4cef86d3 ~~~ tests_ts_driver_rs_3a036c39
-    tests_ts_driver_rs_3a036c39 ~~~ tests_ts_workspace_rs_fedb3131
+    tests_ts_driver_rs_3a036c39 ~~~ tests_ts_owner_shape_rs_1ef3870f
+    tests_ts_owner_shape_rs_1ef3870f ~~~ tests_ts_unresolvable_imports_census_rs_2c8c6237
+    tests_ts_unresolvable_imports_census_rs_2c8c6237 ~~~ tests_ts_workspace_rs_fedb3131
     tests_ts_workspace_rs_fedb3131 ~~~ tests_type_only_exemption_rs_87b6eab2
     tests_type_only_exemption_rs_87b6eab2 ~~~ tests_update_rs_d4d62fa8
     tests_update_rs_d4d62fa8 ~~~ tests_used_but_undeclared_rs_f2926108
@@ -463,6 +496,7 @@ graph TD
     tests_verify_rs_ca0c67e6 ~~~ tests_verify_constraints_rs_885d1ae0
     tests_verify_constraints_rs_885d1ae0 ~~~ tests_verify_expose_rs_869304f2
     tests_verify_expose_rs_869304f2 ~~~ tests_verify_submodules_rs_c8522173
+    tests_verify_submodules_rs_c8522173 ~~~ tests_viewer_html_rs_78d63758
     subgraph tests_common_681ad221["tests/common"]
       tests_common_mod_rs_279f1ed6["tests/common/mod.rs"]
     end
@@ -509,7 +543,7 @@ graph TD
       end
       tests_shared_scenario_rs_c788db03 ~~~ tests_shared_scenarios_cli_rs_16043b7b
     end
-    tests_verify_submodules_rs_c8522173 ~~~ tests_common_mod_rs_279f1ed6
+    tests_viewer_html_rs_78d63758 ~~~ tests_common_mod_rs_279f1ed6
     tests_common_mod_rs_279f1ed6 ~~~ tests_shared_capability_rs_19c683be
   end
   examples_phase_probe_rs_88fe05ba ~~~ src_collector_rs_7d5e8ae6
@@ -522,6 +556,7 @@ graph TD
   src_archspec_commands_depgraph_rs_d360365f --> src_archspec_cli_rs_a6998732
   src_archspec_commands_depgraph_rs_d360365f --> src_archspec_config_rs_dfd15f62
   src_archspec_commands_depgraph_rs_d360365f --> src_archspec_depgraph_rs_8874051e
+  src_archspec_commands_depgraph_rs_d360365f --> src_archspec_diagram_rs_5eacff0a
   src_archspec_commands_depgraph_rs_d360365f --> src_archspec_language_rs_232ea882
   src_archspec_commands_depgraph_rs_d360365f --> src_archspec_scan_rs_4ece116a
   src_archspec_commands_depgraph_rs_d360365f --> src_archspec_spec_rs_a8194740
@@ -603,6 +638,7 @@ graph TD
   src_archspec_diagram_rs_5eacff0a --> src_archspec_model_rs_b8d77281
   src_archspec_diagram_rs_5eacff0a --> src_archspec_spec_rs_a8194740
   src_archspec_diagram_rs_5eacff0a --> src_archspec_verify_compare_mod_rs_0fce8512
+  src_archspec_diagram_rs_5eacff0a --> src_archspec_viewer_rs_d3848cff
   src_archspec_diagram_rs_5eacff0a --> src_render_rs_8e751ed1
   src_archspec_events_derive_rs_189ef8b5 --> src_archspec_events_join_rs_d4ae3213
   src_archspec_events_derive_rs_189ef8b5 --> src_archspec_events_patterns_rs_79795b23
@@ -681,6 +717,7 @@ graph TD
   src_archspec_mod_rs_d8485b4a --> src_archspec_spec_rs_a8194740
   src_archspec_mod_rs_d8485b4a --> src_archspec_update_mod_rs_e0173b9b
   src_archspec_mod_rs_d8485b4a --> src_archspec_verify_mod_rs_76886026
+  src_archspec_mod_rs_d8485b4a --> src_archspec_viewer_rs_d3848cff
   src_archspec_model_rs_b8d77281 --> src_model_rs_cf804a5b
   src_archspec_profile_rs_36763afc --> src_profile_rs_d7f56937
   src_archspec_report_mod_rs_2a583ff5 --> src_archspec_helptext_rs_b89a2a86
@@ -808,6 +845,7 @@ graph TD
   src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_verify_compare_mapping_rs_7cae1a7d
   src_archspec_verify_compare_surfaces_rs_6cbe1d13 --> src_archspec_verify_compare_pattern_rs_7d04036f
   src_archspec_verify_mod_rs_76886026 --> src_archspec_verify_compare_mod_rs_0fce8512
+  src_archspec_viewer_rs_d3848cff --> src_render_rs_8e751ed1
   src_driver_rs_279aba20 --> src_model_rs_cf804a5b
   src_lib_rs_2fba4152 --> src_collector_rs_7d5e8ae6
   src_lib_rs_2fba4152 --> src_driver_rs_279aba20
@@ -821,9 +859,12 @@ graph TD
   src_parse_grammar_rs_2a04bdca --> src_language_rs_430ffc26
   src_parse_mod_rs_2d85ddeb --> src_parse_grammar_rs_2a04bdca
   src_scan_csharp_mod_rs_f94cd8d3 --> src_driver_rs_279aba20
+  src_scan_csharp_mod_rs_f94cd8d3 --> src_language_rs_430ffc26
   src_scan_csharp_mod_rs_f94cd8d3 --> src_model_rs_cf804a5b
+  src_scan_csharp_mod_rs_f94cd8d3 --> src_scan_csharp_condition_rs_8ac01b7a
   src_scan_csharp_mod_rs_f94cd8d3 --> src_scan_csharp_syntax_rs_00dd0292
   src_scan_csharp_syntax_rs_00dd0292 --> src_language_rs_430ffc26
+  src_scan_csharp_syntax_rs_00dd0292 --> src_model_rs_cf804a5b
   src_scan_csharp_syntax_rs_00dd0292 --> src_parse_grammar_rs_2a04bdca
   src_scan_go_mod_rs_15714254 --> src_driver_rs_279aba20
   src_scan_go_mod_rs_15714254 --> src_language_rs_430ffc26

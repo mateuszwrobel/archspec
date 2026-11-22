@@ -566,47 +566,74 @@ fn forbid_external_crates_adjudicates_npm_packages() {
     );
 }
 
-/// Scenario "an unresolvable specifier fails loud": a typo or a deleted
-/// file names the importing file and the specifier verbatim — on both
-/// verbs, because the model can never state a dropped edge.
+/// Scenario "an unresolvable specifier fails loud", restated for the
+/// census law (visibility phase 2, scenario 01): the miss names the
+/// importing file and the specifier verbatim and keeps `scan` exit 1,
+/// but the MODEL LANDS — a census names the drop. `verify` states the
+/// same line on its warnings channel (green verdict; `--strict`
+/// reddens). The live edge keeps the silence tripwire out of this
+/// cell — C7 pins that pairing.
 #[test]
 fn unresolvable_specifier_fails_loud_on_both_verbs() {
-    let tree = ts_tree(&[(
-        "src/a.ts",
-        "import { gone } from \"./missed\";\nexport const a = gone;\n",
-    )]);
+    let tree = ts_tree(&[
+        ("src/a.ts", "import { b } from \"./b\";\nimport { gone } from \"./missed\";\nexport const a = gone + b;\n"),
+        ("src/b.ts", "export const b = 1;\n"),
+    ]);
     tree.write(
         "architecture.spec.toml",
         "[project]\nlanguage = \"ts\"\n\n[[module]]\nname = \"demo-ui\"\nmatches = { units = [\"demo-ui\"] }\n",
     );
     let expected = "unresolvable import: src/a.ts -> \"./missed\"";
 
-    for verb in ["scan", "verify"] {
-        let run = tree.run(&[verb, "."]);
-        assert_eq!(
-            run.status.code(),
-            Some(1),
-            "`{verb}` on an unresolvable specifier must exit 1"
-        );
-        assert!(
-            common::stderr(&run).contains(expected),
-            "`{verb}` must name the file and the specifier verbatim:\n{}",
-            common::stderr(&run)
-        );
-    }
+    let scan = tree.run(&["scan", "."]);
+    assert_eq!(
+        scan.status.code(),
+        Some(1),
+        "`scan` on an unresolvable specifier must exit 1"
+    );
+    assert!(
+        common::stderr(&scan).contains(expected),
+        "`scan` must name the file and the specifier verbatim:\n{}",
+        common::stderr(&scan)
+    );
+    assert!(
+        !common::stdout(&scan).is_empty(),
+        "`scan` lands the model: the census replaced the abort"
+    );
+
+    let verify = tree.run(&["verify", "."]);
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "`verify` states the miss as a warning: {}\n{}",
+        common::stdout(&verify),
+        common::stderr(&verify)
+    );
+    let verdict = format!("{}{}", common::stdout(&verify), common::stderr(&verify));
+    assert!(
+        verdict.contains(&format!("warning: {expected}")),
+        "`verify` must name the file and the specifier verbatim on the warnings channel:\n{verdict}"
+    );
+    let strict = tree.run(&["verify", ".", "--strict"]);
+    assert_eq!(
+        strict.status.code(),
+        Some(1),
+        "`verify --strict` must promote the census"
+    );
 }
 
 /// Scenario "an unresolvable specifier fails loud", the excluded-path half
-/// (R2-4, R3-1): a specifier resolving only into an excluded path is an
-/// `unresolvable import` naming the exclusion it hit — never a wildcard,
-/// never a silent drop.
+/// (R2-4, R3-1), restated for the census law: the miss stays an
+/// `unresolvable import` naming the exclusion it hit — on the landed
+/// model now, never a wildcard, never a silent drop.
 #[test]
 fn unresolvable_into_excluded_path_names_the_exclusion() {
     let tree = ts_tree(&[
         (
             "src/a.ts",
-            "import { legacy } from \"./vendor/legacy\";\nexport const a = legacy;\n",
+            "import { keep } from \"./keep\";\nimport { legacy } from \"./vendor/legacy\";\nexport const a = legacy + keep;\n",
         ),
+        ("src/keep.ts", "export const keep = 1;\n"),
         ("src/vendor/legacy.ts", "export const legacy = 1;\n"),
     ]);
     tree.write(
@@ -614,23 +641,39 @@ fn unresolvable_into_excluded_path_names_the_exclusion() {
         "[project]\nlanguage = \"ts\"\n\nexcluded_sources = [\n  { path = \"src/vendor\", reason = \"vendored legacy code\" },\n]\n\n[[module]]\nname = \"demo-ui\"\nmatches = { units = [\"demo-ui\"] }\n",
     );
 
-    for verb in ["scan", "verify"] {
-        let run = tree.run(&[verb, "."]);
-        assert_eq!(
-            run.status.code(),
-            Some(1),
-            "`{verb}` must exit 1 on a specifier resolving only into excluded paths"
-        );
-        let stderr = common::stderr(&run);
-        assert!(
-            stderr.contains("unresolvable import: src/a.ts -> \"./vendor/legacy\""),
-            "`{verb}` must name the file and specifier:\n{stderr}"
-        );
-        assert!(
-            stderr.contains("excluded path src/vendor"),
-            "`{verb}` must name the exclusion it hit:\n{stderr}"
-        );
-    }
+    let scan = tree.run(&["scan", "."]);
+    assert_eq!(
+        scan.status.code(),
+        Some(1),
+        "`scan` must exit 1 on a specifier resolving only into excluded paths"
+    );
+    let scan_out = common::stderr(&scan);
+    assert!(
+        scan_out.contains("unresolvable import: src/a.ts -> \"./vendor/legacy\""),
+        "`scan` must name the file and specifier:\n{scan_out}"
+    );
+    assert!(
+        scan_out.contains("excluded path src/vendor"),
+        "`scan` must name the exclusion it hit:\n{scan_out}"
+    );
+
+    let verify = tree.run(&["verify", "."]);
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "`verify` states the miss as a warning: {}\n{}",
+        common::stdout(&verify),
+        common::stderr(&verify)
+    );
+    let verdict = format!("{}{}", common::stdout(&verify), common::stderr(&verify));
+    assert!(
+        verdict.contains("unresolvable import: src/a.ts -> \"./vendor/legacy\""),
+        "`verify` must name the file and specifier:\n{verdict}"
+    );
+    assert!(
+        verdict.contains("excluded path src/vendor"),
+        "`verify` must name the exclusion it hit:\n{verdict}"
+    );
 }
 
 /// Scenario "an unresolvable specifier fails loud", the falsifier half
@@ -959,10 +1002,13 @@ fn bare_resolution_memo_keys_on_dir_and_replays_repeats() {
     );
 }
 
-/// Scenario "a dead alias reddens on both sides" (R1 class (a)): a wildcard
-/// alias and an exact-key alias whose targets are gone each fail loud with
-/// the anchor naming the importing file and specifier plus the
-/// `alias target not found` wording — exit 1, never an external fact.
+/// Scenario "a dead alias reddens on both sides" (R1 class (a)), restated
+/// for the census law: a wildcard alias and an exact-key alias whose
+/// targets are gone each print the anchor naming the importing file and
+/// specifier plus the `alias target not found` wording and keep `scan`
+/// exit 1 — on the LANDED model now (a census names both), never an
+/// external fact. The live edge keeps the silence tripwire out (C7 owns
+/// that pairing).
 #[test]
 fn dead_alias_reddens_both_sides() {
     let tree = ts_tree(&[
@@ -972,12 +1018,13 @@ fn dead_alias_reddens_both_sides() {
         ),
         (
             "src/a.ts",
-            "import { gone } from \"@app/nope\";\nexport const a = gone;\n",
+            "import { keep } from \"./keep\";\nimport { gone } from \"@app/nope\";\nexport const a = gone + keep;\n",
         ),
         (
             "src/b.ts",
             "import { kind } from \"@exact\";\nexport const b = kind;\n",
         ),
+        ("src/keep.ts", "export const keep = 1;\n"),
     ]);
     let root = canonical_root(&tree);
 
@@ -1833,15 +1880,16 @@ fn query_suffix_on_absent_base_names_the_full_specifier() {
     let tree = ts_tree(&[
         (
             "src/a.ts",
-            "import { g } from \"./gone?worker\";\nexport const a = g;\n",
+            "import { keep } from \"./keep\";\nimport { g } from \"./gone?worker\";\nexport const a = g + keep;\n",
         ),
+        ("src/keep.ts", "export const keep = 1;\n"),
     ]);
 
     let scan = tree.run(&["scan", "."]);
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "an absent base is the ordinary miss: {}",
+        "an absent base is the ordinary miss (census keeps exit 1): {}",
         common::stderr(&scan)
     );
     assert!(
@@ -1974,14 +2022,15 @@ fn gen_imports_map_target_without_gitignore_evidence_stays_red() {
     );
     tree.write(
         "src/main.ts",
-        "import { map } from \"#map\";\nexport const m = map;\n",
+        "import { keep } from \"./keep\";\nimport { map } from \"#map\";\nexport const m = map + keep;\n",
     );
+    tree.write("src/keep.ts", "export const keep = 1;\n");
     let scan = tree.run(&["scan", "."]);
     let stderr = common::stderr(&scan);
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "no committed ignore evidence keeps the honest red: {stderr}"
+        "no committed ignore evidence keeps the honest red (the census): {stderr}"
     );
     assert!(
         stderr.contains("unresolvable import"),
@@ -2049,14 +2098,15 @@ fn gen_alias_target_without_gitignore_evidence_stays_red() {
     );
     tree.write(
         "src/main.ts",
-        "import { map } from \"@gencache/map\";\nexport const m = map;\n",
+        "import { keep } from \"./keep\";\nimport { map } from \"@gencache/map\";\nexport const m = map + keep;\n",
     );
+    tree.write("src/keep.ts", "export const keep = 1;\n");
     let scan = tree.run(&["scan", "."]);
     let stderr = common::stderr(&scan);
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "no committed ignore evidence keeps the alias-target red: {stderr}"
+        "no committed ignore evidence keeps the alias-target red (the census): {stderr}"
     );
     assert!(
         stderr.contains("alias target not found"),
@@ -2275,14 +2325,15 @@ fn gen_relative_import_gitignored_is_report_only() {
     twin.write("package.json", "{\n  \"name\": \"demo-ui\"\n}\n");
     twin.write(
         "src/main.ts",
-        "import { data } from \"./generated/data\";\nexport const d = data;\n",
+        "import { keep } from \"./keep\";\nimport { data } from \"./generated/data\";\nexport const d = data + keep;\n",
     );
+    twin.write("src/keep.ts", "export const keep = 1;\n");
     let scan = twin.run(&["scan", "."]);
     let stderr = common::stderr(&scan);
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "no ignore evidence, no exemption: {stderr}"
+        "no ignore evidence, no exemption (the census): {stderr}"
     );
     assert!(
         stderr.contains("unresolvable import"),
@@ -2682,7 +2733,8 @@ fn vendor_absolute_classes_stay_excluded() {
         "package.json",
         "{\n  \"name\": \"demo-ui\",\n  \"dependencies\": {}\n}\n",
     );
-    tree.write("src/main.ts", "import { g } from \"../dist/generated.ts\";\nexport const v = g;\n");
+    tree.write("src/main.ts", "import { keep } from \"./keep\";\nimport { g } from \"../dist/generated.ts\";\nexport const v = g + keep;\n");
+    tree.write("src/keep.ts", "export const keep = 1;\n");
     tree.write("dist/generated.ts", "export const g = 2;\n");
 
     let scan = tree.run(&["scan", "."]);
@@ -2690,7 +2742,7 @@ fn vendor_absolute_classes_stay_excluded() {
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "the absolute classes never narrow: {stderr}"
+        "the absolute classes never narrow (the census): {stderr}"
     );
     assert!(
         stderr.contains("resolves only into excluded path dist"),
@@ -3034,12 +3086,19 @@ fn napi_loader_wasi_miss_is_generated_absent() {
         "index.js",
         "let native = null;\ntry { native = require(\"./native-pkg.wasi.cjs\"); } catch { native = null; }\nmodule.exports = { native };\n",
     );
+    // One live first-party import keeps the silence tripwire out of the
+    // way, so this twin pins the CENSUS red — not the tripwire red (C7
+    // owns that pairing). The loader file itself stays the repro verbatim.
+    twin.write(
+        "src/entry.ts",
+        "import { native } from \"../index.js\";\nexport const n = native;\n",
+    );
     let scan = twin.run(&["scan", "."]);
     let stderr = common::stderr(&scan);
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "no marker, no exemption: {stderr}"
+        "no marker, no exemption (the census): {stderr}"
     );
     assert!(
         stderr.contains("unresolvable import"),
@@ -3116,18 +3175,22 @@ fn bare_requires_land_on_the_external_tier() {
 }
 
 /// Scenario "an unresolvable literal require fails loud like any literal
-/// specifier" (Scenario 6, the B1 disclosure): exit 1, no model, the
-/// existing `unresolvable import:` line naming file, specifier and reason —
-/// no require-specific exemption.
+/// specifier" (Scenario 6, the B1 disclosure), restated for the census
+/// law: exit 1 with the model LANDED, the existing `unresolvable import:`
+/// line naming file, specifier and reason plus the census naming the drop
+/// — no require-specific exemption.
 #[test]
 fn unresolvable_literal_require_fails_loud() {
-    let tree = ts_tree(&[("src/a.ts", "const gone = require('./gone');\nexport const a = gone;\n")]);
+    let tree = ts_tree(&[(
+        "src/a.ts",
+        "import { keep } from \"./keep\";\nconst gone = require('./gone');\nexport const a = gone + keep;\n",
+    ), ("src/keep.ts", "export const keep = 1;\n")]);
 
     let scan = tree.run(&["scan", "."]);
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "an unresolvable literal require fails loud: {}",
+        "an unresolvable literal require keeps exit 1: {}",
         common::stderr(&scan)
     );
     let stderr = common::stderr(&scan);
@@ -3509,30 +3572,38 @@ fn verify_states_orphans_under_both_verdicts() {
     );
 }
 
-/// Scenario "an aborted scan states no census": the report surface runs
-/// only on a produced model, so a loud extraction failure prints no orphan
-/// or census line even though every file is orphan-shaped.
+/// Scenario "an aborted scan states no census", restated for the census
+/// law (visibility phase 2, scenario 01): the unresolvable-import class
+/// no longer aborts — its lines and census print on the LANDED model
+/// (pinned by `tests/ts_unresolvable_imports_census.rs`). The abort class
+/// that remains is the config fault: an unreadable tsconfig is a run
+/// precondition, so a red extraction still prints no orphan or census
+/// line and no model bytes.
 #[test]
 fn aborted_scan_states_no_census() {
-    let tree = ts_tree(&[(
-        "src/a.ts",
-        "import { x } from \"./missing\";\nexport const a = x;\n",
-    )]);
+    let tree = ts_tree(&[("tsconfig.json", "{ this is not json")]);
+    // The pre-read is lazy: a config speaks when a resolution needs it, so
+    // the file carries an import (the R7c shape of the broken-extends cell).
+    tree.write("src/a.ts", "import _ from \"lodash\";\nexport const a = _;\n");
     let scan = tree.run(&["scan", "."]);
     assert_eq!(
         scan.status.code(),
         Some(1),
-        "the unresolvable import fails loud: {}",
+        "a broken tsconfig fails the run precondition: {}",
         common::stderr(&scan)
     );
     let stderr = common::stderr(&scan);
     assert!(
-        stderr.contains("unresolvable import"),
-        "the resolution error stays the message:\n{stderr}"
+        stderr.contains("tsconfig load failed"),
+        "the config fault stays the message:\n{stderr}"
     );
     assert!(
-        !stderr.contains("orphan file"),
+        !stderr.contains("census"),
         "an aborted scan states no census:\n{stderr}"
+    );
+    assert!(
+        common::stdout(&scan).is_empty(),
+        "an aborted scan writes no model"
     );
 }
 

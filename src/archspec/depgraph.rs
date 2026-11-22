@@ -16,11 +16,73 @@
 
 use crate::archspec::model::{Model, Role};
 use rust_arch_test_kit::render::{
-    markdown_table_escape, mermaid_edge, mermaid_labeled_edge, mermaid_node, mermaid_node_marked,
-    plantuml_component, plantuml_component_marked, plantuml_edge, plantuml_labeled_edge,
+    dot_attr, dot_edge, dot_node, hand_svg, legend_rows, markdown_table_escape, mermaid_edge,
+    mermaid_labeled_edge, mermaid_node, mermaid_node_marked, plantuml_component,
+    plantuml_component_marked, plantuml_edge, plantuml_labeled_edge, COLOR_EDGE_ASYNC,
+    COLOR_EDGE_DIRECT, COLOR_NODE_UNIT, COLOR_ROLE_COMPOSITION, COLOR_ROLE_FACADE, LegendRow,
+    SvgEdge, SvgNode,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
+
+/// Which edge layers a render draws (`--layer`, workplan visibility_phase2
+/// scenario 05). The selector is a render-side read of the two collections
+/// the model keeps separate by construction — `Model::edges` never carries
+/// an async row, `Model::async_edges` never enters `edges` (model.rs) — so
+/// no assembler, spec, model or config field stores it. The default (flag
+/// absent) is `both`, whose mermaid/plantuml bytes are byte-identical to
+/// the shipped render (the shipped-bytes law for this slice, pinned by the
+/// recorded-output cell in tests/diagram_layers.rs). `direct` draws the
+/// structural arrows only; `indirect` draws the dashed event-labelled async
+/// rows only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayerSelection {
+    Direct,
+    Indirect,
+    Both,
+}
+
+impl LayerSelection {
+    /// The supported layers, stated in every unknown-value `--layer` usage
+    /// error (the `TierSelection::parse` shape, one value per flag).
+    const SUPPORTED: &'static str = "direct, indirect, both";
+
+    /// The default selection: every layer, the shipped bytes.
+    pub fn both() -> Self {
+        Self::Both
+    }
+
+    /// Parse one layer value: every entry names a supported layer; the
+    /// error names the offending value and the supported layers.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "direct" => Ok(Self::Direct),
+            "indirect" => Ok(Self::Indirect),
+            "both" => Ok(Self::Both),
+            other => Err(format!(
+                "invalid value {other:?} for --layer — supported layers: {}",
+                Self::SUPPORTED
+            )),
+        }
+    }
+
+    pub fn draws_structural(self) -> bool {
+        !matches!(self, Self::Indirect)
+    }
+
+    pub fn draws_async(self) -> bool {
+        !matches!(self, Self::Direct)
+    }
+
+    /// The word the flag spells and the legend states.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Indirect => "indirect",
+            Self::Both => "both",
+        }
+    }
+}
 
 /// Node name a unit-root module path folds to (a crate's `lib.rs`/`main.rs`).
 const ROOT_NODE: &str = "root";
@@ -330,7 +392,7 @@ pub fn project_async_rows(
         // membership — the same map `project_unit_edges` folded the solid
         // arrows through — unioned with the attribution scan below. A driver
         // whose module paths do not spell the unit name first (the c#
-        // RootNamespace class: `eShop::Ordering::API` under unit
+        // RootNamespace class: `Corp::Ordering::API` under unit
         // `Ordering.API`) left the scan empty, and the endpoint folded away
         // although the very same graph already drew that unit's solid arrows
         // on exactly ONE node (issue #51 residual, N4): the async endpoint
@@ -500,7 +562,7 @@ fn is_dotted_module_name(name: &str) -> bool {
 /// the owning unit whose name the path spells as its leading segment run —
 /// exactly (`Webhooks::API` under unit `Webhooks.API`, the path IS the name)
 /// or as a strict prefix (`Webhooks::API::Models`). A path whose segments do
-/// not begin with the unit's own name spelling (`eShop::Ordering::API` under
+/// not begin with the unit's own name spelling (`Corp::Ordering::API` under
 /// unit `Ordering.API`) keeps its namespace fold unchanged: there the fold
 /// states a real tier above the name, not a truncation of it. Returns the
 /// unit name and its segment count; names outside the dotted class never
@@ -1255,7 +1317,7 @@ pub fn api_usage_by_target(model: &Model) -> BTreeMap<String, BTreeMap<String, B
 /// marker for renders the roles US 06 label suffix (`mermaid_node_marked`);
 /// every other node line keeps `mermaid_node`'s exact bytes, so ids and all
 /// edge references are the unmarked render's ids.
-pub fn render_mermaid(graph: &ModuleGraph) -> String {
+pub fn render_mermaid(graph: &ModuleGraph, layer: LayerSelection) -> String {
     let mut out = String::from("graph TD\n");
     for node in &graph.nodes {
         let line = match graph.markers.get(node) {
@@ -1264,8 +1326,10 @@ pub fn render_mermaid(graph: &ModuleGraph) -> String {
         };
         let _ = writeln!(out, "  {line}");
     }
-    for (from, to) in &graph.edges {
-        let _ = writeln!(out, "  {}", mermaid_edge(from, to));
+    if layer.draws_structural() {
+        for (from, to) in &graph.edges {
+            let _ = writeln!(out, "  {}", mermaid_edge(from, to));
+        }
     }
     // Async rows render dashed and event-labelled after every direct arrow,
     // in the set's own `(from, to, event)` order (N6); one row is one line
@@ -1273,9 +1337,13 @@ pub fn render_mermaid(graph: &ModuleGraph) -> String {
     // issue #51: folded views place view nodes, the units tiers place unit
     // names — the renderer draws whatever it is handed); an
     // empty set renders no bytes, so every non-declaring graph keeps its
-    // exact shipped render (D8, follow-up 6).
-    for (from, to, event) in &graph.async_edges {
-        let _ = writeln!(out, "  {}", mermaid_labeled_edge(from, to, event));
+    // exact shipped render (D8, follow-up 6). The `--layer` selector stands
+    // this loop down for `direct` (workplan visibility_phase2 scenario 05);
+    // `both` — the default — renders the loop unchanged.
+    if layer.draws_async() {
+        for (from, to, event) in &graph.async_edges {
+            let _ = writeln!(out, "  {}", mermaid_labeled_edge(from, to, event));
+        }
     }
     out
 }
@@ -1284,7 +1352,7 @@ pub fn render_mermaid(graph: &ModuleGraph) -> String {
 /// carries the role stereotype on its bare declaration identifier
 /// (`plantuml_component_marked`); every other line — unmarked declarations
 /// and all edges — keeps its exact pre-marker bytes.
-pub fn render_plantuml(graph: &ModuleGraph) -> String {
+pub fn render_plantuml(graph: &ModuleGraph, layer: LayerSelection) -> String {
     let mut out = String::from("@startuml\n");
     for node in &graph.nodes {
         let line = match graph.markers.get(node) {
@@ -1293,18 +1361,183 @@ pub fn render_plantuml(graph: &ModuleGraph) -> String {
         };
         let _ = writeln!(out, "{line}");
     }
-    for (from, to) in &graph.edges {
-        let _ = writeln!(out, "{}", plantuml_edge(from, to));
+    if layer.draws_structural() {
+        for (from, to) in &graph.edges {
+            let _ = writeln!(out, "{}", plantuml_edge(from, to));
+        }
     }
     // PlantUML parity with the mermaid arm above (workplan
     // archspec_async_depends, follow-up 6; scenario 08): the same rows, the
     // same order, one line per entry, the dashed labelled grammar of this
-    // target; empty renders no bytes.
-    for (from, to, event) in &graph.async_edges {
-        let _ = writeln!(out, "{}", plantuml_labeled_edge(from, to, event));
+    // target; empty renders no bytes. The `--layer` selector stands this
+    // loop down for `direct`; `both` renders unchanged.
+    if layer.draws_async() {
+        for (from, to, event) in &graph.async_edges {
+            let _ = writeln!(out, "{}", plantuml_labeled_edge(from, to, event));
+        }
     }
     let _ = writeln!(out, "@enduml");
     out
+}
+
+/// Render one module graph as graphviz `dot` source (workplan
+/// visibility_phase2 scenario 05, stage 2). The payload ships the dot BODY
+/// — the SVG materializes by piping it through `dot -Tsvg` in a container
+/// (the research record's probe; no vendored binary, no host `dot`
+/// assumption) — with per-class attributes drawing the shared type-color
+/// vocabulary and, whenever the `both` selection draws both edge families,
+/// one DRAWN legend cluster generated from the graph's own counts. Nodes
+/// carry the role stroke where the graph marks a role.
+pub fn render_dot(graph: &ModuleGraph, layer: LayerSelection) -> String {
+    let marks = 0usize; // the depgraph fold draws no red marks — the notes say so
+    let legend = legend_rows(
+        layer == LayerSelection::Both,
+        if layer.draws_structural() {
+            graph.edges.len()
+        } else {
+            0
+        },
+        if layer.draws_async() {
+            graph.async_edges.len()
+        } else {
+            0
+        },
+        marks,
+    );
+    let mut out = String::new();
+    let _ = writeln!(out, "// archspec depgraph — layer: {}", layer.as_str());
+    let _ = writeln!(out, "digraph archspec {{");
+    let _ = writeln!(out, "  graph [rankdir=TB, splines=true, overlap=false];");
+    let _ = writeln!(out, "  node [shape=box, style=filled, fontname=\"Helvetica\"];");
+    for node in &graph.nodes {
+        let stroke = match graph.markers.get(node) {
+            Some(Role::Facade) => Some(COLOR_ROLE_FACADE),
+            Some(Role::Composition) => Some(COLOR_ROLE_COMPOSITION),
+            None => None,
+        };
+        let _ = writeln!(
+            out,
+            "  {}",
+            dot_node(node, node, COLOR_NODE_UNIT, stroke)
+        );
+    }
+    if layer.draws_structural() {
+        for (from, to) in &graph.edges {
+            let _ = writeln!(
+                out,
+                "  {}",
+                dot_edge(from, to, &[dot_attr("color", COLOR_EDGE_DIRECT)])
+            );
+        }
+    }
+    if layer.draws_async() {
+        for (from, to, event) in &graph.async_edges {
+            let _ = writeln!(
+                out,
+                "  {}",
+                dot_edge(
+                    from,
+                    to,
+                    &[
+                        dot_attr("color", COLOR_EDGE_ASYNC),
+                        dot_attr("style", "dashed"),
+                        dot_attr("label", event),
+                    ]
+                )
+            );
+        }
+    }
+    write_dot_legend(&mut out, legend.as_deref());
+    let _ = writeln!(out, "}}");
+    out
+}
+
+/// Render one module graph as a hand-emitted SVG (the unit-tier arm of the
+/// SVG emitter law): nodes and edges exactly as the one graph assembler
+/// assembled them, per-class colors from the shared vocabulary, and the
+/// same GENERATED legend group the dot arm draws whenever the `both`
+/// selection draws both families. Node/edge inventory is the mermaid
+/// render's inventory — a parity cell pins it.
+pub fn render_svg(graph: &ModuleGraph, layer: LayerSelection) -> String {
+    let nodes: Vec<SvgNode> = graph
+        .nodes
+        .iter()
+        .map(|node| SvgNode {
+            id: node.clone(),
+            label: node.clone(),
+            fill: COLOR_NODE_UNIT.to_string(),
+            stroke: match graph.markers.get(node) {
+                Some(Role::Facade) => COLOR_ROLE_FACADE.to_string(),
+                Some(Role::Composition) => COLOR_ROLE_COMPOSITION.to_string(),
+                None => COLOR_EDGE_DIRECT.to_string(),
+            },
+        })
+        .collect();
+    let mut edges: Vec<SvgEdge> = Vec::new();
+    if layer.draws_structural() {
+        edges.extend(graph.edges.iter().map(|(from, to)| SvgEdge {
+            from: from.clone(),
+            to: to.clone(),
+            stroke: COLOR_EDGE_DIRECT.to_string(),
+            dashed: false,
+            label: None,
+        }));
+    }
+    if layer.draws_async() {
+        edges.extend(graph.async_edges.iter().map(|(from, to, event)| SvgEdge {
+            from: from.clone(),
+            to: to.clone(),
+            stroke: COLOR_EDGE_ASYNC.to_string(),
+            dashed: true,
+            label: Some(event.clone()),
+        }));
+    }
+    let legend = legend_rows(
+        layer == LayerSelection::Both,
+        if layer.draws_structural() {
+            graph.edges.len()
+        } else {
+            0
+        },
+        if layer.draws_async() {
+            graph.async_edges.len()
+        } else {
+            0
+        },
+        0,
+    );
+    hand_svg("depgraph", &nodes, &edges, legend.as_deref().unwrap_or(&[]))
+}
+
+/// Draw the generated legend as one dot cluster — shared by the three dot
+/// arms (depgraph, diagram spec source, diagram scan source) so the legend
+/// grammar cannot drift between them. `None` draws no cluster: the legend
+/// fires exactly when the `both` selection draws both families.
+pub(crate) fn write_dot_legend(out: &mut String, legend: Option<&[LegendRow]>) {
+    let Some(rows) = legend else {
+        return;
+    };
+    let _ = writeln!(out, "  subgraph cluster_legend {{");
+    let _ = writeln!(out, "    label=\"legend\";");
+    let _ = writeln!(out, "    node [shape=plaintext, fillcolor=white];");
+    for (index, row) in rows.iter().enumerate() {
+        let swatch = if row.dashed {
+            format!("- - - {}", row.stroke)
+        } else {
+            format!("——— {}", row.stroke)
+        };
+        let _ = writeln!(
+            out,
+            "    {}",
+            dot_node(
+                &format!("legend_{index}"),
+                &format!("{swatch}  {}", row.text),
+                "white",
+                None,
+            )
+        );
+    }
+    let _ = writeln!(out, "  }}");
 }
 
 /// The reason sentence an empty api-usage result carries when the emptiness is
@@ -1708,6 +1941,7 @@ mod tests {
             schema_version: 1,
             report_only_lines: Vec::new(),
             warnings: Vec::new(),
+            unresolvable_imports: Vec::new(),
             literal_sites: Vec::new(),
             literal_candidates: Vec::new(),
             language: "rust".to_string(),
@@ -2417,7 +2651,7 @@ mod tests {
             vec!["app::core", "app::ui"],
             vec![("app::core", "app::ui", &[])],
         );
-        let out = render_mermaid(&modules_graph(&model));
+        let out = render_mermaid(&modules_graph(&model), LayerSelection::Both);
         assert!(out.starts_with("graph TD\n"));
         assert!(out.contains("core --> ui"));
     }
@@ -2460,7 +2694,7 @@ mod tests {
             graph.markers,
             BTreeMap::from([("core".to_string(), Role::Facade)])
         );
-        let out = render_mermaid(&graph);
+        let out = render_mermaid(&graph, LayerSelection::Both);
         assert!(out.contains("core[\"core [facade]\"]"), "{out}");
         assert!(out.contains("  ui\n"), "unmarked node keeps bare bytes: {out}");
         assert!(out.contains("core --> ui"), "edges unchanged: {out}");
@@ -2493,7 +2727,7 @@ mod tests {
             graph.markers,
             BTreeMap::from([("app".to_string(), Role::Composition)])
         );
-        assert!(render_plantuml(&graph).contains("component app <<composition>>"));
+        assert!(render_plantuml(&graph, LayerSelection::Both).contains("component app <<composition>>"));
     }
 
     /// Two roles folding onto one rendered node state no single role: the
@@ -2558,7 +2792,7 @@ mod tests {
             "agreeing folded roles state that role, once"
         );
         assert_eq!(
-            render_mermaid(&graph).matches("Api[\"Api [facade]\"]").count(),
+            render_mermaid(&graph, LayerSelection::Both).matches("Api[\"Api [facade]\"]").count(),
             1,
             "one node, one marker"
         );
@@ -2627,8 +2861,8 @@ mod tests {
         ] {
             second.roles.insert(key.to_string(), role);
         }
-        let a = render_mermaid(&modules_graph(&first));
-        let b = render_mermaid(&modules_graph(&second));
+        let a = render_mermaid(&modules_graph(&first), LayerSelection::Both);
+        let b = render_mermaid(&modules_graph(&second), LayerSelection::Both);
         assert_eq!(a, b, "fold markers must not depend on insertion order");
         assert_eq!(
             modules_graph(&first).markers,
@@ -2644,9 +2878,9 @@ mod tests {
     #[test]
     fn modules_graph_with_empty_roles_renders_pre_marker_bytes() {
         let model = model_with("app", vec!["app::core", "app::ui"], vec![("app::core", "app::ui", &["Thing"])]);
-        let mermaid = render_mermaid(&modules_graph(&model));
+        let mermaid = render_mermaid(&modules_graph(&model), LayerSelection::Both);
         assert_eq!(mermaid, "graph TD\n  core\n  ui\n  core --> ui\n");
-        let plantuml = render_plantuml(&modules_graph(&model));
+        let plantuml = render_plantuml(&modules_graph(&model), LayerSelection::Both);
         assert_eq!(
             plantuml,
             "@startuml\ncomponent core\ncomponent ui\ncore --> ui\n@enduml\n"
@@ -2898,8 +3132,8 @@ mod tests {
             vec!["app::core", "app::ui"],
             vec![("app::core", "app::ui", &[] as &[&str])],
         );
-        let auto = render_mermaid(&modules_graph(&model));
-        let pinned = render_mermaid(&top_modules_graph(&model));
+        let auto = render_mermaid(&modules_graph(&model), LayerSelection::Both);
+        let pinned = render_mermaid(&top_modules_graph(&model), LayerSelection::Both);
         assert_eq!(auto, pinned, "a multi-node projection has nothing to bypass");
     }
 
@@ -3298,8 +3532,8 @@ mod tests {
         dotted_model(
             &[
                 ("Webhooks.API", &["Webhooks::API", "Webhooks::API::Exceptions"]),
-                ("EventBus", &["eShop::EventBus", "eShop::EventBus::Abstractions"]),
-                ("Catalog", &["eShop::Catalog", "eShop::Catalog::API"]),
+                ("EventBus", &["Corp::EventBus", "Corp::EventBus::Abstractions"]),
+                ("Catalog", &["Corp::Catalog", "Corp::Catalog::API"]),
             ],
             &[("Webhooks.API", "EventBus"), ("Webhooks.API", "Catalog")],
             &[("Webhooks::API", Role::Composition)],
@@ -3341,7 +3575,7 @@ mod tests {
             &[
                 ("Webhooks.API", &["Webhooks::API"]),
                 ("Internal.API", &["Internal::API"]),
-                ("EventBus", &["eShop::EventBus"]),
+                ("EventBus", &["Corp::EventBus"]),
             ],
             &[("Webhooks.API", "EventBus"), ("Internal.API", "EventBus")],
             &[],
@@ -3410,15 +3644,15 @@ mod tests {
             &[
                 ("Webhooks.API", &["Webhooks::API", "Webhooks::API::Exceptions"]),
                 ("Internal.API", &["Internal::API"]),
-                ("EventBus", &["eShop::EventBus"]),
+                ("EventBus", &["Corp::EventBus"]),
             ],
             &[("Webhooks.API", "EventBus"), ("Internal.API", "EventBus")],
             &[("Webhooks::API", Role::Composition)],
         );
         for _ in 0..3 {
             let graph = modules_graph(&model);
-            let first = render_mermaid(&graph);
-            let again = render_mermaid(&modules_graph(&model));
+            let first = render_mermaid(&graph, LayerSelection::Both);
+            let again = render_mermaid(&modules_graph(&model), LayerSelection::Both);
             assert_eq!(first, again, "render bytes must repeat");
             assert_eq!(
                 module_fold_collision_note(&model, projection_node(&model)).len(),

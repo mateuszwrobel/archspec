@@ -356,7 +356,7 @@ fn project_level_entry_states_once_and_its_files_add_no_rows() {
     );
 }
 
-/// Mandatory cell 6 (the eShop-shape entry): a wwwroot-style dir inside a
+/// Mandatory cell 6 (the witness-corpus-shape entry): a wwwroot-style dir inside a
 /// kept app with no `.cs` under it names NOTHING REAL — the machine body is
 /// byte-identical to the same tree without the entry (zero model delta), no
 /// file-level line fires, and the entry is ACTIVE (files under it count), so

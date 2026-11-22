@@ -418,21 +418,24 @@ fn the_declaration_gate_is_one_named_site() {
     );
     feed_files.sort();
     assert_eq!(
-        feed_seams, 5,
+        feed_seams, 6,
         "the candidate-feed language seam exists once per funded driver \
-         (workplan events_value_join scenario 09 funded go and python)"
+         (workplan events_value_join scenario 09 funded go and python; \
+         workplan visibility_phase2 scenario 03 funds csharp)"
     );
     assert_eq!(
         feed_files,
         vec![
+            "src/scan/csharp/mod.rs",
             "src/scan/go/mod.rs",
             "src/scan/kotlin/mod.rs",
             "src/scan/python/mod.rs",
             "src/scan/rust.rs",
             "src/scan/ts/mod.rs",
         ],
-        "the candidate-feed seam must live in the five funded drivers only \
-         (rust, ts, go, python, kotlin — scenario 09)"
+        "the candidate-feed seam must live in the six funded drivers only \
+         (rust, ts, go, python, kotlin — scenario 09; csharp — \
+         visibility_phase2 scenario 03)"
     );
 }
 

@@ -118,7 +118,7 @@ On C# casing is asymmetric inside `forbid_external_crates`: scan attributes pack
 | `[[async_depends]]` | Asynchronous (event) dependency edge: the event IDENTITY only — `from` (publishing unit), `to` (consuming unit) and `event` (the event type's fully-qualified dotted name), all three mandatory per entry; payload shape is derived from source on both sides, never declared. See *Async event dependencies* below |
 | `[[canonical_producer]]` | Canonical-producer declaration for one fact class: `class` (an opaque fact-class name — the engine carries no class vocabulary) and `producer` (the ONE canonical producer's tree-root-canonical unit id), both mandatory per entry; the declaration is the arbitration record that lets several eligible producers of one class merge instead of compete. See *Canonical producers and shared constants* below |
 | `[[shared_constant]]` | Shared-constant declaration — the canonical-producer face over a constant fact class (one constant, several readers, no edge to name): `class` and `producer`, both mandatory per entry; a shared constant is NEVER an async row, and the `emit`/`subscribe` pattern-pair keys do not exist on this table. See *Canonical producers and shared constants* below |
-| `[[pattern_pair]]` | Literal-site pattern pair: the DECLARED noun side of the literal-site fact source — a pair `id` plus an optional `emit` and/or `subscribe` side table, each side stating `language`, optional `role` (`publish`/`subscribe`), and exactly one matcher verb: `call` + `arg` (call-name + 0-based argument position) or `property` (exported-property value). The engine ships the two verbs; the nouns live only here. See *Pattern pairs for literal-site fact sources* below |
+| `[[pattern_pair]]` | Literal-site pattern pair: the DECLARED noun side of the literal-site fact source — a pair `id` plus an optional `emit` and/or `subscribe` side table, each side stating `language`, optional `role` (`publish`/`subscribe`), and exactly one matcher verb: `call` + `arg` (call-name + 0-based argument position), `property` (exported-property value), or `field` (a keyed pair's value in an object-like construction — a source key or a string key, and the string elements of an array that IS such a value). The engine ships the three verbs; the nouns live only here. See *Pattern pairs for literal-site fact sources* below |
 
 ## Async event dependencies
 
@@ -252,9 +252,13 @@ derives nothing, and the async verdict arms read `[[async_depends]]` alone.
 ## Pattern pairs for literal-site fact sources
 
 `[[pattern_pair]]` declares the NOUN side of the literal-site fact source:
-where in the source a framework call or an exported metadata property carries
-the event string. The engine ships exactly the two matcher VERBS —
-call-name + argument position, and exported-property value — and matches the
+where in the source a framework call, an exported metadata property, or a
+keyed field position carries the event string. The engine ships exactly the
+three matcher VERBS — call-name + argument position, exported-property value,
+and field value (a string literal at the value position of a keyed pair in an
+object-like construction — source keys and string keys are one anchor — or a
+string element of an array that IS such a value; tuple and other non-field
+array positions collect nothing) — and matches the
 declared noun by EQUALITY: renaming both the source call and the declaration
 moves no verdict, and no naming heuristic ever guesses a site (the
 engine-boundary law: nouns belong to the config, verbs to the engine).
@@ -263,24 +267,28 @@ The schema: `id` is mandatory and unique — a repeated id is refused as
 a `subscribe` side table is refused. Each side table carries `language` (a
 driver name, validated at load), an optional `role` from the closed set
 `publish`/`subscribe`, and exactly one verb: `call` + `arg` (0-based argument
-position; `arg` without `call` is refused) or `property`; a side with both
-verbs or with none is refused. `role` is the ONLY orientation source — the
+position; `arg` without `call` is refused), `property`, or `field`; a side
+with more than one verb or with none is refused. `role` is the ONLY
+orientation source — the
 engine never infers a role from a name.
 
 A declaring scan resolves every declared side against the source and writes
 one `literal_sites` row per matched site — `{unit, path, language, value,
-anchor, pattern}` — where `anchor` is `call-name+arg-position` or
-`exported-property-value`, `pattern` is the declared pair id (never the
+anchor, pattern}` — where `anchor` is `call-name+arg-position`,
+`exported-property-value`, or `field-value`, `pattern` is the declared pair id (never the
 call's name), and `language` is a row field, never a join arm. The report
 surface prints one `literal sites: pattern "<id>" language "<lang>" anchor
-<anchor> sites=<n>` census line per declared side — zero included, the
+<anchor> sites=<n>` census line per declared side — zero stated, the
 never-silent law — or one `driver-gap: pattern "<id>" language "<lang>"`
-absence line when that driver's `literal-site-census` capability row reads
-`not-emitted` — a statement no shipped driver makes today: every shipped
-driver feeds its literal sites, and the row stays the face of a future
-driver added before its feed ships. A side on a driver whose literal sites
-join through the existing type-identity facts (csharp) states no gap: its
-capability row names the covering source. A run WITHOUT declared pattern
+absence line when the capability row for the SHAPE that side's verb reads —
+`literal-site-census` for the call and property verbs, `field-value-census`
+for the field verb — reads
+`not-emitted` for that driver. No shipped driver makes a literal-site gap
+statement today: every shipped
+driver feeds its literal sites, and that row stays the face of a future
+driver added before its feed ships. The field-value shape is funded by the
+rust and ts drivers; a declared `field` side on another shipped driver prints
+the named gap instead of a silent zero. A run WITHOUT declared pattern
 pairs collects and serializes nothing: `scan.json` stays byte-identical to
 the pre-feature digest (the declaration gate, not a special case).
 Rows name their owning unit through the ONE canonical unit-id site; an

@@ -315,6 +315,59 @@ fn engine_matcher_source_carries_zero_framework_vocabulary() {
     }
 }
 
+/// The scanner-side half of the vocabulary census (workplan
+/// visibility_phase2 scenario 03, A5): the csharp manifest walk derives its
+/// edges from EVERY item element's `Include` value, path-resolved — so no
+/// item-element NAME is needed anywhere. The strings below are MSBuild item
+/// type names (the `Protobuf` law: this name must NEVER appear in engine or
+/// scanner code); a future item-name branch names itself red here. The
+/// walk's structural schema names (`ProjectReference`, `PackageReference`,
+/// `Target`, `ItemGroup`, `Condition`, `Include`) are platform manifest
+/// schema, not framework vocabulary, and stay out of this list by design.
+/// Baseline: ZERO hits over `src/scan/csharp/**` — verified at landing.
+#[test]
+fn csharp_scanner_walk_carries_zero_item_name_vocabulary() {
+    let forbidden: &[&str] = &[
+        "Protobuf",
+        "\"Compile\"",
+        "\"None\"",
+        "\"Content\"",
+        "\"Using\"",
+        "\"Folder\"",
+        "\"EmbeddedResource\"",
+        "\"AdditionalFiles\"",
+        "\"Analyzer\"",
+    ];
+    let scanner_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/scan/csharp");
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    let mut stack = vec![std::path::PathBuf::from(scanner_dir)];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("csharp scanner module dir") {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    assert!(!files.is_empty(), "the census must read the csharp scanner modules");
+    for file in files {
+        let text = std::fs::read_to_string(&file).expect("read csharp scanner module");
+        for name in forbidden {
+            assert!(
+                !text.contains(name),
+                "name-free-law breach (workplan visibility_phase2 scenario 03, A5): \
+                 scanner module {} carries the item-name string {name:?} — the rule \
+                 is every item element's `Include` value, path-resolved; item names \
+                 are never read",
+                file.display()
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // cell C — the funded-drivers flip: sites counts, zero driver-gap rows
 // ---------------------------------------------------------------------------
@@ -434,5 +487,218 @@ fn not_declared_scan_json_stays_at_the_pinned_digest() {
         sha256_hex(&first.stdout),
         NON_DECLARING_SCAN_JSON_SHA256,
         "the not-declaring scan.json bytes moved — full bytes for the diff:\n{text}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// cell E — the vocabulary census extended to the driver field collectors
+// (workplan visibility_phase2 scenario 02, A4: the field-value feeds are
+// grammar-node knowledge — token KINDS and node KINDS, never macro names,
+// never producer names, never string-keyed framework vocab)
+// ---------------------------------------------------------------------------
+
+/// The falsifiable form of A4: the rust field-value collector walks macro
+/// token trees by KIND (literal, ident, colon, group) — its code carries
+/// ZERO string literals and ZERO macro-producer names, so EVERY macro body
+/// is walked the same way and none is special-cased. The ts field-value
+/// collector names ONLY tree-sitter grammar node kinds. A producer name
+/// (`json`, `serde_json`, `quote`, …) appearing in either region means a
+/// macro-identity lookup entered the driver — the F2/F6 fence.
+#[test]
+fn driver_field_collectors_are_grammar_node_only() {
+    let forbidden: &[&str] = &[
+        "json",
+        "serde_json",
+        "json_macro",
+        "quote",
+        "macro_rules",
+        "EventEmitter",
+        "addEventListener",
+        "dispatchEvent",
+        "postMessage",
+        "kafka",
+        "Kafka",
+        "tauri",
+        "Tauri",
+        "EventBus",
+        "pubsub",
+        "PubSub",
+    ];
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    // The rust region: struct-field arm + token-tree walk + key/value
+    // readers, bounded by the two function names that open and close it.
+    let rust_src = std::fs::read_to_string(manifest.join("src/scan/rust.rs"))
+        .expect("rust driver source");
+    let rust_region = extract_region(&rust_src, "fn collect_struct_field_sites", "fn record_string_args");
+    for line in rust_region.lines() {
+        if line.trim_start().starts_with("///") || line.trim_start().starts_with("//") {
+            continue; // prose may name families to forbid them
+        }
+        assert!(
+            !line.contains('"'),
+            "the rust field-value collector carries a string literal — the \
+             walk must read token KINDS only (A4): {line}"
+        );
+    }
+    for name in forbidden {
+        assert!(
+            !rust_region.contains(name),
+            "driver-boundary breach (A4): the rust field-value collector \
+             names the producer/macro family {name:?} — macro bodies are \
+             walked structurally, never by identity"
+        );
+    }
+
+    // The ts region: the pair walk, bounded by its own name and the next
+    // walk's doc comment. Every string literal must be a grammar node kind.
+    let ts_src = std::fs::read_to_string(manifest.join("src/scan/ts/syntax.rs"))
+        .expect("ts driver source");
+    let ts_region =
+        extract_region(&ts_src, "fn collect_field_value_candidates", "/// The call-anchor walk");
+    const ALLOWED_KINDS: &[&str] = &[
+        "pair",
+        "string",
+        "array",
+        "property_identifier",
+        "identifier",
+        "key",
+        "value",
+    ];
+    for line in ts_region.lines() {
+        if line.trim_start().starts_with("///") || line.trim_start().starts_with("//") {
+            continue;
+        }
+        for name in forbidden {
+            assert!(
+                !line.contains(name),
+                "driver-boundary breach (A4): the ts field-value collector \
+                 names the family {name:?} — keys are read as nodes, \
+                 never as known names"
+            );
+        }
+        let mut rest = line;
+        while let Some(open) = rest.find('"') {
+            let after = &rest[open + 1..];
+            let Some(close) = after.find('"') else { break };
+            let quoted = &after[..close];
+            assert!(
+                ALLOWED_KINDS.contains(&quoted),
+                "the ts field-value collector names {quoted:?} — only \
+                 grammar node kinds ({ALLOWED_KINDS:?}) may appear as \
+                 strings: {line}"
+            );
+            rest = &after[close + 1..];
+        }
+    }
+}
+
+fn extract_region(text: &str, start: &str, end: &str) -> String {
+    let start = text
+        .find(start)
+        .unwrap_or_else(|| panic!("collector region start {start:?} not found"));
+    let end = text[start..]
+        .find(end)
+        .unwrap_or_else(|| panic!("collector region end {end:?} not found"));
+    text[start..start + end].to_string()
+}
+
+// ---------------------------------------------------------------------------
+// cell F — the capability-misreport cure (F6/A3): a declared `field` side
+// on a driver whose `field-value-census` reads `not-emitted` names the
+// shape gap — never a `sites=0` silence-adjacent zero
+// ---------------------------------------------------------------------------
+
+/// Both sides on the go driver (funded for the call verb, NOT funded for
+/// the field verb): two named `driver-gap` rows naming the FIELD-VALUE
+/// census, zero `literal sites:` rows, exit 0 — the census is a census.
+#[test]
+fn field_side_on_unfunded_shape_names_gap_never_zero() {
+    let fixture = Fixture::new();
+    fixture.write("go.mod", "module demo/shop\n\ngo 1.22\n");
+    fixture.write(
+        "main.go",
+        "package main\n\nfunc main() {\n\tmsg := map[string]string{\"topic\": \"orders.created\"}\n\t_ = msg\n}\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"go\"\n\n[[pattern_pair]]\nid = \"field-bus\"\n\n\
+         [pattern_pair.emit]\nlanguage = \"go\"\nrole = \"publish\"\nfield = \"topic\"\n\n\
+         [pattern_pair.subscribe]\nlanguage = \"go\"\nrole = \"subscribe\"\nfield = \"topic\"\n",
+    );
+    let output = fixture.run(&["scan", "--output", "-"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a gap is report-only, never red (stderr: {})",
+        stderr(&output)
+    );
+    let err = stderr(&output);
+    assert_eq!(
+        err.matches("driver-gap: pattern \"field-bus\"").count(),
+        2,
+        "both sides name the shape gap (stderr: {err})"
+    );
+    assert_eq!(
+        err.matches("field-value census not-emitted").count(),
+        2,
+        "the gap row names the FIELD-VALUE shape, not the literal-site one \
+         (stderr: {err})"
+    );
+    assert!(
+        !err.contains("literal sites:"),
+        "an unfunded shape never prints a sites line, never a sites=0 zero \
+         (stderr: {err})"
+    );
+    let json = stdout(&output);
+    assert!(
+        !json.contains("\"literal_sites\""),
+        "the go driver collects no field candidates: no rows (json: {json})"
+    );
+}
+
+/// The honest face: a funded rust publish half plus an unfunded csharp
+/// subscribe half — the csharp side names the shape gap and the rust site
+/// lands in the join's `unfunded-shape` row (the counterpart driver is
+/// read per SIDE SHAPE, so the language enters the unfunded set through
+/// its field row): zero silence with no guessing at the missing half.
+#[test]
+fn funded_publish_half_names_unfunded_field_counterpart_not_silence() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    fixture.write(
+        "architecture.spec.toml",
+        "[project]\nlanguage = \"rust\"\n\n[[pattern_pair]]\nid = \"field-bus\"\n\n\
+         [pattern_pair.emit]\nlanguage = \"rust\"\nrole = \"publish\"\nfield = \"topic\"\n\n\
+         [pattern_pair.subscribe]\nlanguage = \"csharp\"\nrole = \"subscribe\"\nfield = \"handles\"\n",
+    );
+    fixture.write(
+        "src/lib.rs",
+        "struct Frame {\n    topic: &'static str,\n}\n\npub fn frame() -> Frame {\n    Frame { topic: \"orders.created\" }\n}\n",
+    );
+    let output = fixture.run(&["scan", "--output", "-"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the honest face is report-only (stderr: {})",
+        stderr(&output)
+    );
+    let err = stderr(&output);
+    assert!(
+        err.contains("driver-gap: pattern \"field-bus\" language \"csharp\" — field-value census not-emitted"),
+        "the csharp side names the field-value gap (stderr: {err})"
+    );
+    assert!(
+        err.contains("unfunded-shape pattern=\"field-bus\" value=\"orders.created\" role subscribe language=\"csharp\""),
+        "the rust publish site names the unfunded counterpart — zero \
+         silence, the row is join.rs's own (stderr: {err})"
+    );
+    assert!(
+        !err.contains("one-sided-leg"),
+        "an UNFUNDED counterpart is not a silence-adjacent missing half — \
+         it names the shape (stderr: {err})"
     );
 }

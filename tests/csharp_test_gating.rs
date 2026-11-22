@@ -10,8 +10,13 @@
 //! a `Choose`/`When`/`Otherwise` subtree) is NOT gating evidence: it reaches
 //! no tier and states itself once as the report-only
 //! `test marker under unevaluated condition: <file>:<line>` line. Condition
-//! evaluation is deferred (rung 2); `Directory.Build.targets` and props
-//! brought in by `<Import>` are non-goals — neither modeled nor diagnosed.
+//! evaluation ships the designed subset (workplan `csharp_condition_eval`
+//! scenarios 01–02): a TRUE marker gates and its project states the
+//! `test-gated unit` census row, a FALSE marker leaves the item absent, and
+//! only an unevaluated condition keeps this rung-1 row;
+//! `Directory.Build.targets` and props brought in by `<Import>` are
+//! non-goals — named at runtime by the `condition face not walked:` row
+//! (workplan csharp_condition_eval scenario 04).
 //!
 //! The fixture is the issue's repro tree verbatim: a `Microsoft.NET.Sdk` lib,
 //! an `MSTest.Sdk` project (project-shape evidence, no runner package at
@@ -575,7 +580,10 @@ fn shared_props_markers_dedup_and_stay_deterministic() {
 }
 
 /// Cell 7: the non-goal doc pin — the scan input doc states the
-/// `Directory.Build.targets` / `<Import>` posture with the exact sentence.
+/// `Directory.Build.targets` / `<Import>` posture with the exact sentence
+/// (superseded 2026-11-21 by workplan csharp_condition_eval scenario 04:
+/// the face is still not walked, and now names itself on the report
+/// surface through the catalog entry this sentence cites).
 #[test]
 fn non_goal_sentence_is_documented() {
     let doc = std::fs::read_to_string(format!(
@@ -585,7 +593,7 @@ fn non_goal_sentence_is_documented() {
     .expect("the scan input doc ships in the payload");
     assert!(
         doc.contains(
-            "Markers declared only in `Directory.Build.targets` or props brought in by `<Import>` are not walked — neither modeled nor diagnosed."
+            "Markers declared only in `Directory.Build.targets` or props brought in by `<Import>` are not walked and stay unmodeled — the named non-goal stands — and every such file a run encounters states itself on the report surface through the `condition face not walked` entry of `archspec help diagnostics`."
         ),
         "the non-goal sentence must state the Directory.Build.targets and <Import> posture verbatim"
     );

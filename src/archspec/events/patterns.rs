@@ -3,8 +3,9 @@
 // decision-check F2/F3/F8).
 //
 // The law this module owns is the verbs-vs-nouns line (F2 adopted form):
-// the engine implements the TWO matcher verbs — call-name+argument-position
-// and exported-property-value — and the repo config supplies the nouns.
+// the engine implements the matcher verbs — call-name+argument-position,
+// exported-property-value, and (workplan visibility_phase2 scenario 02)
+// field-value — and the repo config supplies the nouns.
 // A pattern parameter is data, exactly like the excluded-sources name list
 // and the `framework` key the spec already carries. This file therefore
 // carries ZERO framework, application, ecosystem or vendor string
@@ -89,9 +90,27 @@ pub fn matches_exported_property_site(
     }
 }
 
+/// Matcher verb 3 — field value (workplan visibility_phase2 scenario 02,
+/// decision-check F2/A1: the engine's verb, the config's noun): true
+/// exactly when the candidate is a keyed pair inside an object-like
+/// construction whose key EQUALS the declared `field`. Pure data equality
+/// through the same channel as verbs 1 and 2 (F3: no name-inference arm —
+/// the verb reads no semantics off the field name), and a non-field
+/// candidate never matches.
+#[must_use]
+pub fn matches_field_site(verb: &DeclaredPatternVerb, anchor: &LiteralCandidateAnchor) -> bool {
+    match (verb, anchor) {
+        (
+            DeclaredPatternVerb::FieldValue { field },
+            LiteralCandidateAnchor::Field { field: name },
+        ) => field == name,
+        _ => false,
+    }
+}
+
 /// Resolve one candidate set against the declared pattern sides: every
 /// candidate is tested against every side whose `language` equals the
-/// candidate's language, through exactly the two verbs above. A matched
+/// candidate's language, through exactly the matcher verbs above. A matched
 /// candidate earns ONE row per matching side (one row per site per matched
 /// declaration — two pairs naming one call are two provenances, and their
 /// roles settle at the join, never here). The row's `unit` is the
@@ -139,6 +158,7 @@ pub fn resolve_literal_sites(
                     LiteralCandidateAnchor::ExportedProperty { .. } => {
                         LiteralAnchor::ExportedPropertyValue
                     }
+                    LiteralCandidateAnchor::Field { .. } => LiteralAnchor::FieldValue,
                 },
                 pattern: pattern.id.clone(),
             });
@@ -149,14 +169,16 @@ pub fn resolve_literal_sites(
 
 /// The ONE routing of a candidate shape to its matcher verb: a call
 /// candidate reaches verb 1, an exported-property candidate reaches verb
-/// 2. `None` states a candidate shape no verb can read — collectable only
-/// by a driver bug, and it matches nothing (fail closed, never a guess).
+/// 2, a field-value candidate reaches verb 3. `None` states a candidate
+/// shape no verb can read — collectable only by a driver bug, and it
+/// matches nothing (fail closed, never a guess).
 fn verb_for(
     anchor: &LiteralCandidateAnchor,
 ) -> Option<fn(&DeclaredPatternVerb, &LiteralCandidateAnchor) -> bool> {
     match anchor {
         LiteralCandidateAnchor::Call { .. } => Some(matches_call_site),
         LiteralCandidateAnchor::ExportedProperty { .. } => Some(matches_exported_property_site),
+        LiteralCandidateAnchor::Field { .. } => Some(matches_field_site),
     }
 }
 

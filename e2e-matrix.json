@@ -2,8 +2,8 @@
   "schema": "archspec-e2e-matrix-v0",
   "generated_by": "tests/e2e_matrix.rs (generated, never hand-edited)",
   "denominator": {
-    "mode_cells": 73,
-    "exit_class_cells": 9,
+    "mode_cells": 84,
+    "exit_class_cells": 17,
     "line_class_rows": 19,
     "note": "the proposal heading says 58 verb-mode cells; the registry enumerates the table rows, which is the honest denominator"
   },
@@ -147,6 +147,258 @@
       ],
       "exit_class": 0,
       "witness": "plantuml body",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/format-dot",
+      "verb": "diagram",
+      "mode": "--format dot",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--format",
+        "dot"
+      ],
+      "exit_class": 0,
+      "witness": "graphviz dot source body (scenario 05)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/format-svg",
+      "verb": "diagram",
+      "mode": "--format svg",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--format",
+        "svg"
+      ],
+      "exit_class": 0,
+      "witness": "hand-emitted SVG layout body (scenario 05)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/format-viewer",
+      "verb": "diagram",
+      "mode": "--format viewer",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "scan.json",
+        "--format",
+        "viewer"
+      ],
+      "exit_class": 0,
+      "witness": "single-file interactive viewer document from the scan artefact (scenario 06)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/format-viewer-level-panes",
+      "verb": "diagram",
+      "mode": "--format viewer --level",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "scan.json",
+        "--level",
+        "dir:1",
+        "--format",
+        "viewer"
+      ],
+      "exit_class": 0,
+      "witness": "the level-viewer document states the whole-document total row over its recursive panes (level_views scenario 04)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/format-viewer-byte-ceiling",
+      "verb": "diagram",
+      "mode": "--format viewer byte ceiling",
+      "kind": "exit-class",
+      "corpus": "scan-byte-ceiling-artefact",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--level",
+        "module",
+        "--format",
+        "viewer"
+      ],
+      "exit_class": 64,
+      "witness": "an over-ceiling viewer document ships nothing and names the largest fitting scope (level_views scenario 05)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/viewer-scan-source-only",
+      "verb": "diagram",
+      "mode": "--format viewer on the spec source",
+      "kind": "exit-class",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--format",
+        "viewer"
+      ],
+      "exit_class": 64,
+      "witness": "the viewer document rides the scan source only (scenario 06)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/layer",
+      "verb": "diagram",
+      "mode": "--layer",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--layer",
+        "direct"
+      ],
+      "exit_class": 0,
+      "witness": "the direct layer selection renders the structural graph (scenario 05)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/layer-invalid",
+      "verb": "diagram",
+      "mode": "--layer invalid",
+      "kind": "exit-class",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--layer",
+        "sideways"
+      ],
+      "exit_class": 64,
+      "witness": "an unknown layer value is a usage error naming the supported layers",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/level-fold",
+      "verb": "diagram",
+      "mode": "--level",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--level",
+        "module"
+      ],
+      "exit_class": 0,
+      "witness": "the level fold draws the projected buckets and prints its ledger on stderr (level_views scenario 01)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/level-invalid",
+      "verb": "diagram",
+      "mode": "--level invalid",
+      "kind": "exit-class",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--level",
+        "sideways"
+      ],
+      "exit_class": 64,
+      "witness": "an unknown level value is a usage error naming the supported levels (level_views scenario 01)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/level-unit-delta",
+      "verb": "diagram",
+      "mode": "--level unit",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--level",
+        "unit"
+      ],
+      "exit_class": 0,
+      "witness": "the unit-level render names the declared-vs-projected delta on stderr and stays rc=0 (level_views scenario 03)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/level-layer-composition",
+      "verb": "diagram",
+      "mode": "--layer x --level composition",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--layer",
+        "direct",
+        "--level",
+        "dir:1"
+      ],
+      "exit_class": 0,
+      "witness": "the layer select rides the projected rows: the ledger stays exact under --layer direct and async rows never draw (level_views scenario 06)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/level-fit-refusal-grammar",
+      "verb": "diagram",
+      "mode": "--level ceiling refusal grammar in help",
+      "kind": "exit-class",
+      "corpus": "empty",
+      "args": [
+        "diagram",
+        "--help"
+      ],
+      "exit_class": 0,
+      "witness": "the diagram help states the fit-set refusal narrowing grammar (level_views scenario 02)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/level-fit-refusal",
+      "verb": "diagram",
+      "mode": "--level over-ceiling fit-set refusal",
+      "kind": "exit-class",
+      "corpus": "scan-fit-refusal-artefact",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "model.json",
+        "--level",
+        "file"
+      ],
+      "exit_class": 64,
+      "witness": "the over-ceiling level render emits nothing and names the fits plus the two-step narrowing (level_views scenario 02)",
+      "status": "pass"
+    },
+    {
+      "id": "diagram/ceiling-refusal",
+      "verb": "diagram",
+      "mode": "mermaid ceiling",
+      "kind": "exit-class",
+      "corpus": "scan-ceiling-artefact",
+      "args": [
+        "diagram",
+        "--source",
+        "scan",
+        "model.json"
+      ],
+      "exit_class": 64,
+      "witness": "a render over the pinned mermaid ceilings refuses at the emit seam with nothing emitted",
       "status": "pass"
     },
     {
@@ -750,6 +1002,70 @@
       ],
       "exit_class": 0,
       "witness": "plantuml body",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/format-dot",
+      "verb": "depgraph",
+      "mode": "--format dot",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "modules",
+        "--format",
+        "dot"
+      ],
+      "exit_class": 0,
+      "witness": "graphviz dot source body (scenario 05)",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/format-svg",
+      "verb": "depgraph",
+      "mode": "--format svg",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "modules",
+        "--format",
+        "svg"
+      ],
+      "exit_class": 0,
+      "witness": "hand-emitted SVG layout body (scenario 05)",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/layer",
+      "verb": "depgraph",
+      "mode": "--layer",
+      "kind": "mode",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "modules",
+        "--layer",
+        "direct"
+      ],
+      "exit_class": 0,
+      "witness": "the direct layer selection renders the structural graph (scenario 05)",
+      "status": "pass"
+    },
+    {
+      "id": "depgraph/layer-invalid",
+      "verb": "depgraph",
+      "mode": "--layer invalid",
+      "kind": "exit-class",
+      "corpus": "rust-probe",
+      "args": [
+        "depgraph",
+        "modules",
+        "--layer",
+        "sideways"
+      ],
+      "exit_class": 64,
+      "witness": "an unknown layer value is a usage error naming the supported layers",
       "status": "pass"
     },
     {

@@ -515,7 +515,7 @@ fn merge_candidate(
 
 /// Indexed claim resolution for the per-edge adjudication loops (GitHub
 /// issue #17). The scans above answer one path at a time by walking EVERY
-/// claim; on a large file-tier model that is quadratic — the openclaw repro
+/// claim; on a large file-tier model that is quadratic — the corpus-scale witness repro
 /// (371k module edges, 54k claims, all claims `units`-only) burned many
 /// minutes in the edge placement while `verify` on the same tree exited
 /// early on its language precondition and never reached this code. The index
@@ -656,7 +656,7 @@ mod tests {
             module("prefix", &["pkg::*"], &[], vec![]),
             module("complex", &["**::leaf"], &[], vec![]),
             module("deep", &["a::b::C"], &[], vec![]),
-            // units-only claims (the openclaw seed shape): never a
+            // units-only claims (the corpus-scale witness seed shape): never a
             // `claim_owner` answer, always a fallback candidate.
             module("units-only", &[], &["@scope/p"], vec![]),
             module("units-and-files", &["src/hidden.ts"], &["@scope/q"], vec![]),
