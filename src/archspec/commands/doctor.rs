@@ -37,7 +37,7 @@ fn report_languages() -> Vec<Language> {
 /// toolchain is absent; only invalid invocations and an uninspectable
 /// environment exit non-zero (commands/doctor/errors.md).
 pub fn run(args: &[String]) -> Result<(), String> {
-    let parsed = cli::parse(args, &[])?;
+    let parsed = cli::parse(args, &[], "doctor")?;
     if !parsed.positionals.is_empty() {
         return Err(
             "doctor takes no path argument (diagnoses the environment, not a project)".to_string(),

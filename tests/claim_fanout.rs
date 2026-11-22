@@ -554,7 +554,7 @@ fn registry_owns_claim_identity() {
     // canonical sentence family must hold a registry entry — a sentence with
     // no entry is a plan bug this assert catches, a forked id for one emitted
     // string fails the unique-id assert above.
-    let required: [&str; 116] = [
+    let required: [&str; 118] = [
         "audit-recipe",
         "go-module-tier",
         "roles-in-views",
@@ -590,6 +590,7 @@ fn registry_owns_claim_identity() {
         "unclassified-resolver-error",
         "external-not-installed",
         "unresolvable-import-misses",
+        "scan-census-exit-law",
         "workspace-link-missing",
         "undeclared-member-import",
         "virtual-specifier-not-modelled",
@@ -732,6 +733,10 @@ fn registry_owns_claim_identity() {
         // diagram help owns.
         "viewer-single-file-law",
         "viewer-channels-limitation",
+        // Registered by workplan viewer_usability scenario 01 (2026-11-22):
+        // the emitted document's interaction surface — declared-deps class,
+        // selection clear, viewBox-only pan/zoom, keyboard/ARIA affordances.
+        "viewer-interaction-controls",
         // Registered by workplan level_views scenario 01 (2026-11-20): the
         // `--level` refusal bytes and the accounting block its renders print.
         "level-selector-refusal",
@@ -1423,6 +1428,26 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
             | "declaration-producer-not-canonical"
             | "declaration-producer-conflict" => {
                 contains_canonical(&mut errors, claim, "help diagnostics")
+            }
+            // HIGH-2 src part (2026-11-20 sweep): the scan census exit
+            // class on its surfaces — fragment[0] is the `scan --help`
+            // trailer (echoed by `help scan`), fragment[1] the Exit law
+            // paragraph of the `unresolvable import` catalog entry.
+            "scan-census-exit-law" => {
+                for (fragment, keys) in claim.canonical_fragments.iter().zip([
+                    &["scan --help", "help scan"][..],
+                    &["help diagnostics"][..],
+                ]) {
+                    for key in keys {
+                        let text = flatten(&rendered(key)).to_lowercase();
+                        if !text.contains(&flatten(fragment).to_lowercase()) {
+                            errors.push(format!(
+                                "claim `{}` drifted: `archspec {key}` does not render the registered line {fragment:?}",
+                                claim.id
+                            ));
+                        }
+                    }
+                }
             }
             // The declaration-face census (workplan events_value_join
             // scenario 02): live probe, both sides — a rust run whose
@@ -2246,7 +2271,7 @@ fn check_weld(claims: &[Claim]) -> Vec<String> {
                     ));
                 }
             }
-            "viewer-single-file-law" | "viewer-channels-limitation" => {
+            "viewer-single-file-law" | "viewer-channels-limitation" | "viewer-interaction-controls" => {
                 contains_canonical(&mut errors, claim, "diagram --help");
                 contains_canonical(&mut errors, claim, "help diagram");
             }

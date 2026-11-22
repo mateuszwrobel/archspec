@@ -1,4 +1,4 @@
-use crate::archspec::model::{Model, Role, Unit};
+use crate::archspec::model::{matches_pattern, Model, Role, Unit};
 use crate::archspec::viewer;
 use crate::archspec::viewer::{ViewerEdge, ViewerNode};
 use rust_arch_test_kit::render::{
@@ -12,7 +12,7 @@ use rust_arch_test_kit::render::{
     COLOR_ROLE_FACADE, SvgEdge, SvgNode,
 };
 use crate::archspec::spec::{Module, Spec, Stereotype};
-use crate::archspec::verify::compare::{Adjudicator, ModuleRender};
+use crate::archspec::adjudicate::{Adjudicator, ModuleRender, file_grained_rows};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
@@ -1096,7 +1096,7 @@ fn files_subgraph(
     let marks = adjudicator.file_cycle_marks(&spec.constraint);
     let mut nodes = BTreeSet::new();
     let mut arrows = BTreeSet::new();
-    for (from, to) in super::verify::compare::file_grained_rows(model) {
+    for (from, to) in file_grained_rows(model) {
         let touches =
             adjudicator.file_claim_of(from) == Some(claim)
                 || adjudicator.file_claim_of(to) == Some(claim);
@@ -1335,7 +1335,7 @@ fn forbidden_units(module: &Module, model: &Model, spec: &Spec) -> BTreeSet<Stri
         let entry = entry.target.as_str();
         let mut resolved_by_module = false;
         for candidate in &spec.modules {
-            if glob_match(entry, &candidate.name) {
+            if matches_pattern(&candidate.name, entry) {
                 resolved_by_module = true;
                 for unit in &model.units {
                     if unit_matches_module(unit, candidate) {
@@ -1346,7 +1346,7 @@ fn forbidden_units(module: &Module, model: &Model, spec: &Spec) -> BTreeSet<Stri
         }
         if !resolved_by_module {
             for unit in &model.units {
-                if glob_match(entry, &unit.name) || glob_match(entry, &unit.path) {
+                if matches_pattern(&unit.name, entry) || matches_pattern(&unit.path, entry) {
                     out.insert(unit.name.clone());
                 }
             }
@@ -1354,7 +1354,7 @@ fn forbidden_units(module: &Module, model: &Model, spec: &Spec) -> BTreeSet<Stri
     }
     for stereotype in &module.contract.forbid {
         for definition in &spec.stereotype {
-            if glob_match(stereotype, &definition.name) {
+            if matches_pattern(&definition.name, stereotype) {
                 for unit in &model.units {
                     if stereotype_matches(unit, definition) {
                         out.insert(unit.name.clone());
@@ -1371,17 +1371,17 @@ fn unit_matches_module(unit: &Unit, module: &Module) -> bool {
         .matches
         .units
         .iter()
-        .any(|rule| glob_match(rule, &unit.name))
+        .any(|rule| matches_pattern(&unit.name, rule))
         || module
             .matches
             .names
             .iter()
-            .any(|rule| glob_match(rule, &unit.name))
+            .any(|rule| matches_pattern(&unit.name, rule))
         || module
             .matches
             .paths
             .iter()
-            .any(|rule| glob_match(rule, &unit.path))
+            .any(|rule| matches_pattern(&unit.path, rule))
         || module
             .submodules
             .iter()
@@ -1393,42 +1393,17 @@ fn stereotype_matches(unit: &Unit, stereotype: &Stereotype) -> bool {
         .match_set
         .units
         .iter()
-        .any(|rule| glob_match(rule, &unit.name))
+        .any(|rule| matches_pattern(&unit.name, rule))
         || stereotype
             .match_set
             .names
             .iter()
-            .any(|rule| glob_match(rule, &unit.name))
+            .any(|rule| matches_pattern(&unit.name, rule))
         || stereotype
             .match_set
             .paths
             .iter()
-            .any(|rule| glob_match(rule, &unit.path))
-}
-
-/// Match a `*` glob against text; `*` matches any (possibly empty) run.
-fn glob_match(pattern: &str, text: &str) -> bool {
-    let pattern: Vec<char> = pattern.chars().collect();
-    let text: Vec<char> = text.chars().collect();
-    let mut row = vec![false; text.len() + 1];
-    row[0] = true;
-    for &p in &pattern {
-        let mut next = vec![false; text.len() + 1];
-        if p == '*' {
-            next[0] = row[0];
-            for j in 0..text.len() {
-                next[j + 1] = row[j + 1] || next[j];
-            }
-        } else {
-            for j in 0..text.len() {
-                if row[j] && p == text[j] {
-                    next[j + 1] = true;
-                }
-            }
-        }
-        row = next;
-    }
-    row[text.len()]
+            .any(|rule| matches_pattern(&unit.path, rule))
 }
 
 /// The role a scan-sourced node carries (roles-views US 01): the node is
@@ -2644,6 +2619,49 @@ pub fn render_scan_viewer(
                 label: Some(event.clone()),
             });
         }
+    }
+    // Declared-dependency arrows (viewer-usability scenario 01, finding 1):
+    // one `declared` row per `(unit, external)` pair the unit's own manifest
+    // DECLARES — generic manifest-declaration fact, no vocabulary (engine
+    // boundary law). Name resolution reuses the ONE crate-name law the
+    // ledger already uses (`depgraph::ledger_name_key`, the same dash/
+    // underscore equivalence the rust scan applies when it resolves a
+    // dependency name to a member); the join compares BOTH sides under the
+    // key, so a hyphen spelling in a manifest and an underscore spelling in
+    // the `external` list meet without a second normalization. A dependency
+    // naming a project unit is already a structural row (the rust driver
+    // folds it into `edges`); a dependency naming no node draws nothing;
+    // self-pairs draw nothing. Viewer-only: no other format arm, no model
+    // tier and no scan byte moves. The class rides no `--layer` selection —
+    // declaration is neither a direct code arrow nor an async row — and the
+    // emitted document's `declared deps` checkbox toggles it client-side.
+    let mut declared: BTreeSet<(String, String)> = BTreeSet::new();
+    for (unit, info) in &model.unit_manifests {
+        if !graph.project_nodes.contains(unit) {
+            continue;
+        }
+        for dependency in &info.dependencies {
+            let key = crate::archspec::depgraph::ledger_name_key(dependency);
+            let Some(target) = graph
+                .external_nodes
+                .iter()
+                .find(|external| crate::archspec::depgraph::ledger_name_key(external) == key)
+            else {
+                continue;
+            };
+            if target != unit {
+                declared.insert((unit.clone(), target.clone()));
+            }
+        }
+    }
+    for (from, to) in declared {
+        edges.push(ViewerEdge {
+            from,
+            to,
+            layer: "declared",
+            violates: false,
+            label: None,
+        });
     }
     viewer::viewer_document(&nodes, &edges, layer.as_str())
 }

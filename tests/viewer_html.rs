@@ -223,6 +223,212 @@ fn emit_is_deterministic() {
     assert_eq!(first, second, "same input, same bytes");
 }
 
+// ---------------------------------------------------------------------------
+// workplan viewer_usability scenario 01: the declared-deps class, the
+// selection clear, the viewBox-only pan/zoom, border endpoints and the
+// keyboard/ARIA affordances (the live-page review of the emitted document)
+// ---------------------------------------------------------------------------
+
+/// Artefact for the declared-edge join: `unit_manifests` legs in BOTH
+/// spellings — a hyphen dep naming an underscore external, an underscore dep
+/// naming a hyphen external, an exact match — beside the three legs that
+/// must draw nothing: a member dep (a structural row already), a self dep,
+/// and a dep naming no node at all.
+const SCAN_DECLARED: &str = r#"{
+  "schema_version": 1,
+  "language": "rust",
+  "units": [
+    { "name": "app_bin", "kind": "bin", "path": "app" },
+    { "name": "core_lib", "kind": "lib", "path": "core" }
+  ],
+  "edges": [ { "from": "app_bin", "to": "core_lib" } ],
+  "external": [ "dash_dep", "under_dep", "plain", "with-hy" ],
+  "unit_manifests": {
+    "app_bin": {
+      "publish": false,
+      "dependencies": ["dash-dep", "core_lib", "app_bin"],
+      "features": []
+    },
+    "core_lib": {
+      "publish": false,
+      "dependencies": ["under_dep", "plain", "with_hy", "unseen_crate"],
+      "features": []
+    }
+  }
+}
+"#;
+
+/// Done-when 1: one `declared` row per manifest leg that names an external
+/// node — the union of the `unit_manifests` deps under the ONE crate-name
+/// law (`depgraph::ledger_name_key`, both spellings normalized on both
+/// sides) — with the legend row counting the same number and the
+/// `declared deps` checkbox shipping checked (default ON).
+#[test]
+fn declared_edges_connect_units_to_externals() {
+    let fixture = Fixture::new();
+    fixture.write("scan.json", SCAN_DECLARED);
+    let doc = emit(&fixture);
+    for (from, to) in [
+        ("app_bin", "dash_dep"),   // hyphen dep, underscore external
+        ("core_lib", "under_dep"), // exact underscore match
+        ("core_lib", "plain"),     // exact match
+        ("core_lib", "with-hy"),   // underscore dep, hyphen external
+    ] {
+        assert!(
+            doc.contains(&format!(
+                "<line class=\"edge declared\" data-layer=\"declared\" data-from=\"{from}\" data-to=\"{to}\""
+            )),
+            "declared row {from} -> {to} present"
+        );
+    }
+    assert_eq!(
+        count(&doc, "class=\"edge declared\""),
+        4,
+        "member, self and absent-name legs draw nothing — only external-naming legs do"
+    );
+    assert_eq!(
+        count(&doc, "data-layer=\"declared\""),
+        4,
+        "every declared row carries its layer marker"
+    );
+    assert!(
+        doc.contains("declared — thin dotted manifest-declared dependency arrow (4)"),
+        "legend row counts the declared class"
+    );
+    assert!(
+        doc.contains("type=\"checkbox\" id=\"declared-deps\" checked"),
+        "the declared deps checkbox ships checked (default ON)"
+    );
+    assert!(
+        doc.contains(".edge.declared{stroke:#999;stroke-width:1;stroke-dasharray:1,3}"),
+        "the stylesheet carries the distinct thin dotted grey class"
+    );
+    // Done-when 4: the declared fixture is deterministic too.
+    assert_eq!(doc, emit(&fixture), "same input, same bytes");
+}
+
+/// Done-when 2: structural-edge endpoints stand at the nearest box borders.
+/// Same-column boxes join the facing horizontal borders at the column centre
+/// line (the reviewed-page defect: the unit stack drew right-side to
+/// left-side); cross-column rows keep the shipped border bytes byte-for-byte.
+#[test]
+fn structural_edge_endpoints_stand_at_box_borders() {
+    let fixture = Fixture::new();
+    fixture.write("scan.json", SCAN_HOSTILE);
+    let doc = emit(&fixture);
+    // Units stand at x=24 rows y=40 and y=76: the downward unit -> unit row
+    // runs bottom border to top border at the column centre x = 24 + 85.
+    assert!(
+        doc.contains("x1=\"109\" y1=\"66\" x2=\"109\" y2=\"76\""),
+        "same-column edge joins the facing horizontal borders"
+    );
+    // The unit -> external row keeps the shipped facing-vertical-border bytes.
+    assert!(
+        doc.contains("x1=\"194\" y1=\"53\" x2=\"470\" y2=\"53\""),
+        "cross-column edge keeps the shipped border geometry"
+    );
+    // The upward same-column async row: top border of the lower box to the
+    // bottom border of the upper one.
+    assert!(
+        doc.contains("x1=\"109\" y1=\"76\" x2=\"109\" y2=\"66\""),
+        "upward same-column edge joins the facing horizontal borders"
+    );
+}
+
+/// Finding 5 + finding 2 at the emitted-bytes level: every drawn node is a
+/// keyboard-reachable button with an aria-label, Enter/Space select like a
+/// click, Escape and a canvas-background click clear the selection, and the
+/// stylesheet ships a focus-visible rule. (The DOM behaviors are pinned at
+/// the emitted-bytes level; the document ships no JS runtime cell beyond
+/// `node --check`, per the scenario-06 precedent.)
+#[test]
+fn nodes_are_keyboard_reachable_and_selection_clears() {
+    let fixture = Fixture::new();
+    fixture.write("scan.json", SCAN_DECLARED);
+    let doc = emit(&fixture);
+    let node_rows = count(&doc, "<g class=\"node ");
+    assert!(node_rows > 0, "nodes are drawn");
+    assert_eq!(
+        count(&doc, "tabindex=\"0\" role=\"button\""),
+        node_rows,
+        "every drawn node is keyboard-focusable and carries the button role"
+    );
+    assert!(
+        doc.contains("aria-label=\"app_bin\""),
+        "aria-label states the unit name"
+    );
+    assert!(doc.contains("\"Enter\""), "Enter selects like a click");
+    assert!(doc.contains("\"Escape\""), "Escape clears the selection");
+    assert!(
+        doc.contains("graph.addEventListener(\"click\""),
+        "a canvas-background click clears the selection"
+    );
+    assert!(doc.contains(":focus-visible"), "focus-visible styling ships");
+}
+
+/// Finding 3: pan/zoom lives client-side ONLY — the emitted bytes keep the
+/// initial deterministic viewBox attribute, and the script moves nothing but
+/// the `viewBox` attribute through the wheel and pointer handlers.
+#[test]
+fn pan_zoom_lives_client_side_only() {
+    let fixture = Fixture::new();
+    fixture.write("scan.json", SCAN_HOSTILE);
+    let doc = emit(&fixture);
+    assert!(
+        doc.contains("<svg id=\"graph\" viewBox=\"0 0 664 "),
+        "the emitted header keeps the initial deterministic viewBox"
+    );
+    assert!(
+        doc.contains("setAttribute(\"viewBox\""),
+        "pan/zoom adjusts the viewBox attribute client-side only"
+    );
+    assert!(doc.contains("\"wheel\""), "wheel zoom is wired");
+    assert!(
+        doc.contains("\"pointerdown\"") && doc.contains("\"pointermove\""),
+        "pointer drag pan is wired"
+    );
+    // No zoom/pan state can move the bytes: the same artefact twice (the
+    // determinism cells) and the header attribute above close the claim.
+}
+
+/// The escape posture holds for the declared rows' `data-from`/`data-to` and
+/// the `aria-label` too: over the hostile fixture the raw spellings never
+/// ship (the fixture adds one hostile external named by a manifest leg).
+#[test]
+fn declared_edges_survive_hostile_names() {
+    let fixture = Fixture::new();
+    let doc_hostile = {
+        let mut value: serde_json::Value = serde_json::from_str(SCAN_HOSTILE).expect("fixture json");
+        value["external"]
+            .as_array_mut()
+            .expect("external array")
+            .push(serde_json::json!("an&ext"));
+        value["unit_manifests"] = serde_json::json!({
+            "a<b>c": { "publish": false, "dependencies": ["an&ext"], "features": [] }
+        });
+        let scan = serde_json::to_string(&value).expect("serialise artefact");
+        fixture.write("scan.json", &scan);
+        emit(&fixture)
+    };
+    assert_eq!(
+        count(&doc_hostile, "class=\"edge declared\""),
+        1,
+        "the hostile-named leg draws exactly one declared row"
+    );
+    assert!(
+        doc_hostile.contains("data-to=\"an&amp;ext\""),
+        "the declared endpoint is escaped"
+    );
+    assert!(
+        !doc_hostile.contains("an&ext\""),
+        "the raw hostile spelling never ships in an attribute"
+    );
+    assert!(
+        doc_hostile.contains("aria-label=\"a&lt;b&gt;c\""),
+        "the aria-label is escaped like every other model string"
+    );
+}
+
 /// The module tier rides the same inventory: under `--tiers modules` the
 /// artefact's module endpoints appear as `module` nodes with a legend count.
 /// (The scenario restates: the interactive population is the unit/module
@@ -388,6 +594,38 @@ fn help_names_the_gitea_no_pages_limitation_and_both_not_built_rows() {
     assert!(
         text.contains("Viewer law"),
         "the no-vendored-JS viewer law row rides the help surface:\n{text}"
+    );
+}
+
+/// The weld for claim `viewer-interaction-controls` (workplan viewer_usability
+/// scenario 01): the `Viewer interaction:` paragraph and its signature bytes
+/// ride the `diagram --help` surface, so the guard states the registered
+/// canonical bytes the registry welds against.
+#[test]
+fn help_states_the_viewer_interaction_canonical() {
+    let fixture = Fixture::new();
+    let help = fixture.run(&["diagram", "--help"]);
+    assert!(help.status.success());
+    let text = stdout(&help);
+    assert!(
+        text.contains("Viewer interaction: the emitted viewer document draws one thin dotted grey declared edge per manifest-declared dependency leg from a unit to an external"),
+        "the Viewer interaction paragraph opens the canonical row:\n{text}"
+    );
+    assert!(
+        text.contains("a checkbox named declared deps toggles that class independent of the layer radios (default on)"),
+        "declared deps toggles that class — the checkbox row is greppable:\n{text}"
+    );
+    assert!(
+        text.contains("a click on the canvas background or the Escape key clears the selection"),
+        "Escape key clears the selection — the clear row is greppable:\n{text}"
+    );
+    assert!(
+        text.contains("a pointer drag pans the canvas through its viewBox only, never the emitted bytes"),
+        "the pan/zoom row states the viewBox only law:\n{text}"
+    );
+    assert!(
+        text.contains("every node is keyboard-focusable and selects on Enter or Space"),
+        "the keyboard row is greppable:\n{text}"
     );
 }
 

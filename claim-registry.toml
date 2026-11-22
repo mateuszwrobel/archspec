@@ -839,6 +839,28 @@ signatures = [
 ]
 dedicated_guard = "tests/help.rs"
 
+# HIGH-2 src part of the 2026-11-20 sweep: the scan census exit class must
+# state itself on the binary surfaces — the `scan --help` trailer (echoed by
+# `help scan`) and the Exit law paragraph of the `unresolvable import`
+# catalog entry — matching the landed docs row in
+# docs/archspec/commands/scan/errors.md in meaning. The optional named tail
+# row stays unexercised: the census aggregate line already closes the
+# finding set at the tail, and the landed docs pin that output shape.
+[[claim]]
+id = "scan-census-exit-law"
+owner = "the census exit statement on the `scan` help surfaces (`archspec scan --help`, `help scan`) and the Exit law paragraph of the `unresolvable import` catalog entry of `archspec help diagnostics`"
+owner_surfaces = ["scan --help", "help scan", "help diagnostics"]
+relations = ["echo", "cite"]
+canonical_fragments = [
+  "lands the complete model and exits `1` anyway: the run echoes `wrote <path>` (or `ok: <path> up to date` on a fresh `--check`), the one census line names every dead edge, and a write echo is not a clean-run statement",
+  "a non-empty census forces exit 1 even when a `--check` compares fresh bytes",
+]
+signatures = ["lands the complete model and exits", "forces exit 1 even when"]
+dedicated_guard = "tests/ts_unresolvable_imports_census.rs"
+[[claim.guard_pin]]
+file = "tests/ts_unresolvable_imports_census.rs"
+relation = "named-in-file"
+
 [[claim]]
 id = "dynamic-import-wildcard"
 owner = "the `dynamic import not modelled` catalog entry of `archspec help diagnostics`, rendered report-only by the python scan"
@@ -1662,4 +1684,20 @@ signatures = ["top-cross +", "pane-internal ="]
 dedicated_guard = "tests/level_viewer_panes.rs"
 [[claim.guard_pin]]
 file = "tests/level_viewer_panes.rs"
+relation = "named-in-file"
+
+# Registered by workplan viewer_usability scenario 01 (2026-11-22): the
+# interaction surface of the emitted viewer document — the declared-dependency
+# edge class with its checkbox, the selection clear, the viewBox-only
+# pan/zoom, and the keyboard/ARIA affordances (the live-page review).
+[[claim]]
+id = "viewer-interaction-controls"
+owner = "the `Viewer interaction:` paragraph `archspec diagram --help` states for the `--format viewer` document (workplan viewer_usability scenario 01)"
+owner_surfaces = ["diagram --help", "help diagram", "help commands"]
+relations = ["echo", "cite"]
+canonical = "Viewer interaction: the emitted viewer document draws one thin dotted grey declared edge per manifest-declared dependency leg from a unit to an external, a checkbox named declared deps toggles that class independent of the layer radios (default on), a click on the canvas background or the Escape key clears the selection, the mouse wheel zooms and a pointer drag pans the canvas through its viewBox only, never the emitted bytes, and every node is keyboard-focusable and selects on Enter or Space."
+signatures = ["declared deps toggles that class", "Escape key clears the selection", "viewBox only"]
+dedicated_guard = "tests/viewer_html.rs"
+[[claim.guard_pin]]
+file = "tests/viewer_html.rs"
 relation = "named-in-file"

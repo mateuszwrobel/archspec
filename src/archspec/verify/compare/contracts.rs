@@ -127,7 +127,7 @@ pub struct ExposeVerdicts {
 /// `matches.modules` pattern addresses it, or a claimed unit owns it — the
 /// unit itself (its root module, excluded from the fact read by D10 before
 /// this call) or any `unit::…` path beneath it.
-pub(super) fn claim_covers_path(claim: &Claim<'_>, path: &str, model: &Model) -> bool {
+pub(crate) fn claim_covers_path(claim: &Claim<'_>, path: &str, model: &Model) -> bool {
     claim
         .matches
         .modules

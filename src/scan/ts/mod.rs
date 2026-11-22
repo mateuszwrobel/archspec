@@ -805,7 +805,38 @@ fn resolve(
         // else delegates through the entry's cached resolver (resolution.rs).
         return engine.classify_bare(&root.join(from), specifier);
     }
-    let base = match joined(Path::new(from), strip_query(specifier)) {
+    // The H2 resolve-replay memo (decision-check 2026-11-22, §b): the lookup
+    // sits AT this call site — after the exclusion-filtered file walk has
+    // produced the fold's file list, in walk order — there is NO
+    // pre-population pass, so files past the first parse error still owe
+    // nothing (F14) and excluded trees never feed the memo (the H7 phantom
+    // class). The key is (importing dir, spelled specifier): the dir is the
+    // value `joined` reads, and the SPELLED specifier rides because the R12
+    // report lines embed it (B1 law). A hit replays the verdict with zero
+    // further debt: the candidate walk, the exclusion verdict and the R12
+    // probe are functions of the key over the committed tree, and every
+    // channel the body writes is a deduped set (`bare` memo law).
+    let dir = Path::new(from).parent().unwrap_or(Path::new(""));
+    if let Some(verdict) = engine.replay_relative(dir, specifier) {
+        return verdict;
+    }
+    let verdict = resolve_relative(root, Path::new(from), specifier, declared, engine);
+    engine.store_relative(dir, specifier, &verdict);
+    verdict
+}
+
+/// The relative-arm body, computed exactly once per distinct key: ordinary
+/// resolution first, the excluded-hit dial second, the R12 generated/NAPI
+/// probe last. Bytes unchanged from the pre-memo code — the memo only calls
+/// it less often.
+fn resolve_relative(
+    root: &Path,
+    from: &Path,
+    specifier: &str,
+    declared: Option<&Exclusions>,
+    engine: &mut resolution::Engine,
+) -> Resolved {
+    let base = match joined(from, strip_query(specifier)) {
         Some(base) => base,
         None => return Resolved::Unresolvable(String::new()),
     };

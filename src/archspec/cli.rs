@@ -50,7 +50,11 @@ pub struct FlagSpec {
     pub takes_value: bool,
 }
 
-pub fn parse(args: &[String], specs: &[FlagSpec]) -> Result<Args, String> {
+/// The shared flag gate every command parses through. `verb` names the
+/// command owning these specs so the unknown-flag refusal points at that
+/// command's own help surface (the LOW-2 cure from the 2026-11-20 sweep:
+/// the refusal names the verb and where its supported flags are stated).
+pub fn parse(args: &[String], specs: &[FlagSpec], verb: &str) -> Result<Args, String> {
     let mut positionals = Vec::new();
     let mut values = BTreeMap::new();
     let mut switches = BTreeSet::new();
@@ -61,7 +65,11 @@ pub fn parse(args: &[String], specs: &[FlagSpec]) -> Result<Args, String> {
             let spec = specs
                 .iter()
                 .find(|s| s.name == name)
-                .ok_or_else(|| usage_error(format!("unknown flag: --{name}")))?;
+                .ok_or_else(|| {
+                    usage_error(format!(
+                        "unknown flag: --{name} — run 'archspec {verb} --help' for the supported flags"
+                    ))
+                })?;
             if spec.takes_value {
                 let value = it
                     .next()

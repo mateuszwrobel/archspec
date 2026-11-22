@@ -166,7 +166,7 @@ pub(super) fn async_endpoint_claimed(name: &str, claims: &[Claim<'_>]) -> bool {
 /// The dependency policy governing a claim: its own declared `allowed` table,
 /// else the nearest ancestor's (D2); the root without any declared table
 /// keeps today's implicit deny-all ceiling.
-pub(super) fn policy_allowed<'a>(claims: &[Claim<'a>], index: usize) -> &'a Allowed {
+pub(crate) fn policy_allowed<'a>(claims: &[Claim<'a>], index: usize) -> &'a Allowed {
     let mut current = Some(index);
     while let Some(at) = current {
         if claims[at].allowed.declared {
@@ -180,7 +180,7 @@ pub(super) fn policy_allowed<'a>(claims: &[Claim<'a>], index: usize) -> &'a Allo
 /// Cumulative prohibitions for a claim: its own `allowed.forbidden` plus every
 /// ancestor's — a descendant may narrow allowances but can never cancel an
 /// ancestor prohibition (D5, the one-way ratchet).
-pub(super) fn cumulative_forbidden<'a>(claims: &[Claim<'a>], index: usize) -> BTreeSet<&'a str> {
+pub(crate) fn cumulative_forbidden<'a>(claims: &[Claim<'a>], index: usize) -> BTreeSet<&'a str> {
     let mut forbidden = BTreeSet::new();
     let mut current = Some(index);
     while let Some(at) = current {
@@ -198,7 +198,7 @@ pub(super) fn cumulative_forbidden<'a>(claims: &[Claim<'a>], index: usize) -> BT
 
 /// True when one claim is the other's direct-or-transitive ancestor — the
 /// containment relation whose edges are composition, never dependencies (D3).
-pub(super) fn related_by_containment(claims: &[Claim<'_>], a: usize, b: usize) -> bool {
+pub(crate) fn related_by_containment(claims: &[Claim<'_>], a: usize, b: usize) -> bool {
     let mut current = Some(b);
     while let Some(at) = current {
         if at == a {
@@ -267,7 +267,7 @@ pub(super) fn subtree_names_with<'a>(
     names
 }
 
-pub(super) fn claim_by_name<'a>(claims: &[Claim<'a>], name: &str) -> Option<usize> {
+pub(crate) fn claim_by_name<'a>(claims: &[Claim<'a>], name: &str) -> Option<usize> {
     claims.iter().position(|claim| claim.name == name)
 }
 

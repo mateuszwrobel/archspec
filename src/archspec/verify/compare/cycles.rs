@@ -29,7 +29,7 @@ use crate::archspec::spec::{Constraint, Exempt, Module};
 /// model rows, never projected ones). Shared by `check_cycles` (the finding
 /// lines) and the seam's cycle-membership query (the diagram's marks) — one
 /// resolver, never two (M13).
-pub(super) fn file_tier_report_cycles(
+pub(crate) fn file_tier_report_cycles(
     constraint_modules: &[String],
     model: &Model,
     group: &BTreeSet<String>,
@@ -1050,7 +1050,7 @@ fn projection_reports_claim_cycle(
 /// component discovery order and the returned bytes are unchanged, only
 /// the O(nodes x edges) rescan is gone. Node bookkeeping keys borrowed
 /// node strings; the components are the same owned, sorted spellings.
-pub(super) fn strongly_connected_components(
+pub(crate) fn strongly_connected_components(
     group: &BTreeSet<String>,
     edges: &BTreeSet<(String, String)>,
 ) -> Vec<Vec<String>> {
@@ -1140,7 +1140,7 @@ pub(super) fn strongly_connected_components(
 /// at the lexicographically smallest node and greedily follow the smallest
 /// outgoing target until a node on the path repeats; the repeated segment is
 /// the cycle. A singleton without a self-loop yields no cycle.
-pub(super) fn find_cycle(nodes: &[String], edges: &BTreeSet<(String, String)>) -> Option<Vec<String>> {
+pub(crate) fn find_cycle(nodes: &[String], edges: &BTreeSet<(String, String)>) -> Option<Vec<String>> {
     // Issue #17: the walk used to rescan the whole edge set for every path
     // step, making one call O(path x edges). Indexing the out-edges once per
     // call keeps the successor rule identical — the smallest `to` inside

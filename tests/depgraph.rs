@@ -1643,6 +1643,69 @@ fn issue21_ledger_rejects_graph_format() {
     );
 }
 
+// --- the same-package bin→lib arm (workplan ledger_same_package, row 44) ----
+
+/// One package, lib + main.rs: the bin's `use` of its own package's lib is
+/// the link cargo creates without a manifest — and no manifest can state it
+/// (a package self-dependency is refused as cyclic). The ledger must answer
+/// the clean statement, never the old exception-class row.
+#[test]
+fn ledger_same_package_bin_lib_is_declared_by_construction() {
+    let tree = Fixture::new();
+    tree.write(
+        "Cargo.toml",
+        "[package]\nname = \"mypkg\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    tree.write("src/lib.rs", "pub mod core;\n");
+    tree.write("src/core.rs", "pub fn go() {}\n");
+    tree.write("src/main.rs", "use mypkg::core;\nfn main() { core::go(); }\n");
+    let output = tree.run(&["depgraph", "ledger"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output).trim_end(),
+        "Ledger clean: no used-but-undeclared and no declared-but-unused pairs.",
+        "the same-package bin->lib use is declared by construction — never a row"
+    );
+}
+
+/// The exclusion fires on the construction pair ONLY: in one census, the
+/// same-package `tool-bin -> tool` pair dissolves while the cross-package
+/// undeclared import still rows by name with its evidence.
+#[test]
+fn ledger_same_package_bin_lib_excludes_only_the_construction_pair() {
+    let tree = Fixture::new();
+    tree.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"tool\", \"sibling\"]\nresolver = \"2\"\n",
+    );
+    tree.write(
+        "tool/Cargo.toml",
+        "[package]\nname = \"tool\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    tree.write("tool/src/lib.rs", "pub mod core;\npub fn go() {}\n");
+    tree.write("tool/src/core.rs", "pub fn run() {}\n");
+    tree.write("tool/src/main.rs", "use tool::core;\nfn main() { core::run(); }\n");
+    tree.write(
+        "sibling/Cargo.toml",
+        "[package]\nname = \"sibling\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    tree.write("sibling/src/lib.rs", "use tool::go;\npub fn wrap() { go(); }\n");
+    let output = tree.run(&["depgraph", "ledger"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        !out.contains("tool-bin -> tool"),
+        "the construction pair must not row: {out}"
+    );
+    let used_at = out
+        .find("## used but undeclared")
+        .expect("the ledger must print its first section");
+    let debt_at = out
+        .find("sibling -> tool")
+        .expect("the cross-package code-only edge must still row");
+    assert!(used_at < debt_at, "{out}");
+}
+
 // GitHub issue #38 cells — the [project] language pin selects the driver in
 // this verb too: the root spec is parsed BEFORE the detect()-driven driver
 // selection, exactly as scan and verify already do.

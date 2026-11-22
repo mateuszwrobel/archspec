@@ -31,8 +31,10 @@ pub fn extract(root: &Path, declared: &DeclaredFacts) -> Result<Model, String> {
     let root_manifest_path = root.join("Cargo.toml");
     if !root_manifest_path.exists() {
         return Err(format!(
-            "no Cargo.toml found under: {}",
-            display_relative(root, &root_manifest_path)
+            "no Cargo.toml found under: {} — the rust driver requires its root \
+             marker Cargo.toml at the scan root (scan a root that carries the \
+             manifest, or add one)",
+            root.display()
         ));
     }
     let root_manifest = read_manifest(&root_manifest_path)?;

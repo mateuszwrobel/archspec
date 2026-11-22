@@ -43,7 +43,10 @@ pub struct ViewerNode {
 
 /// One viewer edge: endpoints are node ids of the same call, `layer` is the
 /// scenario-05 vocabulary (`direct` | `async` — a violation stays a
-/// `direct`-layer row drawn with the violation class), and `label` carries
+/// `direct`-layer row drawn with the violation class) extended by
+/// `declared` (the viewer-usability scenario-01 class: a manifest-declared
+/// unit -> external leg, drawn as its own dotted class and toggled by the
+/// `declared deps` checkbox, never by the layer radios), and `label` carries
 /// the async event string when the row is an async one.
 pub struct ViewerEdge {
     pub from: String,
@@ -64,6 +67,11 @@ const COL_X: [usize; 3] = [24, 246, 470];
 /// The longest label drawn in full; longer labels truncate at the raw
 /// string's char boundary set before escaping, so no entity can be cut.
 const LABEL_MAX: usize = 26;
+
+/// The declared-class stroke: thin dotted grey (viewer-usability scenario 01,
+/// finding 1). ONE implementation — the stylesheet rule and the legend swatch
+/// both read this constant, the same law as the shared color set above.
+const COLOR_EDGE_DECLARED: &str = "#999";
 
 /// The emitted-byte ceiling of the single-file viewer document (workplan
 /// level_views scenario 05, decision-check §BLOCKER-3 fix + §Round-2
@@ -97,6 +105,8 @@ fn edge_class(edge: &ViewerEdge) -> &'static str {
         "edge violation"
     } else if edge.layer == "async" {
         "edge async"
+    } else if edge.layer == "declared" {
+        "edge declared"
     } else {
         "edge direct"
     }
@@ -114,29 +124,40 @@ fn viewer_css() -> String {
          .edge.direct{{stroke:{direct}}}\n\
          .edge.async{{stroke:{async_};stroke-dasharray:6}}\n\
          .edge.violation{{stroke:{violation};stroke-dasharray:4}}\n\
+         .edge.declared{{stroke:{declared};stroke-width:1;stroke-dasharray:1,3}}\n\
          .edge.lit{{stroke-width:3}}\n\
          .node.dim{{opacity:.12}}\n\
          .node.sel rect{{stroke-width:3;stroke:#d00}}\n\
+         .node:focus{{outline:none}}\n\
+         .node:focus-visible rect{{stroke:#06c;stroke-width:3}}\n\
          #controls,#legend,#info{{position:fixed;background:#fff;border:1px solid #bbb;padding:8px;font:12px sans-serif;z-index:2}}\n\
          #controls{{top:8px;left:8px}}#legend{{top:8px;right:8px}}#info{{bottom:8px;left:8px;max-width:44vw}}",
         direct = COLOR_EDGE_DIRECT,
         async_ = COLOR_EDGE_ASYNC,
         violation = COLOR_EDGE_VIOLATION,
+        declared = COLOR_EDGE_DECLARED,
     )
 }
 
 /// The static script: click-to-highlight over the DOM inventory, the layer
-/// radios (direct | indirect | both — the scenario-05 selector's words),
-/// and the info panel built with `textContent` only. The script holds no
-/// model data — it reads the escaped data attributes the markup carries.
+/// radios (direct | indirect | both — the scenario-05 selector's words), the
+/// independent `declared deps` checkbox (viewer-usability scenario 01,
+/// finding 1 — it toggles ONLY the declared class; the radios' structural
+/// semantics are unchanged), selection clear on background click and Escape
+/// (finding 2), dependency-free wheel-zoom + drag-pan over the SVG viewBox
+/// (finding 3 — no pan/zoom state ever enters the emitted bytes), and the
+/// info panel built with `textContent` only. The script holds no model data
+/// — it reads the escaped data attributes the markup carries.
 fn viewer_js() -> &'static str {
     r#"(function () {
 "use strict";
 var graph = document.getElementById("graph");
 var info = document.getElementById("info");
+var INFO_DEFAULT = "click a node to highlight its connections";
 var nodes = graph.querySelectorAll("g.node");
 var edges = graph.querySelectorAll("line.edge");
 var radios = document.getElementsByName("layer");
+var declaredBox = document.getElementById("declared-deps");
 var selected = null;
 function layerValue() {
     for (var i = 0; i < radios.length; i++) { if (radios[i].checked) { return radios[i].value; } }
@@ -147,6 +168,12 @@ function edgeInLayer(edge, mode) {
     if (mode === "direct") { return !asyncRow; }
     if (mode === "indirect") { return asyncRow; }
     return true;
+}
+function isDeclared(edge) { return edge.getAttribute("data-layer") === "declared"; }
+function declaredOn() { return declaredBox === null || declaredBox.checked; }
+function edgeShown(edge, mode) {
+    if (isDeclared(edge)) { return declaredOn(); }
+    return edgeInLayer(edge, mode);
 }
 function touches(a, b) {
     for (var i = 0; i < edges.length; i++) {
@@ -160,7 +187,7 @@ function apply() {
     var mode = layerValue();
     for (var i = 0; i < edges.length; i++) {
         var e = edges[i];
-        var on = edgeInLayer(e, mode);
+        var on = edgeShown(e, mode);
         if (selected !== null) {
             on = on && (e.getAttribute("data-from") === selected || e.getAttribute("data-to") === selected);
         }
@@ -186,29 +213,96 @@ function showInfo(name) {
         var from = e.getAttribute("data-from");
         var to = e.getAttribute("data-to");
         if (from !== name && to !== name) { continue; }
-        if (!edgeInLayer(e, mode)) { continue; }
+        if (!edgeShown(e, mode)) { continue; }
         var row = document.createElement("p");
         var text = from + " -> " + to;
         var event = e.getAttribute("data-event");
         if (event !== null) { text = text + " (" + event + ")"; }
+        if (isDeclared(e)) { text = text + " (declared)"; }
         row.textContent = text;
         info.append(row);
     }
 }
+function selectNode(name) {
+    selected = name;
+    apply();
+    showInfo(selected);
+}
+function clearSelection() {
+    selected = null;
+    apply();
+    while (info.firstChild) { info.removeChild(info.firstChild); }
+    info.append(INFO_DEFAULT);
+}
 for (var i = 0; i < nodes.length; i++) {
     nodes[i].addEventListener("click", function (event) {
         event.stopPropagation();
-        selected = this.getAttribute("data-name");
-        apply();
-        showInfo(selected);
+        selectNode(this.getAttribute("data-name"));
+    });
+    nodes[i].addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            selectNode(this.getAttribute("data-name"));
+        }
     });
 }
+graph.addEventListener("click", function () { clearSelection(); });
+document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") { clearSelection(); }
+});
 for (var r = 0; r < radios.length; r++) {
     radios[r].addEventListener("change", function () {
         apply();
         if (selected !== null) { showInfo(selected); }
     });
 }
+if (declaredBox !== null) {
+    declaredBox.addEventListener("change", function () {
+        apply();
+        if (selected !== null) { showInfo(selected); }
+    });
+}
+var vb = graph.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+var base = vb.slice(0);
+var MIN_ZOOM = 0.2;
+var MAX_ZOOM = 8;
+function applyView() {
+    graph.setAttribute("viewBox", vb[0] + " " + vb[1] + " " + vb[2] + " " + vb[3]);
+}
+function viewPoint(clientX, clientY) {
+    var rect = graph.getBoundingClientRect();
+    return [vb[0] + (clientX - rect.left) * vb[2] / rect.width,
+            vb[1] + (clientY - rect.top) * vb[3] / rect.height];
+}
+function zoomAt(clientX, clientY, factor) {
+    var width = vb[2] * factor;
+    if (width < base[2] * MIN_ZOOM || width > base[2] * MAX_ZOOM) { return; }
+    var p = viewPoint(clientX, clientY);
+    vb[0] = p[0] - (p[0] - vb[0]) * factor;
+    vb[1] = p[1] - (p[1] - vb[1]) * factor;
+    vb[2] = width;
+    vb[3] = vb[3] * factor;
+    applyView();
+}
+graph.addEventListener("wheel", function (event) {
+    event.preventDefault();
+    zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? 0.9 : 1.1);
+}, { passive: false });
+var drag = null;
+graph.addEventListener("pointerdown", function (event) {
+    drag = [event.clientX, event.clientY];
+});
+graph.addEventListener("pointermove", function (event) {
+    if (drag === null) { return; }
+    var rect = graph.getBoundingClientRect();
+    vb[0] = vb[0] - (event.clientX - drag[0]) * vb[2] / rect.width;
+    vb[1] = vb[1] - (event.clientY - drag[1]) * vb[3] / rect.height;
+    drag = [event.clientX, event.clientY];
+    applyView();
+});
+graph.addEventListener("pointerup", function () { drag = null; });
+graph.addEventListener("pointercancel", function () { drag = null; });
 apply();
 })();"#
 }
@@ -219,6 +313,29 @@ fn kind_column(kind: &str) -> usize {
         "module" => 1,
         "external" => 2,
         _ => 0,
+    }
+}
+
+/// Edge endpoints at the NEAREST box borders (viewer-usability scenario 01,
+/// finding 4 — one implementation for the top-level grid and the pane grid):
+/// different columns join the facing vertical borders at the boxes' vertical
+/// mid-lines, byte-identical to the shipped cross-column geometry; same-
+/// column boxes join the facing horizontal borders at the column centre
+/// line. Deterministic by construction — same coordinates, same bytes.
+fn border_endpoints(from: (usize, usize), to: (usize, usize)) -> (usize, usize, usize, usize) {
+    let (fx, fy) = from;
+    let (tx, ty) = to;
+    if fx == tx {
+        let cx = fx + NODE_W / 2;
+        if ty >= fy {
+            (cx, fy + NODE_H, cx, ty)
+        } else {
+            (cx, fy, cx, ty + NODE_H)
+        }
+    } else if tx > fx {
+        (fx + NODE_W, fy + NODE_H / 2, tx, ty + NODE_H / 2)
+    } else {
+        (fx, fy + NODE_H / 2, tx + NODE_W, ty + NODE_H / 2)
     }
 }
 
@@ -311,7 +428,10 @@ pub fn viewer_document_with_panes(
     out.push_str(&viewer_css());
     out.push_str("\n</style>\n</head>\n<body>\n");
 
-    // Controls: the layer toggle, riding the scenario-05 selector words.
+    // Controls: the layer toggle, riding the scenario-05 selector words,
+    // plus the ONE independent `declared deps` checkbox (viewer-usability
+    // scenario 01, finding 1) — default ON, it toggles only the declared
+    // class and never touches the radios' structural semantics.
     out.push_str("<div id=\"controls\"><b>layers</b><br>");
     for option in ["both", "direct", "indirect"] {
         let checked = if option == layer_label { " checked" } else { "" };
@@ -320,6 +440,7 @@ pub fn viewer_document_with_panes(
             "<label><input type=\"radio\" name=\"layer\" value=\"{option}\"{checked}> {option}</label><br>"
         );
     }
+    out.push_str("<label><input type=\"checkbox\" id=\"declared-deps\" checked> declared deps</label><br>");
     out.push_str("</div>\n");
 
     // The whole-document total row (workplan level_views scenario 04,
@@ -399,6 +520,14 @@ pub fn viewer_document_with_panes(
             legend_swatch_line(COLOR_EDGE_VIOLATION, true)
         );
     }
+    let declared_rows = edges.iter().filter(|e| e.layer == "declared").count();
+    if declared_rows > 0 {
+        let _ = writeln!(
+            out,
+            "{} declared — thin dotted manifest-declared dependency arrow ({declared_rows})<br>",
+            legend_swatch_line(COLOR_EDGE_DECLARED, true)
+        );
+    }
     out.push_str("click a node to highlight its connections\n</div>\n");
 
     // The graph: one <line> per drawn edge, one <g> per node — the DOM
@@ -417,24 +546,18 @@ pub fn viewer_document_with_panes(
         };
         let (fx, fy) = coords[from];
         let (tx, ty) = coords[to];
-        let (x1, x2) = if tx >= fx {
-            (fx + NODE_W, tx)
-        } else {
-            (fx, tx + NODE_W)
-        };
+        let (x1, y1, x2, y2) = border_endpoints((fx, fy), (tx, ty));
         let event = match &edge.label {
             Some(event) => format!(" data-event=\"{}\"", html_escape(event)),
             None => String::new(),
         };
         let _ = writeln!(
             out,
-            "<line class=\"{cls}\" data-layer=\"{layer}\" data-from=\"{from}\" data-to=\"{to}\"{event} x1=\"{x1}\" y1=\"{fy}\" x2=\"{x2}\" y2=\"{ty}\"></line>",
+            "<line class=\"{cls}\" data-layer=\"{layer}\" data-from=\"{from}\" data-to=\"{to}\"{event} x1=\"{x1}\" y1=\"{y1}\" x2=\"{x2}\" y2=\"{y2}\"></line>",
             cls = edge_class(edge),
             layer = edge.layer,
             from = html_escape(&edge.from),
             to = html_escape(&edge.to),
-            fy = fy + NODE_H / 2,
-            ty = ty + NODE_H / 2,
         );
     }
     let mut pane_y = top_h + PANE_GAP;
@@ -452,11 +575,12 @@ pub fn viewer_document_with_panes(
         let close = if has_pane { "" } else { "</g>" };
         let _ = writeln!(
             out,
-            "<g class=\"node {kind}\" data-name=\"{name}\"{role_attr}><rect x=\"{x}\" y=\"{y}\" width=\"{NODE_W}\" height=\"{NODE_H}\" rx=\"4\" fill=\"{fill}\" stroke=\"{stroke}\"></rect><text x=\"{}\" y=\"{}\">{label}</text>{close}",
+            "<g class=\"node {kind}\" data-name=\"{name}\"{role_attr} tabindex=\"0\" role=\"button\" aria-label=\"{label_attr}\"><rect x=\"{x}\" y=\"{y}\" width=\"{NODE_W}\" height=\"{NODE_H}\" rx=\"4\" fill=\"{fill}\" stroke=\"{stroke}\"></rect><text x=\"{}\" y=\"{}\">{label}</text>{close}",
             x + 6,
             y + NODE_H / 2 + 4,
             kind = node.kind,
             name = html_escape(&node.id),
+            label_attr = html_escape(&node.id),
             stroke = node.stroke,
             fill = node.fill,
             label = html_escape(&truncate_label(&node.label)),
@@ -527,11 +651,12 @@ fn emit_pane(out: &mut String, pane: &ViewerPane, y: usize) {
         let (x, ny) = pane_coord(index, y);
         let _ = writeln!(
             out,
-            "<g class=\"node {kind}\" data-name=\"{name}\"><rect x=\"{x}\" y=\"{ny}\" width=\"{NODE_W}\" height=\"{NODE_H}\" rx=\"4\" fill=\"{fill}\" stroke=\"{stroke}\"></rect><text x=\"{}\" y=\"{}\">{label}</text></g>",
+            "<g class=\"node {kind}\" data-name=\"{name}\" tabindex=\"0\" role=\"button\" aria-label=\"{label_attr}\"><rect x=\"{x}\" y=\"{ny}\" width=\"{NODE_W}\" height=\"{NODE_H}\" rx=\"4\" fill=\"{fill}\" stroke=\"{stroke}\"></rect><text x=\"{}\" y=\"{}\">{label}</text></g>",
             x + 6,
             ny + NODE_H / 2 + 4,
             kind = node.kind,
             name = html_escape(&node.id),
+            label_attr = html_escape(&node.id),
             stroke = node.stroke,
             fill = node.fill,
             label = html_escape(&truncate_label(&node.label)),
@@ -546,24 +671,18 @@ fn emit_pane(out: &mut String, pane: &ViewerPane, y: usize) {
         };
         let (fx, fy) = pane_coord(from, y);
         let (tx, ty) = pane_coord(to, y);
-        let (x1, x2) = if tx >= fx {
-            (fx + NODE_W, tx)
-        } else {
-            (fx, tx + NODE_W)
-        };
+        let (x1, y1, x2, y2) = border_endpoints((fx, fy), (tx, ty));
         let event = match &edge.label {
             Some(event) => format!(" data-event=\"{}\"", html_escape(event)),
             None => String::new(),
         };
         let _ = writeln!(
             out,
-            "<line class=\"{cls}\" data-layer=\"{layer}\" data-from=\"{from}\" data-to=\"{to}\"{event} x1=\"{x1}\" y1=\"{fy}\" x2=\"{x2}\" y2=\"{ty}\"></line>",
+            "<line class=\"{cls}\" data-layer=\"{layer}\" data-from=\"{from}\" data-to=\"{to}\"{event} x1=\"{x1}\" y1=\"{y1}\" x2=\"{x2}\" y2=\"{y2}\"></line>",
             cls = edge_class(edge),
             layer = edge.layer,
             from = html_escape(&edge.from),
             to = html_escape(&edge.to),
-            fy = fy + NODE_H / 2,
-            ty = ty + NODE_H / 2,
         );
     }
     out.push_str("</g>\n");

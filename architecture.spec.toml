@@ -22,18 +22,22 @@ depend_on = ["engines", "foundations", "scan-core"]
 # Analysis engines: each engine lives in its own module subtree, claimed by
 # prefix so nested submodules fold into the same boundary — the depgraph
 # projection module included, since `commands depgraph` consumes it exactly
-# like the other commands consume their engines. The binary unit itself is
-# attributed here because a cross-crate `use` of the library surfaces in the
-# model as the unit-tier `archspec -> rust-arch-test-kit` edge only — it
-# carries no module endpoints, so attribution follows this pattern list, not
-# the code. Which files actually import the library is a source-level fact
-# owned by `tests/lib_imports_guard.rs` with an explicit allowlist: the graph
-# engines (depgraph, diagram), the inspect renderers, the re-export shims
-# (mod.rs, model.rs, language.rs, profile.rs), the scan CLI glue, the spec
-# loader and the pattern shim.
+# like the other commands consume their engines. The adjudication engine
+# (`archspec::archspec::adjudicate`) lives here as its own whole-file home
+# (splits-batch adjudicate_hoist/01, pure move): the diagram
+# engine reads the verdict rows through it, not through `verify`. The binary
+# unit itself is attributed here because a cross-crate `use` of the library
+# surfaces in the model as the unit-tier `archspec -> rust-arch-test-kit`
+# edge only — it carries no module endpoints, so attribution follows this
+# pattern list, not the code. Which files actually import the library is a
+# source-level fact owned by `tests/lib_imports_guard.rs` with an explicit
+# allowlist: the graph engines (depgraph, diagram), the inspect renderers,
+# the re-export shims (mod.rs, model.rs, language.rs, profile.rs), the scan
+# CLI glue, the spec loader and the pattern shim.
 [[module]]
 name = "engines"
 matches = { units = ["archspec"], modules = [
+  "archspec::archspec::adjudicate*",
   "archspec::archspec::verify*",
   "archspec::archspec::depgraph*",
   "archspec::archspec::diagram*",

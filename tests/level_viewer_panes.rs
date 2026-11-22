@@ -315,7 +315,12 @@ fn pane_nests_under_the_bucket_node_as_scope_not_ownership() {
     );
     let doc = viewer_doc(&fixture);
     for bucket in ["c", "d"] {
-        let open = format!("<g class=\"node module\" data-name=\"{bucket}\">");
+        // Re-pinned by workplan viewer_usability scenario 01 (finding 5):
+        // the node <g> carries the keyboard/ARIA triple — the nesting law
+        // below is unchanged, only the opening's attribute list moved.
+        let open = format!(
+            "<g class=\"node module\" data-name=\"{bucket}\" tabindex=\"0\" role=\"button\" aria-label=\"{bucket}\">"
+        );
         let at = doc
             .find(&open)
             .unwrap_or_else(|| panic!("the bucket node {bucket} is absent:\n{}", excerpt(&doc)));

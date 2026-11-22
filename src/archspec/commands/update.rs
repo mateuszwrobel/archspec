@@ -17,6 +17,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 takes_value: false,
             },
         ],
+        "update",
     )?;
     cli::exactly_one_positional(&parsed)?;
 

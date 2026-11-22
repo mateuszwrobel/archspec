@@ -1,3 +1,8 @@
+// The verdict engine, hoisted whole out of `verify::compare` (splits-batch
+// adjudicate_hoist/01, pure move): the diagram engine and the verify path
+// consume it through this path; `verify::compare` keeps its public paths by
+// re-export, so verify's consumers and tests keep their spellings.
+pub mod adjudicate;
 pub mod capability;
 pub mod cli;
 pub mod commands;

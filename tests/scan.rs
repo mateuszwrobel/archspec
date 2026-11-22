@@ -318,10 +318,18 @@ fn scan_missing_manifest_names_the_absence() {
     let output = fixture.run(&["scan"]);
 
     assert_ne!(output.status.code(), Some(0));
+    let stderr = stderr(&output);
     assert!(
-        stderr(&output).contains("no Cargo.toml found under:"),
-        "must say no manifest, not a parse failure:\n{}",
-        stderr(&output)
+        stderr.contains("no Cargo.toml found under:"),
+        "must say no manifest, not a parse failure:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("the rust driver requires its root marker Cargo.toml at the scan root"),
+        "the refusal must state the root-marker requirement (see commands/scan/errors.md):\n{stderr}"
+    );
+    assert!(
+        stderr.contains("scan a root that carries the manifest, or add one"),
+        "the refusal must state the next action (see commands/scan/errors.md):\n{stderr}"
     );
     assert!(stdout(&output).is_empty(), "no partial model on error");
 }

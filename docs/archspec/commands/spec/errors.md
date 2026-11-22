@@ -14,7 +14,7 @@ The command is static: the only failures are invalid invocations. There are no o
 ```bash
 # message names the unknown flag
 $ archspec spec --bogus
-error: unknown flag: --bogus
+error: unknown flag: --bogus — run 'archspec spec --help' for the supported flags
 
 # message says no path is accepted
 $ archspec spec ./project

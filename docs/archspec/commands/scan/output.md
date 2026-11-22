@@ -4,6 +4,7 @@
 
 - Default: canonical model written to **stdout**, exit code `0`.
 - `--output <path>`: canonical model written to the file, **stdout stays empty**, exit code `0`. `--output -` prints the model JSON on stdout and creates no file.
+- Exception: a run whose unresolvable-import census is non-empty lands the model exactly as above, and the exit code is `1`. The write echo does not contradict the code — see the census row in `errors.md`.
 
 ## Artefact
 

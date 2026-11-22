@@ -133,6 +133,31 @@ enum Entry {
     Faulted,
 }
 
+/// Stop-store cap for the replay memos (`bare`, `relative`), named by the
+/// H2 decision-check §c: at 2^20 entries the memos go INERT — misses resolve
+/// exactly as they did without a memo, nothing is evicted (eviction reopens
+/// the ordering and invalidation complexity the cap exists to close), and
+/// the run is never red. One rule for both memos: same shape, same law.
+const RESOLVE_MEMO_CAP: usize = 1 << 20;
+
+/// Lever read behind `Engine::memo_cap`: the hidden
+/// `ARCHSPEC_RESOLVE_MEMO_CAP` env, test control only (the shape follows
+/// `fact_leg_threads` — the env read lives in THIS function alone, the
+/// predicate is the pure `resolve_memo_stores`, and the env itself stays
+/// covered by the per-child env A/B in `tests/h2_resolve_replay.rs`).
+fn resolve_memo_cap() -> usize {
+    std::env::var("ARCHSPEC_RESOLVE_MEMO_CAP")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(RESOLVE_MEMO_CAP)
+}
+
+/// The stop-store predicate: store below the cap, stop AT and ABOVE it,
+/// never evict — the map only ever grows toward the cap and then freezes.
+fn resolve_memo_stores(len: usize, cap: usize) -> bool {
+    len < cap
+}
+
 /// The resolution seam of one ts extraction.
 pub(crate) struct Engine {
     /// Canonicalized scan root: the under-root test and the repo-relative
@@ -184,6 +209,20 @@ pub(crate) struct Engine {
     /// is a deduped set — a hit replays the identical verdict and owes
     /// nothing further.
     bare: RefCell<HashMap<(PathBuf, String), Resolved>>,
+    /// Relative-resolution replay per (importing dir, spelled specifier)
+    /// (H2 resolve-replay memo, decision-check 2026-11-22): the fold replays
+    /// the same (dir, spec) pair once per importing edge (measured 74%
+    /// relative replays at the scale of the decision-check probe's corpus).
+    /// The verdict is a function of the pair over the committed tree — the
+    /// candidate walk, its exclusion verdict (including WHICH exclusion
+    /// matched, via `exclusion_verdict`) and the R12 generated/NAPI probe
+    /// read the key and the channels set once at extract time — so the
+    /// `bare` memo's law holds unchanged: replay at the call site, store the
+    /// VERDICT only, every emission stays at the call site and owes nothing
+    /// on a hit (every side-effect channel is a deduped set). No cross-run
+    /// persistence: the content-hash, mtime-path and whole-graph key surfaces
+    /// are rejected (decision-check §a) and the memo dies with the Engine.
+    relative: RefCell<HashMap<(PathBuf, String), Resolved>>,
     /// The `manifest_unreadable` verdict per FULL PROBE PATH (round 9,
     /// P-PAR3): guard_g's upward walk re-probes the same manifest paths
     /// across (dir, package) keys (measured stat storm: 253,226 `stat`s
@@ -204,6 +243,17 @@ pub(crate) struct Engine {
     /// embeds the package name, so two packages probed from one dir ask
     /// about DIFFERENT files (round 9, F15).
     manifest_verdicts: RefCell<HashMap<PathBuf, bool>>,
+    /// Entry bound for the replay memos (`bare`, `relative`): STOP-STORE,
+    /// never evict (decision-check 2026-11-22 §c). The hidden
+    /// `ARCHSPEC_RESOLVE_MEMO_CAP` env is the test-control lever, the shape
+    /// of `ARCHSPEC_THREADS` (`scan/leg.rs`): `0` is the replay-OFF arm of
+    /// the byte-identity A/B, a small value trips the cap mid-scan on a
+    /// fixture. NOT public config, NOT documented surface. The env read
+    /// lives in `resolve_memo_cap` alone — read once per Engine, never per
+    /// edge — and the predicate is pure (`resolve_memo_stores`), so unit
+    /// cells name the value as a parameter and never mutate the process
+    /// environment (flake law, 2026-11-08).
+    memo_cap: usize,
     /// True when the spec at the scan root declares `framework = "sveltekit"`
     /// for the ts driver (round-8 P-FW1: the key selects the framework
     /// resolution semantics — L-C). No filesystem sniffing participates:
@@ -240,7 +290,9 @@ impl Engine {
             gensrc: RefCell::new(HashMap::new()),
             member_manifests: RefCell::new(HashMap::new()),
             bare: RefCell::new(HashMap::new()),
+            relative: RefCell::new(HashMap::new()),
             manifest_verdicts: RefCell::new(HashMap::new()),
+            memo_cap: resolve_memo_cap(),
             sveltekit: framework == Some("sveltekit"),
         }
     }
@@ -780,8 +832,36 @@ impl Engine {
             return verdict;
         }
         let verdict = self.classify_bare_inner(importing, specifier);
-        self.bare.borrow_mut().insert(key, verdict.clone());
+        // The shared stop-store cap (H2 decision-check §c): at and above the
+        // bound the store is INERT — a later miss recomputes exactly as the
+        // pre-memo code did — and nothing is ever evicted.
+        let mut memo = self.bare.borrow_mut();
+        if resolve_memo_stores(memo.len(), self.memo_cap) {
+            memo.insert(key, verdict.clone());
+        }
         verdict
+    }
+
+    /// The relative-arm replay lookup for the fold's `resolve()` (H2 memo):
+    /// a hit replays the stored verdict with zero further debt — every
+    /// emission (rows, findings, warnings, report-only lines) stays at the
+    /// call site, and the channels the first compute touched are idempotent
+    /// sets (`bare` memo law, the doc on the `relative` field).
+    pub(crate) fn replay_relative(&self, dir: &Path, specifier: &str) -> Option<Resolved> {
+        self.relative
+            .borrow()
+            .get(&(dir.to_path_buf(), specifier.to_string()))
+            .cloned()
+    }
+
+    /// Store one first-computed relative verdict under the shared stop-store
+    /// cap: at and above the bound the store is inert, the verdict resolves
+    /// as it did before, and nothing is evicted.
+    pub(crate) fn store_relative(&self, dir: &Path, specifier: &str, verdict: &Resolved) {
+        let mut memo = self.relative.borrow_mut();
+        if resolve_memo_stores(memo.len(), self.memo_cap) {
+            memo.insert((dir.to_path_buf(), specifier.to_string()), verdict.clone());
+        }
     }
 
     fn classify_bare_inner(&mut self, importing: &Path, specifier: &str) -> Resolved {
@@ -2081,6 +2161,24 @@ fn manifest_spelling(root: &Path, manifest: &Path) -> String {
 mod tests {
     use super::*;
     use std::fs;
+
+    /// H2 cap cell (decision-check §c, M3): the stop-store predicate over the
+    /// named bound — store BELOW 2^20, STOP AT and ABOVE it, never evict (the
+    /// predicate only ever gates an insert; stored entries survive, inertness
+    /// never rewrites the map). The behavioral inertness — bytes unchanged
+    /// when the cap trips mid-scan — rides the per-child-env A/B in
+    /// `tests/h2_resolve_replay.rs`; the env read is never exercised here
+    /// (flake law, 2026-11-08: no process-env mutation in lib tests).
+    #[test]
+    fn resolve_memo_cap_stops_storing_at_the_named_bound() {
+        assert_eq!(RESOLVE_MEMO_CAP, 1 << 20);
+        assert!(resolve_memo_stores(0, RESOLVE_MEMO_CAP));
+        assert!(resolve_memo_stores(RESOLVE_MEMO_CAP - 1, RESOLVE_MEMO_CAP));
+        assert!(!resolve_memo_stores(RESOLVE_MEMO_CAP, RESOLVE_MEMO_CAP));
+        assert!(!resolve_memo_stores(RESOLVE_MEMO_CAP + 1, RESOLVE_MEMO_CAP));
+        // Cap 0 stores NOTHING — the replay-OFF arm of the byte-identity A/B.
+        assert!(!resolve_memo_stores(0, 0));
+    }
 
     /// The catch-all's byte form names the variant's Debug shape:
     /// `unclassified resolver error: <{err:?}>` (plan §Taxonomy).

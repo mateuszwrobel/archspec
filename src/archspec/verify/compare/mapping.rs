@@ -166,7 +166,7 @@ pub fn resolved_components(mapping: &Mapping) -> BTreeSet<String> {
 /// Resolution is by the model's proven test-gated set (`Model::is_test_gated`),
 /// NOT by the path *name* — a module merely named `tests` without a test cfg is
 /// production and must participate in the dependency graph and cycles.
-pub(super) fn is_test_module(model: &Model, module_path: &str) -> bool {
+pub(crate) fn is_test_module(model: &Model, module_path: &str) -> bool {
     model.is_test_gated(module_path)
 }
 
@@ -262,7 +262,7 @@ pub fn count_model_edges<'m>(model: &'m Model) -> (usize, usize) {
 /// `.` or `/`: the separators the drivers address units with, membership-keyed
 /// like the `depgraph` projections). `None` when no unit claims the path; the
 /// caller substitutes its contract fallback or the path's own identity.
-pub(super) fn owning_unit(model: &Model, module_path: &str) -> Option<String> {
+pub(crate) fn owning_unit(model: &Model, module_path: &str) -> Option<String> {
     let mut best: Option<(usize, String)> = None;
     for (unit, paths) in &model.soft_structure {
         for path in paths {

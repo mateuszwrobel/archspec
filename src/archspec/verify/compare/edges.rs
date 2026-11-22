@@ -3,7 +3,7 @@
 //! checks, and the submodule-edge construction the submodule arm reads.
 
 use std::collections::{BTreeMap, BTreeSet};
-use super::adjudicate::{Verdict, pair_verdict};
+use crate::archspec::adjudicate::{Verdict, pair_verdict};
 use super::claims::{Claim, ClaimIndex, ancestors_of, related_by_containment};
 use super::cycles::{submodule_identity, ts_submodule_identity};
 use super::diff::Diff;

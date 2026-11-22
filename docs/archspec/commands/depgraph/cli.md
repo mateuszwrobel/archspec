@@ -23,7 +23,7 @@ The first positional selects the view and is required. `path` is the second posi
 - `modules` — top-level module dependency graph; when that projection folds the whole tier onto a single node, the view renders one level deeper (the paths below the fold become the nodes). `--aggregate units` renders the model's units and their edges instead; `--aggregate modules` pins the top level with no descent. An automatic render above 200 nodes adds one stderr note naming the degraded projection — stdout and exit are unchanged. `--format mermaid` (default) or `plantuml`.
 - `api-usage` — Markdown table of used APIs grouped by target module. `markdown` only.
 - `submodules` — graph of one parent module's immediate children. `--parent <module>` required; `--format mermaid` (default) or `plantuml`.
-- `ledger` — the inversion-debt ledger: the two named sections over the model's own facts — the pairs the code imports while the importer's manifest omits the declaration (with evidence locs), and the pairs the manifest declares while the model holds no code evidence. A clean model states the ledger is clean by name; a model without a declaration tier states it cannot answer. `markdown` only.
+- `ledger` — the inversion-debt ledger: the two named sections over the model's own facts — the pairs the code imports while the importer's manifest omits the declaration (with evidence locs), and the pairs the manifest declares while the model holds no code evidence. A bin importing its own package's lib is linked by the package's construction and never debt. A clean model states the ledger is clean by name; a model without a declaration tier states it cannot answer. `markdown` only.
 
 ## Accepted flag values
 

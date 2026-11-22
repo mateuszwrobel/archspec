@@ -59,12 +59,12 @@ archspec scan --output out.json ./src
 archspec scan --output docs/model.json --check
 ```
 
-Extract the model in memory and compare it byte-for-byte with `docs/model.json`. Nothing is written; a fresh destination exits `0`, a stale or missing one exits non-zero with the regeneration command.
+Extract the model in memory and compare it byte-for-byte with `docs/model.json`. Nothing is written; a fresh destination exits `0`, a stale or missing one exits non-zero with the regeneration command. A non-empty unresolvable-import census forces a non-zero exit even when the bytes are fresh — see the census row in `errors.md`.
 
 ## Behavior notes
 
 - Exactly one positional argument. Extra positional arguments are an error.
-- A valid run exits `0`. Any error condition exits non-zero with a message on stderr (see `errors.md`).
+- A valid run with an empty unresolvable-import census exits `0`. Any error condition exits non-zero with a message on stderr (see `errors.md`). A run that lands the model with a non-empty unresolvable-import census exits `1` even when the model writes cleanly — the `wrote <path>` echo plus rc `1` states: model landed, dead edges stated (`errors.md`).
 - `scan` is single-shot: it detects the language, extracts the model, and exits. No daemon, no persistent state.
 - `scan` has no `--format` flag: the model is always emitted as the canonical JSON IR (see `output.md`).
 - Destination: `--output` wins, then `[output] scan` in `archspec.toml` (relative to project root), then stdout (`../../config.md`).

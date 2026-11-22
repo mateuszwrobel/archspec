@@ -53,6 +53,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 takes_value: false,
             },
         ],
+        "inspect",
     )?;
 
     let format = parsed

@@ -21,7 +21,7 @@ error: doctor takes no path argument (diagnoses the environment, not a project)
 
 # message names the unknown flag
 $ archspec doctor --verbose
-error: unknown flag: --verbose
+error: unknown flag: --verbose — run 'archspec doctor --help' for the supported flags
 
 # message names the cause of the failed inspection
 # ARCHSPEC_DOCTOR_FAIL is the documented test seam that simulates it

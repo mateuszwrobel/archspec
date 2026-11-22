@@ -36,6 +36,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             name: "force",
             takes_value: false,
         }],
+        "skill",
     )?;
     let mut positionals = parsed.positionals.iter().map(String::as_str);
     match positionals.next() {

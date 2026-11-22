@@ -4,16 +4,31 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeSet};
-use super::claims::{Claim, ClaimIndex, related_by_containment};
-use super::contracts::{ExposeVerdicts, adjudicate_expose, claim_covers_path};
-use super::cycles::{file_claim_index, file_tier_report_cycles, find_cycle, strongly_connected_components};
-use super::mapping::{Mapping, augment_with_modules, is_test_module, map_units, owning_unit};
-use super::pattern::matches_pattern;
-use super::claims::claim_by_name;
-use super::claims::cumulative_forbidden;
-use super::claims::flatten_claims;
-use super::claims::policy_allowed;
-use super::mapping::effective_module_tier;
+// The hoisted home reads its former compare siblings at their own module
+// paths — the same rows the file imported as `super::` items before the
+// move, spelled absolutely now (splits-batch adjudicate_hoist/01). The
+// facade (`verify::compare`) stays the consumer surface for everything
+// OUTSIDE the engine seam; this file reads the siblings directly because
+// the verify engine's resolver re-export row lives in `compare/mod.rs` —
+// a facade read here would close a file-tier ring (`adjudicate.rs ->
+// compare/mod.rs -> adjudicate.rs`) that the `no_cycles` law forbids.
+use crate::archspec::verify::compare::claims::{Claim, ClaimIndex, related_by_containment};
+use crate::archspec::verify::compare::contracts::{ExposeVerdicts, adjudicate_expose, claim_covers_path};
+use crate::archspec::verify::compare::cycles::{file_claim_index, file_tier_report_cycles, find_cycle, strongly_connected_components};
+use crate::archspec::verify::compare::mapping::{Mapping, augment_with_modules, is_test_module, map_units, owning_unit};
+use crate::archspec::verify::compare::pattern::matches_pattern;
+use crate::archspec::verify::compare::claims::claim_by_name;
+use crate::archspec::verify::compare::claims::cumulative_forbidden;
+use crate::archspec::verify::compare::claims::flatten_claims;
+use crate::archspec::verify::compare::claims::policy_allowed;
+use crate::archspec::verify::compare::mapping::effective_module_tier;
+// The seam row the diagram's marks read (ADR-018 identity ownership +
+// ADR-020 jurisdiction — the same adjacency `verify`'s edge findings walk,
+// never a diagram-side re-derivation). The hoist routes it through this
+// home so the diagram engine reaches the verdict machinery WITHOUT a
+// `diagram -> verify` import (splits-batch adjudicate_hoist/01: the edge
+// cut). `verify::compare` keeps its own row for its consumers, unchanged.
+pub use crate::archspec::verify::compare::mapping::file_grained_rows;
 use crate::archspec::{capability, language};
 use crate::archspec::model::{Model, ModuleEdge, Role};
 

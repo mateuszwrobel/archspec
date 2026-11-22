@@ -19,7 +19,7 @@ The text formats are deterministic (ADR-013). The `dot`, `svg` and `viewer` arms
 
 ## Viewer document
 
-`--format viewer` emits a single HTML file: generated SVG markup, a generated script, click-to-highlight over the node inventory, a legend stating the drawn classes with generated counts, and a `direct | indirect | both` toggle riding the `--layer` semantics of the run that emitted the file. The emit is deterministic — the same artefact renders the same bytes.
+`--format viewer` emits a single HTML file: generated SVG markup, a generated script, click-to-highlight over the node inventory, a legend stating the drawn classes with generated counts, and a `direct | indirect | both` toggle riding the `--layer` semantics of the run that emitted the file. The emit is deterministic — the same artefact renders the same bytes. The document's interaction surface — the declared-deps checkbox over the thin dotted class of manifest-declared unit-to-external edges, the selection clear, the viewBox-only pan and zoom, and the keyboard affordances — is owned by the `Viewer interaction:` paragraph `archspec diagram --help` states (claim `viewer-interaction-controls`).
 
 Law: the document carries every byte it needs. The emitter writes the markup and the script, so no third-party renderer ships in the payload or in the document, and the file pulls nothing from a network location. Model-derived strings are HTML-escaped when the document is built, and the script updates the DOM through `textContent`, so model text is never parsed as markup; the payload ships no standalone JS asset. The interactive population is the unit and module tiers — the tiers the host ceilings starve (the rationale `archspec diagram --help` states).
 

@@ -22,7 +22,7 @@ use rust_arch_test_kit::render::{
     COLOR_EDGE_DIRECT, COLOR_NODE_UNIT, COLOR_ROLE_COMPOSITION, COLOR_ROLE_FACADE, LegendRow,
     SvgEdge, SvgNode,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 
 /// Which edge layers a render draws (`--layer`, workplan visibility_phase2
@@ -558,27 +558,6 @@ fn is_dotted_module_name(name: &str) -> bool {
     name.contains('.') && !name.contains("::") && !name.contains('/')
 }
 
-/// The dotted module NAME whose spelling leads `path` (GitHub issue #61):
-/// the owning unit whose name the path spells as its leading segment run —
-/// exactly (`Webhooks::API` under unit `Webhooks.API`, the path IS the name)
-/// or as a strict prefix (`Webhooks::API::Models`). A path whose segments do
-/// not begin with the unit's own name spelling (`Corp::Ordering::API` under
-/// unit `Ordering.API`) keeps its namespace fold unchanged: there the fold
-/// states a real tier above the name, not a truncation of it. Returns the
-/// unit name and its segment count; names outside the dotted class never
-/// qualify, so every single-word module and every path-spelled unit keeps
-/// its exact shipped fold.
-fn named_unit_of_path(model: &Model, path: &str) -> Option<(String, usize)> {
-    let unit = unit_of_path(model, path)?;
-    if !is_dotted_module_name(&unit) {
-        return None;
-    }
-    let name_segs = dotted_segments(&unit);
-    let segs = dotted_segments(path);
-    segs.starts_with(&name_segs)
-        .then_some((unit, name_segs.len()))
-}
-
 /// The identity-preserving fold (GitHub issue #61): fold `path` through the
 /// view's `node`, except where that fold truncates a dotted module NAME to a
 /// segment of its own spelling — the `Webhooks.API` rendered as `API` class,
@@ -590,33 +569,10 @@ fn named_unit_of_path(model: &Model, path: &str) -> Option<(String, usize)> {
 /// other fold keeps its exact shipped bytes: single-word names (never in the
 /// dotted class), `::`-spelled module paths (the go tiers), and every fold
 /// choosing a segment at or below the name's tail (a real child module).
+/// The owning-unit lookup rides [`OwnershipJoin`] (perf record 2026-11-22, N1);
+/// the loop-shaped callers carry one join and memoize the endpoints through it.
 pub(crate) fn fold_named(model: &Model, node: fn(&str) -> String, path: &str) -> String {
-    let bare = node(path);
-    let Some((name, depth)) = named_unit_of_path(model, path) else {
-        return bare;
-    };
-    let segs = dotted_segments(path);
-    // The path spells the whole name: any segment fold truncates it.
-    if segs.len() == depth {
-        return name;
-    }
-    // The fold lost the spelling to the unit-root fold.
-    if bare == ROOT_NODE {
-        return name;
-    }
-    // The fold's chosen segment sits strictly inside the name's spelling
-    // (`Webhooks::API::Models` folding to `API`): the same truncation class.
-    // First-match position is conservative in both directions: an in-name
-    // tail spelled again below the name folds to the name (never a phantom
-    // child), and a segment below the name's tail never matches inside it.
-    if segs
-        .iter()
-        .position(|segment| *segment == bare)
-        .is_some_and(|index| index < depth)
-    {
-        return name;
-    }
-    bare
+    OwnershipJoin::new(model).fold_now(node, path)
 }
 
 /// The module-name collision census (GitHub issue #61, extending the row
@@ -642,8 +598,11 @@ pub fn module_fold_collision_note(model: &Model, node: fn(&str) -> String) -> Ve
         paths.insert(edge.to.as_str());
     }
     let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // The ownership join (perf record 2026-11-22, N1): one index serves this
+    // census's fold, each distinct path resolved once by the walk.
+    let join = OwnershipJoin::new(model);
     for path in paths {
-        let folded = fold_named(model, node, path);
+        let folded = join.fold_now(node, path);
         if folded != node(path) {
             groups.entry(node(path)).or_default().insert(folded);
         }
@@ -759,33 +718,9 @@ fn module_tier_is_file_grained(model: &Model) -> bool {
         .any(|edge| edge.from.contains('/') || edge.to.contains('/'))
 }
 
-/// The module root of one file endpoint: the module-tier node above a file
-/// in a tier whose module identity IS the path. A file under a member unit's
-/// directory folds to that unit — a workspace member is its own module root,
-/// the fold [`units_graph`] already attributes to. A file the root unit owns
-/// folds to its first path segment (the root package's module root, the
-/// `src` of a single-package tree); a file with no directory below the root
-/// folds to `root`, the fold a unit-root dotted path already performs in
-/// [`top_node`]. The rule mirrors [`top_node`] across the separator spelling
-/// and never invents an owner: an endpoint no unit claims still folds by its
-/// path, because the fold states a path fact, not a membership.
-fn module_root_node(model: &Model, path: &str) -> String {
-    if let Some(unit) = unit_of_path(model, path)
-        .as_deref()
-        .and_then(|name| model.units.iter().find(|unit| unit.name == name))
-        && unit.path.trim_end_matches('/') != "."
-    {
-        return unit.name.clone();
-    }
-    match path.replace("::", "/").split_once('/') {
-        Some((head, _)) if !head.is_empty() => head.to_string(),
-        _ => ROOT_NODE.to_string(),
-    }
-}
-
 /// The module-tier projection of a file-grained tier (`--aggregate modules`
 /// where the module edges name files, GitHub issue 15): module edges fold
-/// through [`module_root_node`], an edge whose endpoints land on one module
+/// through [`OwnershipJoin::module_root`], an edge whose endpoints land on one module
 /// root is a self-edge and emits nothing, and unit-tier dependency edges
 /// project through the fold of their endpoint units' module roots exactly as
 /// [`project_unit_edges`] draws them on the dotted tiers — a unit without
@@ -795,17 +730,20 @@ fn module_root_node(model: &Model, path: &str) -> String {
 fn file_modules_graph(model: &Model) -> ModuleGraph {
     let mut graph = ModuleGraph::default();
     let mut unit_nodes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // The ownership join (perf record 2026-11-22, N1): one index serves every
+    // endpoint lookup of this pass and each distinct path resolves once.
+    let mut join = OwnershipJoin::new(model);
     for edge in &model.module_edges {
-        let from = module_root_node(model, &edge.from);
-        let to = module_root_node(model, &edge.to);
+        let from = join.module_root_memo(&edge.from);
+        let to = join.module_root_memo(&edge.to);
         graph.add_node(&from);
         graph.add_node(&to);
         if from != to {
             graph.edges.insert((from.clone(), to.clone()));
         }
-        for (path, node) in [(&edge.from, &from), (&edge.to, &to)] {
-            if let Some(unit) = unit_of_path(model, path) {
-                unit_nodes.entry(unit).or_default().insert(node.clone());
+        for (path, node) in [(edge.from.as_str(), &from), (edge.to.as_str(), &to)] {
+            if let Some(unit) = join.owner_of_memo(path) {
+                unit_nodes.entry(unit.to_string()).or_default().insert(node.clone());
             }
         }
     }
@@ -830,7 +768,7 @@ fn file_modules_graph(model: &Model) -> ModuleGraph {
             }
         }
     }
-    let markers = fold_markers(model, |path| Some(module_root_node(model, path)), &graph.nodes);
+    let markers = fold_markers(model, |path| Some(join.module_root(path)), &graph.nodes);
     graph.markers = markers
         .0
         .into_iter()
@@ -932,61 +870,334 @@ fn distinct_module_paths(model: &Model) -> usize {
 /// directory) attributes to no unit and contributes no edge — the rule
 /// never invents an owner.
 pub fn unit_of_path(model: &Model, path: &str) -> Option<String> {
-    if path.contains('/') {
-        return directory_owner(model, path, true)
-            .or_else(|| name_prefix_owner(model, path));
-    }
-    name_prefix_owner(model, path).or_else(|| {
-        // A native `/` key lifted to the `::` spelling by fold_markers'
-        // separator lift: retry as a directory path, but WITHOUT the root
-        // catch-all — a lifted spelling says nothing about root membership.
-        let lifted = path.replace("::", "/");
-        (lifted != *path).then(|| directory_owner(model, &lifted, false)).flatten()
-    })
+    OwnershipJoin::new(model).owner_of(path).map(str::to_string)
 }
 
-/// The unit whose `path` is the longest directory prefix of `slashed`.
-/// `root_wins` lets the root unit (path `.`) claim files no member owns —
-/// granted only for a path spelled with real `/` separators.
-fn directory_owner(model: &Model, slashed: &str, root_wins: bool) -> Option<String> {
-    let mut best: Option<(usize, &str)> = None;
-    let mut root: Option<&str> = None;
-    for unit in &model.units {
-        let dir = unit.path.trim_end_matches('/');
-        if dir == "." {
-            root = Some(unit.name.as_str());
-            continue;
-        }
-        if (slashed == dir || slashed.starts_with(&format!("{dir}/")))
-            && best.is_none_or(|(len, _)| dir.len() > len)
-        {
-            best = Some((dir.len(), unit.name.as_str()));
-        }
-    }
-    best.map(|(_, name)| name.to_string())
-        .or_else(|| root.filter(|_| root_wins).map(String::from))
+/// The ownership join of the unit-tier folds (perf record 2026-11-22, N1): the
+/// H1 cure of the scan assembly (`f329a9c7d`) ported to the model-side lookups.
+/// The depgraph folds used to ask every unit of the model, in turn, whether it
+/// owned a `module_edges` endpoint — a linear longest-prefix scan with one
+/// `format!("{dir}/")` allocation per unit per lookup — so every arm's wall grew
+/// linearly with the unit count at constant edges (slopes 0.143–0.194 s/unit on
+/// the reference tree). The unit spellings now key a lookup, and every query
+/// walks the path's OWN ancestors or segment prefixes: cost per lookup is the
+/// path's depth, never the unit count. The fold loops share this one home and
+/// add an endpoint memo, so each distinct endpoint path resolves once per pass,
+/// not once per row.
+///
+/// The ownership law is the walk's shape, not an extra rule — byte-identity is
+/// the gate. Of two candidate dirs on one ancestor chain the walk meets the
+/// deeper one first, the row the descending longest-prefix scan resolved to. A
+/// tie on one spelling resolves to the FIRST unit row that indexed it, the row
+/// the scan's replace-only-when-strictly-longer rule kept. The root unit (path
+/// `.`) stays the last-resort catch-all for member-less paths where the shipped
+/// rule grants it, and the LAST root row wins, as the scan's overwrite did. An
+/// empty unit path owns nothing here, exactly as it owned no relative path
+/// through the old prefix test.
+struct OwnershipJoin<'a> {
+    /// Member dir (trailing `/` trimmed; the `.` and empty spellings excluded)
+    /// -> owning unit name, first unit row wins.
+    dirs: HashMap<&'a str, &'a str>,
+    /// The root unit's name — the unit whose path trims to `.` — last such row.
+    root: Option<&'a str>,
+    /// The empty-spelling unit path, first such row: the old scan's `dir == ""`
+    /// matched any path starting with `/` and nothing else (relative paths
+    /// never start with the separator), so it sits below every real dir.
+    empty: Option<&'a str>,
+    /// Member dir -> owning unit name, LAST unit row wins: the ledger's
+    /// territory arm resolves a two-rows-one-dir tie to the last row (its
+    /// `max_by_key` keeps the last maximum), unlike the folds' first-wins scan.
+    ledger_dirs: HashMap<&'a str, &'a str>,
+    /// Normalized dotted spellings of unit names and paths -> owning unit name;
+    /// within one unit the name indexes before the path, as the scan tried them.
+    dotted: HashMap<String, &'a str>,
+    /// Unit name -> owning unit's path, first row wins (the name lookups'
+    /// `find`, [`Self::module_root`]'s root check).
+    paths: HashMap<&'a str, &'a str>,
+    /// Unit name -> the stored name, a membership set the ledger's arms and
+    /// fallback `find` test consult with borrowed keys (the stored name is
+    /// byte-equal to any matching key, so it answers the old `find` row).
+    names: HashMap<String, &'a str>,
+    /// The endpoint memos: distinct path -> resolved fact, per pass. Keyed by
+    /// owned path so a memo insert never couples the caller's borrow to the
+    /// model's; the key is allocated only on a miss.
+    owners: HashMap<String, Option<&'a str>>,
+    ledger: HashMap<String, Option<&'a str>>,
+    folded: HashMap<String, String>,
+    module_roots: HashMap<String, String>,
 }
 
-/// The unit whose name (or path) is the dotted prefix of `path`, longest
-/// match first. Both spellings normalize `::` and `/` to `.` — the same
-/// separator tolerance `parent_matches` applies to identity lookups.
-fn name_prefix_owner(model: &Model, path: &str) -> Option<String> {
-    let key = normalize_dotted(path);
-    let mut best: Option<(usize, &str)> = None;
-    for unit in &model.units {
-        for candidate in [unit.name.as_str(), unit.path.as_str()] {
-            let candidate = normalize_dotted(candidate);
-            if candidate.is_empty() || candidate == "." {
-                continue;
+impl<'a> OwnershipJoin<'a> {
+    fn new(model: &'a Model) -> Self {
+        let mut dirs = HashMap::with_capacity(model.units.len());
+        let mut ledger_dirs = HashMap::with_capacity(model.units.len());
+        let mut dotted = HashMap::with_capacity(2 * model.units.len());
+        let mut paths = HashMap::with_capacity(model.units.len());
+        let mut names: HashMap<String, &'a str> = HashMap::with_capacity(model.units.len());
+        let mut root: Option<&'a str> = None;
+        let mut empty: Option<&'a str> = None;
+        for unit in &model.units {
+            paths.entry(unit.name.as_str()).or_insert(unit.path.as_str());
+            names
+                .entry(unit.name.clone())
+                .or_insert(unit.name.as_str());
+            let dir = unit.path.trim_end_matches('/');
+            if dir == "." {
+                root = Some(unit.name.as_str());
+            } else if dir.is_empty() {
+                empty = empty.or(Some(unit.name.as_str()));
+            } else {
+                dirs.entry(dir).or_insert(unit.name.as_str());
+                ledger_dirs.insert(dir, unit.name.as_str());
             }
-            if (key == candidate || key.starts_with(&format!("{candidate}.")))
-                && best.is_none_or(|(len, _)| candidate.len() > len)
+            for candidate in [unit.name.as_str(), unit.path.as_str()] {
+                let key = normalize_dotted(candidate);
+                if key.is_empty() || key == "." {
+                    continue;
+                }
+                dotted.entry(key).or_insert(unit.name.as_str());
+            }
+        }
+        Self {
+            dirs,
+            root,
+            empty,
+            ledger_dirs,
+            dotted,
+            paths,
+            names,
+            owners: HashMap::new(),
+            ledger: HashMap::new(),
+            folded: HashMap::new(),
+            module_roots: HashMap::new(),
+        }
+    }
+
+    /// The member dir deepest on `path`'s own ancestor chain, over `dirs`.
+    /// The `.` and empty spellings are never indexed here (the root and the
+    /// empty path are fallbacks, not competitors).
+    fn deepest_dir(&self, dirs: &HashMap<&'a str, &'a str>, path: &str) -> Option<&'a str> {
+        let mut candidate = path.trim_end_matches('/');
+        loop {
+            if !candidate.is_empty()
+                && candidate != "."
+                && let Some(name) = dirs.get(&candidate)
             {
-                best = Some((candidate.len(), unit.name.as_str()));
+                return Some(name);
+            }
+            let Some(cut) = candidate.rfind('/') else { break };
+            candidate = &candidate[..cut];
+            if candidate.is_empty() {
+                break;
             }
         }
+        None
     }
-    best.map(|(_, name)| name.to_string())
+
+    /// The unit whose member dir is the longest directory prefix of `slashed`:
+    /// the walk of the path's own dirs over the member index, deepest candidate
+    /// first. A path spelled from the root (`/…`) with no dir hit matches the
+    /// empty unit path exactly as the old scan's `starts_with("/")` did.
+    fn dir_owner(&self, slashed: &str) -> Option<&'a str> {
+        self.deepest_dir(&self.dirs, slashed)
+            .or_else(|| slashed.starts_with('/').then_some(()).and(self.empty))
+    }
+
+    /// The shipped directory arm: member dirs first, the root unit claiming
+    /// files no member owns — granted only for a path spelled with real `/`
+    /// separators, as [`unit_of_path`] rules.
+    fn directory_owner(&self, slashed: &str, root_wins: bool) -> Option<&'a str> {
+        self.dir_owner(slashed)
+            .or_else(|| root_wins.then_some(()).and(self.root))
+    }
+
+    /// The unit whose name (or path) is the dotted prefix of `path`, longest
+    /// match first: the segment-boundary prefixes of the normalized key, walked
+    /// longest-first, where the scan kept only a strictly longer candidate.
+    fn name_prefix_owner(&self, path: &str) -> Option<&'a str> {
+        let key = normalize_dotted(path);
+        if let Some(name) = self.dotted.get(&key) {
+            return Some(name);
+        }
+        let mut limit = key.len();
+        while let Some(dot) = key[..limit].rfind('.') {
+            if let Some(name) = self.dotted.get(&key[..dot]) {
+                return Some(name);
+            }
+            limit = dot;
+        }
+        None
+    }
+
+    /// [`unit_of_path`] over the index — the same rule, the same order of arms.
+    fn owner_of(&self, path: &str) -> Option<&'a str> {
+        if path.contains('/') {
+            return self
+                .directory_owner(path, true)
+                .or_else(|| self.name_prefix_owner(path));
+        }
+        self.name_prefix_owner(path).or_else(|| {
+            // A native `/` key lifted to the `::` spelling by fold_markers'
+            // separator lift: retry as a directory path, but WITHOUT the root
+            // catch-all — a lifted spelling says nothing about root membership.
+            let lifted = path.replace("::", "/");
+            (lifted != *path)
+                .then(|| self.directory_owner(&lifted, false))
+                .flatten()
+        })
+    }
+
+    /// The [`unit_of_path`] arm of a fold loop, memoized by endpoint path.
+    fn owner_of_memo(&mut self, path: &str) -> Option<&'a str> {
+        if let Some(hit) = self.owners.get(path) {
+            return *hit;
+        }
+        let found = self.owner_of(path);
+        self.owners.insert(path.to_string(), found);
+        found
+    }
+
+    /// The identity-preserving fold (GitHub issue #61, see [`fold_named`] for
+    /// the render law): the owning unit's NAME leads the path when the path's
+    /// segment run spells that name — exactly (`Webhooks::API` under unit
+    /// `Webhooks.API`, the path IS the name) or as a strict prefix
+    /// (`Webhooks::API::Models`). A path whose segments do not begin with the
+    /// unit's own name spelling (`Corp::Ordering::API` under unit
+    /// `Ordering.API`) keeps its namespace fold unchanged: there the fold
+    /// states a real tier above the name, not a truncation of it. Names
+    /// outside the dotted class never qualify, so every single-word module and
+    /// every path-spelled unit keeps its exact shipped fold. The fold is
+    /// memoized by endpoint path. One instance folds ONE node
+    /// function — the memo keys on the path alone.
+    fn fold(&mut self, node: fn(&str) -> String, path: &str) -> String {
+        if let Some(hit) = self.folded.get(path) {
+            return hit.clone();
+        }
+        let folded = self.fold_now(node, path);
+        self.folded.insert(path.to_string(), folded.clone());
+        folded
+    }
+
+    /// [`fold_named`] over the index: the owning unit is looked up, not scanned;
+    /// every fold decision keeps the shipped rule.
+    fn fold_now(&self, node: fn(&str) -> String, path: &str) -> String {
+        let bare = node(path);
+        let Some(unit) = self
+            .owner_of(path)
+            .filter(|name| is_dotted_module_name(name))
+        else {
+            return bare;
+        };
+        let name_segs = dotted_segments(unit);
+        let segs = dotted_segments(path);
+        if !segs.starts_with(&name_segs) {
+            return bare;
+        }
+        let depth = name_segs.len();
+        // The path spells the whole name: any segment fold truncates it.
+        if segs.len() == depth {
+            return unit.to_string();
+        }
+        // The fold lost the spelling to the unit-root fold.
+        if bare == ROOT_NODE {
+            return unit.to_string();
+        }
+        // The fold's chosen segment sits strictly inside the name's spelling
+        // (`Webhooks::API::Models` folding to `API`): the same truncation class.
+        // First-match position is conservative in both directions: an in-name
+        // tail spelled again below the name folds to the name (never a phantom
+        // child), and a segment below the name's tail never matches inside it.
+        if segs
+            .iter()
+            .position(|segment| *segment == bare)
+            .is_some_and(|index| index < depth)
+        {
+            return unit.to_string();
+        }
+        bare
+    }
+
+    /// The module root of one file endpoint: the module-tier node above a file
+    /// in a tier whose module identity IS the path. A file under a member unit's
+    /// directory folds to that unit — a workspace member is its own module root,
+    /// the fold [`units_graph`] already attributes to. A file the root unit owns
+    /// folds to its first path segment (the root package's module root, the
+    /// `src` of a single-package tree); a file with no directory below the root
+    /// folds to `root`, the fold a unit-root dotted path already performs in
+    /// [`top_node`]. The rule mirrors [`top_node`] across the separator spelling
+    /// and never invents an owner: an endpoint no unit claims still folds by its
+    /// path, because the fold states a path fact, not a membership.
+    fn module_root(&self, path: &str) -> String {
+        if let Some(name) = self.owner_of(path)
+            && self
+                .paths
+                .get(&name)
+                .is_some_and(|unit_path| unit_path.trim_end_matches('/') != ".")
+        {
+            return name.to_string();
+        }
+        match path.replace("::", "/").split_once('/') {
+            Some((head, _)) if !head.is_empty() => head.to_string(),
+            _ => ROOT_NODE.to_string(),
+        }
+    }
+
+    /// The [`Self::module_root`] arm of a fold loop, memoized by endpoint path.
+    fn module_root_memo(&mut self, path: &str) -> String {
+        if let Some(hit) = self.module_roots.get(path) {
+            return hit.clone();
+        }
+        let folded = self.module_root(path);
+        self.module_roots.insert(path.to_string(), folded.clone());
+        folded
+    }
+
+    /// The unit a module-path or repo-file path belongs to for the ledger:
+    /// first by path territory (a unit's directory owns its files, longest
+    /// path wins — the `containing_unit` rule `verify`'s file-tier evidence
+    /// attributes with) — the root and the empty spelling claim nothing and
+    /// the walk simply passes them — then by unit-name prefix (the dotted
+    /// `unit::module` / `unit.module` spelling the dotted-tier drivers record:
+    /// `name`, `name::`, `name.`, longest boundary prefix first, which is
+    /// where a name can end without the prefix test ever inventing a match).
+    /// A root unit's territory (path `.` or empty) attributes nothing: it is
+    /// the whole tree, so containment against it would swallow foreign paths
+    /// (the file-tier evidence law).
+    fn ledger_owner(&self, path: &str) -> Option<&'a str> {
+        self.deepest_dir(&self.ledger_dirs, path)
+            .or_else(|| self.ledger_name_owner(path))
+    }
+
+    /// The ledger's name arm: the unit NAME `path` spells exactly or spells
+    /// with a `::` or `.` separator after it, longest such name first — the
+    /// boundary walk hits the longest prefix before any shorter one, and the
+    /// old scan's `max_by_key` kept that same row.
+    fn ledger_name_owner(&self, path: &str) -> Option<&'a str> {
+        if let Some(name) = self.names.get(path) {
+            return Some(name);
+        }
+        let bytes = path.as_bytes();
+        let mut cut = bytes.len();
+        while cut > 0 {
+            cut -= 1;
+            let boundary =
+                bytes[cut] == b'.' || (bytes[cut] == b':' && path[cut..].starts_with("::"));
+            if boundary && let Some(name) = self.names.get(&path[..cut]) {
+                return Some(name);
+            }
+        }
+        None
+    }
+
+    /// The [`Self::ledger_owner`] arm of the ledger loop, memoized by path.
+    fn ledger_owner_memo(&mut self, path: &str) -> Option<&'a str> {
+        if let Some(hit) = self.ledger.get(path) {
+            return *hit;
+        }
+        let found = self.ledger_owner(path);
+        self.ledger.insert(path.to_string(), found);
+        found
+    }
 }
 
 fn normalize_dotted(path: &str) -> String {
@@ -1015,21 +1226,28 @@ pub fn units_graph(model: &Model) -> ModuleGraph {
         graph.add_node(&edge.to);
         graph.edges.insert((edge.from.clone(), edge.to.clone()));
     }
+    // The ownership join (perf record 2026-11-22, N1): one index serves every
+    // endpoint lookup of this pass and each distinct path resolves once.
+    let mut join = OwnershipJoin::new(model);
     for edge in &model.module_edges {
         let (Some(from), Some(to)) = (
-            unit_of_path(model, &edge.from),
-            unit_of_path(model, &edge.to),
+            join.owner_of_memo(edge.from.as_str()),
+            join.owner_of_memo(edge.to.as_str()),
         ) else {
             continue;
         };
         if from == to {
             continue;
         }
-        graph.add_node(&from);
-        graph.add_node(&to);
-        graph.edges.insert((from, to));
+        graph.add_node(from);
+        graph.add_node(to);
+        graph.edges.insert((from.to_string(), to.to_string()));
     }
-    let markers = fold_markers(model, |path| unit_of_path(model, path), &graph.nodes);
+    let markers = fold_markers(
+        model,
+        |path| join.owner_of(path).map(str::to_string),
+        &graph.nodes,
+    );
     graph.markers = markers
         .0
         .into_iter()
@@ -1154,22 +1372,26 @@ fn fold_markers(
 /// its own segments renders the name verbatim instead, so the view never
 /// loses a module identity; every other fold keeps its shipped bytes.
 fn project(model: &Model, node: fn(&str) -> String) -> ModuleGraph {
+    // The ownership join (perf record 2026-11-22, N1): one index serves every
+    // fold of this pass — the soft paths, both endpoints of every module edge,
+    // and the unit-edge membership below — and each distinct path folds once.
+    let mut join = OwnershipJoin::new(model);
     let mut graph = ModuleGraph::default();
     for paths in model.soft_structure.values() {
         for path in paths {
-            graph.add_node(&fold_named(model, node, path));
+            graph.add_node(&join.fold(node, path));
         }
     }
     for edge in &model.module_edges {
-        let from = fold_named(model, node, &edge.from);
-        let to = fold_named(model, node, &edge.to);
+        let from = join.fold(node, &edge.from);
+        let to = join.fold(node, &edge.to);
         graph.add_node(&from);
         graph.add_node(&to);
         if from != to {
             graph.edges.insert((from, to));
         }
     }
-    project_unit_edges(model, &mut graph, node);
+    project_unit_edges(model, &mut graph, node, &mut join);
     graph
 }
 
@@ -1178,7 +1400,12 @@ fn project(model: &Model, node: fn(&str) -> String) -> ModuleGraph {
 /// both present, skipping self-edges (pairs naming the same node) and unit
 /// self-references (a unit edge from a unit to itself says nothing about
 /// cross-unit structure; its internal shape already reads from module edges).
-fn project_unit_edges(model: &Model, graph: &mut ModuleGraph, node: fn(&str) -> String) {
+fn project_unit_edges(
+    model: &Model,
+    graph: &mut ModuleGraph,
+    node: fn(&str) -> String,
+    join: &mut OwnershipJoin<'_>,
+) {
     if model.edges.is_empty() {
         return;
     }
@@ -1188,7 +1415,7 @@ fn project_unit_edges(model: &Model, graph: &mut ModuleGraph, node: fn(&str) -> 
             unit.as_str(),
             paths
                 .iter()
-                .map(|path| fold_named(model, node, path))
+                .map(|path| join.fold(node, path))
                 .collect(),
         );
     }
@@ -1293,10 +1520,13 @@ fn parent_not_found(model: &Model, parent: &str) -> String {
 /// opens a group).
 pub fn api_usage_by_target(model: &Model) -> BTreeMap<String, BTreeMap<String, BTreeSet<String>>> {
     let node = projection_node(model);
+    // The ownership join (perf record 2026-11-22, N1): one index folds this
+    // pass's endpoints, each distinct path once.
+    let mut join = OwnershipJoin::new(model);
     let mut grouped: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
     for edge in &model.module_edges {
-        let from = fold_named(model, node, &edge.from);
-        let to = fold_named(model, node, &edge.to);
+        let from = join.fold(node, &edge.from);
+        let to = join.fold(node, &edge.to);
         if from == to {
             continue;
         }
@@ -1702,9 +1932,50 @@ pub const LEDGER_UNIT_EDGE_FOLD_STATEMENT: &str =
 const LEDGER_SECTION_EMPTY: &str = "none";
 
 /// Dash/underscore crate-name equivalence (the same normalization the rust
-/// scan applies when it resolves a dependency name to a member).
-fn ledger_name_key(name: &str) -> String {
+/// scan applies when it resolves a dependency name to a member). The viewer
+/// declared-edge join (`render_scan_viewer`) reads this ONE law too — a
+/// second normalization is a named forbidden class.
+pub(crate) fn ledger_name_key(name: &str) -> String {
     name.replace('-', "_")
+}
+
+/// The unit pairs a package links BY CONSTRUCTION: a bin target importing the
+/// lib target of the SAME package (the rust scan's target kinds: `bin` over
+/// `crate`, equal unit `path` — the workspace member directory every target
+/// of one manifest shares). Cargo links the package's own lib into each of
+/// its bins implicitly; no manifest declares that link, and no manifest CAN
+/// (a package self-dependency is a cyclic package dependency cargo refuses).
+/// The edge is a package-internal fact, not a manifest surface, so the ledger
+/// counts the pair declared whatever the importer's manifest omits. Same-package
+/// bin→bin and lib→bin pairs are NOT cargo links — nothing linkable sits on
+/// the bin side — so they stay in the census as the anomalies they are.
+fn ledger_declared_by_construction(model: &Model) -> BTreeSet<(String, String)> {
+    /// The unit's package territory: its manifest directory, trailing-slash
+    /// normalized, with the empty spelling folded to the root `"."` (the
+    /// same normalizations the ledger's ownership join applies before
+    /// comparing).
+    fn territory(path: &str) -> &str {
+        let trimmed = path.trim_end_matches('/');
+        if trimmed.is_empty() {
+            "."
+        } else {
+            trimmed
+        }
+    }
+    model
+        .units
+        .iter()
+        .filter(|importer| importer.kind == "bin")
+        .flat_map(|importer| {
+            model
+                .units
+                .iter()
+                .filter(move |target| {
+                    target.kind == "crate" && territory(&target.path) == territory(&importer.path)
+                })
+                .map(move |target| (importer.name.clone(), target.name.clone()))
+        })
+        .collect()
 }
 
 /// The declared legs of the model: pairs `unit -> target` where `unit`'s own
@@ -1741,39 +2012,6 @@ pub fn ledger_declared_pairs(model: &Model) -> BTreeSet<(String, String)> {
     declared
 }
 
-/// The unit a module-path or repo-file path belongs to: first by path
-/// territory (a unit's directory owns its files, longest path wins — the
-/// `containing_unit` rule `verify`'s file-tier evidence attributes with),
-/// then by unit-name prefix (the dotted `unit::module` / `unit.module`
-/// spelling the dotted-tier drivers record). A root unit's territory (path
-/// `.` or empty) attributes nothing: it is the whole tree, so containment
-/// against it would swallow foreign paths (the file-tier evidence law).
-fn ledger_path_owner(model: &Model, path: &str) -> Option<String> {
-    model
-        .units
-        .iter()
-        .filter(|unit| {
-            let territory = unit.path.trim_end_matches('/');
-            !territory.is_empty()
-                && territory != "."
-                && (path == territory || path.starts_with(&format!("{territory}/")))
-        })
-        .max_by_key(|unit| unit.path.trim_end_matches('/').chars().count())
-        .map(|unit| unit.name.clone())
-        .or_else(|| {
-            model
-                .units
-                .iter()
-                .filter(|unit| {
-                    unit.name == path
-                        || path.starts_with(&format!("{}::", unit.name))
-                        || path.starts_with(&format!("{}.", unit.name))
-                })
-                .max_by_key(|unit| unit.name.chars().count())
-                .map(|unit| unit.name.clone())
-        })
-}
-
 /// Code-evidenced unit pairs with their evidence locs, folded from the
 /// model's code tiers — the same cross-unit import evidence issue #19's
 /// `file_tier_evidence` reads, attributed at unit territory without a spec:
@@ -1785,25 +2023,24 @@ fn ledger_path_owner(model: &Model, path: &str) -> Option<String> {
 /// declaration can only have come from the code arm of such a model.
 fn ledger_code_evidence(model: &Model) -> BTreeMap<(String, String), BTreeSet<String>> {
     let mut evidence: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
+    // The ownership join (perf record 2026-11-22, N1): one index attributes
+    // this pass's endpoints, each distinct path once.
+    let mut join = OwnershipJoin::new(model);
     for edge in &model.module_edges {
         if model.is_test_gated(&edge.from) || model.is_test_gated(&edge.to) {
             continue;
         }
-        let from = ledger_path_owner(model, &edge.from).or_else(|| {
-            model
-                .units
-                .iter()
-                .find(|unit| unit.name == edge.unit)
-                .map(|unit| unit.name.clone())
+        let from = join.ledger_owner_memo(edge.from.as_str()).or_else(|| {
+            join.names.get(edge.unit.as_str()).copied()
         });
-        let (Some(from), Some(to)) = (from, ledger_path_owner(model, &edge.to)) else {
+        let (Some(from), Some(to)) = (from, join.ledger_owner_memo(edge.to.as_str())) else {
             continue;
         };
         if from == to {
             continue;
         }
         evidence
-            .entry((from, to))
+            .entry((from.to_string(), to.to_string()))
             .or_default()
             .insert(edge.from.clone());
     }
@@ -1815,15 +2052,23 @@ fn ledger_code_evidence(model: &Model) -> BTreeMap<(String, String), BTreeSet<St
 /// driver), a pair that carries an edge but no declaration can only have
 /// arrived through the code arm. In a model whose unit edges carry only
 /// declarations (every other driver), this set is empty by construction and
-/// the module-tier evidence owns the class.
+/// the module-tier evidence owns the class. Pairs the package links by
+/// construction ([`ledger_declared_by_construction`]) are excluded beside the
+/// manifest declarations: their edge is a package-internal fact no manifest
+/// states or can state.
 fn ledger_unit_tier_undeclared(model: &Model) -> BTreeMap<(String, String), BTreeSet<String>> {
     if model.language != "rust" {
         return BTreeMap::new();
     }
     let declared = ledger_declared_pairs(model);
+    let by_construction = ledger_declared_by_construction(model);
     let mut rows: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
     for edge in &model.edges {
-        if edge.from == edge.to || declared.contains(&(edge.from.clone(), edge.to.clone())) {
+        let pair = (edge.from.clone(), edge.to.clone());
+        if edge.from == edge.to
+            || declared.contains(&pair)
+            || by_construction.contains(&pair)
+        {
             continue;
         }
         if !model.units.iter().any(|unit| unit.name == edge.from)
@@ -1831,7 +2076,7 @@ fn ledger_unit_tier_undeclared(model: &Model) -> BTreeMap<(String, String), BTre
         {
             continue;
         }
-        rows.entry((edge.from.clone(), edge.to.clone())).or_default();
+        rows.entry(pair).or_default();
     }
     rows
 }
@@ -1839,13 +2084,17 @@ fn ledger_unit_tier_undeclared(model: &Model) -> BTreeMap<(String, String), BTre
 /// The ledger's first section: code evidence without a declaration, each
 /// pair with its sorted distinct evidence locs (empty when the pair's only
 /// evidence is the model's own unit-tier edge, which carries no loc).
+/// Pairs the package links by construction ([`ledger_declared_by_construction`])
+/// never appear: the same-package bin→lib edge is a package-internal fact no
+/// manifest states or can state, so it carries no debt.
 pub fn ledger_used_but_undeclared(model: &Model) -> BTreeMap<(String, String), BTreeSet<String>> {
     let declared = ledger_declared_pairs(model);
+    let by_construction = ledger_declared_by_construction(model);
     let mut rows = ledger_code_evidence(model);
     for (pair, locs) in ledger_unit_tier_undeclared(model) {
         rows.entry(pair).or_default().extend(locs);
     }
-    rows.retain(|pair, _| !declared.contains(pair));
+    rows.retain(|pair, _| !declared.contains(pair) && !by_construction.contains(pair));
     rows
 }
 
@@ -3034,6 +3283,157 @@ mod tests {
         assert_eq!(unit_of_path(&ts, "ghost::thing"), None);
     }
 
+    /// The ownership law survives its indexed shape (perf record 2026-11-22,
+    /// N1, H1 precedent `f329a9c7d`): the ancestor walk must resolve exactly
+    /// the rows the old per-unit longest-prefix scan resolved to.
+    #[test]
+    fn indexed_ownership_join_keeps_the_deepest_first_and_first_wins_law() {
+        let base = model_with("mono", Vec::new(), Vec::new());
+        let model = Model {
+            dynamic_import_wildcards: Default::default(),
+            language: "ts".to_string(),
+            soft_structure: Default::default(),
+            units: vec![
+                unit_at("mono", "."),
+                unit_at("outer", "packages"),
+                unit_at("inner", "packages/inner"),
+                unit_at("first", "dup"),
+                unit_at("second", "dup"),
+            ],
+            module_edges: Vec::new(),
+            ..base
+        };
+        let join = OwnershipJoin::new(&model);
+        // Member dir inside a member dir: the deeper dir owns its files, the
+        // outer keeps the rest — the deepest-first law is the walk's shape.
+        assert_eq!(join.owner_of("packages/inner/src/x.ts"), Some("inner"));
+        assert_eq!(join.owner_of("packages/x.ts"), Some("outer"));
+        // The root unit catches what no member owns.
+        assert_eq!(join.owner_of("src/x.ts"), Some("mono"));
+        // A tie on one dir spelling resolves to the FIRST unit row.
+        assert_eq!(join.owner_of("dup/a.ts"), Some("first"));
+        // The dotted arm keeps the longest match: a two-segment name beats the
+        // one-segment prefix it continues.
+        let dotted = Model {
+            language: "csharp".to_string(),
+            units: vec![unit_at("a", "a"), unit_at("a.b", "a/b")],
+            ..model.clone()
+        };
+        let dotted_join = OwnershipJoin::new(&dotted);
+        assert_eq!(dotted_join.owner_of("a::b::c"), Some("a.b"));
+        assert_eq!(dotted_join.owner_of("a::x"), Some("a"));
+        // The ledger's file-tier evidence law: a root unit's territory
+        // attributes nothing — containment against it would swallow foreign
+        // paths — while member territory and the name prefixes resolve.
+        assert_eq!(join.ledger_owner("src/x.ts"), None);
+        assert_eq!(join.ledger_owner("packages/inner/x.ts"), Some("inner"));
+        assert_eq!(dotted_join.ledger_owner("a.b::Models"), Some("a.b"));
+        assert_eq!(dotted_join.ledger_owner("a::x"), Some("a"));
+    }
+
+    /// A ts-workspace model with `members` member dirs, where the module-edge
+    /// rows spread over the FIRST 64 dirs identically in every shape and any
+    /// further member carries zero references — constant rows, doubled units
+    /// (perf record 2026-11-22, N1).
+    fn ts_join_model(members: usize) -> Model {
+        let base = model_with("synth", Vec::new(), Vec::new());
+        let mut units = Vec::new();
+        for member in 0..members {
+            units.push(unit_at(
+                &format!("@syn/pkg{member}"),
+                &format!("packages/pkg{member}"),
+            ));
+        }
+        let mut module_edges = Vec::new();
+        for member in 0..REFERENCED {
+            for file in 0..FILES_PER {
+                let target = (member + 1 + file % (REFERENCED - 1)) % REFERENCED;
+                module_edges.push(ModuleEdge {
+                    unit: format!("@syn/pkg{member}"),
+                    from: format!("packages/pkg{member}/src/f{file}.ts"),
+                    to: format!("packages/pkg{target}/src/f{file}.ts"),
+                    symbols: Default::default(),
+                    type_only: false,
+                });
+            }
+        }
+        Model {
+            dynamic_import_wildcards: Default::default(),
+            language: "ts".to_string(),
+            soft_structure: Default::default(),
+            units,
+            module_edges,
+            ..base
+        }
+    }
+
+    /// The join leg of `units_graph` must not scale with the unit count
+    /// (perf record 2026-11-22, N1): the same module-edge rows spread over
+    /// twice the units must cost the same, because an indexed lookup walks the
+    /// path's own ancestors and the endpoint memo resolves each distinct path
+    /// once — never once per unit per row. The witness is DIFFERENTIAL like
+    /// the H1 shape guard (`tests/ts_owner_shape.rs`): the RATIO of the two
+    /// walls, interleaved and min'd, not an absolute millisecond ceiling.
+    #[test]
+    fn units_graph_join_does_not_scale_with_the_unit_count() {
+        use std::time::Instant;
+        const NARROW: usize = 64;
+        const WIDE: usize = 128;
+        // Rows identical on both shapes (both spread over the same 64 members).
+        let narrow = ts_join_model(NARROW);
+        let wide = ts_join_model(WIDE);
+        assert_eq!(narrow.module_edges.len(), ROWS);
+        assert_eq!(wide.module_edges.len(), ROWS);
+        assert_eq!(
+            narrow.module_edges, wide.module_edges,
+            "the two shapes must carry byte-identical module-edge rows"
+        );
+
+        // Row-count law: at constant rows, units doubled with zero references
+        // add NOTHING to the join leg — the edge sets are identical.
+        let narrow_graph = units_graph(&narrow);
+        let wide_graph = units_graph(&wide);
+        assert!(!narrow_graph.edges.is_empty());
+        assert_eq!(
+            narrow_graph.edges, wide_graph.edges,
+            "doubled units with no references must add no join rows"
+        );
+        assert_eq!(wide_graph.nodes.len(), WIDE);
+        assert_eq!(narrow_graph.nodes.len(), NARROW);
+
+        let mut narrow_ms = u128::MAX;
+        let mut wide_ms = u128::MAX;
+        for _ in 0..3 {
+            let started = Instant::now();
+            units_graph(&narrow);
+            narrow_ms = narrow_ms.min(started.elapsed().as_millis());
+            let started = Instant::now();
+            units_graph(&wide);
+            wide_ms = wide_ms.min(started.elapsed().as_millis());
+        }
+        let ratio_pct = wide_ms.saturating_mul(100) / narrow_ms.max(1);
+        eprintln!(
+            "units-graph join shape: wide({WIDE} units) {wide_ms} ms, narrow({NARROW} units) \
+             {narrow_ms} ms, delta {} ms (report-only), ratio {ratio_pct} % (ceiling 150 %)",
+            wide_ms.saturating_sub(narrow_ms)
+        );
+        assert!(
+            ratio_pct <= 150,
+            "the units-graph join scales with the unit count again: the same {ROWS} rows \
+             over {WIDE} units cost {ratio_pct} % of the {NARROW}-unit wall ({wide_ms} ms vs \
+             {narrow_ms} ms) — the ownership lookup lost its index or its endpoint memo \
+             (perf record 2026-11-22 N1)"
+        );
+    }
+
+    /// Member dirs carrying every row of the join-shape guard; the wide shape
+    /// doubles the unit tier past them, so the extra units own no edge.
+    const REFERENCED: usize = 64;
+    /// Files per referenced member; every file imports one file in another
+    /// referenced member, so rows = `REFERENCED * FILES_PER` on both shapes.
+    const FILES_PER: usize = 64;
+    const ROWS: usize = REFERENCED * FILES_PER;
+
     #[test]
     fn units_graph_projects_file_tier_edges_onto_their_units() {
         let graph = units_graph(&ts_shape_model());
@@ -3450,6 +3850,50 @@ mod tests {
         assert!(
             body.contains(LEDGER_UNIT_EDGE_FOLD_STATEMENT),
             "the fold model must state the fold, not a silent census: {body}"
+        );
+    }
+
+    /// The same-package arm (workplan ledger_same_package): two targets of
+    /// ONE manifest (equal `path`) — a `bin` importing the package's `crate`
+    /// — carry their edge by construction, so the ledger answers the clean
+    /// statement; a same-package `bin -> bin` pair is NOT a cargo link and
+    /// stays in the census as the anomaly it is.
+    #[test]
+    fn ledger_same_package_bin_lib_pair_is_declared_by_construction() {
+        let mut model = ledger_model(
+            "rust",
+            &[("mypkg", "."), ("mypkg-bin", "."), ("mypkg-tool", ".")],
+            &[("mypkg", &[]), ("mypkg-bin", &[]), ("mypkg-tool", &[])],
+            &[],
+        );
+        for unit in &mut model.units {
+            if unit.name == "mypkg" {
+                unit.kind = "crate".to_string();
+            } else {
+                unit.kind = "bin".to_string();
+            }
+        }
+        model.edges = vec![
+            crate::archspec::model::Edge {
+                from: "mypkg-bin".to_string(),
+                to: "mypkg".to_string(),
+            },
+            crate::archspec::model::Edge {
+                from: "mypkg-tool".to_string(),
+                to: "mypkg-bin".to_string(),
+            },
+        ];
+        let body = ledger_markdown(&model);
+        let used_at = body
+            .find(LEDGER_SECTION_UNDECLARED)
+            .expect("the bin->bin anomaly keeps the census printing");
+        let debt_at = body
+            .find("mypkg-tool -> mypkg-bin")
+            .expect("a same-package bin->bin pair is not a cargo link — it stays reported");
+        assert!(used_at < debt_at, "{body}");
+        assert!(
+            !body.contains("mypkg-bin -> mypkg\n") && !body.contains("mypkg-bin -> mypkg ("),
+            "the construction pair must never row: {body}"
         );
     }
 

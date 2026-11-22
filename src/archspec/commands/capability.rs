@@ -30,7 +30,7 @@ granular exits 0 when the driver emits the fact at full granularity,
 ";
 
 pub fn run(args: &[String]) -> Result<(), String> {
-    let parsed = cli::parse(args, &[])?;
+    let parsed = cli::parse(args, &[], "capability")?;
     let mut positionals = parsed.positionals.iter().map(String::as_str);
     match positionals.next() {
         Some("matrix") => {

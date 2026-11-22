@@ -6,6 +6,134 @@ only.
 
 ## [Unreleased]
 
+## [0.6.158] - 2026-11-22
+
+- The emitted `--format viewer` document gained its interaction surface (live-page review, workplan
+  viewer_usability scenario 01): unit -> external `declared` edges drawn from the artefact's
+  `unit_manifests` legs (one thin dotted grey class, toggled by a `declared deps` checkbox, default
+  on, with its own legend count row), selection clear on canvas-background click and Escape,
+  dependency-free wheel-zoom and drag-pan over the SVG `viewBox` (client-side only — emitted bytes
+  never move), structural-edge endpoints at nearest box borders (same-column boxes join facing
+  horizontal borders; cross-column rows byte-identical), and keyboard/ARIA nodes (`tabindex`,
+  `role="button"`, `aria-label`, Enter/Space select, focus-visible styling). The scan/model side is
+  untouched; the new claim `viewer-interaction-controls` registers the help paragraph and the docs
+  cite it (fan-out law).
+
+## [0.6.157] - 2026-11-22
+
+- `scan --help` states the unresolvable-import census exit class on the help surface: a non-empty
+  census lands the complete model and exits `1` anyway, the `wrote <path>` / `ok: <path> up to date`
+  echo is not a clean-run statement — the surfaces now agree with `commands/scan/errors.md` and the
+  `help diagnostics` Exit law (sweep HIGH-2 src part; new claim `scan-census-exit-law` welds the
+  help surfaces and the catalog entry in `tests/claim_fanout.rs`).
+- The rust driver's missing-root-marker refusal states its requirement: `no Cargo.toml found
+  under: <root>` now names the root marker the driver requires at the scan root and the remedy
+  (sweep LOW-1 src part; the scanned root is printed, not the manifest file path).
+- Unknown-flag refusals gain the per-verb pointer: `error: unknown flag: --<name> — run 'archspec
+  <verb> --help' for the supported flags` (sweep LOW-2 src part); the `errors.md` example rows for
+  doctor, help, spec, verify and depgraph move with the bytes.
+
+- The adjudication engine moved whole out of `verify/compare` to its own engines-level
+  home — pure move, no emitted byte moves. The module graph carries no `diagram -> verify`
+  dependency edge: the diagram's verdict marks and the verify findings read the pair
+  verdicts, the `Adjudicator` and the module-edge placement through one named home, never
+  through each other. The graph and claim resolvers `explain` renders keep their
+  `verify::compare` paths by re-export, unchanged.
+
+## [0.6.156] - 2026-11-22
+
+- The ts scan fold replays relative resolutions from an in-scan memo instead of
+  re-resolving the same (directory, specifier) pair once per importing edge
+  (perf record 2026-11-22 H2, the bare-specifier memo's shape): the relative arm
+  re-ran the candidate stat chain, the per-candidate exclusion test and the
+  generated-source probe for every edge, and relative resolutions repeat an
+  already-computed pair at high rates on large trees (measured 74 % and 36 % on the
+  decision-check probe's corpora). The verdict is now memoized per (importing dir, spelled
+  specifier) for the life of one scan — in-process only, nothing persists
+  across runs — and the first compute stays at exactly the edge that computes
+  today, so walk order, the early abort and the exclusion bytes do not move.
+  Scans are byte-identical to 0.6.151 on both perf corpora (stdout, stderr and
+  exit code); the scan wall fell from 6.09 s to 4.74 s on the replay-heavy
+  corpus and from 6.67 s to 5.91 s on the miss-heavy corpus (medians of three
+  interleaved runs, same machine, load 33–46), and the depgraph units arm
+  inherits 1.7 s of the same extraction slice (replay-off vs replay-on, same
+  binary). The memo stops storing at a named 2^20-entry cap — it never evicts,
+  later keys simply recompute — and
+  committed cells prove the replay, the stopped store and the replay-off path
+  each move zero bytes.
+
+- Matcher unification (pure move): the diagram engine's local `*`-glob matcher is gone —
+  `matches`-rule and `contract.forbid` painting answer through the single canonical
+  spec-facing `matches_pattern`, so the verify-side one-matcher law now holds over diagram
+  painting as a structural fact, not an inspection. The gitignore-semantics matcher stays a
+  distinct named home — one matcher per semantics. A differential agreement cell pins the
+  deleted matcher's verdicts against the canonical verdicts on a pattern × text grid
+  (multi-`*`, adjacent `**`, non-ASCII, backtracking and long-run shapes) plus a corpus arm
+  fed from real spec and ignore specs outside the payload. No emitted byte moves.
+
+## [0.6.151] - 2026-11-22
+
+- Matcher unification (pure move): the diagram engine's local `*`-glob matcher is gone —
+  `matches`-rule and `contract.forbid` painting answer through the single canonical
+  spec-facing `matches_pattern`, so the verify-side one-matcher law now holds over diagram
+  painting as a structural fact, not an inspection. The gitignore-semantics matcher stays a
+  distinct named home — one matcher per semantics. A differential agreement cell pins the
+  deleted matcher's verdicts against the canonical verdicts on a pattern × text grid
+  (multi-`*`, adjacent `**`, non-ASCII, backtracking and long-run shapes) plus a corpus arm
+  fed from real spec and ignore specs outside the payload. No emitted byte moves.
+
+## [0.6.150] - 2026-11-22
+
+- The depgraph unit-tier folds attribute endpoints with an ownership index, not
+  a unit scan (perf record 2026-11-22 N1, the scan-side H1 cure's shape): every
+  `module_edges` row asked every unit in turn whether it owned the endpoint —
+  a longest-prefix scan with one allocation per unit per lookup — so every arm's
+  wall grew linearly with the unit count at constant edges (slope 0.14–0.19
+  s/unit on a 210-unit, 300 659-row multi-package tree). The unit spellings now
+  key a lookup that walks the endpoint's own ancestors or segment prefixes —
+  cost per lookup is the path's depth, never the unit count — and the fold
+  loops resolve each distinct endpoint once per pass. The ownership law is the
+  walk's shape, byte-for-byte: the deepest dir comes first, a dir tie takes the
+  first unit row for the folds and the last row for the ledger, and the root
+  unit keeps its fallback exactly where the scan granted it. All four arms are
+  byte-identical to 0.6.148 on both attribution corpora (stdout, stderr and
+  rendered artifact, 24 comparisons); the units-arm wall on the large tree fell
+  from 39 s to 5 s (medians of three warm interleaved runs, same machine, load
+  32–36). A committed shape cell pins the law: doubling the units at constant
+  rows keeps the units-graph edge set and the wall ratio under 150 % — the
+  pre-fix shape measures 219 % there.
+
+## [0.6.148] - 2026-11-22
+
+## [0.6.148] - 2026-11-22
+
+- Documentation cures for the 2026-11-20 improvement-sweep leftovers (docs only; no behavior
+  bytes move). The `scan` failure contract now states the unresolvable-import census exit law:
+  a non-empty census lands the COMPLETE model, the `wrote <path>` echo prints, and the exit
+  code is `1` — a fresh `--check` does not clear it (`commands/scan/errors.md` census row and
+  output-on-error bullet, `output.md` destination exception, `cli.md` freshness and behavior
+  rows). The rust driver's root-marker requirement is named: `.rs` sources can select the
+  driver, but a scan root without a `Cargo.toml` is refused
+  (`commands/scan/input.md`, `commands/scan/errors.md`). An unknown-flag refusal row names the
+  per-verb help as the supported-flag surface (`commands/scan/errors.md`). The scenario queue's
+  empty Evidence sections (visibility_phase2 04/06) carry their landing evidence with current
+  trunk cites. The on-surface statement of the same exit law (`scan --help`, the
+  `help diagnostics` catalog entry, an optional named exit tail row) is a named src remainder
+  for its own lane.
+
+## [0.6.147] - 2026-11-22
+
+- Ledger clean-by-construction arm: a bin target importing the lib target of
+  its OWN package is now counted DECLARED by construction and prints in
+  neither ledger section — the build links every binary against its package's
+  lib without a manifest declaration, and no manifest can state that leg (a
+  package self-dependency is a cyclic package dependency the build refuses).
+  The manifest facts stay pure; the exclusion lives in the ledger's
+  adjudication. Same-package bin→bin and lib→bin pairs are not build links
+  and stay reported; cross-package used-but-undeclared rows are unchanged
+  byte-for-byte. The `depgraph ledger` help line, the command's
+  `cli.md`/`output.md` and acceptance row 44 carry the same statement.
+
 ## [0.6.146] - 2026-11-22
 
 - Release mechanics: the publish release-notes step stops quoting git commit

@@ -59,7 +59,7 @@ fn depgraph_has_no_unit_grouping_flag() {
     assert_eq!(output.status.code(), Some(64));
     assert_eq!(
         stderr(&output),
-        "error: unknown flag: --show-units\n",
+        "error: unknown flag: --show-units — run 'archspec depgraph --help' for the supported flags\n",
         "the rejected grouping flag must fail with the unknown-flag error"
     );
     assert!(

@@ -98,7 +98,7 @@ Write a PlantUML diagram to `docs/architecture.puml`. Stdout stays empty.
 archspec diagram --source scan ./artifacts/model.json --format viewer --output viewer.html
 ```
 
-Write ONE self-contained HTML document — the click-to-highlight viewer over the snapshot's graph, with a legend and a `direct | indirect | both` layer toggle (see `output.md`). Stdout stays empty. On the spec source the format is a usage error (exit `64`).
+Write ONE self-contained HTML document — the click-to-highlight viewer over the snapshot's graph, with a legend, a `direct | indirect | both` layer toggle and a `declared deps` checkbox (see `output.md`; the interaction surface rides the help surface's `Viewer interaction:` paragraph, claim `viewer-interaction-controls`). Stdout stays empty. On the spec source the format is a usage error (exit `64`).
 
 ### Combine anywhere
 

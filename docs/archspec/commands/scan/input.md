@@ -29,6 +29,8 @@ archspec scan ./services/checkout
 | C# / .NET | `.csproj` / `.sln` project files, or `.cs` sources |
 | Go | `go.mod` module file, or `.go` sources |
 
+The rust driver requires its root marker: a `Cargo.toml` at the scan root. `.rs` sources can select the rust driver, but a scan root without a `Cargo.toml` is refused with a message naming the missing marker (see `errors.md`).
+
 A tree must present exactly one supported language. A tree with no detectable supported language is rejected; mixed-language trees are not a phase-1 target (see Notes).
 
 For a Go tree a root `go.work` is also a read input (not a detection signal): its `use` entries — a pure source-level parse, no Go toolchain required — name the member modules whose packages form the model's module tier; see `../../spec.md` § Go modularity.

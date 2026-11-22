@@ -342,7 +342,7 @@ its own.
 ";
 
 pub fn run(args: &[String], commands: &[CommandInfo]) -> Result<(), String> {
-    let parsed = cli::parse(args, &[])?;
+    let parsed = cli::parse(args, &[], "help")?;
     cli::exactly_one_positional(&parsed)?;
     let Some(topic) = parsed.positionals.first().map(String::as_str) else {
         print!("{HELP}");

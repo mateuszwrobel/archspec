@@ -79,7 +79,7 @@ error: no Go toolchain found (driver missing); run `archspec doctor` to diagnose
 
 # message names the unknown flag
 $ archspec verify --format mermaid
-error: unknown flag: --format
+error: unknown flag: --format — run 'archspec verify --help' for the supported flags
 
 # message says only one path is accepted
 $ archspec verify ./src ./tests

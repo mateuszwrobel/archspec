@@ -45,6 +45,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 takes_value: false,
             },
         ],
+        "verify",
     )?;
     cli::exactly_one_positional(&parsed)?;
     // `--json` + `--write-exemptions` is a usage error (GitHub issue #27,

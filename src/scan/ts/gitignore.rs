@@ -249,8 +249,10 @@ impl Pattern {
     }
 }
 
-/// One segment's glob: `*` and `?` within one path segment, `\` escapes,
-/// everything else literal.
+/// The gitignore-semantics matcher — a distinct home from the spec-facing
+/// canonical `model::matches_pattern`, one matcher per semantics: `*` and `?`
+/// match within one path segment only, `\` escapes, everything else is
+/// literal (git's language, not the `help glob` spec-pattern contract face).
 fn glob_match(pattern: &str, text: &str) -> bool {
     let pv: Vec<char> = pattern.chars().collect();
     let tv: Vec<char> = text.chars().collect();

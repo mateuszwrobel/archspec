@@ -146,6 +146,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             name: "schema",
             takes_value: false,
         }],
+        "spec",
     )?;
     if !parsed.positionals.is_empty() {
         return Err("spec takes no path argument".to_string());

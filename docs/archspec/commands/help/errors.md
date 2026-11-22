@@ -26,7 +26,7 @@ error: expected at most one path argument
 
 # message names the unknown flag
 $ archspec help --bogus
-error: unknown flag: --bogus
+error: unknown flag: --bogus — run 'archspec help --help' for the supported flags
 ```
 
 ## Output on error

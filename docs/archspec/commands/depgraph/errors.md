@@ -32,7 +32,7 @@ Every failure produces a clear human message naming the cause. Messages go to st
 
 ```bash
 $ archspec depgraph modules . --x
-error: unknown flag: --x
+error: unknown flag: --x — run 'archspec depgraph --help' for the supported flags
 
 $ archspec depgraph modules --format
 error: flag --format requires a value

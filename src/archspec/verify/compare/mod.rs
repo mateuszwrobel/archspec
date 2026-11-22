@@ -3,30 +3,39 @@
 // compare the extracted vs declared component sets and edge sets, render the
 // verdict. Diff categories are grouped in canonical report order (output.md).
 
-mod adjudicate;
 mod async_depends;
 mod boundaries;
-mod claims;
-mod contracts;
-mod cycles;
+// The five engine siblings below carry `pub(crate)` declarations for the
+// hoisted `archspec::adjudicate` home (splits-batch adjudicate_hoist/01):
+// the moved verdict file reads their items at their own paths — a read
+// through this module's facade would close a file-tier cycle against the
+// resolver re-export row below. The facade rows stay for every consumer
+// outside the engine seam.
+pub(crate) mod claims;
+pub(crate) mod contracts;
+pub(crate) mod cycles;
 mod declarations;
 mod diff;
 mod edges;
 mod engagement;
 mod external;
-mod mapping;
-mod pattern;
+pub(crate) mod mapping;
+pub(crate) mod pattern;
 mod surfaces;
 
 pub use mapping::{Mapping, augment_with_modules, effective_module_tier, map_units, resolved_components};
 pub use claims::{flatten_claims};
 // The `explain` verb renders this path's own values (GitHub issue #26, bound
 // B1): the graph and claim resolvers below are the machinery `compare` runs,
-// re-exported for the renderer — never a second adjudication.
-pub(crate) use adjudicate::{composition_sources, resolve_module_edges};
+// re-exported for the renderer — never a second adjudication. The hoisted
+// `adjudicate` home (`archspec::adjudicate`, splits-batch adjudicate_hoist/01,
+// pure move) keeps these resolver paths alive for its consumers; the
+// `Adjudicator`/`ModuleRender` twin rows retired — after the cut the crate
+// has no consumer of the twin path (the diagram's import IS the cut), and an
+// unread in-bin re-export fails the unused-imports law (ADR-025).
+pub(crate) use crate::archspec::adjudicate::{composition_sources, resolve_module_edges};
 pub(crate) use claims::{Claim, ClaimIndex};
 pub(crate) use cycles::{cycle_repro_report, file_claim_index, file_module_identity};
-pub use adjudicate::{Adjudicator, ModuleRender};
 pub use contracts::adjudicate_expose;
 pub use mapping::file_grained_rows;
 pub use pattern::matches_pattern;

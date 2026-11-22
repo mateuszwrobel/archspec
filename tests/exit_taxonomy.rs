@@ -72,17 +72,19 @@ fn unknown_command_exits_64_with_the_unmodified_refusal_bytes() {
 }
 
 /// Probe `usage:unknown-flag`: every command parses flags through the same
-/// gate, so the usage class fires identically on the probed verb; the message
-/// bytes stay exactly as they were.
+/// gate, so the usage class fires identically on the probed verb. The exit
+/// code carries the class; the refusal additionally points at the verb's own
+/// help surface (the LOW-2 cure from the 2026-11-20 sweep — the landed
+/// `commands/scan/errors.md` row requires the pointer on the refusal itself).
 #[test]
-fn unknown_flag_exits_64_naming_the_flag_with_unchanged_bytes() {
+fn unknown_flag_exits_64_naming_the_flag_and_its_help_surface() {
     let fixture = Fixture::new();
     let output = fixture.run(&["verify", "--zzz-not-a-flag"]);
     assert_eq!(output.status.code(), Some(64), "probe usage:unknown-flag");
     assert_eq!(
         stderr(&output),
-        "error: unknown flag: --zzz-not-a-flag\n",
-        "the unknown-flag bytes must not move — only the code did"
+        "error: unknown flag: --zzz-not-a-flag — run 'archspec verify --help' for the supported flags\n",
+        "the unknown-flag refusal names the flag and the verb's help surface — only the exit code moved with the taxonomy"
     );
 }
 

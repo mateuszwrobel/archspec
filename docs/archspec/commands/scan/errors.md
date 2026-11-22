@@ -1,6 +1,6 @@
 # `scan` — Failure Contract (Errors)
 
-Every failure produces a clear human message naming the cause and a **non-zero exit**. Messages go to stderr; no partial model is written (with `--output <path>`, the file is not created or written on failure).
+Every failure produces a clear human message naming the cause and a **non-zero exit**. Messages go to stderr; no partial model is written (with `--output <path>`, the file is not created or written on failure). One class is the exception: a run whose unresolvable-import census is non-empty lands the COMPLETE model and still exits `1`. The write echo (`wrote <path>`) or the fresh-check echo (`ok: <path> up to date`) does not clear that verdict — the model landed with dead edges, and the census line states it (see the census row below).
 
 A parse failure **aborts the run** — the model is not produced from a partially parsed tree. Silent gaps in the model would corrupt every downstream consumer (`update`, `diagram`), so a hard fail is intentional and honest.
 
@@ -14,15 +14,18 @@ A parse failure **aborts the run** — the model is not produced from a partiall
 | the spec pins a language whose root marker is absent while other root markers stand (`language mismatch: <declared> — no root marker <marker> for the declared language, found: <markers>`) | the declared language, the marker file it expects, and the marker files actually found | non-zero |
 | more than one root marker at the scan root with no spec pinning a language (`ambiguous root markers: <path> (<language>), … — pin [project] language or scan a single-language root`) | that the root is polyglot, every marker file named, and the pin or per-root remedy | non-zero |
 | the spec's declared language disagrees with the counted tree (`language mismatch`, the D14 agreement check — only when a spec sits at the scanned root) | the declared and found languages with the counts of each, and the `excluded_sources` remedy | non-zero |
+| the rust driver runs with no `Cargo.toml` at the scan root (the rust driver was selected and the scanned root carries no manifest) | that the rust driver requires its root marker `Cargo.toml` AT the scanned root — scan a root that carries the manifest, or add one | non-zero |
 | a foreign root-marker file sits below the scan root (`nested foreign marker: <path> (<language>) — not modelled`) | that the tree below that marker is not modelled — report-only, one line per marker file, exit 0 | 0 |
 | a nested directory carries root markers for more than one language (`AMBIGUOUS-MARKERS: <path> — markers: <file> (<language>), …, modeled as: <language>`) | the marker set and the driver the run models the directory with — report-only, one line per ambiguous directory, exit 0 (the dispatch law, ADR-069 clause 4.8: never a silent selection at any depth; the standalone shape keeps its fail-loud refusal) | 0 |
 | a scanned ts source file carries no model fact (`orphan file: <path>`, closed by one `orphan file census: <n> of <m> scanned files — the model lists no fact for any of them` summary, never at zero) | that the import-graph fact sets list no fact for the file (the census names its blind spots in `help diagnostics`) — report-only, one line per file, exit 0 | 0 |
 | a ts specifier resolves to no file (`unresolvable import`) — or only into an excluded tree, where the line names the exclusion | the importing file, the specifier verbatim, and the exclusion remedy | non-zero |
+| the run's unresolvable-import census is non-empty (the per-file lines close with one `unresolvable imports census: <N> specifiers across <M> files — top: …` aggregate line) | that the model landed with dead edges: the complete model is written, the run echoes `wrote <path>` (or `ok: <path> up to date` on a fresh `--check`), and the exit code is `1` anyway — a write echo is not a clean-run statement | 1 |
 | the spec file fails to parse | the name of the failing file | non-zero |
 | the spec carries a key the model does not define (`unknown key(s) "<key>" <location>`, fail-closed at load: top level, `[project]` and its `excluded_sources` entries, `[[stereotype]]` entries and their `match` tables, module claims with recursive `submodules` and their `matches`/`contract`/`allowed` tables, `[[constraint]]` entries; `allowed` array entries stay owned by the entry-level refusal) | the file, the unexpected key(s), and where the key sits | non-zero |
 | a source file fails to parse | the name of the failing file | non-zero |
 | language detected but no driver/toolchain present | the detected language, that its toolchain is missing, and to run `archspec doctor` | non-zero |
 | more than one positional argument | that only one path is accepted | non-zero |
+| an unknown flag (`error: unknown flag: --<name>` — the usage class, exit code 64) | the rejected flag; read the verb's supported flags with `archspec scan --help` | non-zero |
 | `--check` and the destination differs from the generated model | that it is stale, the file, and how to regenerate | non-zero |
 | `--check` and the destination is missing | that it is missing, the file, and how to generate it | non-zero |
 | `--check` with no destination | that `--check` needs an output destination | non-zero |
@@ -63,3 +66,4 @@ error: out of date model: docs/model.json differs from generated output (regener
 
 - stderr carries the message; stdout carries nothing. With `--output <path>`, the file is not created or written.
 - Exit code is non-zero (distinct failure codes are not required).
+- The unresolvable-import census is the one class that does not follow the first bullet: the complete model lands exactly as in the clean case — the model JSON on stdout, or the destination file plus the `wrote <path>` echo — and the exit code is `1`. stderr carries only the finding lines and the one census line. CI reads `wrote <path>` plus rc `1` as: model landed, dead edges stated — not a write failure.

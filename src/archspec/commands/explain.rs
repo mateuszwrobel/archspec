@@ -14,6 +14,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             name: "constraint",
             takes_value: true,
         }],
+        "explain",
     )?;
     if parsed.positionals.len() < 2 {
         return Err(cli::usage_error(

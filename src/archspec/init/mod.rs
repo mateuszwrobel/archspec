@@ -14,7 +14,7 @@ const OUTPUT_CONFIG_CONTENT: &str = "[output]\ninspect = \"docs/archspec/inspect
 const GLOBAL_CYCLE_GUARD: &str = "[[constraint]]\ntype = \"no_cycles\"\n";
 
 pub fn run(args: &[String]) -> Result<(), String> {
-    let args = cli::parse(args, &[])?;
+    let args = cli::parse(args, &[], "init")?;
     cli::exactly_one_positional(&args)?;
 
     let target = args.positionals.first().map(String::as_str).unwrap_or(".");

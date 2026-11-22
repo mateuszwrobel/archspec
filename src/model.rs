@@ -778,9 +778,13 @@ pub fn matching_exclusion<'a>(
 /// Glob match over a unit/component name or path. Supports `*` (any run of
 /// characters, including path separators) and `**` (same as `*` here). Mirrors
 /// the spec.md glob conventions (`*Entity`, `**/domain/**`).
-/// The single source of the shipped pattern semantics: the verify comparators
-/// and the scan drivers match through this one function (the verify-side
-/// `pattern` module re-exports it, so no second matcher can drift).
+/// The single spec-facing matcher of the shipped pattern semantics: the verify
+/// comparators, the scan drivers and the diagram painting all match through
+/// this one function (the verify-side `pattern` module re-exports it, so no
+/// second spec-facing matcher can drift). Gitignore semantics — `*` `?` and
+/// `\` within one path segment — is git's language, a different contract
+/// face: its named home is the ts scan's `gitignore` module, one matcher per
+/// semantics, and the two must not be folded into each other.
 #[must_use]
 pub fn matches_pattern(value: &str, pattern: &str) -> bool {
     glob_match(value.as_bytes(), pattern.as_bytes())

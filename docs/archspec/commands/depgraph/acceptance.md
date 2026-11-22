@@ -128,6 +128,7 @@ project onto its nodes (row 37 states the no-node case).
 | 41 | workspace with neither class (every import declared, every declaration evidenced) | `depgraph ledger` | exit 0; body is exactly `Ledger clean: no used-but-undeclared and no declared-but-unused pairs.` — cleanliness stated by name, never a silent nothing |
 | 42 | rust workspace declaring a member dependency (the driver folds declaration legs and code legs into one unit-edge tier) | `depgraph ledger` | exit 0; the second section states the placement — `The model records manifest declarations and code imports in one unit-edge tier, so a declared pair's code status is not separable in this model.` — never a false census; a code-only edge still answers by name in the first section |
 | 43 | `depgraph ledger --format mermaid` | | exit 1; `unsupported format for ledger: mermaid (supported: markdown)` — the ledger is markdown-only like `api-usage` |
+| 44 | rust crate whose bin imports its own package's lib (the build links them without a manifest; a workspace member imports another member undeclared beside it) | `depgraph ledger` | exit 0; the same-package `bin -> lib` pair prints in NEITHER section — it is declared by construction — while the cross-package undeclared pair still rows by name in the first section |
 
 Pins (rows 34–38 are roles-views US 02's append; row numbers are ids —
 the gaps at 24–26, 28 and 30 are sibling plans' reserved space, and no number
@@ -152,4 +153,7 @@ append — `tests/depgraph.rs::issue21_ledger_prints_both_classes_in_named_secti
 (row 40), `…::issue21_ledger_clean_fixture_states_cleanliness_by_name` (row 41),
 `…::issue21_ledger_rust_fold_names_the_placement` (row 42) and
 `…::issue21_ledger_rejects_graph_format` (row 43); the cross-driver leg is the
-shared scenario `depgraph / ledger_view_prints_named_sections`.
+shared scenario `depgraph / ledger_view_prints_named_sections`. Row 44 is the
+2026-11-22 same-package arm — `tests/depgraph.rs::
+ledger_same_package_bin_lib_is_declared_by_construction` and
+`…::ledger_same_package_bin_lib_excludes_only_the_construction_pair`.
